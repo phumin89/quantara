@@ -1,0 +1,45 @@
+services:
+  api:
+    image: quantara-sandbox-api:latest
+    build:
+      context: ./src
+      dockerfile: TradingCompany.Api/Dockerfile.sandbox
+    ports:
+      - "127.0.0.1:8080:8080"
+    environment:
+      WebOrigin: "https://localhost:3000"
+      SandboxControl__HostProxyAddress: "${QUANTARA_SANDBOX_HOST_PROXY}"
+      Reports__ConnectionFile: /run/quantara/report-db.json
+      ForwardFunding__Enabled: "true"
+      ForwardFunding__StatePath: /data/forward-funding-v1.json
+      ForwardFunding__InitialPaperCapital: "${SANDBOX_INITIAL_CAPITAL:-100000}"
+      TradingAgents__Company__Gateway: codex-cli
+      TradingAgents__Company__CodexExecutable: /usr/local/bin/codex
+      TradingAgents__Company__Enabled: "true"
+      TradingAgents__Company__Model: codex-default
+      TradingAgents__Company__TimeoutSeconds: "120"
+      TradingAgents__Company__MaxModelCallsPerMeeting: "8"
+      TradingAgents__Company__MaxTotalTokensPerMeeting: "250000"
+      TradingAgents__Company__ArtifactPath: /data/forward-agent-artifacts
+    volumes:
+      - ./src/TradingCompany.Api/data:/data
+      - ./.runtime/report-db.container.json:/run/quantara/report-db.json:ro
+      - ${QUANTARA_CODEX_AUTH_FILE}:/root/.codex/auth.json:ro
+    networks:
+      - sandbox
+    depends_on:
+      report-db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:8080/health').then(r => { if (!r.ok) process.exit(1) }).catch(() => process.exit(1))"]
+      interval: 3s
+      timeout: 3s
+      retries: 15
+  pixel-office:
+    environment:
+      QUANTARA_SIGNALR_URL: http://api:8080/realtime/trading
+
+networks:
+  sandbox:
+    name: quantara-sandbox_default
+    external: true

@@ -1,0 +1,38 @@
+services:
+  api:
+    build: { context: ./src, dockerfile: TradingCompany.Api/Dockerfile }
+    restart: unless-stopped
+    ports: ["127.0.0.1:8080:8080"]
+    environment:
+      WebOrigin: http://localhost:3000
+      TradingAgents__Company__ArtifactPath: /data/agent-exit-artifacts-v1
+      ForwardFunding__StatePath: /data/forward-funding-v1.json
+      ForwardFunding__Enabled: ${FORWARD_FUNDING_ENABLED:-true}
+      ForwardFunding__InitialPaperCapital: ${SANDBOX_INITIAL_CAPITAL:-100000}
+      APCA_API_KEY_ID: ${APCA_API_KEY_ID:-}
+      APCA_API_SECRET_KEY: ${APCA_API_SECRET_KEY:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      TradingAgents__Company__Enabled: ${AI_COMPANY_ENABLED:-false}
+      TradingAgents__Company__Model: ${OPENAI_MODEL:-gpt-5.4}
+    volumes:
+      - paper-portfolio-data:/data
+  web:
+    build:
+      context: ./apps/trading-company-web
+      args:
+        NEXT_PUBLIC_API_URL: http://localhost:8080
+        NEXT_PUBLIC_PIXEL_OFFICE_URL: http://localhost:4242
+    restart: unless-stopped
+    ports: ["127.0.0.1:3000:3000"]
+    environment: { NEXT_PUBLIC_API_URL: http://localhost:8080 }
+    depends_on: [api]
+  pixel-office:
+    build: { context: ./integrations/pixel-agents }
+    restart: unless-stopped
+    ports: ["127.0.0.1:4242:4242"]
+    environment:
+      QUANTARA_SIGNALR_URL: http://api:8080/realtime/trading
+    depends_on: [api]
+
+volumes:
+  paper-portfolio-data:

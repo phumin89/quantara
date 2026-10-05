@@ -1,0 +1,2000 @@
+{
+  "note": "Pre-fix standalone replay; same strategy, independently requested 2017-01-25 through 2019-12-31. Not comparable to prior union-validation runs because coverage differs.",
+  "fields": [
+    "start",
+    "end",
+    "initialCapital",
+    "monthlyContribution",
+    "totalContributed",
+    "finalEquity",
+    "totalPnl",
+    "returnPercent",
+    "maxDrawdown",
+    "totalFees",
+    "totalSlippage",
+    "holdDays",
+    "rejectedProposals",
+    "cashBenchmarkReturn",
+    "buyAndHoldBenchmarkReturn",
+    "trades",
+    "equityCurve",
+    "finalPositions",
+    "contributions",
+    "cashFlows",
+    "timeline",
+    "skippedSymbols",
+    "lookahead",
+    "auditedDecisions",
+    "universePolicy",
+    "tradingMode",
+    "currency",
+    "auditStages",
+    "exitSourceReviews",
+    "exitHolds",
+    "exitTrims",
+    "exitSells",
+    "safetyExits",
+    "exitValidationRejects",
+    "exitPolicyTournament",
+    "stressTest",
+    "executableBuyAndHoldBenchmarkReturn",
+    "etfBenchmarks",
+    "maxDrawdownPercent"
+  ],
+  "start": "2018-03-01",
+  "end": "2019-12-31",
+  "totalContributed": 419776,
+  "finalEquity": 482202.26011611463,
+  "totalPnl": 62426.26011611462,
+  "maxDrawdownPercent": 0.23942969150659812,
+  "executableBuyAndHoldBenchmarkReturn": 0.1206948835985021,
+  "totalFees": 520.9920227178187,
+  "totalSlippage": 520.6198224702533,
+  "rejectedProposals": 0,
+  "safetyExits": 4,
+  "contributions": [
+    {
+      "symbol": {
+        "value": "AAPL"
+      },
+      "realizedPnl": 0,
+      "unrealizedPnl": 31607.236107796383,
+      "finalValue": 92928.36757080078
+    },
+    {
+      "symbol": {
+        "value": "AMZN"
+      },
+      "realizedPnl": 0,
+      "unrealizedPnl": 613.3924249701054,
+      "finalValue": 80086.30803863525
+    },
+    {
+      "symbol": {
+        "value": "BGRIM.BK"
+      },
+      "realizedPnl": 0,
+      "unrealizedPnl": 15567.062846969078,
+      "finalValue": 89314.88487243652
+    },
+    {
+      "symbol": {
+        "value": "EA.BK"
+      },
+      "realizedPnl": -349.5709799950203,
+      "unrealizedPnl": 0,
+      "finalValue": 0
+    },
+    {
+      "symbol": {
+        "value": "KTC.BK"
+      },
+      "realizedPnl": -398.1486728730049,
+      "unrealizedPnl": 0,
+      "finalValue": 0
+    },
+    {
+      "symbol": {
+        "value": "LULU"
+      },
+      "realizedPnl": 752.0053968588342,
+      "unrealizedPnl": 0,
+      "finalValue": 0
+    },
+    {
+      "symbol": {
+        "value": "MDB"
+      },
+      "realizedPnl": -4571.233625830728,
+      "unrealizedPnl": 0,
+      "finalValue": 0
+    },
+    {
+      "symbol": {
+        "value": "NFLX"
+      },
+      "realizedPnl": -1366.0500731527677,
+      "unrealizedPnl": 0,
+      "finalValue": 0
+    },
+    {
+      "symbol": {
+        "value": "QQQ"
+      },
+      "realizedPnl": 0,
+      "unrealizedPnl": 9959.662047403706,
+      "finalValue": 85646.80125671386
+    },
+    {
+      "symbol": {
+        "value": "SPY"
+      },
+      "realizedPnl": 0,
+      "unrealizedPnl": 7141.9982093702665,
+      "finalValue": 87691.75778808593
+    },
+    {
+      "symbol": {
+        "value": "TEAM"
+      },
+      "realizedPnl": 3469.906434597771,
+      "unrealizedPnl": 0,
+      "finalValue": 0
+    }
+  ],
+  "finalPositions": [
+    {
+      "symbol": {
+        "value": "AAPL"
+      },
+      "quantity": 44,
+      "averageCost": 1393.6620787046454,
+      "lastPrice": 2112.008353881836,
+      "marketValue": 92928.36757080078,
+      "unrealizedPnl": 31607.236107796383
+    },
+    {
+      "symbol": {
+        "value": "AMZN"
+      },
+      "quantity": 29,
+      "averageCost": 2740.4453659884534,
+      "lastPrice": 2761.596828918457,
+      "marketValue": 80086.30803863525,
+      "unrealizedPnl": 613.3924249701054
+    },
+    {
+      "symbol": {
+        "value": "BGRIM.BK"
+      },
+      "quantity": 1906,
+      "averageCost": 38.692456466667075,
+      "lastPrice": 46.85985565185547,
+      "marketValue": 89314.88487243652,
+      "unrealizedPnl": 15567.062846969078
+    },
+    {
+      "symbol": {
+        "value": "QQQ"
+      },
+      "quantity": 14,
+      "averageCost": 5406.22422923644,
+      "lastPrice": 6117.628661193848,
+      "marketValue": 85646.80125671386,
+      "unrealizedPnl": 9959.662047403706
+    },
+    {
+      "symbol": {
+        "value": "SPY"
+      },
+      "quantity": 10,
+      "averageCost": 8054.9759578715675,
+      "lastPrice": 8769.175778808594,
+      "marketValue": 87691.75778808593,
+      "unrealizedPnl": 7141.9982093702665
+    }
+  ],
+  "etfBenchmarks": [
+    {
+      "symbol": {
+        "value": "VOO"
+      },
+      "totalContributed": 419776,
+      "finalEquity": 457498.90482391196,
+      "totalPnl": 37722.90482391193,
+      "returnOnDeposits": 0.08986436771971702,
+      "maxDrawdownPercent": 0.1809785482486357,
+      "fees": 419.356638577825,
+      "slippage": 418.93770087694804,
+      "priceBasis": "adjusted-total-return",
+      "executionMethod": "fractional-dca"
+    }
+  ],
+  "trades": [
+    {
+      "decisionDate": "2018-03-01",
+      "executionDate": "2018-03-02",
+      "symbol": {
+        "value": "AAPL"
+      },
+      "side": 0,
+      "quantity": 1,
+      "price": 1277.1846279810427,
+      "fee": 1.2771846279810426,
+      "slippage": 1.2759087192617808,
+      "realizedPnl": 0,
+      "exitEvidenceHash": null,
+      "exitArtifactId": null,
+      "exitReasonCode": null,
+      "isSafetyExit": false,
+      "exitDataCutoff": null,
+      "exitThesis": null,
+      "exitCritique": null
+    },
+    {
+      "decisionDate": "2018-03-01",
+      "executionDate": "2018-03-02",
+      "symbol": {
+        "value": "EA.BK"
+      },
+      "side": 0,
+      "quantity": 24,
+      "price": 63.74041401373822,
+      "fee": 1.5297699363297173,
+      "slippage": 1.528241694635082,
+      "realizedPnl": 0,
+      "exitEvidenceHash": null,
+      "exitArtifactId": null,
+      "exitReasonCode": null,
+      "isSafetyExit": false,
+      "exitDataCutoff": null,
+      "exitThesis": null,
+      "exitCritique": null
+    },
+    {
+      "decisionDate": "2018-03-06",
+      "executionDate": "2018-03-07",
+      "symbol": {
+        "value": "EA.BK"
+      },
+      "side": 1,
+      "quantity": 24,
+      "price": 49.28798491287231,
+      "fee": 1.1829116379089355,
+      "slippage": 1.1840957336425781,
+      "realizedPnl": -349.5709799950203,
+      "exitEvidenceHash": "becea533f56894cd16e3d6171c22cc9227701fde7ab97c994505f419f1984038",
+      "exitArtifactId": "safety-policy",
+      "exitReasonCode": "SAFETY_EXIT",
+      "isSafetyExit": true,
+      "exitDataCutoff": "2018-03-06",
+      "exitThesis": "Deterministic safety exit.",
+      "exitCritique": ""
+    },
+    {
+      "decisionDate": "2018-04-02",
+      "executionDate": "2018-04-03",
+      "symbol": {
+        "value": "AAPL"
+      },
+      "side": 0,
+      "quantity": 1,
+      "price": 1227.55565878847,
+      "fee": 1.2275556587884702,
+      "slippage": 1.2263293294590112,
+      "realizedPnl": 0,
+      "exitEvidenceHash": null,
+      "exitArtifactId": null,
+      "exitReasonCode": null,
+      "isSafetyExit": false,
+      "exitDataCutoff": null,
+      "exitThesis": null,
+      "exitCritique": null
+    },
+    {
+      "decisionDate": "2018-04-02",
+      "executionDate": "2018-04-03",
+      "symbol": {
+        "value": "AMZN"
+      },
+      "side": 0,
+      "quantity": 1,
+      "price": 2172.3055290093384,
+      "fee": 2.1723055290093383,
+      "slippage": 2.1701353936157224,
+      "realizedPnl": 0,
+      "exitEvidenceHash": null,
+      "exitArtifactId": null,
+      "exitReasonCode": null,
+      "isSafetyExit": false,
+      "exitDataCutoff": null,
+      "exitThesis": null,
+      "exitCritique": null
+    },
+    {
+      "decisionDate": "2018-04-02",
+      "executionDate": "2018-04-03",
+      "symbol": {
+        "value": "KTC.BK"
+      },
+      "side": 0,
+      "quantity": 116,
+      "price": 25.452314158489127,
+      "fee": 2.9524684423847387,
+      "slippage": 2.9495189234612775,
+      "realizedPnl": 0,
+      "exitEvidenceHash": null,
+      "exitArtifactId": null,
+      "exitReasonCode": null,
+      "isSafetyExit": false,
+      "exitDataCutoff": null,
+      "exitThesis": null,
+      "exitCritique": null
+    },
+    {
+      "decisionDate": "2018-04-04",
+      "executionDate": "2018-04-05",
+      "symbol": {
+        "value": "KTC.BK"
+      },
+      "side": 1,
+      "quantity": 116,
+      "price": 22.067517845035713,
+      "fee": 2.5598320700241426,
+      "slippage": 2.5623944644886314,
+      "realizedPnl": -398.1486728730049,
+      "exitEvidenceHash": "d6a5afbaadebcff4ba3fc5ad875f54b5c2a5f2eff6bd392292dde7a6df93d9ca",
+      "exitArtifactId": "safety-policy",
+      "exitReasonCode": "SAFETY_EXIT",
+      "isSafetyExit": true,
+      "exitDataCutoff": "2018-04-04",
+      "exitThesis": "Deterministic safety exit.",
+      "exitCritique": ""
+    },
+    {
+      "decisionDate": "2018-05-07",
+      "executionDate": "2018-05-08",
+      "symbol": {
+        "value": "AAPL"
+      },
+      "side": 0,
+      "quantity": 1,
+      "price": 1384.6956204109717,
+      "fee": 1.3846956204109717,
+      "slippage": 1.3833123081028689,
+      "realizedPnl": 0,
+      "exitEvidenceHash": null,
+      "exitArtifactId": null,
+      "exitReasonCode": null,
+      "isSafetyExit": false,
+      "exitDataCutoff": null,
+      "exitThesis": null,
+      "exitCritique": null
+    },
+    {
+      "decisionDate": "2018-05-07",
+      "executionDate": "2018-05-08",
+      "symbol": {
+        "value": "AMZN"
+      },
+      "side": 0,
+      "quantity": 1,
+      "price": 2545.53123825,
+      "fee": 2.54553123825,
+      "slippage": 2.54298825,
+      "realizedPnl": 0,
+      "exitEvidenceHash": null,
+      "exitArtifactId": null,
+      "exitReasonCode": null,
+      "isSafetyExit": false,
+      "exitDataCutoff": null,
+      "exitThesis": null,
+      "exitCritique": null
+    },
+    {
+      "decisionDate": "2018-05-07",
+      "executionDate": "2018-05-08",
+      "symbol": {
+        "value": "QQQ"
+      },
+      "side": 0,
+      "quantity": 1,
+      "price": 5021.4242884767955,
+      "fee": 5.021424288476796,
+      "slippage": 5.0164078805962,
+      "realizedPnl": 0,
+      "exitEvidenceHash": null,
+      "exitArtifactId": null,
+      "exitReasonCode": null,
+      "isSafetyExit": false,
+      "exitDataCutoff": null,
+      "exitThesis": null,
+      "exitCritique": null
+    },
+    {
+      "decisionDate": "2018-06-04",
+      "executionDate": "2018-06-05",
+      "symbol": {
+        "value": "AAPL"
+      },
+      "side": 0,
+      "quantity": 1,
+      "price": 1454.4347901821875,
+      "fee": 1.4544347901821875,
+      "slippage": 1.4529818083738137,
+      "realizedPnl": 0,
+      "exitEvidenceHash": null,
+      "exitArtifactId": null,
+      "exitReasonCode": null,
+      "isSafetyExit": false,
+      "exitDataCutoff": null,
+      "exitThesis": null,
+      "exitCritique": null
+    },
+    {
+      "decisionDate": "2018-06-04",
+      "executionDate": "2018-06-05",
+      "symbol": {
+        "value": "AMZN"
+      },
+      "side": 0,
+      "quantity": 1,
+      "price": 2676.781258762939,
+      "fee": 2.676781258762939,
+      "slippage": 2.674107151611328,
+      "realizedPnl": 0,
+      "exitEvidenceHash": null,
+      "exitArtifactId": null,
+      "exitReasonCode": null,
+      "isSafetyExit": false,
+      "exitDataCutoff": null,
+      "exitThesis": null,
+      "exitCritique": null
+    },
+    {
+      "decisionDate": "2018-06-04",
+      "executionDate": "2018-06-05",
+      "symbol": {
+        "value": "SPY"
+      },
+      "side": 0,
+      "quantity": 1,
+      "price": 7757.89981271163,
+      "fee": 7.7578998127116305,
+      "slippage": 7.750149663048582,
+      "realizedPnl": 0,
+      "exitEvidenceHash": null,
+      "exitArtifactId": null,
+      "exitReasonCode": null,
+      "isSafetyExit": false,
+      "exitDataCutoff": null,
+      "exitThesis": null,
+      "exitCritique": null
+    },
+    {
+      "decisionDate": "2018-07-02",
+      "executionDate": "2018-07-03",
+      "symbol": {
+        "value": "AAPL"
+      },
+      "side": 0,
+      "quantity": 1,
+      "price": 1468.160224067117,
+      "fee": 1.468160224067117,
+      "slippage": 1.4666935305365805,
+      "realizedPnl": 0,
+      "exitEvidenceHash": null,
+      "exitArtifactId": null,
+      "exitReasonCode": null,
+      "isSafetyExit": false,
+      "exitDataCutoff": null,
+      "exitThesis": null,
+      "exitCritique": null
+    },
+    {
+      "decisionDate": "2018-07-02",
+      "executionDate": "2018-07-03",
+      "symbol": {
+        "value": "NFLX"
+      },
+      "side": 0,
+      "quantity": 6,
+      "price": 1326.7134045532493,
+      "fee": 7.960280427319496,
+      "slippage": 7.952328099220276,
+      "realizedPnl": 0,
+      "exitEvidenceHash": null,
+      "exitArtifactId": null,
+      "exitReasonCode": null,
+      "isSafetyExit": false,
+      "exitDataCutoff": null,
+      "exitThesis": null,
+      "exitCritique": null
+    },
+    {
+      "decisionDate": "2018-07-02",
+      "executionDate": "2018-07-03",
+      "symbol": {
+        "value": "QQQ"
+      },
+      "side": 0,
+      "quantity": 1,
+      "price": 5474.356747103933,
+      "fee": 5.474356747103934,
+      "slippage": 5.468887859244689,
+      "realizedPnl": 0,
+      "exitEvidenceHash": null,
+      "exitArtifactId": null,
+      "exitReasonCode": null,
+      "isSafetyExit": false,
+      "exitDataCutoff": null,
+      "exitThesis": null,
+      "exitCritique": null
+    },
+    {
+      "decisionDate": "2018-07-30",
+      "executionDate": "2018-07-31",
+      "symbol": {
+        "value": "NFLX"
+      },
+      "side": 1,
+      "quantity": 6,
+      "price": 1101.4665723380126,
+      "fee": 6.608799434028076,
+      "slippage": 6.615414848876953,
+      "realizedPnl": -1366.0500731527677,
+      "exitEvidenceHash": "81369ca00e38d6cee8f33f3f5ecef214500c47e95d9977c5e8f7a02a7bde8089",
+      "exitArtifactId": "safety-policy",
+      "exitReasonCode": "SAFETY_EXIT",
+      "isSafetyExit": true,
+      "exitDataCutoff": "2018-07-30",
+      "exitThesis": "Deterministic safety exit.",
+      "exitCritique": ""
+    },
+    {
+      "decisionDate": "2018-08-06",
+      "executionDate": "2018-08-07",
+      "symbol": {
+        "value": "AAPL"
+      },
+      "side": 0,
+      "quantity": 2,
+      "price": 1641.6139848749206,
+      "fee": 3.283227969749841,
+      "slippage": 3.2799480217281127,
+      "realizedPnl": 0,
+      "exitEvidenceHash": null,
+      "exitArtifactId": null,
+      "exitReasonCode": null,
+      "isSafetyExit": false,
+      "exitDataCutoff": null,
+      "exitThesis": null,
+      "exitCritique": null
+    },
+    {
+      "decisionDate": "2018-08-06",
+      "executionDate": "2018-08-07",
+      "symbol": {
+        "value": "AMZN"
+      },
+      "side": 0,
+      "quantity": 1,
+      "price": 3089.116725946716,
+      "fee": 3.0891167259467163,
+      "slippage": 3.086030695251465,
+      "realizedPnl": 0,
+      "exitEvidenceHash": null,
+      "exitArtifactId": null,
+      "exitReasonCode": null,
+      "isSafetyExit": false,
+      "exitDataCutoff": null,
+      "exitThesis": null,
+      "exitCritique": null
+    },
+    {
+      "decisionDate": "2018-08-06",
+      "executionDate": "2018-08-07",
+      "symbol": {
+        "value": "LULU"
+      },
+      "side": 0,
+      "quantity": 3,
+      "price": 4233.57889048027,
+      "fee": 12.700736671440811,
+      "slippage": 12.688048622817993,
+      "realizedPnl": 0,
+      "exitEvidenceHash": null,
+      "exitArtifactId": null,
+      "exitReasonCode": null,
+      "isSafetyExit": false,
+      "exitDataCutoff": null,
+      "exitThesis": null,
+      "exitCritique": null
+    },
+    {
+      "decisionDate": "2018-08-06",
+      "executionDate": "2018-08-07",
+      "symbol": {
+        "value": "SPY"
+      },
+      "side": 0,
+      "quantity": 1,
+      "price": 8417.78926643325,
+      "fee": 8.417789266433251,
+      "slippage": 8.409379886546704,
+      "realizedPnl": 0,
+      "exitEvidenceHash": null,
+      "exitArtifactId": null,
+      "exitReasonCode": null,
+      "isSafetyExit": false,
+      "exitDataCutoff": null,
+      "exitThesis": null,
+      "exitCritique": null
+    },
+    {
+      "decisionDate": "2018-09-03",
+      "executionDate": "2018-09-04",
+      "symbol": {
+        "value": "AAPL"
+      },
+      "side": 0,
+      "quantity": 2,
+      "price": 1770.4966051866572,
+      "fee": 3.5409932103733146,
+      "slippage": 3.537455754618696,
+      "realizedPnl": 0,
+      "exitEvidenceHash": null,
+      "exitArtifactId": null,
+      "exitReasonCode": null,
+      "isSafetyExit": false,
+      "exitDataCutoff": null,
+      "exitThesis": null,
+      "exitCritique": null
+    },
+    {
+      "decisionDate": "2018-09-03",
+      "executionDate": "2018-09-04",
+      "symbol": {
+        "value": "AMZN"
+      },
+      "side": 0,
+      "quantity": 1,
+      "price": 3324.6534070413973,
+      "fee": 3.324653407041397,
+      "slippage": 3.321332074966431,
+      "realizedPnl": 0,
+      "exitEvidenceHash": null,
+      "exitArtifactId": null,
+      "exitReasonCode": null,
+      "isSafetyExit": false,
+      "exitDataCutoff": null,
+      "exitThesis": null,
+      "exitCritique": null
+    },
+    {
+      "decisionDate": "2018-09-03",
+      "executionDate": "2018-09-04",
+      "symbol": {
+        "value": "QQQ"
+      },
+      "side": 0,
+      "quantity": 1,
+      "price": 5802.526881389868,
+      "fee": 5.802526881389868,
+      "slippage": 5.79673015123863,
+      "realizedPnl": 0,
+      "exitEvidenceHash": null,
+      "exitArtifactId": null,
+      "exitReasonCode": null,
+      "isSafetyExit": false,
+      "exitDataCutoff": null,
+      "exitThesis": null,
+      "exitCritique": null
+    },
+    {
+      "decisionDate": "2018-10-01",
+      "executionDate": "2018-10-02",
+      "symbol": {
+        "value": "AAPL"
+      },
+      "side": 0,
+      "quantity": 3,
+      "price": 1737.3223565792614,
+      "fee": 5.211967069737784,
+      "slippage": 5.206760309428356,
+      "realizedPnl": 0,
+      "exitEvidenceHash": null,
+      "exitArtifactId": null,
+      "exitReasonCode": null,
+      "isSafetyExit": false,
+      "exitDataCutoff": null,
+      "exitThesis": null,
+      "exitCritique": null
+    },
+    {
+      "decisionDate": "2018-10-01",
+      "executionDate": "2018-10-02",
+      "symbol": {
+        "value": "AMZN"
+      },
+      "side": 0,
+      "quantity": 1,
+      "price": 3236.1166047751312,
+      "fee": 3.2361166047751313,
+      "slippage": 3.232883721054077,
+      "realizedPnl": 0,
+      "exitEvidenceHash": null,
+      "exitArtifactId": null,
+      "exitReasonCode": null,
+      "isSafetyExit": false,
+      "exitDataCutoff": null,
+      "exitThesis": null,
+      "exitCritique": null
+    },
+    {
+      "decisionDate": "2018-10-01",
+      "executionDate": "2018-10-02",
+      "symbol": {
+        "value": "QQQ"
+      },
+      "side": 0,
+      "quantity": 1,
+      "price": 5731.009010045715,
+      "fee": 5.731009010045715,
+      "slippage": 5.725283726319396,
+      "realizedPnl": 0,
+      "exitEvidenceHash": null,
+      "exitArtifactId": null,
+      "exitReasonCode": null,
+      "isSafetyExit": false,
+      "exitDataCutoff": null,
+      "exitThesis": null,
+      "exitCritique": null
+    },
+    {
+      "decisionDate": "2018-10-01",
+      "executionDate": "2018-10-02",
+      "symbol": {
+        "value": "SPY"
+      },
+      "side": 0,
+      "quantity": 1,
+      "price": 8391.594417016357,
+      "fee": 8.391594417016357,
+      "slippage": 8.383211205810547,
+      "realizedPnl": 0,
+      "exitEvidenceHash": null,
+      "exitArtifactId": null,
+      "exitReasonCode": null,
+      "isSafetyExit": false,
+      "exitDataCutoff": null,
+      "exitThesis": null,
+      "exitCritique": null
+    },
+    {
+      "decisionDate": "2018-10-29",
+      "executionDate": "2018-10-30",
+      "symbol": {
+        "value": "LULU"
+      },
+      "side": 1,
+      "quantity": 3,
+      "price": 4492.973908899261,
+      "fee": 13.478921726697784,
+      "slippage": 13.492414140838623,
+      "realizedPnl": 752.0053968588342,
+      "exitEvidenceHash": "feaaa357219e5e646ee80ef0262b53762e1741e8b34a4709df10c3ee1c02769c",
+      "exitArtifactId": "deterministic-champion",
+      "exitReasonCode": "STRATEGY_UNPROMOTED",
+      "isSafetyExit": false,
+      "exitDataCutoff": "2018-10-29",
+      "exitThesis": "Deterministic champion replay decision.",
+      "exitCritique": ""
+    },
+    {
+      "decisionDate": "2018-11-05",
+      "executionDate": "2018-11-06",
+      "symbol": {
+        "value": "AAPL"
+      },
+      "side": 0,
+      "quantity": 4,
+      "price": 1573.13650821657,
+      "fee": 6.29254603286628,
+      "slippage": 6.286259773093187,
+      "realizedPnl": 0,
+      "exitEvidenceHash": null,
+      "exitArtifactId": null,
+      "exitReasonCode": null,
+      "isSafetyExit": false,
+      "exitDataCutoff": null,
+      "exitThesis": null,
+      "exitCritique": null
+    },
+    {
+      "decisionDate": "2018-11-05",
+      "executionDate": "2018-11-06",
+      "symbol": {
+        "value": "AMZN"
+      },
+      "side": 0,
+      "quantity": 3,
+      "price": 2668.5739736631317,
+      "fee": 8.005721920989396,
+      "slippage": 7.997724196792603,
+      "realizedPnl": 0,
+      "exitEvidenceHash": null,
+      "exitArtifactId": null,
+      "exitReasonCode": null,
+      "isSafetyExit": false,
+      "exitDataCutoff": null,
+      "exitThesis": null,
+      "exitCritique": null
+    },
+    {
+      "decisionDate": "2018-11-05",
+      "executionDate": "2018-11-06",
+      "symbol": {
+        "value": "MDB"
+      },
+      "side": 0,
+      "quantity": 5,
+      "price": 2571.0385999668733,
+      "fee": 12.855192999834367,
+      "slippage": 12.842350649185182,
+      "realizedPnl": 0,
+      "exitEvidenceHash": null,
+      "exitArtifactId": null,
+      "exitReasonCode": null,
+      "isSafetyExit": false,
+      "exitDataCutoff": null,
+      "exitThesis": null,
+      "exitCritique": null
+    },
+    {
+      "decisionDate": "2018-11-05",
+      "executionDate": "2018-11-06",
+      "symbol": {
+        "value": "QQQ"
+      },
+      "side": 0,
+      "quantity": 1,
+      "price": 5305.36078604251,
+      "fee": 5.30536078604251,
+      "slippage": 5.300060725317193,
+      "realizedPnl": 0,
+      "exitEvidenceHash": null,
+      "exitArtifactId": null,
+      "exitReasonCode": null,
+      "isSafetyExit": false,
+      "exitDataCutoff": null,
+      "exitThesis": null,
+      "exitCritique": null
+    },
+    {
+      "decisionDate": "2018-11-05",
+      "executionDate": "2018-11-06",
+      "symbol": {
+        "value": "SPY"
+      },
+      "side": 0,
+      "quantity": 1,
+      "price": 8016.754462459405,
+      "fee": 8.016754462459405,
+      "slippage": 8.008745716742663,
+      "realizedPnl": 0,
+      "exitEvidenceHash": null,
+      "exitArtifactId": null,
+      "exitReasonCode": null,
+      "isSafetyExit": false,
+      "exitDataCutoff": null,
+      "exitThesis": null,
+      "exitCritique": null
+    },
+    {
+      "decisionDate": "2018-11-12",
+      "executionDate": "2018-11-13",
+      "symbol": {
+        "value": "MDB"
+      },
+      "side": 1,
+      "quantity": 5,
+      "price": 2294.0014419453737,
+      "fee": 11.470007209726868,
+      "slippage": 11.481488698425293,
+      "realizedPnl": -1409.5109903170592,
+      "exitEvidenceHash": "2f28a3798951402068212dbfc9e1b060d9e37688bd76e048cb4d3091170f4b27",
+      "exitArtifactId": "deterministic-champion",
+      "exitReasonCode": "STRATEGY_UNPROMOTED",
+      "isSafetyExit": false,
+      "exitDataCutoff": "2018-11-12",
+      "exitThesis": "Deterministic champion replay decision.",
+      "exitCritique": ""
+    },
+    {
+      "decisionDate": "2018-12-03",
+      "executionDate": "2018-12-04",
+      "symbol": {
+        "value": "AAPL"
+      },
+      "side": 0,
+      "quantity": 4,
+      "price": 1405.7920620107245,
+      "fee": 5.623168248042898,
+      "slippage": 5.6175506973455525,
+      "realizedPnl": 0,
+      "exitEvidenceHash": null,
+      "exitArtifactId": null,
+      "exitReasonCode": null,
+      "isSafetyExit": false,
+      "exitDataCutoff": null,
+      "exitThesis": null,
+      "exitCritique": null
+    },
+    {
+      "decisionDate": "2018-12-03",
+      "executionDate": "2018-12-04",
+      "symbol": {
+        "value": "AMZN"
+      },
+      "side": 0,
+      "quantity": 1,
+      "price": 2877.3587842114102,
+      "fee": 2.8773587842114106,
+      "slippage": 2.874484299911499,
+      "realizedPnl": 0,
+      "exitEvidenceHash": null,
+      "exitArtifactId": null,
+      "exitReasonCode": null,
+      "isSafetyExit": false,
+      "exitDataCutoff": null,
+      "exitThesis": null,
+      "exitCritique": null
+    },
+    {
+      "decisionDate": "2018-12-03",
+      "executionDate": "2018-12-04",
+      "symbol": {
+        "value": "MDB"
+      },
+      "side": 0,
+      "quantity": 7,
+      "price": 2742.339129521141,
+      "fee": 19.196373906647988,
+      "slippage": 19.17719670993805,
+      "realizedPnl": 0,
+      "exitEvidenceHash": null,
+      "exitArtifactId": null,
+      "exitReasonCode": null,
+      "isSafetyExit": false,
+      "exitDataCutoff": null,
+      "exitThesis": null,
+      "exitCritique": null
+    },
+    {
+      "decisionDate": "2018-12-03",
+      "executionDate": "2018-12-04",
+      "symbol": {
+        "value": "QQQ"
+      },
+      "side": 0,
+      "quantity": 1,
+      "price": 5348.780653110611,
+      "fee": 5.3487806531106115,
+      "slippage": 5.343437215894716,
+      "realizedPnl": 0,
+      "exitEvidenceHash": null,
+      "exitArtifactId": null,
+      "exitReasonCode": null,
+      "isSafetyExit": false,
+      "exitDataCutoff": null,
+      "exitThesis": null,
+      "exitCritique": null
+    },
+    {
+      "decisionDate": "2018-12-21",
+      "executionDate": "2018-12-24",
+      "symbol": {
+        "value": "MDB"
+      },
+      "side": 1,
+      "quantity": 7,
+      "price": 2295.7025089433673,
+      "fee": 16.06991756260357,
+      "slippage": 16.08600356616974,
+      "realizedPnl": -3161.722635513668,
+      "exitEvidenceHash": "f3702e602e2e62fd72eabb679dfe323cc233107947936e266e8e8bb02091d82e",
+      "exitArtifactId": "safety-policy",
+      "exitReasonCode": "SAFETY_EXIT",
+      "isSafetyExit": true,
+      "exitDataCutoff": "2018-12-21",
+      "exitThesis": "Deterministic safety exit.",
+      "exitCritique": ""
+    },
+    {
+      "decisionDate": "2019-01-07",
+      "executionDate": "2019-01-08",
+      "symbol": {
+        "value": "AAPL"
+      },
+      "side": 0,
+      "quantity": 9,
+      "price": 1138.1105227045286,
+      "fee": 10.242994704340758,
+      "slippage": 10.232761942398358,
+      "realizedPnl": 0,
+      "exitEvidenceHash": null,
+      "exitArtifactId": null,
+      "exitReasonCode": null,
+      "isSafetyExit": false,
+      "exitDataCutoff": null,
+      "exitThesis": null,
+      "exitCritique": null
+    },
+    {
+      "decisionDate": "2019-01-07",
+      "executionDate": "2019-01-08",
+      "symbol": {
+        "value": "AMZN"
+      },
+      "side": 0,
+      "quantity": 2,
+      "price": 2671.833015902832,
+      "fee": 5.343666031805664,
+      "slippage": 5.338327704101562,
+      "realizedPnl": 0,
+      "exitEvidenceHash": null,
+      "exitArtifactId": null,
+      "exitReasonCode": null,
+      "isSafetyExit": false,
+      "exitDataCutoff": null,
+      "exitThesis": null,
+      "exitCritique": null
+    },
+    {
+      "decisionDate": "2019-01-07",
+      "executionDate": "2019-01-08",
+      "symbol": {
+        "value": "QQQ"
+      },
+      "side": 0,
+      "quantity": 1,
+      "price": 4889.729347955815,
+      "fee": 4.889729347955815,
+      "slippage": 4.884844503452363,
+      "realizedPnl": 0,
+      "exitEvidenceHash": null,
+      "exitArtifactId": null,
+      "exitReasonCode": null,
+      "isSafetyExit": false,
+      "exitDataCutoff": null,
+      "exitThesis": null,
+      "exitCritique": null
+    },
+    {
+      "decisionDate": "2019-01-07",
+      "executionDate": "2019-01-08",
+      "symbol": {
+        "value": "SPY"
+      },
+      "side": 0,
+      "quantity": 1,
+      "price": 7374.861035545623,
+      "fee": 7.3748610355456234,
+      "slippage": 7.367493542003619,
+      "realizedPnl": 0,
+      "exitEvidenceHash": null,
+      "exitArtifactId": null,
+      "exitReasonCode": null,
+      "isSafetyExit": false,
+      "exitDataCutoff": null,
+      "exitThesis": null,
+      "exitCritique": null
+    },
+    {
+      "decisionDate": "2019-02-04",
+      "executionDate": "2019-02-05",
+      "symbol": {
+        "value": "AAPL"
+      },
+      "side": 0,
+      "quantity": 1,
+      "price": 1283.2574058308114,
+      "fee": 1.2832574058308113,
+      "slippage": 1.281975430400411,
+      "realizedPnl": 0,
+      "exitEvidenceHash": null,
+      "exitArtifactId": null,
+      "exitReasonCode": null,
+      "isSafetyExit": false,
+      "exitDataCutoff": null,
+      "exitThesis": null,
+      "exitCritique": null
+    },
+    {
+      "decisionDate": "2019-02-04",
+      "executionDate": "2019-02-05",
+      "symbol": {
+        "value": "AMZN"
+      },
+      "side": 0,
+      "quantity": 2,
+      "price": 2573.0829346940004,
+      "fee": 5.146165869388001,
+      "slippage": 5.141024844543457,
+      "realizedPnl": 0,
+      "exitEvidenceHash": null,
+      "exitArtifactId": null,
+      "exitReasonCode": null,
+      "isSafetyExit": false,
+      "exitDataCutoff": null,
+      "exitThesis": null,
+      "exitCritique": null
+    },
+    {
+      "decisionDate": "2019-02-04",
+      "executionDate": "2019-02-05",
+      "symbol": {
+        "value": "QQQ"
+      },
+      "side": 0,
+      "quantity": 1,
+      "price": 5075.759332416489,
+      "fee": 5.075759332416489,
+      "slippage": 5.0706886437727166,
+      "realizedPnl": 0,
+      "exitEvidenceHash": null,
+      "exitArtifactId": null,
+      "exitReasonCode": null,
+      "isSafetyExit": false,
+      "exitDataCutoff": null,
+      "exitThesis": null,
+      "exitCritique": null
+    },
+    {
+      "decisionDate": "2019-02-04",
+      "executionDate": "2019-02-05",
+      "symbol": {
+        "value": "TEAM"
+      },
+      "side": 0,
+      "quantity": 6,
+      "price": 3208.877189706665,
+      "fee": 19.25326313823999,
+      "slippage": 19.23402910913086,
+      "realizedPnl": 0,
+      "exitEvidenceHash": null,
+      "exitArtifactId": null,
+      "exitReasonCode": null,
+      "isSafetyExit": false,
+      "exitDataCutoff": null,
+      "exitThesis": null,
+      "exitCritique": null
+    },
+    {
+      "decisionDate": "2019-03-04",
+      "executionDate": "2019-03-05",
+      "symbol": {
+        "value": "AAPL"
+      },
+      "side": 0,
+      "quantity": 1,
+      "price": 1333.778912575839,
+      "fee": 1.333778912575839,
+      "slippage": 1.3324464661097295,
+      "realizedPnl": 0,
+      "exitEvidenceHash": null,
+      "exitArtifactId": null,
+      "exitReasonCode": null,
+      "isSafetyExit": false,
+      "exitDataCutoff": null,
+      "exitThesis": null,
+      "exitCritique": null
+    },
+    {
+      "decisionDate": "2019-03-04",
+      "executionDate": "2019-03-05",
+      "symbol": {
+        "value": "AMZN"
+      },
+      "side": 0,
+      "quantity": 1,
+      "price": 2711.2504878229524,
+      "fee": 2.7112504878229524,
+      "slippage": 2.708541945877075,
+      "realizedPnl": 0,
+      "exitEvidenceHash": null,
+      "exitArtifactId": null,
+      "exitReasonCode": null,
+      "isSafetyExit": false,
+      "exitDataCutoff": null,
+      "exitThesis": null,
+      "exitCritique": null
+    },
+    {
+      "decisionDate": "2019-03-04",
+      "executionDate": "2019-03-05",
+      "symbol": {
+        "value": "SPY"
+      },
+      "side": 0,
+      "quantity": 1,
+      "price": 7962.707545270986,
+      "fee": 7.962707545270987,
+      "slippage": 7.954752792478508,
+      "realizedPnl": 0,
+      "exitEvidenceHash": null,
+      "exitArtifactId": null,
+      "exitReasonCode": null,
+      "isSafetyExit": false,
+      "exitDataCutoff": null,
+      "exitThesis": null,
+      "exitCritique": null
+    },
+    {
+      "decisionDate": "2019-04-01",
+      "executionDate": "2019-04-02",
+      "symbol": {
+        "value": "AAPL"
+      },
+      "side": 0,
+      "quantity": 1,
+      "price": 1445.6235173581201,
+      "fee": 1.4456235173581202,
+      "slippage": 1.4441793380201,
+      "realizedPnl": 0,
+      "exitEvidenceHash": null,
+      "exitArtifactId": null,
+      "exitReasonCode": null,
+      "isSafetyExit": false,
+      "exitDataCutoff": null,
+      "exitThesis": null,
+      "exitCritique": null
+    },
+    {
+      "decisionDate": "2019-04-01",
+      "executionDate": "2019-04-02",
+      "symbol": {
+        "value": "AMZN"
+      },
+      "side": 0,
+      "quantity": 1,
+      "price": 2877.325474460937,
+      "fee": 2.877325474460937,
+      "slippage": 2.8744510234374996,
+      "realizedPnl": 0,
+      "exitEvidenceHash": null,
+      "exitArtifactId": null,
+      "exitReasonCode": null,
+      "isSafetyExit": false,
+      "exitDataCutoff": null,
+      "exitThesis": null,
+      "exitCritique": null
+    },
+    {
+      "decisionDate": "2019-04-01",
+      "executionDate": "2019-04-02",
+      "symbol": {
+        "value": "QQQ"
+      },
+      "side": 0,
+      "quantity": 1,
+      "price": 5539.090170814752,
+      "fee": 5.5390901708147515,
+      "slippage": 5.533556614200552,
+      "realizedPnl": 0,
+      "exitEvidenceHash": null,
+      "exitArtifactId": null,
+      "exitReasonCode": null,
+      "isSafetyExit": false,
+      "exitDataCutoff": null,
+      "exitThesis": null,
+      "exitCritique": null
+    },
+    {
+      "decisionDate": "2019-05-06",
+      "executionDate": "2019-05-07",
+      "symbol": {
+        "value": "AMZN"
+      },
+      "side": 0,
+      "quantity": 1,
+      "price": 3099.2230544329987,
+      "fee": 3.099223054432999,
+      "slippage": 3.0961269275054932,
+      "realizedPnl": 0,
+      "exitEvidenceHash": null,
+      "exitArtifactId": null,
+      "exitReasonCode": null,
+      "isSafetyExit": false,
+      "exitDataCutoff": null,
+      "exitThesis": null,
+      "exitCritique": null
+    },
+    {
+      "decisionDate": "2019-06-03",
+      "executionDate": "2019-06-04",
+      "symbol": {
+        "value": "AAPL"
+      },
+      "side": 0,
+      "quantity": 9,
+      "price": 1316.8950269203945,
+      "fee": 11.852055242283551,
+      "slippage": 11.840215027256294,
+      "realizedPnl": 0,
+      "exitEvidenceHash": null,
+      "exitArtifactId": null,
+      "exitReasonCode": null,
+      "isSafetyExit": false,
+      "exitDataCutoff": null,
+      "exitThesis": null,
+      "exitCritique": null
+    },
+    {
+      "decisionDate": "2019-06-03",
+      "executionDate": "2019-06-04",
+      "symbol": {
+        "value": "AMZN"
+      },
+      "side": 0,
+      "quantity": 3,
+      "price": 2668.4334164525144,
+      "fee": 8.005300249357544,
+      "slippage": 7.997302946411132,
+      "realizedPnl": 0,
+      "exitEvidenceHash": null,
+      "exitArtifactId": null,
+      "exitReasonCode": null,
+      "isSafetyExit": false,
+      "exitDataCutoff": null,
+      "exitThesis": null,
+      "exitCritique": null
+    },
+    {
+      "decisionDate": "2019-06-03",
+      "executionDate": "2019-06-04",
+      "symbol": {
+        "value": "QQQ"
+      },
+      "side": 0,
+      "quantity": 1,
+      "price": 5168.144023410229,
+      "fee": 5.168144023410229,
+      "slippage": 5.1629810423678615,
+      "realizedPnl": 0,
+      "exitEvidenceHash": null,
+      "exitArtifactId": null,
+      "exitReasonCode": null,
+      "isSafetyExit": false,
+      "exitDataCutoff": null,
+      "exitThesis": null,
+      "exitCritique": null
+    },
+    {
+      "decisionDate": "2019-06-03",
+      "executionDate": "2019-06-04",
+      "symbol": {
+        "value": "SPY"
+      },
+      "side": 0,
+      "quantity": 1,
+      "price": 7820.370260987005,
+      "fee": 7.820370260987005,
+      "slippage": 7.812557703283721,
+      "realizedPnl": 0,
+      "exitEvidenceHash": null,
+      "exitArtifactId": null,
+      "exitReasonCode": null,
+      "isSafetyExit": false,
+      "exitDataCutoff": null,
+      "exitThesis": null,
+      "exitCritique": null
+    },
+    {
+      "decisionDate": "2019-07-01",
+      "executionDate": "2019-07-02",
+      "symbol": {
+        "value": "QQQ"
+      },
+      "side": 0,
+      "quantity": 1,
+      "price": 5568.72160872905,
+      "fee": 5.568721608729049,
+      "slippage": 5.563158450278771,
+      "realizedPnl": 0,
+      "exitEvidenceHash": null,
+      "exitArtifactId": null,
+      "exitReasonCode": null,
+      "isSafetyExit": false,
+      "exitDataCutoff": null,
+      "exitThesis": null,
+      "exitCritique": null
+    },
+    {
+      "decisionDate": "2019-07-01",
+      "executionDate": "2019-07-02",
+      "symbol": {
+        "value": "SPY"
+      },
+      "side": 0,
+      "quantity": 1,
+      "price": 8194.645420527673,
+      "fee": 8.194645420527673,
+      "slippage": 8.186458961566107,
+      "realizedPnl": 0,
+      "exitEvidenceHash": null,
+      "exitArtifactId": null,
+      "exitReasonCode": null,
+      "isSafetyExit": false,
+      "exitDataCutoff": null,
+      "exitThesis": null,
+      "exitCritique": null
+    },
+    {
+      "decisionDate": "2019-08-05",
+      "executionDate": "2019-08-06",
+      "symbol": {
+        "value": "AAPL"
+      },
+      "side": 0,
+      "quantity": 3,
+      "price": 1446.0761189413329,
+      "fee": 4.338228356823999,
+      "slippage": 4.333894462361637,
+      "realizedPnl": 0,
+      "exitEvidenceHash": null,
+      "exitArtifactId": null,
+      "exitReasonCode": null,
+      "isSafetyExit": false,
+      "exitDataCutoff": null,
+      "exitThesis": null,
+      "exitCritique": null
+    },
+    {
+      "decisionDate": "2019-08-05",
+      "executionDate": "2019-08-06",
+      "symbol": {
+        "value": "AMZN"
+      },
+      "side": 0,
+      "quantity": 3,
+      "price": 2761.987035188057,
+      "fee": 8.285961105564171,
+      "slippage": 8.27768342214203,
+      "realizedPnl": 0,
+      "exitEvidenceHash": null,
+      "exitArtifactId": null,
+      "exitReasonCode": null,
+      "isSafetyExit": false,
+      "exitDataCutoff": null,
+      "exitThesis": null,
+      "exitCritique": null
+    },
+    {
+      "decisionDate": "2019-08-05",
+      "executionDate": "2019-08-06",
+      "symbol": {
+        "value": "QQQ"
+      },
+      "side": 0,
+      "quantity": 1,
+      "price": 5389.403291470853,
+      "fee": 5.389403291470853,
+      "slippage": 5.384019272198654,
+      "realizedPnl": 0,
+      "exitEvidenceHash": null,
+      "exitArtifactId": null,
+      "exitReasonCode": null,
+      "isSafetyExit": false,
+      "exitDataCutoff": null,
+      "exitThesis": null,
+      "exitCritique": null
+    },
+    {
+      "decisionDate": "2019-09-02",
+      "executionDate": "2019-09-03",
+      "symbol": {
+        "value": "AMZN"
+      },
+      "side": 0,
+      "quantity": 1,
+      "price": 2715.414702,
+      "fee": 2.715414702,
+      "slippage": 2.712702,
+      "realizedPnl": 0,
+      "exitEvidenceHash": null,
+      "exitArtifactId": null,
+      "exitReasonCode": null,
+      "isSafetyExit": false,
+      "exitDataCutoff": null,
+      "exitThesis": null,
+      "exitCritique": null
+    },
+    {
+      "decisionDate": "2019-09-02",
+      "executionDate": "2019-09-03",
+      "symbol": {
+        "value": "QQQ"
+      },
+      "side": 0,
+      "quantity": 1,
+      "price": 5477.434936060015,
+      "fee": 5.477434936060015,
+      "slippage": 5.471962973086928,
+      "realizedPnl": 0,
+      "exitEvidenceHash": null,
+      "exitArtifactId": null,
+      "exitReasonCode": null,
+      "isSafetyExit": false,
+      "exitDataCutoff": null,
+      "exitThesis": null,
+      "exitCritique": null
+    },
+    {
+      "decisionDate": "2019-09-02",
+      "executionDate": "2019-09-03",
+      "symbol": {
+        "value": "SPY"
+      },
+      "side": 0,
+      "quantity": 1,
+      "price": 8049.680928298478,
+      "fee": 8.049680928298478,
+      "slippage": 8.041639289009469,
+      "realizedPnl": 0,
+      "exitEvidenceHash": null,
+      "exitArtifactId": null,
+      "exitReasonCode": null,
+      "isSafetyExit": false,
+      "exitDataCutoff": null,
+      "exitThesis": null,
+      "exitCritique": null
+    },
+    {
+      "decisionDate": "2019-09-09",
+      "executionDate": "2019-09-10",
+      "symbol": {
+        "value": "TEAM"
+      },
+      "side": 1,
+      "quantity": 6,
+      "price": 3794.198004,
+      "fee": 22.765188024,
+      "slippage": 22.787976,
+      "realizedPnl": 3469.906434597771,
+      "exitEvidenceHash": "f10fe10e24ecde4e34d991b3573edeaadd11cab1d270b385ae142fd019afba56",
+      "exitArtifactId": "deterministic-champion",
+      "exitReasonCode": "STRATEGY_UNPROMOTED",
+      "isSafetyExit": false,
+      "exitDataCutoff": "2019-09-09",
+      "exitThesis": "Deterministic champion replay decision.",
+      "exitCritique": ""
+    },
+    {
+      "decisionDate": "2019-10-07",
+      "executionDate": "2019-10-08",
+      "symbol": {
+        "value": "AMZN"
+      },
+      "side": 0,
+      "quantity": 3,
+      "price": 2626.5789886792754,
+      "fee": 7.879736966037827,
+      "slippage": 7.87186510093689,
+      "realizedPnl": 0,
+      "exitEvidenceHash": null,
+      "exitArtifactId": null,
+      "exitReasonCode": null,
+      "isSafetyExit": false,
+      "exitDataCutoff": null,
+      "exitThesis": null,
+      "exitCritique": null
+    },
+    {
+      "decisionDate": "2019-10-07",
+      "executionDate": "2019-10-08",
+      "symbol": {
+        "value": "BGRIM.BK"
+      },
+      "side": 0,
+      "quantity": 1903,
+      "price": 38.642200794619185,
+      "fee": 73.5361081121603,
+      "slippage": 73.46264546669362,
+      "realizedPnl": 0,
+      "exitEvidenceHash": null,
+      "exitArtifactId": null,
+      "exitReasonCode": null,
+      "isSafetyExit": false,
+      "exitDataCutoff": null,
+      "exitThesis": null,
+      "exitCritique": null
+    },
+    {
+      "decisionDate": "2019-11-04",
+      "executionDate": "2019-11-05",
+      "symbol": {
+        "value": "AMZN"
+      },
+      "side": 0,
+      "quantity": 1,
+      "price": 2735.468921717148,
+      "fee": 2.735468921717148,
+      "slippage": 2.7327361855316163,
+      "realizedPnl": 0,
+      "exitEvidenceHash": null,
+      "exitArtifactId": null,
+      "exitReasonCode": null,
+      "isSafetyExit": false,
+      "exitDataCutoff": null,
+      "exitThesis": null,
+      "exitCritique": null
+    },
+    {
+      "decisionDate": "2019-11-04",
+      "executionDate": "2019-11-05",
+      "symbol": {
+        "value": "QQQ"
+      },
+      "side": 0,
+      "quantity": 1,
+      "price": 5819.7866046018935,
+      "fee": 5.819786604601894,
+      "slippage": 5.813972631969923,
+      "realizedPnl": 0,
+      "exitEvidenceHash": null,
+      "exitArtifactId": null,
+      "exitReasonCode": null,
+      "isSafetyExit": false,
+      "exitDataCutoff": null,
+      "exitThesis": null,
+      "exitCritique": null
+    },
+    {
+      "decisionDate": "2019-12-02",
+      "executionDate": "2019-12-03",
+      "symbol": {
+        "value": "AMZN"
+      },
+      "side": 0,
+      "quantity": 1,
+      "price": 2666.42376,
+      "fee": 2.66642376,
+      "slippage": 2.66376,
+      "realizedPnl": 0,
+      "exitEvidenceHash": null,
+      "exitArtifactId": null,
+      "exitReasonCode": null,
+      "isSafetyExit": false,
+      "exitDataCutoff": null,
+      "exitThesis": null,
+      "exitCritique": null
+    },
+    {
+      "decisionDate": "2019-12-02",
+      "executionDate": "2019-12-03",
+      "symbol": {
+        "value": "BGRIM.BK"
+      },
+      "side": 0,
+      "quantity": 3,
+      "price": 46.01325514318358,
+      "fee": 0.13803976542955074,
+      "slippage": 0.13790186356598474,
+      "realizedPnl": 0,
+      "exitEvidenceHash": null,
+      "exitArtifactId": null,
+      "exitReasonCode": null,
+      "isSafetyExit": false,
+      "exitDataCutoff": null,
+      "exitThesis": null,
+      "exitCritique": null
+    },
+    {
+      "decisionDate": "2019-12-02",
+      "executionDate": "2019-12-03",
+      "symbol": {
+        "value": "SPY"
+      },
+      "side": 0,
+      "quantity": 1,
+      "price": 8482.987139176834,
+      "fee": 8.482987139176835,
+      "slippage": 8.474512626550284,
+      "realizedPnl": 0,
+      "exitEvidenceHash": null,
+      "exitArtifactId": null,
+      "exitReasonCode": null,
+      "isSafetyExit": false,
+      "exitDataCutoff": null,
+      "exitThesis": null,
+      "exitCritique": null
+    }
+  ],
+  "sampleEquity": [
+    {
+      "date": "2018-03-01",
+      "equity": 8295,
+      "cash": 8295,
+      "exposure": 0,
+      "contributedCapital": 8295
+    },
+    {
+      "date": "2018-03-31",
+      "equity": 7896.366265478537,
+      "cash": 6666.967207395956,
+      "exposure": 1229.3990580825805,
+      "contributedCapital": 8295
+    },
+    {
+      "date": "2018-04-30",
+      "equity": 16077.18186842614,
+      "cash": 11160.557485537345,
+      "exposure": 4916.624382888794,
+      "contributedCapital": 16590
+    },
+    {
+      "date": "2018-05-30",
+      "equity": 25132.45098901788,
+      "cash": 10494.95468725244,
+      "exposure": 14637.49630176544,
+      "contributedCapital": 24885
+    },
+    {
+      "date": "2018-06-29",
+      "equity": 34456.95050345809,
+      "cash": 6888.949709734026,
+      "exposure": 27568.00079372406,
+      "contributedCapital": 33180
+    },
+    {
+      "date": "2018-07-29",
+      "equity": 45836.964305276415,
+      "cash": 2527.2495138449885,
+      "exposure": 43309.71479143143,
+      "contributedCapital": 43736
+    },
+    {
+      "date": "2018-08-28",
+      "equity": 69839.94849813194,
+      "cash": 3731.0786442348463,
+      "exposure": 66108.8698538971,
+      "contributedCapital": 65856
+    },
+    {
+      "date": "2018-09-27",
+      "equity": 94679.5223755951,
+      "cash": 13170.236971931461,
+      "exposure": 81509.28540366364,
+      "contributedCapital": 87976
+    },
+    {
+      "date": "2018-10-27",
+      "equity": 106861.1203492095,
+      "cash": 12696.979183254898,
+      "exposure": 94164.14116595458,
+      "contributedCapital": 110096
+    },
+    {
+      "date": "2018-11-26",
+      "equity": 121656.74828637241,
+      "cash": 19224.907412348977,
+      "exposure": 102431.84087402343,
+      "contributedCapital": 132216
+    },
+    {
+      "date": "2018-12-26",
+      "equity": 129649.98726376549,
+      "cash": 24320.027783785026,
+      "exposure": 105329.95947998046,
+      "contributedCapital": 154336
+    },
+    {
+      "date": "2019-01-25",
+      "equity": 157347.54564075495,
+      "cash": 18560.925413017518,
+      "exposure": 138786.6202277374,
+      "contributedCapital": 176456
+    },
+    {
+      "date": "2019-02-24",
+      "equity": 184242.93972957507,
+      "cash": 9891.721221396352,
+      "exposure": 174351.21850817872,
+      "contributedCapital": 198576
+    },
+    {
+      "date": "2019-03-26",
+      "equity": 218325.07445347664,
+      "cash": 19991.976538780906,
+      "exposure": 198333.09791469574,
+      "contributedCapital": 220696
+    },
+    {
+      "date": "2019-04-25",
+      "equity": 254414.3425933321,
+      "cash": 32240.07533698446,
+      "exposure": 222174.26725634767,
+      "contributedCapital": 242816
+    },
+    {
+      "date": "2019-05-25",
+      "equity": 266544.71371446527,
+      "cash": 51257.75305949703,
+      "exposure": 215286.96065496825,
+      "contributedCapital": 264936
+    },
+    {
+      "date": "2019-06-24",
+      "equity": 296164.51997430203,
+      "cash": 40499.037413682665,
+      "exposure": 255665.48256061936,
+      "contributedCapital": 287056
+    },
+    {
+      "date": "2019-07-24",
+      "equity": 329674.5383377969,
+      "cash": 48841.90701739668,
+      "exposure": 280832.6313204002,
+      "contributedCapital": 309176
+    },
+    {
+      "date": "2019-08-23",
+      "equity": 334264.61553086067,
+      "cash": 52930.3006707838,
+      "exposure": 281334.3148600769,
+      "contributedCapital": 331296
+    },
+    {
+      "date": "2019-09-22",
+      "equity": 363914.3887026969,
+      "cash": 81533.95040983494,
+      "exposure": 282380.438292862,
+      "contributedCapital": 353416
+    },
+    {
+      "date": "2019-10-22",
+      "equity": 404633.40630830545,
+      "cash": 22156.68948655862,
+      "exposure": 382476.71682174684,
+      "contributedCapital": 375536
+    },
+    {
+      "date": "2019-11-21",
+      "equity": 441875.1015237135,
+      "cash": 35712.87870471326,
+      "exposure": 406162.22281900025,
+      "contributedCapital": 397656
+    },
+    {
+      "date": "2019-12-21",
+      "equity": 474843.51853711985,
+      "cash": 46534.140589442264,
+      "exposure": 428309.3779476776,
+      "contributedCapital": 419776
+    }
+  ],
+  "skipped": [
+    {
+      "symbol": {
+        "value": "ABNB"
+      },
+      "reason": "Market data request failed."
+    },
+    {
+      "symbol": {
+        "value": "COIN"
+      },
+      "reason": "Market data request failed."
+    },
+    {
+      "symbol": {
+        "value": "CRC.BK"
+      },
+      "reason": "Market data request failed."
+    },
+    {
+      "symbol": {
+        "value": "CRWD"
+      },
+      "reason": "Market data unavailable."
+    },
+    {
+      "symbol": {
+        "value": "DDOG"
+      },
+      "reason": "Market data unavailable."
+    },
+    {
+      "symbol": {
+        "value": "GULF.BK"
+      },
+      "reason": "Market data request failed."
+    },
+    {
+      "symbol": {
+        "value": "LYFT"
+      },
+      "reason": "Market data unavailable."
+    },
+    {
+      "symbol": {
+        "value": "NET"
+      },
+      "reason": "Market data unavailable."
+    },
+    {
+      "symbol": {
+        "value": "OR.BK"
+      },
+      "reason": "Market data request failed."
+    },
+    {
+      "symbol": {
+        "value": "PLTR"
+      },
+      "reason": "Market data request failed."
+    },
+    {
+      "symbol": {
+        "value": "PTT.BK"
+      },
+      "reason": "Market data unavailable."
+    },
+    {
+      "symbol": {
+        "value": "QQQI"
+      },
+      "reason": "Market data request failed."
+    },
+    {
+      "symbol": {
+        "value": "QQQM"
+      },
+      "reason": "Market data request failed."
+    },
+    {
+      "symbol": {
+        "value": "SCB.BK"
+      },
+      "reason": "Market data request failed."
+    },
+    {
+      "symbol": {
+        "value": "SNOW"
+      },
+      "reason": "Market data request failed."
+    },
+    {
+      "symbol": {
+        "value": "SOL-THB"
+      },
+      "reason": "Market data unavailable."
+    },
+    {
+      "symbol": {
+        "value": "SQ"
+      },
+      "reason": "Market data request failed."
+    },
+    {
+      "symbol": {
+        "value": "TIDLOR.BK"
+      },
+      "reason": "Market data request failed."
+    },
+    {
+      "symbol": {
+        "value": "TOP.BK"
+      },
+      "reason": "Market data unavailable."
+    },
+    {
+      "symbol": {
+        "value": "UBER"
+      },
+      "reason": "Market data unavailable."
+    }
+  ]
+}

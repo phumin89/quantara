@@ -1,0 +1,859 @@
+{
+  "historyPolicy": "first-investment-minus-400-calendar-days",
+  "mandate": {
+    "start": "2024-01-01",
+    "end": "2025-12-31",
+    "monthlySalary": 70000,
+    "fixedEssentials": 24400,
+    "fixedDebtPayment": 14000,
+    "emergencyTarget": 115200,
+    "emergencyRate": 0.25,
+    "investingRate": 0.7,
+    "initialEmergencyBalance": 0
+  },
+  "status": "COMPLETED",
+  "reserve": 115200,
+  "invested": 419776,
+  "discretionary": 223424,
+  "equity": 559590.0391915546,
+  "pnl": 139814.03919155462,
+  "liquid": 674790.0391915546,
+  "drawdown": 0.21822401522934343,
+  "lookahead": {
+    "verified": true,
+    "violations": []
+  },
+  "skipped": [
+    {
+      "symbol": {
+        "value": "ADVANC.BK"
+      },
+      "reason": "Market data unavailable."
+    },
+    {
+      "symbol": {
+        "value": "AOT.BK"
+      },
+      "reason": "Market data unavailable."
+    },
+    {
+      "symbol": {
+        "value": "AP.BK"
+      },
+      "reason": "Market data unavailable."
+    },
+    {
+      "symbol": {
+        "value": "BANPU.BK"
+      },
+      "reason": "Market data unavailable."
+    },
+    {
+      "symbol": {
+        "value": "BBL.BK"
+      },
+      "reason": "Market data unavailable."
+    },
+    {
+      "symbol": {
+        "value": "BEM.BK"
+      },
+      "reason": "Market data unavailable."
+    },
+    {
+      "symbol": {
+        "value": "BGRIM.BK"
+      },
+      "reason": "Market data unavailable."
+    },
+    {
+      "symbol": {
+        "value": "BTC-THB"
+      },
+      "reason": "Market data unavailable."
+    },
+    {
+      "symbol": {
+        "value": "BTS.BK"
+      },
+      "reason": "Market data unavailable."
+    },
+    {
+      "symbol": {
+        "value": "COM7.BK"
+      },
+      "reason": "Market data unavailable."
+    },
+    {
+      "symbol": {
+        "value": "CPALL.BK"
+      },
+      "reason": "Market data unavailable."
+    },
+    {
+      "symbol": {
+        "value": "CPF.BK"
+      },
+      "reason": "Market data unavailable."
+    },
+    {
+      "symbol": {
+        "value": "CPN.BK"
+      },
+      "reason": "Market data unavailable."
+    },
+    {
+      "symbol": {
+        "value": "CRC.BK"
+      },
+      "reason": "Market data unavailable."
+    },
+    {
+      "symbol": {
+        "value": "DELTA.BK"
+      },
+      "reason": "Market data unavailable."
+    },
+    {
+      "symbol": {
+        "value": "EA.BK"
+      },
+      "reason": "Market data unavailable."
+    },
+    {
+      "symbol": {
+        "value": "EGCO.BK"
+      },
+      "reason": "Market data unavailable."
+    },
+    {
+      "symbol": {
+        "value": "ETH-THB"
+      },
+      "reason": "Market data unavailable."
+    },
+    {
+      "symbol": {
+        "value": "GPSC.BK"
+      },
+      "reason": "Market data unavailable."
+    },
+    {
+      "symbol": {
+        "value": "GULF.BK"
+      },
+      "reason": "Market data unavailable."
+    },
+    {
+      "symbol": {
+        "value": "JMART.BK"
+      },
+      "reason": "Market data unavailable."
+    },
+    {
+      "symbol": {
+        "value": "KBANK.BK"
+      },
+      "reason": "Market data unavailable."
+    },
+    {
+      "symbol": {
+        "value": "KTC.BK"
+      },
+      "reason": "Market data unavailable."
+    },
+    {
+      "symbol": {
+        "value": "MINT.BK"
+      },
+      "reason": "Market data unavailable."
+    },
+    {
+      "symbol": {
+        "value": "OR.BK"
+      },
+      "reason": "Market data unavailable."
+    },
+    {
+      "symbol": {
+        "value": "PTT.BK"
+      },
+      "reason": "Market data unavailable."
+    },
+    {
+      "symbol": {
+        "value": "SAWAD.BK"
+      },
+      "reason": "Market data unavailable."
+    },
+    {
+      "symbol": {
+        "value": "SCB.BK"
+      },
+      "reason": "Market data unavailable."
+    },
+    {
+      "symbol": {
+        "value": "SCC.BK"
+      },
+      "reason": "Market data unavailable."
+    },
+    {
+      "symbol": {
+        "value": "SIRI.BK"
+      },
+      "reason": "Market data unavailable."
+    },
+    {
+      "symbol": {
+        "value": "SOL-THB"
+      },
+      "reason": "Market data unavailable."
+    },
+    {
+      "symbol": {
+        "value": "SPALI.BK"
+      },
+      "reason": "Market data unavailable."
+    },
+    {
+      "symbol": {
+        "value": "SQ"
+      },
+      "reason": "Market data request failed."
+    },
+    {
+      "symbol": {
+        "value": "TIDLOR.BK"
+      },
+      "reason": "Market data unavailable."
+    },
+    {
+      "symbol": {
+        "value": "TISCO.BK"
+      },
+      "reason": "Market data unavailable."
+    },
+    {
+      "symbol": {
+        "value": "TOP.BK"
+      },
+      "reason": "Market data unavailable."
+    },
+    {
+      "symbol": {
+        "value": "TRUE.BK"
+      },
+      "reason": "Market data unavailable."
+    },
+    {
+      "symbol": {
+        "value": "TU.BK"
+      },
+      "reason": "Market data unavailable."
+    },
+    {
+      "symbol": {
+        "value": "WHA.BK"
+      },
+      "reason": "Market data unavailable."
+    }
+  ],
+  "matchingFoldEqual": true,
+  "stress": {
+    "scenarios": [
+      {
+        "fold": {
+          "start": "2018-01-01",
+          "end": "2019-12-31"
+        },
+        "costMode": "Normal",
+        "costMultiplier": 1,
+        "returnOnDeposits": 0.1065011428608581,
+        "buyAndHoldBenchmarkReturn": 0.1074186334569845,
+        "executableBenchmarkReturn": 0.12069479181034,
+        "alpha": -0.014193648949481894,
+        "maxDrawdownPercent": 0.23946713704365577,
+        "trades": 74,
+        "fees": 513.3630068838257,
+        "slippage": 512.991593101812,
+        "accountingValid": true,
+        "lookaheadVerified": true,
+        "passed": false,
+        "failedGates": [
+          "POSITIVE_ALPHA"
+        ],
+        "totalContributed": 419776,
+        "finalEquity": 464482.6237455596,
+        "emergencyBalance": 115200,
+        "treasuryAccountingValid": true,
+        "etfBenchmarks": [
+          {
+            "symbol": {
+              "value": "VOO"
+            },
+            "totalContributed": 419776,
+            "finalEquity": 457499.0405508095,
+            "totalPnl": 37723.04055080953,
+            "returnOnDeposits": 0.0898646910514406,
+            "maxDrawdownPercent": 0.1809790079144665,
+            "fees": 419.35664264452964,
+            "slippage": 418.93770493959005,
+            "priceBasis": "adjusted-total-return",
+            "executionMethod": "fractional-dca"
+          }
+        ],
+        "skippedSymbols": [
+          {
+            "symbol": {
+              "value": "ABNB"
+            },
+            "reason": "No bars in the replay history window."
+          },
+          {
+            "symbol": {
+              "value": "COIN"
+            },
+            "reason": "No bars in the replay history window."
+          },
+          {
+            "symbol": {
+              "value": "CRWD"
+            },
+            "reason": "Fewer than 200 bars are visible by replay end."
+          },
+          {
+            "symbol": {
+              "value": "DDOG"
+            },
+            "reason": "Fewer than 200 bars are visible by replay end."
+          },
+          {
+            "symbol": {
+              "value": "LYFT"
+            },
+            "reason": "Fewer than 200 bars are visible by replay end."
+          },
+          {
+            "symbol": {
+              "value": "NET"
+            },
+            "reason": "Fewer than 200 bars are visible by replay end."
+          },
+          {
+            "symbol": {
+              "value": "PLTR"
+            },
+            "reason": "No bars in the replay history window."
+          },
+          {
+            "symbol": {
+              "value": "QQQI"
+            },
+            "reason": "No bars in the replay history window."
+          },
+          {
+            "symbol": {
+              "value": "QQQM"
+            },
+            "reason": "No bars in the replay history window."
+          },
+          {
+            "symbol": {
+              "value": "SNOW"
+            },
+            "reason": "No bars in the replay history window."
+          },
+          {
+            "symbol": {
+              "value": "UBER"
+            },
+            "reason": "Fewer than 200 bars are visible by replay end."
+          }
+        ]
+      },
+      {
+        "fold": {
+          "start": "2018-01-01",
+          "end": "2019-12-31"
+        },
+        "costMode": "Double",
+        "costMultiplier": 2,
+        "returnOnDeposits": 0.10406861958141223,
+        "buyAndHoldBenchmarkReturn": 0.1074186334569845,
+        "executableBenchmarkReturn": 0.11934444573878394,
+        "alpha": -0.015275826157371714,
+        "maxDrawdownPercent": 0.24141917025814388,
+        "trades": 74,
+        "fees": 1027.1355100483906,
+        "slippage": 1025.6505202522383,
+        "accountingValid": true,
+        "lookaheadVerified": true,
+        "passed": false,
+        "failedGates": [
+          "POSITIVE_ALPHA"
+        ],
+        "totalContributed": 419776,
+        "finalEquity": 463461.5088534069,
+        "emergencyBalance": 115200,
+        "treasuryAccountingValid": true,
+        "etfBenchmarks": [
+          {
+            "symbol": {
+              "value": "VOO"
+            },
+            "totalContributed": 419776,
+            "finalEquity": 456586.32561215886,
+            "totalPnl": 36810.325612158886,
+            "returnOnDeposits": 0.08769040062356802,
+            "maxDrawdownPercent": 0.1818846094003691,
+            "fees": 837.876246673483,
+            "slippage": 836.2038389954921,
+            "priceBasis": "adjusted-total-return",
+            "executionMethod": "fractional-dca"
+          }
+        ],
+        "skippedSymbols": [
+          {
+            "symbol": {
+              "value": "ABNB"
+            },
+            "reason": "No bars in the replay history window."
+          },
+          {
+            "symbol": {
+              "value": "COIN"
+            },
+            "reason": "No bars in the replay history window."
+          },
+          {
+            "symbol": {
+              "value": "CRWD"
+            },
+            "reason": "Fewer than 200 bars are visible by replay end."
+          },
+          {
+            "symbol": {
+              "value": "DDOG"
+            },
+            "reason": "Fewer than 200 bars are visible by replay end."
+          },
+          {
+            "symbol": {
+              "value": "LYFT"
+            },
+            "reason": "Fewer than 200 bars are visible by replay end."
+          },
+          {
+            "symbol": {
+              "value": "NET"
+            },
+            "reason": "Fewer than 200 bars are visible by replay end."
+          },
+          {
+            "symbol": {
+              "value": "PLTR"
+            },
+            "reason": "No bars in the replay history window."
+          },
+          {
+            "symbol": {
+              "value": "QQQI"
+            },
+            "reason": "No bars in the replay history window."
+          },
+          {
+            "symbol": {
+              "value": "QQQM"
+            },
+            "reason": "No bars in the replay history window."
+          },
+          {
+            "symbol": {
+              "value": "SNOW"
+            },
+            "reason": "No bars in the replay history window."
+          },
+          {
+            "symbol": {
+              "value": "UBER"
+            },
+            "reason": "Fewer than 200 bars are visible by replay end."
+          }
+        ]
+      },
+      {
+        "fold": {
+          "start": "2020-01-01",
+          "end": "2021-12-31"
+        },
+        "costMode": "Normal",
+        "costMultiplier": 1,
+        "returnOnDeposits": 0.3303159231835587,
+        "buyAndHoldBenchmarkReturn": 0.3776525337318304,
+        "executableBenchmarkReturn": 0.20169827431583276,
+        "alpha": 0.1286176488677259,
+        "maxDrawdownPercent": 0.11313534359239089,
+        "trades": 58,
+        "fees": 737.2581976816546,
+        "slippage": 737.0484025237695,
+        "accountingValid": true,
+        "lookaheadVerified": true,
+        "passed": true,
+        "failedGates": [],
+        "totalContributed": 419776,
+        "finalEquity": 558434.6969703016,
+        "emergencyBalance": 115200,
+        "treasuryAccountingValid": true,
+        "etfBenchmarks": [
+          {
+            "symbol": {
+              "value": "VOO"
+            },
+            "totalContributed": 419776,
+            "finalEquity": 564205.982807695,
+            "totalPnl": 144429.9828076951,
+            "returnOnDeposits": 0.3440644124668754,
+            "maxDrawdownPercent": 0.2537683418992,
+            "fees": 419.3566417378146,
+            "slippage": 418.93770403378085,
+            "priceBasis": "adjusted-total-return",
+            "executionMethod": "fractional-dca"
+          },
+          {
+            "symbol": {
+              "value": "QQQM"
+            },
+            "totalContributed": 419776,
+            "finalEquity": 546973.8339628105,
+            "totalPnl": 127197.8339628105,
+            "returnOnDeposits": 0.30301359287527274,
+            "maxDrawdownPercent": 0.08421114804465984,
+            "fees": 419.35664169636385,
+            "slippage": 418.9377039923715,
+            "priceBasis": "adjusted-total-return",
+            "executionMethod": "fractional-dca"
+          }
+        ],
+        "skippedSymbols": [
+          {
+            "symbol": {
+              "value": "COIN"
+            },
+            "reason": "Fewer than 200 bars are visible by replay end."
+          },
+          {
+            "symbol": {
+              "value": "QQQI"
+            },
+            "reason": "No bars in the replay history window."
+          }
+        ]
+      },
+      {
+        "fold": {
+          "start": "2020-01-01",
+          "end": "2021-12-31"
+        },
+        "costMode": "Double",
+        "costMultiplier": 2,
+        "returnOnDeposits": 0.3268027966815166,
+        "buyAndHoldBenchmarkReturn": 0.3776525337318304,
+        "executableBenchmarkReturn": 0.20059496546012343,
+        "alpha": 0.12620783122139323,
+        "maxDrawdownPercent": 0.11366762206833647,
+        "trades": 58,
+        "fees": 1474.9359856790793,
+        "slippage": 1474.096805047539,
+        "accountingValid": true,
+        "lookaheadVerified": true,
+        "passed": true,
+        "failedGates": [],
+        "totalContributed": 419776,
+        "finalEquity": 556959.9707797803,
+        "emergencyBalance": 115200,
+        "treasuryAccountingValid": true,
+        "etfBenchmarks": [
+          {
+            "symbol": {
+              "value": "VOO"
+            },
+            "totalContributed": 419776,
+            "finalEquity": 563080.3847126449,
+            "totalPnl": 143304.38471264485,
+            "returnOnDeposits": 0.3413829869088391,
+            "maxDrawdownPercent": 0.2537683287598916,
+            "fees": 837.8762429762826,
+            "slippage": 836.2038353056713,
+            "priceBasis": "adjusted-total-return",
+            "executionMethod": "fractional-dca"
+          },
+          {
+            "symbol": {
+              "value": "QQQM"
+            },
+            "totalContributed": 419776,
+            "finalEquity": 545882.6146813007,
+            "totalPnl": 126106.61468130066,
+            "returnOnDeposits": 0.30041406531412146,
+            "maxDrawdownPercent": 0.0860381576410212,
+            "fees": 837.8762412925936,
+            "slippage": 836.2038336253429,
+            "priceBasis": "adjusted-total-return",
+            "executionMethod": "fractional-dca"
+          }
+        ],
+        "skippedSymbols": [
+          {
+            "symbol": {
+              "value": "COIN"
+            },
+            "reason": "Fewer than 200 bars are visible by replay end."
+          },
+          {
+            "symbol": {
+              "value": "QQQI"
+            },
+            "reason": "No bars in the replay history window."
+          }
+        ]
+      },
+      {
+        "fold": {
+          "start": "2022-01-01",
+          "end": "2023-12-31"
+        },
+        "costMode": "Normal",
+        "costMultiplier": 1,
+        "returnOnDeposits": 0.18301428702854347,
+        "buyAndHoldBenchmarkReturn": 0.20529243962348065,
+        "executableBenchmarkReturn": 0.1533915079632557,
+        "alpha": 0.029622779065287774,
+        "maxDrawdownPercent": 0.22045975585678904,
+        "trades": 47,
+        "fees": 647.7143064286331,
+        "slippage": 647.3661373727327,
+        "accountingValid": true,
+        "lookaheadVerified": true,
+        "passed": true,
+        "failedGates": [],
+        "totalContributed": 419776,
+        "finalEquity": 496601.00535169384,
+        "emergencyBalance": 115200,
+        "treasuryAccountingValid": true,
+        "etfBenchmarks": [
+          {
+            "symbol": {
+              "value": "VOO"
+            },
+            "totalContributed": 419776,
+            "finalEquity": 476351.69664889376,
+            "totalPnl": 56575.69664889379,
+            "returnOnDeposits": 0.13477592013095982,
+            "maxDrawdownPercent": 0.13216168011065338,
+            "fees": 419.35664087459645,
+            "slippage": 418.937703171425,
+            "priceBasis": "adjusted-total-return",
+            "executionMethod": "fractional-dca"
+          },
+          {
+            "symbol": {
+              "value": "QQQM"
+            },
+            "totalContributed": 419776,
+            "finalEquity": 525215.0583749893,
+            "totalPnl": 105439.05837498937,
+            "returnOnDeposits": 0.2511793393976534,
+            "maxDrawdownPercent": 0.18083711388918144,
+            "fees": 419.35663846642825,
+            "slippage": 418.93770076566256,
+            "priceBasis": "adjusted-total-return",
+            "executionMethod": "fractional-dca"
+          }
+        ],
+        "skippedSymbols": [
+          {
+            "symbol": {
+              "value": "QQQI"
+            },
+            "reason": "No bars in the replay history window."
+          }
+        ]
+      },
+      {
+        "fold": {
+          "start": "2022-01-01",
+          "end": "2023-12-31"
+        },
+        "costMode": "Double",
+        "costMultiplier": 2,
+        "returnOnDeposits": 0.17920813844978317,
+        "buyAndHoldBenchmarkReturn": 0.20529243962348065,
+        "executableBenchmarkReturn": 0.15214733195596059,
+        "alpha": 0.027060806493822576,
+        "maxDrawdownPercent": 0.22162671671567521,
+        "trades": 47,
+        "fees": 1288.0636494458906,
+        "slippage": 1286.6697009146123,
+        "accountingValid": true,
+        "lookaheadVerified": true,
+        "passed": true,
+        "failedGates": [],
+        "totalContributed": 419776,
+        "finalEquity": 495003.27552589617,
+        "emergencyBalance": 115200,
+        "treasuryAccountingValid": true,
+        "etfBenchmarks": [
+          {
+            "symbol": {
+              "value": "VOO"
+            },
+            "totalContributed": 419776,
+            "finalEquity": 475401.36883936817,
+            "totalPnl": 55625.36883936814,
+            "returnOnDeposits": 0.13251202746076035,
+            "maxDrawdownPercent": 0.13343049202845264,
+            "fees": 837.8762370003227,
+            "slippage": 836.2038293416394,
+            "priceBasis": "adjusted-total-return",
+            "executionMethod": "fractional-dca"
+          },
+          {
+            "symbol": {
+              "value": "QQQM"
+            },
+            "totalContributed": 419776,
+            "finalEquity": 524167.24785152863,
+            "totalPnl": 104391.24785152865,
+            "returnOnDeposits": 0.24868322117398003,
+            "maxDrawdownPercent": 0.18174687609929596,
+            "fees": 837.8762383574094,
+            "slippage": 836.2038306960173,
+            "priceBasis": "adjusted-total-return",
+            "executionMethod": "fractional-dca"
+          }
+        ],
+        "skippedSymbols": [
+          {
+            "symbol": {
+              "value": "QQQI"
+            },
+            "reason": "No bars in the replay history window."
+          }
+        ]
+      },
+      {
+        "fold": {
+          "start": "2024-01-01",
+          "end": "2025-12-31"
+        },
+        "costMode": "Normal",
+        "costMultiplier": 1,
+        "returnOnDeposits": 0.3330682058801709,
+        "buyAndHoldBenchmarkReturn": 0.09802646424959473,
+        "executableBenchmarkReturn": 0.19859868016212337,
+        "alpha": 0.13446952571804754,
+        "maxDrawdownPercent": 0.21822401522934343,
+        "trades": 43,
+        "fees": 848.1960586811682,
+        "slippage": 847.8571219230174,
+        "accountingValid": true,
+        "lookaheadVerified": true,
+        "passed": true,
+        "failedGates": [],
+        "totalContributed": 419776,
+        "finalEquity": 559590.0391915546,
+        "emergencyBalance": 115200,
+        "treasuryAccountingValid": true,
+        "etfBenchmarks": [
+          {
+            "symbol": {
+              "value": "VOO"
+            },
+            "totalContributed": 419776,
+            "finalEquity": 456844.34263265866,
+            "totalPnl": 37068.342632658685,
+            "returnOnDeposits": 0.08830505467834913,
+            "maxDrawdownPercent": 0.16408115227733006,
+            "fees": 419.3566308211183,
+            "slippage": 418.9376931279903,
+            "priceBasis": "adjusted-total-return",
+            "executionMethod": "fractional-dca"
+          },
+          {
+            "symbol": {
+              "value": "QQQM"
+            },
+            "totalContributed": 419776,
+            "finalEquity": 470510.2178625664,
+            "totalPnl": 50734.217862566395,
+            "returnOnDeposits": 0.12086021559728616,
+            "maxDrawdownPercent": 0.19411905538873142,
+            "fees": 419.35663572520565,
+            "slippage": 418.9376980271785,
+            "priceBasis": "adjusted-total-return",
+            "executionMethod": "fractional-dca"
+          }
+        ],
+        "skippedSymbols": []
+      },
+      {
+        "fold": {
+          "start": "2024-01-01",
+          "end": "2025-12-31"
+        },
+        "costMode": "Double",
+        "costMultiplier": 2,
+        "returnOnDeposits": 0.3290262143081885,
+        "buyAndHoldBenchmarkReturn": 0.09802646424959473,
+        "executableBenchmarkReturn": 0.19749776220175047,
+        "alpha": 0.13152845210643804,
+        "maxDrawdownPercent": 0.21946104975934008,
+        "trades": 43,
+        "fees": 1697.0699908786382,
+        "slippage": 1695.7142438460348,
+        "accountingValid": true,
+        "lookaheadVerified": true,
+        "passed": true,
+        "failedGates": [],
+        "totalContributed": 419776,
+        "finalEquity": 557893.3081374342,
+        "emergencyBalance": 115200,
+        "treasuryAccountingValid": true,
+        "etfBenchmarks": [
+          {
+            "symbol": {
+              "value": "VOO"
+            },
+            "totalContributed": 419776,
+            "finalEquity": 455932.9357924191,
+            "totalPnl": 36156.93579241912,
+            "returnOnDeposits": 0.08613388043246666,
+            "maxDrawdownPercent": 0.1643709438240723,
+            "fees": 837.8762407643228,
+            "slippage": 836.2038330981264,
+            "priceBasis": "adjusted-total-return",
+            "executionMethod": "fractional-dca"
+          },
+          {
+            "symbol": {
+              "value": "QQQM"
+            },
+            "totalContributed": 419776,
+            "finalEquity": 469571.5443882241,
+            "totalPnl": 49795.544388224065,
+            "returnOnDeposits": 0.11862408615124273,
+            "maxDrawdownPercent": 0.1943929114643917,
+            "fees": 837.876233318216,
+            "slippage": 836.2038256668823,
+            "priceBasis": "adjusted-total-return",
+            "executionMethod": "fractional-dca"
+          }
+        ],
+        "skippedSymbols": []
+      }
+    ],
+    "passed": false,
+    "status": "NOT_PROVEN"
+  }
+}

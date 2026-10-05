@@ -1,0 +1,9 @@
+node_modules
+webview-ui/node_modules
+server/node_modules
+dist
+webview-ui/dist
+.git
+allure-results
+allure-report
+test-results
