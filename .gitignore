@@ -1,5 +1,9 @@
-**/bin/
-**/obj/
+/src/**/bin/
+/src/**/obj/
+/tests/**/bin/
+/tests/**/obj/
+/tools/**/bin/
+/tools/**/obj/
 **/node_modules/
 **/.next/
 **/dist/
