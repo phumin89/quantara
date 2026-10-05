@@ -65,12 +65,12 @@ public class LiveProgram
         if (!string.IsNullOrWhiteSpace(walletCredentialsPath))
             builder.Services.AddSingleton(sp => new TradingCompany.Infrastructure.BitkubWalletReader(
                 Path.GetFullPath(walletCredentialsPath), sp.GetRequiredService<TimeProvider>()));
+        BitkubLiveRuntime.Configure(builder.Services, builder.Configuration);
         builder.Services.AddHostedService(sp => new LiveReconciliationWorker(
             sp.GetService<TradingCompany.Application.LiveExecutionService>(),
             sp.GetService<TradingCompany.Application.LiveReconciliation>(),
-            sp.GetRequiredService<Microsoft.Extensions.Options.IOptionsMonitor<CoordinatorAccessOptions>>()
-                .Get(CoordinatorAccess.SchemeName).AccountId,
-            sp.GetRequiredService<TimeProvider>()));
+            sp.GetService<BitkubConfiguredAccount>()?.AccountId ?? default,
+            sp.GetRequiredService<TimeProvider>(), sp.GetService<TradingCompany.Infrastructure.LiveTradingStore>()));
         var ownerStateDirectory = builder.Configuration["OwnerSession:StateDirectory"];
         if (!string.IsNullOrWhiteSpace(ownerStateDirectory))
         {

@@ -1,7 +1,7 @@
 # Headless deterministic strategy/risk/accounting checks. No broker credentials or AI sign-in are mounted.
 $ErrorActionPreference = 'Stop'
 $verificationRoot = Split-Path -Parent $PSScriptRoot
-$filter = 'FullyQualifiedName~StrategyValidationTests|FullyQualifiedName~TradingTests|FullyQualifiedName~ForwardCryptoCostsTests|FullyQualifiedName~LiveRiskTests|FullyQualifiedName~LiveExecutionTests|FullyQualifiedName~LiveReconciliationTests|FullyQualifiedName~LiveActivationTests|FullyQualifiedName~LiveBuyBudgetTests|FullyQualifiedName~LiveAccountTransactionTests|FullyQualifiedName~LiveOwnerAccessTests|FullyQualifiedName~LiveOwnerEndpointTests|FullyQualifiedName~LiveWalletEndpointTests|FullyQualifiedName~OwnerRememberedBrowserTests|FullyQualifiedName~OwnerPairingConsoleTests|FullyQualifiedName~OwnerWebProxyTests|FullyQualifiedName~LiveCoordinatorAccessTests'
+$filter = 'FullyQualifiedName~StrategyValidationTests|FullyQualifiedName~TradingTests|FullyQualifiedName~ForwardCryptoCostsTests|FullyQualifiedName~Live|FullyQualifiedName~Bitkub|FullyQualifiedName~Owner'
 $mountArguments = @()
 foreach ($source in @('src', 'tests', 'tools/ForwardSandboxRehearsal')) {
     $destination = if ($source -eq 'tools/ForwardSandboxRehearsal') { 'rehearsal' } else { $source }

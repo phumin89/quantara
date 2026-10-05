@@ -16,6 +16,11 @@ public static class LiveEndpoints
         {
             var controls = Controls(context);
             if (controls is null) return Results.Ok(new { state = "DISABLED", armed = false, reasons = new[] { "EXECUTOR_NOT_CONFIGURED" } });
+            if (context.RequestServices.GetService<BitkubConfiguredAccount>() is { } configured &&
+                !await context.RequestServices.GetRequiredService<TradingCompany.Infrastructure.LiveTradingStore>()
+                    .ExistsAsync(configured.AccountId, context.RequestAborted))
+                return Results.Ok(new { state = "DISABLED", armed = false, accountId = configured.AccountId,
+                    reasons = new[] { "ACCOUNT_NOT_PROVISIONED" } });
             var account = await controls.ReadAsync(context.RequestAborted);
             var now = clock.GetUtcNow();
             var reasons = new List<string>();
@@ -70,6 +75,13 @@ public static class LiveEndpoints
             var result = await controls.PreflightAsync(context.RequestAborted);
             return Results.Json(result, statusCode: result.Ready ? 200 : 409);
         });
+        ownerControls.MapPost("/provision", async (LiveMandateUpdate request, HttpContext context) =>
+        {
+            var provisioner = context.RequestServices.GetService<BitkubAccountProvisioner>();
+            if (provisioner is null) return Unconfigured();
+            var result = await provisioner.ProvisionAsync(request, context.RequestAborted);
+            return Results.Json(result, statusCode: result.Allowed ? 200 : 409);
+        });
         ownerControls.MapPost("/baseline", async (LiveBaselineRequest request, HttpContext context) =>
         {
             var controls = Controls(context);
@@ -91,6 +103,10 @@ public static class LiveEndpoints
         {
             var controls = Controls(context);
             if (controls is null) return Unconfigured();
+            if (context.RequestServices.GetService<BitkubConfiguredAccount>() is { } configured &&
+                (request.FeeReserveRate < configured.Verification.Rules.MaximumCashFeeRate ||
+                 request.AllowedSymbols is null || request.AllowedSymbols.Any(s => !configured.Verification.Rules.Pairs.Any(p => p.Symbol == s))))
+                return Results.Conflict(new { code = "INVALID_MANDATE" });
             var result = await controls.SaveMandateAsync(request, context.RequestAborted);
             return Results.Json(result, statusCode: result.Allowed ? 200 : 409);
         });

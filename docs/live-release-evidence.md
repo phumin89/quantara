@@ -1,5 +1,27 @@
 # Live implementation evidence
 
+## Verified execution adapter and onboarding: 2026-10-06
+
+This section supersedes earlier implementation-status statements below; older sections are historical evidence. **The deployed application still has real-money execution disabled. No real order was sent.**
+
+- Added the Bitkub execution adapter to the existing durable executor. Preparation reads current market rules; placement requires the saved dispatch packet, matching account/key, explicit owner activation, current mandate/snapshot and durable reservations. Budget buys round spending down and retain a cash fee cushion. Missing confirmed rules block before placement.
+- Added normalized Bitkub reconciliation using complete paginated history, order-info, open orders and the signed wallet. Both observations must agree. Unknown outcomes retain reservations and never trigger a second send. Conflicting fees, missing orders, unsupported rounding, changed credentials or mismatched wallets disarm without changing money. Reduced trading limits do not prevent owned cancellation or recovery.
+- Added opt-in production registration, protected account binding/preflight and owner-only `POST /live/provision`. Onboarding uses actual signed balances, rejects existing crypto/open orders, requires explicit positive owner limits, and currently allocates the entire isolated THB wallet. Duplicate provisioning cannot reset a saved ledger. Initial baseline and arm remain separate owner actions.
+- A configured host can start before onboarding and wait without accessing the private broker. Restart of an existing account durably suspends execution before accepting requests; successful reconciliation never re-arms it. Missing configuration registers no execution runtime or scheduled AI work.
+- Lead reviewed the actual transport, adapter, reconciliation source, runtime registration, onboarding and request boundaries. Corrections included bounded verification-file reads, strict metadata/rule validation, zero-balance coin handling, exact wallet/preflight matching, credential-file replacement detection, immutable coordinator account binding and recovery after reduced limits.
+
+Validation: deterministic Domain/Live/Bitkub/owner checks **435 passed, 0 failed, 0 skipped** in an SDK container with no credentials mounted; actual PostgreSQL integration checks **59 passed, 0 failed, 0 skipped**. Provider responses in these tests are synthetic. They prove application behavior, **not actual Bitkub sizing, fees, permissions or trade compatibility**. Logs remain local under `work/live-account-connect/`.
+
+Runtime setup is opt-in: `LiveExecution:Enabled`, `LiveExecution:AccountId`, `ConnectionStrings:LiveTrading`, `LiveExecution:VerificationFile` (absolute private path), and `Bitkub:CredentialsFile` (absolute private path). The verification document is the strict `BitkubLiveVerification` record and must reference independently reviewed broker/account/Trade-permission evidence and confirmed `BitkubVerifiedExecutionRules`. There is no default verified profile. Setting flags or hashes is not a substitute for verifying that evidence. An optional private `LiveExecution:CoordinatorToken` authenticates proposals for that single pinned account; it grants no owner controls.
+
+Remaining release blockers:
+
+1. Independently establish real Bitkub amount/step/rounding, cash-fee/credit and lineage semantics from broker-confirmed records. Buy-before-fee and buy-including-fee test fixtures are alternatives, not conclusions about the real exchange.
+2. Configure durable Live storage and the private verified account profile, obtain the owner's exact positive limits and separately authorize activation/canary transactions. The public UI currently offers account viewing, pairing and Stop; provisioning/baseline/arm APIs are not yet a finished owner onboarding UI.
+3. Complete Bangkok-day rollover and cash-flow accounting. The current reconciler blocks on an old daily baseline or a deposit mismatch; it never silently resets losses or expands spending authority. REST epochs of 90 days or longer also remain blocked pending archive/checkpoint support.
+4. Finish the isolated scheduled Live CEO runner. `LiveCompanyCoordinator` exists but is not scheduled in this deployment. Its snapshot-version check must be reviewed against periodic reconciliation before enabling it.
+5. Validate real minimum-sized buy/sell, partial-fill cancellation and recovery after explicit owner transaction authorization. A readiness screen and synthetic tests are not evidence of completed Live trading.
+
 ## Full workspace startup recovery: 2026-10-05
 
 Subsequent lifecycle correction: the owner frontend now runs as a managed detached Docker service independently of its pairing window. A short-lived interactive local client requests a code through same-user, container-local IPC; no HTTP code-generation route or code logging was added. Focused tests passed 29/29. Actual background runtime, normal-TLS 200/401 checks and noninteractive client refusal were verified. No Live trading was activated.

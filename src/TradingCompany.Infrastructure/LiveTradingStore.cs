@@ -35,6 +35,13 @@ public sealed class LiveTradingStore(string connectionString) : ILiveTradingStor
 
     public async Task<LiveSnapshot> ReadAsync(LiveAccountId id, CancellationToken cancellationToken = default)
         => (await ReadAccountAsync(id, cancellationToken)).Snapshot;
+    public async Task<bool> ExistsAsync(LiveAccountId id, CancellationToken cancellationToken = default)
+    {
+        await using var connection = await Connect(cancellationToken);
+        await using var command = new NpgsqlCommand("SELECT EXISTS(SELECT 1 FROM live.accounts WHERE id=@id)", connection);
+        command.Parameters.AddWithValue("id", id.Value);
+        return (bool)(await command.ExecuteScalarAsync(cancellationToken))!;
+    }
     public async Task<LiveAccountState> ReadAccountAsync(LiveAccountId id, CancellationToken cancellationToken = default)
     {
         await using var connection = await Connect(cancellationToken);

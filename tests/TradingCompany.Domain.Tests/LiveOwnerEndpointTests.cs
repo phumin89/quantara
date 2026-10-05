@@ -71,6 +71,7 @@ public sealed class LiveOwnerEndpointTests
     [InlineData("/live/mandate")]
     [InlineData("/live/preflight")]
     [InlineData("/live/baseline")]
+    [InlineData("/live/provision")]
     [InlineData("/live/orders/33333333-3333-3333-3333-333333333333/cancel")]
     public async Task Anonymous_cannot_call_owner_controls(string path)
     {

@@ -8,6 +8,7 @@ using TradingCompany.Domain;
 using TradingCompany.Application;
 
 [assembly: InternalsVisibleTo("TradingCompany.Domain.Tests")]
+[assembly: InternalsVisibleTo("TradingCompany.LiveIntegration.Tests")]
 
 namespace TradingCompany.Infrastructure;
 
@@ -31,9 +32,30 @@ public sealed record BrokerOrderEvidence(string Symbol, OrderSide Side, string O
     decimal ReportedFee, decimal FeeCredit, decimal RawFilled, decimal RawTotal, string Status,
     bool PartiallyFilled, decimal RawRemaining, IReadOnlyList<BrokerOrderFillEvidence> History);
 
-/// <summary>Private broker transport. Not registered in Sandbox or any execution host.</summary>
+/// <summary>Private broker transport. Execution requires the verified, owner-gated Live host.</summary>
 public sealed class BitkubLiveBroker : IDisposable
 {
+    public async Task<LiveQuote> GetQuoteAsync(string symbol, CancellationToken cancellationToken = default)
+    {
+        var pair = Pair(symbol);
+        var observedAt = clock.GetUtcNow();
+        using var request = new HttpRequestMessage(HttpMethod.Get, "https://api.bitkub.com/api/v3/market/ticker?sym=" + pair);
+        using var document = await Read(request, cancellationToken);
+        try
+        {
+            var matches = document.RootElement.EnumerateArray().Where(item =>
+                string.Equals(Required(item, "symbol").GetString(), pair, StringComparison.OrdinalIgnoreCase)).ToArray();
+            if (matches.Length != 1) throw Unavailable();
+            var item = matches[0];
+            var bid = Amount(item, "highest_bid");
+            var ask = Amount(item, "lowest_ask");
+            if (bid <= 0 || ask < bid) throw Unavailable();
+            return new LiveQuote(symbol, bid, ask, observedAt);
+        }
+        catch (Exception error) when (error is JsonException or InvalidOperationException or FormatException or OverflowException)
+        { throw Unavailable(); }
+    }
+
     public async Task<BrokerSymbolRules> GetSymbolRulesAsync(string symbol, CancellationToken cancellationToken = default)
     {
         var pair = Pair(symbol);
@@ -118,8 +140,24 @@ public sealed class BitkubLiveBroker : IDisposable
             intent.AccountId.Value == Guid.Empty || intent.DecisionId == Guid.Empty || intent.Id == Guid.Empty ||
             intent.Quantity <= 0 || intent.LimitPrice <= 0 || intent.MandateVersion <= 0 || intent.SnapshotVersion <= 0 ||
             string.IsNullOrWhiteSpace(intent.EvidenceHash)) throw Unavailable();
-        var pair = Pair(intent.Symbol);
         var amount = intent.Side == OrderSide.Buy ? intent.Quantity * intent.LimitPrice : intent.Quantity;
+        return EncodeAmount(intent, amount);
+    }
+
+    // Caller is the verified execution adapter. Budget buys deliberately spend less than
+    // the cap so that a fee charged outside amt cannot enlarge the approved cash debit.
+    internal static PreparedLiveOrder EncodeBudgetLimitRequest(LiveIntent intent, decimal amount)
+    {
+        if (intent.BuyBudget is not { } budget || intent.Side != OrderSide.Buy || budget <= 0 ||
+            budget != intent.Quantity * intent.LimitPrice || amount <= 0 || amount > budget)
+            throw Unavailable();
+        _ = EncodeLimitRequest(intent with { BuyBudget = null });
+        return EncodeAmount(intent, amount);
+    }
+
+    private static PreparedLiveOrder EncodeAmount(LiveIntent intent, decimal amount)
+    {
+        var pair = Pair(intent.Symbol);
         if (amount <= 0) throw Unavailable();
         using var buffer = new MemoryStream();
         using (var writer = new Utf8JsonWriter(buffer))
@@ -139,10 +177,19 @@ public sealed class BitkubLiveBroker : IDisposable
     }
 
     internal async Task<BrokerSubmission> SendLimitRequestAsync(PreparedLiveOrder request, CancellationToken cancellationToken = default)
+        => await SendLimitRequestAsync(request, null, cancellationToken);
+
+    internal async Task<BrokerSubmission> SendBudgetLimitRequestAsync(PreparedLiveOrder request, decimal amount,
+        CancellationToken cancellationToken = default)
+        => await SendLimitRequestAsync(request, amount, cancellationToken);
+
+    private async Task<BrokerSubmission> SendLimitRequestAsync(PreparedLiveOrder request, decimal? budgetAmount,
+        CancellationToken cancellationToken)
     {
         try
         {
-            var expected = EncodeLimitRequest(request.Intent);
+            var expected = budgetAmount is { } amount
+                ? EncodeBudgetLimitRequest(request.Intent, amount) : EncodeLimitRequest(request.Intent);
             if (request.Body != expected.Body || request.BodyHash != expected.BodyHash)
                 return new(BrokerSubmissionState.Rejected, null, "INVALID_PREPARED_REQUEST");
         }
@@ -166,8 +213,8 @@ public sealed class BitkubLiveBroker : IDisposable
             }
             var receipt = Required(root, "result");
             var id = Identifier(receipt, "id");
-            var amount = request.Intent.Side == OrderSide.Buy
-                ? request.Intent.Quantity * request.Intent.LimitPrice : request.Intent.Quantity;
+            var amount = budgetAmount ?? (request.Intent.Side == OrderSide.Buy
+                ? request.Intent.Quantity * request.Intent.LimitPrice : request.Intent.Quantity);
             if (Required(receipt, "typ").GetString() != "limit" || NumericAmount(receipt, "amt") != amount ||
                 NumericAmount(receipt, "rat") != request.Intent.LimitPrice ||
                 Required(receipt, "ci").GetString() != request.Intent.Id.ToString("N") ||
@@ -188,6 +235,8 @@ public sealed class BitkubLiveBroker : IDisposable
     private readonly string apiKey;
     private readonly byte[] secret;
     private readonly TimeProvider clock;
+    internal string CredentialFingerprint => "sha256:" + Convert.ToHexStringLower(SHA256.HashData(
+        Encoding.UTF8.GetBytes(apiKey + "\0" + Encoding.UTF8.GetString(secret))));
 
     public BitkubLiveBroker(string apiKey, string secret)
         : this(apiKey, secret, new SocketsHttpHandler { AllowAutoRedirect = false, UseCookies = false }, TimeProvider.System) { }
