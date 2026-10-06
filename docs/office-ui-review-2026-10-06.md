@@ -1,5 +1,7 @@
 # Office design and implementation review — 2026-10-06
 
+Historical presentation round (`45d8a19`). The subsequent [activity and copy review](live-office-activity-review-2026-10-06.md) supersedes its static-viewer description and checklist.
+
 The owner requested agents to review and redesign an Office that appeared empty and inactive. This round changes presentation and explanation of verified state; it does not activate trading or add simulated activity.
 
 ## Independent review

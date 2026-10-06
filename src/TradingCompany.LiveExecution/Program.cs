@@ -78,6 +78,7 @@ public class LiveProgram
             }
         });
         builder.Services.AddSingleton<TimeProvider>(TimeProvider.System);
+        builder.Services.AddSingleton<LiveActivityStore>();
         builder.Services.AddHttpClient("owner-web", client => client.Timeout = TimeSpan.FromSeconds(10))
             .ConfigurePrimaryHttpMessageHandler(() => new SocketsHttpHandler { AllowAutoRedirect = false, UseCookies = false });
         var walletCredentialsPath = builder.Configuration["Bitkub:CredentialsFile"];

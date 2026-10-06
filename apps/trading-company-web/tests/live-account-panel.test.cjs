@@ -74,12 +74,12 @@ test('no mutation is sent without HTTPS or a CSRF token', async () => {
 test('unavailable Live screen has no paper balance, office, or activation button', () => {
   const html = render({ state: { kind: 'https-required' } });
   assert.match(html, /HTTPS/);
-  assert.match(html, /ยังเปิดซื้อขายเงินจริงไม่ได้/);
   assert.doesNotMatch(html, /฿0|iframe|เปิดเทรดเลย|รหัส API/);
 });
-test('disabled executor shows its real blocker', () => {
+test('disabled executor has one status without duplicate release instructions', () => {
   const html = render({ state: { kind: 'connected', status: { state: 'DISABLED', armed: false, reasons: ['EXECUTOR_NOT_CONFIGURED'] } } });
-  assert.match(html, /บัญชีสำหรับเทรดและระบบส่งคำสั่งยังไม่พร้อม/);
+  assert.match(html, /ระบบเงินจริงยังไม่เปิด/);
+  assert.doesNotMatch(html, /บัญชีสำหรับเทรดและระบบส่งคำสั่งยังไม่พร้อม|live-checklist/);
   assert.doesNotMatch(html, /฿[0-9]|iframe|พร้อมซื้อขาย/);
 });
 test('pairing form exposes checked browser remembering consent by default', () => {

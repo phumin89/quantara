@@ -13,11 +13,11 @@ const wallet = amount => ({ source: 'Bitkub', observedAt: '2026-10-06T05:00:00Z'
 test('read-only cash does not imply an active team or trading permission', () => {
   const html = render(LiveOfficeWorkspaceView, { state: connected('DISABLED', ['EXECUTOR_NOT_CONFIGURED']), wallet: wallet(3210) });
   assert.match(html, /Live ยังไม่เปิดใช้งาน/);
-  assert.match(html, /ระบบส่งคำสั่งยังไม่เปิด/);
+  assert.doesNotMatch(html, /ระบบส่งคำสั่งยังไม่เปิด/);
   assert.match(html, /฿3,210\.00/);
   assert.match(html, /href="\/trading"[^>]*>ตรวจความพร้อมเพื่อเปิด Live/);
-  assert.equal((html.match(/data-complete="true"/g) || []).length, 1);
-  assert.match(html, /ภาพ Pixel ยังไม่เชื่อมกิจกรรมสด/);
+  assert.doesNotMatch(html, /ก่อนทีมเริ่มซื้อขาย|data-complete=/);
+  assert.doesNotMatch(html, /ภาพ Pixel|การอ่านยอดไม่เปิดสิทธิ์ซื้อขาย|เปิดห้องทีม/);
   assert.doesNotMatch(html, /กำลังประชุม|กำลังวิเคราะห์|ทีมกำลังทำงาน/);
 });
 
@@ -28,18 +28,16 @@ test('missing account evidence is unknown, while a verified zero balance remains
   assert.doesNotMatch(unknown, /฿0\.00|data-complete="true"/);
   const empty = render(LiveOfficeWorkspaceView, { state: connected('DISABLED'), wallet: wallet(0) });
   assert.match(empty, /฿0\.00/);
-  assert.equal((empty.match(/data-complete="true"/g) || []).length, 1);
+  assert.doesNotMatch(empty, /ก่อนทีมเริ่มซื้อขาย|data-complete=/);
 });
 
 test('reconciliation and permission are separate from actual team activity', () => {
   const account = { snapshot: { cashBalance: 4000, cashReserved: 200, reconciled: true, observedAt: '2026-10-06T05:00:00Z' } };
   const armed = render(LiveOfficeWorkspaceView, { state: connected('ARMED'), account });
-  assert.equal((armed.match(/data-complete="true"/g) || []).length, 3);
   assert.match(armed, /฿3,800\.00/);
   assert.match(armed, /ทุกคำสั่งยังต้องผ่านการตรวจความเสี่ยง/);
   assert.doesNotMatch(armed, /กำลังประชุม|กำลังวิเคราะห์|ทีมกำลังทำงาน/);
   const stopped = render(LiveOfficeWorkspaceView, { state: connected('STOPPED'), account });
-  assert.equal((stopped.match(/data-complete="true"/g) || []).length, 2);
   assert.match(stopped, /สินทรัพย์และคำสั่งค้างยังต้องตรวจ/);
   const lost = render(LiveOfficeWorkspaceView, { state: { kind: 'unavailable' } });
   assert.match(lost, /ไม่ได้ยืนยันว่าระบบหยุดเทรดแล้ว/);
@@ -48,7 +46,6 @@ test('reconciliation and permission are separate from actual team activity', () 
 test('idle chat gives one status, a recovery route, and avoids fabricated meeting absence', () => {
   const html = render(LiveTeamSummaryView, { state: connected('DISABLED'), wallet: wallet(3210) });
   assert.equal((html.match(/Live ยังไม่เปิดใช้งาน/g) || []).length, 1);
-  assert.match(html, /ยังอ่านรายงาน Live ที่ผูกกับบัญชีไม่ได้/);
   assert.match(html, /href="\/trading"/);
   assert.doesNotMatch(html, /ยังไม่มีรายงาน|ยังไม่มีรอบ/);
 });

@@ -13,12 +13,14 @@ public sealed class LiveExecutionClient : ILiveCompanyClient
     private readonly HttpClient transport;
     private readonly string coordinatorToken;
     private readonly LiveAccountId boundAccount;
+    private readonly TimeProvider clock;
 
-    public LiveExecutionClient(HttpClient transport, string coordinatorToken, LiveAccountId boundAccount)
+    public LiveExecutionClient(HttpClient transport, string coordinatorToken, LiveAccountId boundAccount, TimeProvider? clock = null)
     {
         this.transport = transport;
         this.coordinatorToken = coordinatorToken;
         this.boundAccount = boundAccount;
+        this.clock = clock ?? TimeProvider.System;
         transport.Timeout = TimeSpan.FromSeconds(10);
         transport.MaxResponseContentBufferSize = 1024 * 1024;
     }
@@ -59,6 +61,17 @@ public sealed class LiveExecutionClient : ILiveCompanyClient
         using var request = new HttpRequestMessage(HttpMethod.Post, "https://localhost:7443/internal/live/meetings");
         request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", coordinatorToken);
         request.Content = JsonContent.Create(attempt, options: Json);
+        using var response = await transport.SendAsync(request, cancellationToken);
+        if (response.StatusCode != HttpStatusCode.OK) throw Unavailable();
+    }
+
+    public async Task SaveActivityAsync(LiveCompanyActivity activity, CancellationToken cancellationToken)
+    {
+        EnsureBinding(boundAccount);
+        if (!LiveActivityValidation.IsValid(activity, boundAccount, clock.GetUtcNow())) throw Unavailable();
+        using var request = new HttpRequestMessage(HttpMethod.Post, "https://localhost:7443/internal/live/activity");
+        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", coordinatorToken);
+        request.Content = JsonContent.Create(activity, options: Json);
         using var response = await transport.SendAsync(request, cancellationToken);
         if (response.StatusCode != HttpStatusCode.OK) throw Unavailable();
     }

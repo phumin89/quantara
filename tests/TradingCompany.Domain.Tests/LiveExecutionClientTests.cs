@@ -69,6 +69,26 @@ public sealed class LiveExecutionClientTests
         Assert.Single(wire.Uris);
     }
 
+    [Fact]
+    public async Task Activity_is_display_only_and_cannot_be_sent_for_another_account()
+    {
+        var wire = new Wire((_, _) => new HttpResponseMessage(HttpStatusCode.OK));
+        using var http = new HttpClient(wire);
+        var client = new LiveExecutionClient(http, Token, LiveRiskTests.Account, new Clock());
+        var now = LiveRiskTests.Now;
+        var activity = new LiveCompanyActivity(new(TradingMode.Live, LiveRiskTests.Account.Value.ToString("N")),
+            Guid.NewGuid(), now, [new("ceo", "working", now)]);
+        await client.SaveActivityAsync(activity, default);
+        Assert.Equal("https://localhost:7443/internal/live/activity", Assert.Single(wire.Uris));
+        Assert.Equal(Token, Assert.Single(wire.Tokens));
+        await Assert.ThrowsAsync<InvalidDataException>(() => client.SaveActivityAsync(activity with
+        { AccountContext = new(TradingMode.Live, Guid.NewGuid().ToString("N")) }, default));
+        Assert.Single(wire.Uris);
+        Assert.DoesNotContain("intent", wire.Body!, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private sealed class Clock : TimeProvider { public override DateTimeOffset GetUtcNow() => LiveRiskTests.Now; }
+
     private sealed class Wire(Func<HttpRequestMessage, int, HttpResponseMessage> response) : HttpMessageHandler
     {
         public List<string> Uris { get; } = [];

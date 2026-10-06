@@ -14,6 +14,11 @@ public static class LiveEndpoints
         var ownerControls = app.MapGroup("/live").RequireAuthorization("Owner");
         live.AddEndpointFilter(SafeResult);
         ownerControls.AddEndpointFilter(SafeResult);
+        live.MapGet("/activity", (HttpContext context, LiveActivityStore store) =>
+        {
+            var configured = context.RequestServices.GetService<BitkubConfiguredAccount>();
+            return Results.Ok(new { activity = configured is null ? null : store.Read(configured.AccountId) });
+        });
         live.MapGet("/setup", async (HttpContext context, TimeProvider clock, OwnerSession sessions) =>
         {
             var canControl = sessions.CanControl(context.User.FindFirstValue("sid"));

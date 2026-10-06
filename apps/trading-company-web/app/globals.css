@@ -22,14 +22,10 @@ main { max-width: 1360px; margin: auto; padding: 28px 32px 56px; }
 .account-mode .brand { margin-right: auto; font-size: 24px; font-weight: 600; letter-spacing: -.015em; }
 .account-mode button, .live-actions button, .live-owner-form button { min-height: 44px; padding: 9px 17px; border: 1px solid var(--ink); border-radius: 999px; background: var(--white); cursor: pointer; }
 .account-mode button[aria-pressed="true"] { color: var(--white); background: var(--ink); }
-.live-checklist span, .live-separation, .live-form-help { color: var(--muted); }
+.live-form-help { color: var(--muted); }
 .company-app { max-width: 1120px; padding: 12px 32px 48px; }
 .system-state { display: grid; grid-template-columns: 10px auto; gap: 0 9px; align-items: center; font-size: 13px; }
-.view-switcher .system-state { margin-left: auto; align-self: center; }
 .system-state span { width: 8px; height: 8px; display: block; border-radius: 50%; background: var(--ink); }
-.view-switcher { display: flex; gap: 10px; width: 100%; margin: 0 0 18px; border-bottom: 1px solid var(--line); }
-.view-switcher button { min-height: 46px; padding: 11px 16px; border: 0; border-bottom: 3px solid transparent; background: transparent; cursor: pointer; font-weight: 500; }
-.view-switcher button[aria-current="true"], .view-switcher button[aria-current="page"] { color: var(--ink); border-bottom-color: var(--ink); }
 .forward-home { margin-bottom: 16px; }
 .forward-panel-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
 .forward-home h2 { margin: 0; font-size: clamp(24px, 3vw, 28px); line-height: 1.4; letter-spacing: 0; font-weight: 500; }
@@ -89,11 +85,6 @@ main { max-width: 1360px; margin: auto; padding: 28px 32px 56px; }
 .live-readiness h2 { margin-top: 38px; font-size: 24px; font-weight: 500; }
 .live-readiness p { max-width: 72ch; }
 .live-state { font-size: 22px; font-weight: 500; }
-.live-checklist { padding-left: 24px; }
-.live-checklist li { padding: 14px 0; border-bottom: 1px solid var(--line); }
-.live-checklist strong, .live-checklist span { display: block; }
-.live-checklist span { margin-top: 4px; }
-.live-separation { margin-top: 26px; }
 .live-actions { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 28px; }
 .live-owner-form { display: grid; gap: 10px; max-width: 440px; margin-top: 24px; }
 .live-owner-form input { min-height: 44px; padding: 10px; color: var(--ink); background: var(--white); border: 1px solid var(--ink); }
@@ -101,8 +92,6 @@ main { max-width: 1360px; margin: auto; padding: 28px 32px 56px; }
 .live-owner-form .live-remember-browser input { flex: 0 0 18px; width: 18px; height: 18px; min-height: 18px; padding: 0; margin: 0; accent-color: var(--ink); }
 .live-form-help { margin: 0; font-size: 14px; }
 .live-owner-form-actions { display: flex; flex-wrap: wrap; gap: 10px; }
-.live-release-details { margin-top: 38px; border-top: 1px solid var(--line); padding-top: 16px; }
-.live-release-details summary { cursor: pointer; font-weight: 500; }
 button:disabled { opacity: .55; cursor: not-allowed; }
 summary:hover { text-decoration: underline; text-underline-offset: 4px; }
 input { caret-color: var(--ink); }

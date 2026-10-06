@@ -62,10 +62,13 @@ export function LiveOwnerSetup({ onChanged }: { onChanged?: () => void }) {
   const disabled = busy || !setup?.canControl;
   const expired = !!setup?.mandate?.expiresAt && Date.parse(setup.mandate.expiresAt) <= Date.now();
   return <section className="owner-setup" aria-labelledby="owner-setup-title">
-    <h2 id="owner-setup-title">เริ่มใช้บัญชี Live</h2>
+    <h2 id="owner-setup-title">เปิดซื้อขายอัตโนมัติ</h2>
     {loading ? <p role="status">กำลังตรวจข้อมูลตั้งค่า…</p> : !setup?.configured ? <>
-      <p>ยังรอยืนยันกติกาคำสั่งและการผูกบัญชี Bitkub ระบบจึงยังปิดการซื้อขาย</p>
-      <p>ดูยอดเงินจริงได้ที่ <Link href="/account">หน้าบัญชี</Link> เมื่อเชื่อมครบ ขั้นตั้งวงเงินจะปรากฏที่นี่</p>
+      <p>ยังไม่มีการยืนยันผลซื้อ–ขาย Bitkub สำหรับเปิดระบบอัตโนมัติ</p>
+      <details><summary>สิ่งที่ต้องทำครั้งแรก</summary>
+        <p>เก็บยอดก่อนซื้อ ซื้อ BTC ด้วย THB จำนวนเล็กน้อย รอจับคู่ครบและเก็บผล จากนั้นขาย BTC ที่ได้ทั้งหมดแล้วเก็บผลอีกครั้ง เพื่อตรวจยอดเหรียญ เงิน และค่าธรรมเนียมให้ตรงกัน</p>
+        <p>เมื่อผลผ่านการตรวจ ระบบจะแสดงวงเงินและปุ่มเปิดซื้อขายที่นี่ <Link href="/account">ดูบัญชี</Link></p>
+      </details>
     </> : <>
       {!setup.canControl && <p className="owner-setup-alert">สิทธิ์ดูบัญชียังใช้ได้ กรุณายืนยันสิทธิ์ควบคุมจากตัวเปิดแอพก่อนเปิดการเทรด</p>}
       {!setup.provisioned ? <form onSubmit={e => { e.preventDefault(); if (fullCapital && fullSpotMandate(setup)) void act("/live/provision"); }}>

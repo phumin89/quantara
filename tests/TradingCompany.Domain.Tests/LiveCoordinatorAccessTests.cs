@@ -20,6 +20,40 @@ namespace TradingCompany.Domain.Tests;
 public sealed class LiveCoordinatorAccessTests
 {
     [Fact]
+    public async Task Actual_activity_publisher_and_http_transport_update_only_the_bound_display_snapshot()
+    {
+        await using var factory = new Factory();
+        _ = factory.Server;
+        using var transport = new HttpClient(factory.Server.CreateHandler());
+        var clock = new ActivityClock();
+        var client = new LiveExecutionClient(transport, Token, LiveRiskTests.Account, clock);
+        using var publisher = new LiveCompanyActivityPublisher(client, clock, LiveRiskTests.Account);
+        var before = factory.Store.Account;
+        var meeting = Guid.Parse("d79eb810-8e2b-4539-bfe7-bd82e00429fb");
+        var scope = new TradingAccountContext(TradingMode.Live, LiveRiskTests.Account.Value.ToString("N"));
+        RealtimeEvent Event(string type, string status) => new(type, meeting, clock.Now,
+            new AgentRuntimeEventPayload("ceo", "ceo", status, "private text", "ExecOffice", "private text", MeetingId: meeting))
+            { AccountContext = scope };
+        await publisher.PublishAsync(Event("AgentStartedTask", "working"), default);
+        var display = factory.Services.GetRequiredService<LiveActivityStore>();
+        Assert.Equal("working", Assert.Single(display.Read(LiveRiskTests.Account)!.Roles).Status);
+        clock.Now += TimeSpan.FromSeconds(1);
+        await publisher.PublishAsync(Event("AgentCompletedTask", "completed"), default);
+        Assert.Equal("completed", Assert.Single(display.Read(LiveRiskTests.Account)!.Roles).Status);
+        using var coordinator = factory.Client();
+        var foreign = new LiveCompanyActivity(new(TradingMode.Live, Guid.NewGuid().ToString("N")), meeting, clock.Now, []);
+        Assert.Equal(HttpStatusCode.Forbidden, (await coordinator.PostAsJsonAsync("/internal/live/activity", foreign)).StatusCode);
+        Assert.Equal(before, factory.Store.Account);
+        Assert.Equal(0, factory.Broker.PlaceCalls);
+    }
+
+    private sealed class ActivityClock : TimeProvider
+    {
+        public DateTimeOffset Now { get; set; } = LiveRiskTests.Now;
+        public override DateTimeOffset GetUtcNow() => Now;
+    }
+
+    [Fact]
     public async Task Scoped_report_is_persisted_once_without_financial_mutation()
     {
         await using var factory = new Factory();

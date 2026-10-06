@@ -11,6 +11,8 @@ import { readLiveAccount, orderLabels } from "./liveAccount";
 import type { LiveAccount } from "./liveAccount";
 import { readBitkubWallet } from "./bitkubWallet";
 import type { BitkubWallet } from "./bitkubWallet";
+import { activityLifetime, readLiveActivity } from "./liveActivity";
+import type { LiveActivity } from "./liveActivity";
 
 const ownerOrigin = "https://localhost:3000";
 const executor = "https://localhost:7443";
@@ -77,7 +79,7 @@ export function LiveReadinessView({ state, code, busy, rememberBrowser = true, a
   return <section className="live-readiness" aria-labelledby="live-heading">
     <h2 id="live-heading">{accountOnly ? "เชื่อมบัญชี Bitkub" : "สถานะการเทรด"}</h2>
     <p className="live-state" role="status">{title}</p>
-    <p>{accountOnly ? "ยืนยันเจ้าของเพื่ออ่านยอดจาก Bitkub ในเบราว์เซอร์นี้" : state.kind === "connected" && state.status.state === "ARMED" ? "ระบบรายงานสิทธิ์ส่งคำสั่งแล้ว ดูผลที่ยืนยันได้จากรายการคำสั่ง" : state.kind === "connected" && state.status.state !== "DISABLED" ? "ตรวจยอดและวงเงินด้านล่างก่อนเปิดสิทธิ์ CEO การอ่านบัญชีหรือบันทึกวงเงินยังไม่เริ่มซื้อขาย" : "ยังเปิดซื้อขายเงินจริงไม่ได้ ขั้นนี้เชื่อม Bitkub เพื่อดูยอดหลังยืนยันเจ้าของ"}</p>
+    {accountOnly && <p>ยืนยันเจ้าของเพื่ออ่านยอดจาก Bitkub ในเบราว์เซอร์นี้</p>}
     {state.kind === "https-required" && <p>Live ต้องใช้ https://localhost:3000 และบริการเจ้าของบัญชีที่เชื่อถือได้ ยังไม่ต้องป้อนข้อมูลบัญชีหรือโอนเงิน</p>}
     {state.kind === "unavailable" && <p>ยังยืนยันสถานะและยอดเงินไม่ได้ ตรวจบริการเจ้าของบัญชีและใบรับรอง HTTPS แล้วลองตรวจอีกครั้ง อย่าถือว่าการขาดการเชื่อมต่อคือคำสั่งหยุดสำเร็จ</p>}
     {state.kind === "pair-required" && <>
@@ -93,29 +95,23 @@ export function LiveReadinessView({ state, code, busy, rememberBrowser = true, a
         </div>
       </form>
     </>}
-    {state.kind === "connected" && state.status.reasons.length > 0 && <ul>{state.status.reasons.map((r, i) =>
+    {state.kind === "connected" && state.status.state !== "DISABLED" && state.status.reasons.length > 0 && <ul>{state.status.reasons.map((r, i) =>
       <li key={`${r}-${i}`}>{reasons[r] ?? "มีเงื่อนไขที่ต้องตรวจสอบจากระบบเจ้าของบัญชี"}</li>)}</ul>}
-    {!accountOnly && <details className="live-release-details">
-      <summary>รายละเอียดความพร้อมก่อนเริ่มใช้เงินจริง</summary>
-      <ol className="live-checklist">
-        <li><strong>เชื่อมตลาดและตรวจบัญชี</strong><span>ตรวจจำนวนเหรียญ ค่าธรรมเนียม และผลคำสั่งจริงให้ตรงกัน รวมกรณีการเชื่อมต่อขาด</span></li>
-        <li><strong>แยกสิทธิ์และผูกบัญชีเจ้าของ</strong><span>AI อ่านข้อมูลและเสนอคำสั่งได้ แต่เข้าถึงกุญแจซื้อขายหรือแก้บัญชีไม่ได้</span></li>
-        <li><strong>เจ้าของตั้งวงเงินและเปิดใช้งาน</strong><span>ต้องผ่านการตรวจความพร้อมก่อน ไม่เปิดอัตโนมัติจากการสลับโหมด</span></li>
-      </ol>
-      <p className="live-separation">การอ่านบัญชีนี้แยกจากสิทธิ์ควบคุมเงิน เจ้าของต้องยืนยันใหม่ก่อนการควบคุมใด ๆ</p>
-    </details>}
   </section>;
 }
 
-type Observation = { state: Connection; wallet?: BitkubWallet; account?: LiveAccount };
+type Observation = { state: Connection; wallet?: BitkubWallet; account?: LiveAccount; activity?: LiveActivity };
 
 // Commit a verified observation together. A pending read never clears a fresh balance.
 export async function readLiveObservation(origin: string, fetcher: typeof fetch = fetch, signal?: AbortSignal): Promise<Observation> {
   const state = await readLiveStatus(origin, fetcher, signal);
   if (state.kind !== "connected") return { state };
-  return state.status.state === "DISABLED"
-    ? { state, wallet: await readBitkubWallet(origin, fetcher, signal) }
-    : { state, account: await readLiveAccount(origin, state.status, fetcher, signal) };
+  if (state.status.state === "DISABLED") return { state, wallet: await readBitkubWallet(origin, fetcher, signal) };
+  const [account, activity] = await Promise.all([
+    readLiveAccount(origin, state.status, fetcher, signal),
+    state.status.accountId?.value ? readLiveActivity(origin, state.status.accountId.value, fetcher, signal) : undefined,
+  ]);
+  return { state, account, activity };
 }
 
 type LiveWorkspace = Observation & {
@@ -139,6 +135,7 @@ export function LiveAccountProvider({ children }: { children: ReactNode }) {
   const [revision, setRevision] = useState(0);
   const [account, setAccount] = useState<LiveAccount>();
   const [wallet, setWallet] = useState<BitkubWallet>();
+  const [activity, setActivity] = useState<LiveActivity>();
   const [refreshing, setRefreshing] = useState(true);
   const actionAbort = useRef<AbortController | null>(null);
   useEffect(() => () => actionAbort.current?.abort(), []);
@@ -154,6 +151,7 @@ export function LiveAccountProvider({ children }: { children: ReactNode }) {
       setState(next.state);
       setAccount(next.account);
       setWallet(next.wallet);
+      setActivity(next.activity);
       setRefreshing(false);
       if (next.state.kind !== "https-required") timer = setTimeout(refresh, 10000);
     }
@@ -170,6 +168,12 @@ export function LiveAccountProvider({ children }: { children: ReactNode }) {
     const expiry = setTimeout(() => setAccount(current => current === account ? undefined : current), Math.max(0, Date.parse(account.snapshot.observedAt) + 30000 - Date.now()));
     return () => clearTimeout(expiry);
   }, [account]);
+  useEffect(() => {
+    if (!activity) return;
+    const expiry = setTimeout(() => setActivity(current => current === activity ? undefined : current),
+      Math.max(0, Date.parse(activity.observedAt) + activityLifetime - Date.now()));
+    return () => clearTimeout(expiry);
+  }, [activity]);
   async function act(action: "pair" | "stop" | "logout") {
     if (actionAbort.current) return;
     const controller = new AbortController();
@@ -177,6 +181,7 @@ export function LiveAccountProvider({ children }: { children: ReactNode }) {
     setBusy(true); setMessage("");
     setAccount(undefined);
     setWallet(undefined);
+    setActivity(undefined);
     const pairingCode = code; setCode("");
     const result = await postOwnerAction(window.location.origin, action, pairingCode, fetch, controller.signal, rememberBrowser);
     actionAbort.current = null;
@@ -189,7 +194,7 @@ export function LiveAccountProvider({ children }: { children: ReactNode }) {
       action === "stop" ? "ยังยืนยันการหยุดไม่ได้ ตรวจสถานะจากบริการเจ้าของบัญชี ห้ามถือว่าหยุดสำเร็จ" : "ดำเนินการไม่สำเร็จ ตรวจการเชื่อมต่อหรือขอรหัสจับคู่ใหม่ ไม่มีการลองซ้ำอัตโนมัติ");
     setRevision(r => r + 1);
   }
-  return <LiveContext.Provider value={{ state, account, wallet, refreshing, busy, code, rememberBrowser, message,
+  return <LiveContext.Provider value={{ state, account, wallet, activity, refreshing, busy, code, rememberBrowser, message,
     setCode, setRememberBrowser, refresh: () => setRevision(r => r + 1), act }}>
     {children}
     <CompanyChat compact={state.kind !== "connected" || state.status.state === "DISABLED"}><LiveTeamSummary /></CompanyChat>
@@ -263,46 +268,32 @@ function officeSummary(state: Connection) {
   return {
     title: status.state === "DISABLED" ? "Live ยังไม่เปิดใช้งาน" : labels[status.state],
     description: status.state === "ARMED" ? "เปิดสิทธิ์ส่งคำสั่งแล้ว ทุกคำสั่งยังต้องผ่านการตรวจความเสี่ยง อ่านผลรอบที่บันทึกไว้ในห้องทีม" :
-      status.state === "DISABLED" ? "ระบบส่งคำสั่งยังไม่เปิด รอบประชุม Live ต้องมีบัญชีที่ตรวจแล้วและสิทธิ์จากเจ้าของก่อน" :
+      status.state === "DISABLED" ? "" :
       status.state === "STOPPED" ? "หยุดส่งคำสั่งใหม่แล้ว สินทรัพย์และคำสั่งค้างยังต้องตรวจจากหน้าการเทรด" :
       status.reasons.map(reason => reasons[reason] ?? "มีเงื่อนไขจากบริการบัญชีที่ต้องตรวจสอบ").join(" · ") || "ตรวจยอดบัญชีและวงเงินก่อนเปิดสิทธิ์ส่งคำสั่ง",
     href: "/trading", action: status.armed ? "ดูคำสั่งและผลการเทรด" : "ตรวจความพร้อมเพื่อเปิด Live",
   };
 }
 
-export function LiveOfficeWorkspaceView({ state, wallet, account }: Observation) {
+export function LiveOfficeWorkspaceView({ state, wallet, account, activity }: Observation) {
   const summary = officeSummary(state);
   const cash = wallet?.balances.find(b => b.currency === "THB")?.available ??
     (account ? account.snapshot.cashBalance - account.snapshot.cashReserved : undefined);
   const observation = wallet?.observedAt ?? account?.snapshot.observedAt;
-  const reconciled = account?.snapshot.reconciled === true;
-  const armed = state.kind === "connected" && state.status.armed;
   return <div className="office-workspace">
     <section className="office-summary" aria-labelledby="office-status-heading">
-      <div><h2 id="office-status-heading">{summary.title}</h2><p>{summary.description}</p></div>
+      <div><h2 id="office-status-heading">{summary.title}</h2>{summary.description && <p>{summary.description}</p>}</div>
       <Link href={summary.href} className="workspace-primary">{summary.action}<Arrow /></Link>
     </section>
     <div className="office-grid">
-      <LiveOffice />
+      <LiveOffice activity={activity} />
       <aside className="office-overview" aria-label="บัญชีและการทำงานของทีม">
         <section><h2>เงินสดที่ใช้ได้</h2><p className="office-balance">{cash === undefined ? "ยังยืนยันยอดไม่ได้" : new Intl.NumberFormat("th-TH", { style: "currency", currency: "THB" }).format(cash)}</p>
-          <p>{cash === undefined ? "อ่านยอดล่าสุดได้ที่หน้าบัญชี" : "THB จากบัญชี Bitkub · การอ่านยอดไม่เปิดสิทธิ์ซื้อขาย"}</p>
           {observation && <p className="office-observation">อ่านยอดจากตลาดเมื่อ<time dateTime={observation}>{new Date(observation).toLocaleString("th-TH", { timeZone: "Asia/Bangkok" })}</time></p>}
           <Link href="/account" className="workspace-link">ดูบัญชีและสินทรัพย์<Arrow /></Link>
         </section>
-        <section className="office-help"><h2>ติดตามการตัดสินใจ</h2>
-          <p>เปิดห้องทีมจากปุ่มแชตมุมล่างขวา เพื่ออ่านข้อสรุป เหตุผล และรายงานที่บันทึกไว้ของแต่ละรอบ</p>
-          <p>ภาพ Pixel ยังไม่เชื่อมกิจกรรมสด ใช้รายงานทีมและสถานะคำสั่งเพื่อตรวจการทำงาน</p>
-        </section>
       </aside>
     </div>
-    <section className="office-progress" aria-labelledby="office-progress-heading"><h2 id="office-progress-heading">ก่อนทีมเริ่มซื้อขาย</h2>
-      <ol className="office-steps">
-        <li data-complete={cash !== undefined}><strong>อ่านยอดบัญชี</strong><span>{cash === undefined ? "ยังยืนยันยอดไม่ได้" : "อ่านยอดล่าสุดแล้ว"}</span><p>ยอดนี้ใช้ดูเงินที่มีจริง ยังไม่ใช่วงเงินที่อนุญาตให้ CEO ใช้</p></li>
-        <li data-complete={reconciled}><strong>ตรวจบัญชีสำหรับซื้อขาย</strong><span>{reconciled ? "ตรวจยอดกับตลาดแล้ว" : "ยังยืนยันการตรวจยอดไม่ได้"}</span><p>ต้องยืนยันผลคำสั่ง ค่าธรรมเนียม และผูกบัญชีก่อนเปิด Live</p></li>
-        <li data-complete={armed}><strong>เปิดสิทธิ์ส่งคำสั่ง</strong><span>{armed ? "เปิดสิทธิ์แล้ว" : state.kind === "connected" && state.status.state === "STOPPED" ? "เจ้าของสั่งหยุดแล้ว" : "ยังไม่เปิดสิทธิ์"}</span><p>เจ้าของอนุมัติวงเงินก่อนเริ่ม ระบบความเสี่ยงตรวจทุกคำสั่งจาก CEO</p></li>
-      </ol>
-    </section>
   </div>;
 }
 function Arrow() { return <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14m-5-5 5 5-5 5" /></svg>; }
@@ -316,9 +307,8 @@ export function LiveTeamSummaryView({ state, wallet, account }: Observation) {
   const observation = wallet?.observedAt ?? account?.snapshot.observedAt;
   const reportsAvailable = state.kind === "connected" && state.status.state !== "DISABLED";
   return <div className="live-team-summary">
-    <section className="team-conclusion"><h3>สถานะระบบตอนนี้</h3><p className="team-conclusion-text">{summary.title}</p>
-      {!reportsAvailable && <><p>{summary.description}</p><Link href={summary.href} className="workspace-link">{summary.action}<Arrow /></Link></>}
-      {!reportsAvailable && <p className="data-freshness">ขณะนี้ยังอ่านรายงาน Live ที่ผูกกับบัญชีไม่ได้</p>}
+    <section className="team-conclusion"><p className="team-conclusion-text">{summary.title}</p>
+      {!reportsAvailable && <Link href={summary.href} className="workspace-link">{summary.action}<Arrow /></Link>}
       {reportsAvailable && state.status.reasons.length > 0 && <><h4>เหตุผลจากระบบ</h4><ul>{state.status.reasons.map((r, i) => <li key={`${r}-${i}`}>{reasons[r] ?? "มีเงื่อนไขที่ต้องตรวจจากบริการบัญชี"}</li>)}</ul></>}
       {observation && <p className="data-freshness">อ่านบัญชีเมื่อ {new Date(observation).toLocaleTimeString("th-TH", { timeZone: "Asia/Bangkok" })}</p>}
     </section>

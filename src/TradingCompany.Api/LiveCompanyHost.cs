@@ -43,15 +43,21 @@ public static class LiveCompanyHost
             !Path.IsPathFullyQualified(dataPath ?? "") || string.IsNullOrWhiteSpace(model))
             throw new InvalidDataException("Isolated Live company configuration is invalid.");
         services.AddSingleton(TimeProvider.System);
-        services.AddSingleton<ILiveCompanyClient>(_ => new LiveExecutionClient(
-            CreateTransport(config["LiveCompany:ExecutorCertificateFile"]), token, account));
+        services.AddSingleton<ILiveCompanyClient>(sp => new LiveExecutionClient(
+            CreateTransport(config["LiveCompany:ExecutorCertificateFile"]), token, account, sp.GetRequiredService<TimeProvider>()));
+        services.AddSingleton(sp => new LiveCompanyActivityPublisher(sp.GetRequiredService<ILiveCompanyClient>(),
+            sp.GetRequiredService<TimeProvider>(), account));
+        services.AddSingleton<IRealtimeEventPublisher>(sp => sp.GetRequiredService<LiveCompanyActivityPublisher>());
+        services.AddHostedService(sp => sp.GetRequiredService<LiveCompanyActivityPublisher>());
         services.AddHttpClient("market-data", client => client.Timeout = TimeSpan.FromSeconds(20));
         services.AddSingleton<IHistoricalMarketEvidenceProvider, RealHistoricalMarketDataProvider>();
         services.AddSingleton<ITradingAgentGateway>(_ => new CodexCliTradingAgentGateway("codex"));
         services.AddSingleton<IAgentDecisionArtifactStore>(_ => new JsonAgentDecisionArtifactStore(Path.Combine(dataPath!, "artifacts")));
         services.AddSingleton<IAiCompanyMeetingRunner>(sp => new AiCompanyMeetingRunner(
             sp.GetRequiredService<ITradingAgentGateway>(), sp.GetRequiredService<IAgentDecisionArtifactStore>(),
-            new(true, model, "medium", "company-v1", "owner-live-v1", 600, 8, 250_000, TimeSpan.FromSeconds(120))));
+            new(true, model, "medium", "company-v1", "owner-live-v1", 600, 8, 250_000, TimeSpan.FromSeconds(120)),
+            clock: sp.GetRequiredService<TimeProvider>().GetUtcNow,
+            events: sp.GetRequiredService<IRealtimeEventPublisher>()));
         services.AddSingleton<IDailyMeetingJournal>(_ => new JsonDailyMeetingJournal(Path.Combine(dataPath!, "meetings.json"),
             new(TradingMode.Live, id.ToString("N"))));
         services.AddSingleton(sp => new LiveCompanyCoordinator(sp.GetRequiredService<ILiveCompanyClient>(),
@@ -88,12 +94,19 @@ public static class LiveCompanyHost
     }
 }
 
-public sealed class LiveCompanyWorker(LiveCompanyCoordinator company, TimeProvider clock) : BackgroundService
+public sealed class LiveCompanyWorker(LiveCompanyCoordinator company, TimeProvider clock, LiveCompanyActivityPublisher activity) : BackgroundService
 {
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         using var timer = new PeriodicTimer(TimeSpan.FromSeconds(30), clock);
-        try { do { await company.TickAsync(stoppingToken); } while (await timer.WaitForNextTickAsync(stoppingToken)); }
+        try
+        {
+            do
+            {
+                try { await company.TickAsync(stoppingToken); }
+                finally { await activity.EndMeetingAsync(stoppingToken); }
+            } while (await timer.WaitForNextTickAsync(stoppingToken));
+        }
         catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested) { }
     }
 }

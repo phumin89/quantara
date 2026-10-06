@@ -18,11 +18,24 @@ public sealed class LiveOwnerAccessTests
     [InlineData("/live/status")]
     [InlineData("/live/account")]
     [InlineData("/live/wallet")]
+    [InlineData("/live/activity")]
     public async Task Anonymous_cannot_read_live_state(string path)
     {
         await using var factory = new Factory();
         using var client = factory.Client();
         Assert.Equal(HttpStatusCode.Unauthorized, (await client.GetAsync(path)).StatusCode);
+    }
+
+    [Fact]
+    public async Task Owner_can_read_empty_activity_but_cannot_publish_advisory_events()
+    {
+        await using var factory = new Factory();
+        using var client = factory.Client();
+        Assert.Equal(HttpStatusCode.NoContent, (await Pair(client, factory.Services.GetRequiredService<OwnerSession>().IssuePairingCode())).StatusCode);
+        var result = await client.GetFromJsonAsync<JsonElement>("/live/activity");
+        Assert.Equal(JsonValueKind.Null, result.GetProperty("activity").ValueKind);
+        client.DefaultRequestHeaders.Remove("Origin");
+        Assert.Equal(HttpStatusCode.Unauthorized, (await client.PostAsJsonAsync("/internal/live/activity", new { })).StatusCode);
     }
 
     [Fact]

@@ -65,6 +65,15 @@ public static class LiveCoordinatorEndpoints
             }, context.RequestAborted);
             return Results.Ok(new { saved = true });
         });
+        routes.MapPost("/activity", (LiveCompanyActivity activity, HttpContext context, LiveActivityStore store) =>
+        {
+            var configured = context.RequestServices.GetService<BitkubConfiguredAccount>();
+            if (configured is null) return Results.StatusCode(503);
+            if (activity.AccountContext?.Mode != TradingMode.Live ||
+                activity.AccountContext.AccountId != configured.AccountId.Value.ToString("N") ||
+                !Bound(context, configured.AccountId.Value)) return Results.StatusCode(403);
+            return store.Save(activity, configured.AccountId) ? Results.Ok(new { saved = true }) : Results.BadRequest();
+        });
     }
 
     private static bool Bound(HttpContext context, Guid accountId) => accountId != Guid.Empty &&

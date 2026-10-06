@@ -29,6 +29,8 @@ public sealed class LiveCompanyHostTests
             new("LiveCompany:Model", "codex-default") ]));
         Assert.Contains(services, s => s.ServiceType == typeof(LiveCompanyCoordinator));
         Assert.Contains(services, s => s.ServiceType == typeof(ITradingAgentGateway));
+        Assert.Contains(services, s => s.ServiceType == typeof(IRealtimeEventPublisher));
+        Assert.Contains(services, s => s.ServiceType == typeof(LiveCompanyActivityPublisher));
         Assert.DoesNotContain(services, s => s.ServiceType == typeof(ILiveBroker) || s.ServiceType == typeof(ILiveTradingStore) ||
             s.ServiceType == typeof(BitkubLiveBroker) || s.ImplementationType == typeof(ForwardPaperCompanyService));
     }
