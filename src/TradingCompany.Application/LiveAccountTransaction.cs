@@ -204,6 +204,9 @@ public sealed partial class LiveAccountTransaction(LiveAccountState initial, Fun
         if (order.Intent.Side != fill.Side || order.Intent.Symbol != fill.Symbol ||
             order.State is LiveOrderState.Reserved or LiveOrderState.Proposed or LiveOrderState.Rejected)
             throw new InvalidDataException("Fill does not match the owned order.");
+        if (fill.QuoteAmount is { } quote && (quote <= 0 || fill.Side != OrderSide.Buy ||
+            order.Intent.BuyBudget is null || quote < fill.Quantity * fill.Price))
+            throw new InvalidDataException("Unsupported broker quote amount.");
         var existing = Account.Fills.SingleOrDefault(f => f.TransactionId == fill.TransactionId);
         if (existing == fill) return;
         if (existing is not null && (fill.Revision <= existing.Revision || existing with { Revision = fill.Revision, CashFee = fill.CashFee } != fill))
@@ -214,11 +217,11 @@ public sealed partial class LiveAccountTransaction(LiveAccountState initial, Fun
         if (existing is null && ((fill.Side == OrderSide.Buy && fill.Price > order.Intent.LimitPrice) || (fill.Side == OrderSide.Sell && fill.Price < order.Intent.LimitPrice)))
             throw new InvalidDataException("Fill exceeds limit price.");
         var feeChange = fill.CashFee - (existing?.CashFee ?? 0);
-        var value = quantity * fill.Price;
+        var value = existing is null ? fill.GrossQuoteAmount : 0m;
         if (order.Intent.BuyBudget is { } budget)
         {
             var spent = Account.Fills.Where(f => f.OrderId == order.BrokerId && f.Symbol == order.Intent.Symbol && f.Side == order.Intent.Side)
-                .Sum(f => f.Quantity * f.Price + f.CashFee);
+                .Sum(f => f.GrossQuoteAmount + f.CashFee);
             if (order.Intent.Side != OrderSide.Buy || budget <= 0 || budget != order.Intent.Quantity * order.Intent.LimitPrice ||
                 spent + value + feeChange > budget)
                 throw new InvalidDataException("Fill exceeds buy cash budget.");

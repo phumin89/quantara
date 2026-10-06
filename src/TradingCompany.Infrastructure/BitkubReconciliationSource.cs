@@ -28,7 +28,8 @@ public sealed class BitkubReconciliationSource(BitkubLiveBroker transport, Bitku
         {
             var open = await transport.GetOpenOrdersAsync(pair.Symbol, cancellationToken);
             var history = (await transport.GetHistoryAsync(pair.Symbol, cancellationToken))
-                .Where(h => h.Timestamp >= epoch.ToUnixTimeSeconds()).ToArray();
+                .Where(h => h.Timestamp >= epoch.ToUnixTimeMilliseconds()).ToArray();
+            if (history.Any(h => h.Timestamp > clock.GetUtcNow().ToUnixTimeMilliseconds())) throw Unavailable();
             var local = expected.Where(o => o.Intent.Symbol == pair.Symbol).ToArray();
             if (open.Any(o => !local.Any(l => l.Intent.Id.ToString("N") == o.ClientId && l.Intent.Side == o.Side)) ||
                 history.Any(h => !local.Any(l => l.Intent.Id.ToString("N") == h.ClientId &&
@@ -106,11 +107,21 @@ public sealed class BitkubReconciliationSource(BitkubLiveBroker transport, Bitku
             : raw.RawAmount * raw.Rate;
         var feeBasis = intent.Side == OrderSide.Buy ? raw.RawAmount : gross;
         if (gross <= 0 || fee > feeBasis * rules.MaximumCashFeeRate) throw Unavailable();
-        var quantity = intent.Side == OrderSide.Buy ? gross / raw.Rate : raw.RawAmount;
         var pair = rules.Pairs.SingleOrDefault(p => p.Symbol == intent.Symbol) ?? throw Unavailable();
-        // Reject non-exact decimal division; do not invent coin dust or cash rounding.
-        if (quantity <= 0 || pair.SellBaseStep <= 0 || quantity % pair.SellBaseStep != 0 || quantity * raw.Rate != gross) throw Unavailable();
-        return new(account, raw.TransactionId, brokerId, intent.Side, intent.Symbol, quantity, raw.Rate, fee, 1);
+        if (pair.SellBaseStep <= 0 || !Enum.IsDefined(pair.BuyBaseRounding)) throw Unavailable();
+        var quantity = intent.Side == OrderSide.Buy ? gross / raw.Rate : raw.RawAmount;
+        if (intent.Side == OrderSide.Buy && pair.BuyBaseRounding == BitkubBuyBaseRounding.FloorToBaseStep)
+        {
+            if (intent.BuyBudget is null) throw Unavailable();
+            quantity = decimal.Floor(quantity / pair.SellBaseStep) * pair.SellBaseStep;
+            // Check the exact remainder, including division at decimal's precision boundary.
+            var remainder = gross - quantity * raw.Rate;
+            if (remainder < 0 || remainder >= pair.SellBaseStep * raw.Rate) throw Unavailable();
+        }
+        else if (quantity * raw.Rate != gross) throw Unavailable();
+        if (quantity <= 0 || quantity % pair.SellBaseStep != 0) throw Unavailable();
+        return new(account, raw.TransactionId, brokerId, intent.Side, intent.Symbol, quantity, raw.Rate, fee, 1)
+        { QuoteAmount = quantity * raw.Rate == gross ? null : gross };
     }
 
     private static InvalidDataException Unavailable() => new("BITKUB_RECONCILIATION_EVIDENCE_UNVERIFIED");

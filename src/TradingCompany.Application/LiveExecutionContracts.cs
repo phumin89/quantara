@@ -26,7 +26,14 @@ public interface ILiveBroker
     Task<BrokerCancellation> CancelAsync(string symbol, string orderId, OrderSide side, CancellationToken cancellationToken);
 }
 public sealed record BrokerFill(LiveAccountId AccountId, string TransactionId, string OrderId, OrderSide Side,
-    string Symbol, decimal Quantity, decimal Price, decimal CashFee, long Revision);
+    string Symbol, decimal Quantity, decimal Price, decimal CashFee, long Revision)
+{
+    // Broker quote spending can differ from rounded received coins times the fill price.
+    // Null preserves the exact-price accounting used by existing persisted fills.
+    public decimal? QuoteAmount { get; init; }
+    [System.Text.Json.Serialization.JsonIgnore]
+    public decimal GrossQuoteAmount => QuoteAmount ?? Quantity * Price;
+}
 public sealed record LiveAuditEvent(DateTimeOffset At, string Kind, Guid? IntentId, string Detail);
 public sealed record LiveAccountState(LiveAccountId AccountId, LiveMandate Mandate, LiveGateState Gate,
     LiveSnapshot Snapshot, IReadOnlyList<LiveOrderRecord> Orders, IReadOnlyList<BrokerFill> Fills, IReadOnlyList<LiveAuditEvent> Audit)

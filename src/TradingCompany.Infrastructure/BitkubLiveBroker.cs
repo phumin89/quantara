@@ -35,6 +35,27 @@ public sealed record BrokerOrderEvidence(string Symbol, OrderSide Side, string O
 /// <summary>Private broker transport. Execution requires the verified, owner-gated Live host.</summary>
 public sealed class BitkubLiveBroker : IDisposable
 {
+    // The official permission table requires Trade for wstoken. Issue and discard a
+    // token; this never creates/cancels an order or returns authentication material.
+    public async Task<bool> CheckTradePermissionAsync(CancellationToken cancellationToken = default)
+    {
+        using var document = await SendSigned(HttpMethod.Post, "/api/v3/market/wstoken", "{}", cancellationToken);
+        try
+        {
+            var root = document.RootElement;
+            var code = Required(root, "error").GetInt32();
+            if (code == 52 && !root.EnumerateObject().Any(p => p.NameEquals("result") && p.Value.ValueKind != JsonValueKind.Null))
+                return false;
+            if (code != 0) throw Unavailable();
+            var token = Required(root, "result").GetString();
+            if (token is null || token.Length is < 32 or > 2048 || token.Any(char.IsWhiteSpace) || token.Any(char.IsControl))
+                throw Unavailable();
+            return true;
+        }
+        catch (Exception error) when (error is JsonException or InvalidOperationException or FormatException or OverflowException)
+        { throw Unavailable(); }
+    }
+
     public async Task<LiveQuote> GetQuoteAsync(string symbol, CancellationToken cancellationToken = default)
     {
         var pair = Pair(symbol);

@@ -1,72 +1,97 @@
 using System.Text.Json;
+using System.Security.Cryptography;
+using System.Text;
 using TradingCompany.Infrastructure;
 
-// This separate process reads the owner's .env directly, never exports it to environment/child models.
-// It only reads the wallet. It does not register an executor, arm, place or cancel orders.
-var unattended = args.Length == 1 && args[0] == "--check-env";
-if (!unattended && (Console.IsInputRedirected || Console.IsOutputRedirected || args.Length != 0))
-    return 2;
-
-if (!Console.IsOutputRedirected) Console.Title = "Quantara - Bitkub read-only connection";
-Console.WriteLine("BITKUB READ-ONLY CONNECTION CHECK");
-Console.WriteLine("Create a NEW key with Trade, Deposit and Withdraw unchecked.");
-Console.WriteLine("Reads BITKUB_API_KEY and BITKUB_API_SECRET from the project's .env file.");
-Console.WriteLine("Credentials are never printed or exported to environment variables.");
-Console.WriteLine("This reads your real wallet. Live trading remains DISABLED.");
+// Separate diagnostic process: direct file reads, no credential export, model or executor.
+var captureEvidence = args.SequenceEqual(["--capture-evidence-env"]);
+var preflight = captureEvidence || args.SequenceEqual(["--preflight-env"]);
+var unattended = preflight || args.SequenceEqual(["--check-env"]);
+if (!unattended && (Console.IsInputRedirected || Console.IsOutputRedirected || args.Length != 0)) return 2;
+if (!Console.IsOutputRedirected) Console.Title = "Quantara - Bitkub connection check";
+Console.WriteLine(preflight ? "BITKUB LIVE PREPARATION CHECK" : "BITKUB READ-ONLY CONNECTION CHECK");
+Console.WriteLine("Uses the existing key/secret in the project's .env. Credentials are never printed or exported.");
+Console.WriteLine("This does not enable Live, place/cancel orders or change the verified broker profile.");
 
 var exitCode = 1;
-var reportPath = Path.Combine(AppContext.BaseDirectory, "wallet-read-result.json");
+var reportPath = Path.Combine(AppContext.BaseDirectory, captureEvidence
+    ? $"broker-evidence-{DateTimeOffset.UtcNow:yyyyMMddTHHmmss}-{Guid.NewGuid():N}.json"
+    : preflight ? "preflight-read-result.json" : "wallet-read-result.json");
+var stage = "report";
 try
 {
-    // Replace any earlier success before attempting a new check, so it cannot appear current after failure.
     await File.WriteAllTextAsync(reportPath, JsonSerializer.Serialize(new
-    {
-        observedAt = DateTimeOffset.UtcNow, walletReadSucceeded = false, liveEnabled = false
-    }));
+    { observedAt = DateTimeOffset.UtcNow, completed = false, walletReadSucceeded = false, liveEnabled = false }));
+    stage = "credentials";
     var (key, secret) = BitkubCredentialsFile.Read(Path.GetFullPath(".env"));
     using var broker = new BitkubLiveBroker(key, secret);
-    using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(25));
-    Console.WriteLine("Checking signed wallet read...");
+    using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(preflight ? 60 : 25));
+    stage = "wallet";
     var wallet = await broker.GetWalletAsync(deadline.Token);
     var thb = wallet.Single(b => b.Currency == "THB");
-    Console.WriteLine($"CONNECTED: THB available {thb.Available}, reserved {thb.Reserved}, total {thb.Total}");
     var nonzeroCoins = wallet.Where(b => b.Currency != "THB" && b.Total != 0).Select(b => b.Currency).ToArray();
-    Console.WriteLine(nonzeroCoins.Length == 0 ? "No nonzero coin balances reported." :
-        "Nonzero coin balances reported: " + string.Join(", ", nonzeroCoins));
-    Console.WriteLine("Read access verified. Account identity, permissions and Live readiness are not verified by this check.");
+    Console.WriteLine($"CONNECTED: THB available {thb.Available}, reserved {thb.Reserved}, total {thb.Total}");
+    Console.WriteLine(nonzeroCoins.Length == 0 ? "No nonzero coin balances reported." : "Nonzero coin balances: " + string.Join(", ", nonzeroCoins));
 
-    // Non-secret evidence only, beside this published executable, inside ignored .runtime.
-    var report = new
+    bool? tradePermissionConfirmed = null;
+    int? openOrderCount = null;
+    bool? stableWallet = null;
+    var historyCounts = new Dictionary<string, int>();
+    var marketRules = new List<BrokerSymbolRules>();
+    var capturedHistory = new List<BrokerHistoryEntry>();
+    var capturedOrders = new List<BrokerOrderEvidence>();
+    if (preflight)
     {
-        observedAt = DateTimeOffset.UtcNow,
-        source = "https://api.bitkub.com/api/v4/wallet/balances",
-        walletReadSucceeded = true,
-        liveEnabled = false,
-        thbAvailable = thb.Available, thbReserved = thb.Reserved, thbTotal = thb.Total,
-        nonzeroCoins
-    };
-    await File.WriteAllTextAsync(reportPath, JsonSerializer.Serialize(report, new JsonSerializerOptions { WriteIndented = true }));
-    Console.WriteLine("Non-secret result saved locally: " + reportPath);
+        stage = "permission";
+        try { tradePermissionConfirmed = await broker.CheckTradePermissionAsync(deadline.Token); }
+        catch (InvalidDataException) { /* Unknown is not a denial or permission grant. */ }
+        Console.WriteLine(tradePermissionConfirmed switch
+        { true => "Trade permission probe succeeded. The issued token was discarded.", false => "Bitkub rejected the Trade permission probe (52).", _ => "Trade permission remains unknown: the token probe is unavailable." });
+        stage = "orders-and-history";
+        openOrderCount = 0;
+        foreach (var symbol in new[] { "BTC-THB", "ETH-THB", "SOL-THB" })
+        {
+            openOrderCount += (await broker.GetOpenOrdersAsync(symbol, deadline.Token)).Count;
+            var history = await broker.GetHistoryAsync(symbol, deadline.Token);
+            historyCounts[symbol] = history.Count;
+            if (captureEvidence)
+            {
+                // A bounded canary capture must be complete, never silently truncated.
+                if (history.Count > 20) throw new InvalidDataException("Capture history exceeds the canary bound.");
+                capturedHistory.AddRange(history);
+                foreach (var identity in history.Select(h => (h.OrderId, h.Side)).Distinct())
+                    capturedOrders.Add(await broker.GetOrderAsync(symbol, identity.OrderId,
+                        identity.Side == "buy" ? TradingCompany.Domain.OrderSide.Buy : TradingCompany.Domain.OrderSide.Sell, deadline.Token));
+            }
+            marketRules.Add(await broker.GetSymbolRulesAsync(symbol, deadline.Token));
+        }
+        stage = "stable-wallet";
+        var second = await broker.GetWalletAsync(deadline.Token);
+        stableWallet = wallet.OrderBy(b => b.Currency, StringComparer.Ordinal).SequenceEqual(second.OrderBy(b => b.Currency, StringComparer.Ordinal));
+        Console.WriteLine($"Open orders in the supported pairs: {openOrderCount}. Wallet stable during check: {stableWallet}.");
+        Console.WriteLine($"Matched history records available: {historyCounts.Values.Sum()}. History alone does not verify settlement/rounding.");
+    }
+    stage = "report";
+    await File.WriteAllTextAsync(reportPath, JsonSerializer.Serialize(new
+    {
+        observedAt = DateTimeOffset.UtcNow, completed = true,
+        source = "https://api.bitkub.com/api/v4/wallet/balances", walletReadSucceeded = true,
+        liveEnabled = false, thbAvailable = thb.Available, thbReserved = thb.Reserved, thbTotal = thb.Total,
+        nonzeroCoins, tradePermissionConfirmed, openOrderCount, historyCounts, stableWallet, marketRules,
+        initialInventoryEmpty = preflight ? stableWallet == true && thb.Reserved == 0 && nonzeroCoins.Length == 0 && openOrderCount == 0 : (bool?)null,
+        funded = thb.Total > 0,
+        // Account/fill identifiers and balances stay private in ignored .runtime captures.
+        // Typed evidence contains no API key, signature, secret or websocket token.
+        credentialFingerprint = captureEvidence ? "sha256:" + Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(key + "\0" + secret))) : null,
+        walletBalances = captureEvidence ? wallet : null,
+        orderHistory = captureEvidence ? capturedHistory : null,
+        orderDetails = captureEvidence ? capturedOrders : null
+    }, new JsonSerializerOptions { WriteIndented = true }));
+    Console.WriteLine("Diagnostic result saved locally. Owner activation and real execution remain unverified.");
     exitCode = 0;
 }
-catch (OperationCanceledException)
-{
-    Console.WriteLine("Check cancelled or timed out. No order was sent.");
-}
-catch (Exception ex) when (ex is InvalidDataException or FileNotFoundException or UnauthorizedAccessException)
-{
-    Console.WriteLine("Could not read credentials. Fill BITKUB_API_KEY and BITKUB_API_SECRET in the project's .env.");
-    Console.WriteLine("Use one entry for each, without duplicates. No order sent.");
-}
-catch (Exception)
-{
-    // Never print credentials, signatures, broker response bodies or provider exceptions.
-    Console.WriteLine("Wallet read failed. Check the key/secret, Bitkub key status, IP restriction and network.");
-    Console.WriteLine("No order sent; credentials remain only in your local .env.");
-}
-if (!unattended)
-{
-    Console.WriteLine("Press Enter to return.");
-    Console.ReadLine();
-}
+catch (OperationCanceledException) { Console.WriteLine($"Check timed out at {stage}. No order was sent."); }
+catch (Exception) when (stage == "credentials") { Console.WriteLine("Could not read credentials. Check the two unique key/secret entries in .env."); }
+catch (Exception) { Console.WriteLine($"Check unavailable at {stage}. Check Bitkub key status, IP restriction and network. No order was sent."); }
+if (!unattended) { Console.WriteLine("Press Enter to return."); Console.ReadLine(); }
 return exitCode;

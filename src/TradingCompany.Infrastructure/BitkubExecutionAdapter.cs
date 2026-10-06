@@ -4,8 +4,13 @@ using TradingCompany.Domain;
 namespace TradingCompany.Infrastructure;
 
 public enum BitkubBuyHistoryAmount { QuoteBeforeCashFee, QuoteIncludingCashFee }
+public enum BitkubBuyBaseRounding { Exact, FloorToBaseStep }
 public sealed record BitkubPairExecutionRules(string Symbol, decimal BuyQuoteStep, decimal SellBaseStep,
-    decimal PriceStep, decimal MinimumQuoteSize, int RawQuantityScale, decimal RawQuantityStep);
+    decimal PriceStep, decimal MinimumQuoteSize, int RawQuantityScale, decimal RawQuantityStep)
+{
+    // Opt-in only after broker evidence confirms per-fill received-coin rounding.
+    public BitkubBuyBaseRounding BuyBaseRounding { get; init; }
+}
 
 // This is server-owned broker-confirmed evidence, never an LLM/browser assertion.
 // There is intentionally no default ruleset: unknown sizing/accounting remains blocked.
@@ -46,7 +51,7 @@ public sealed class BitkubExecutionAdapter : ILiveBroker
             rules.Pairs is null || rules.Pairs.Count is 0 or > 3 ||
             rules.Pairs.Any(p => p is null || p.Symbol is not ("BTC-THB" or "ETH-THB" or "SOL-THB") ||
                 p.BuyQuoteStep <= 0 || p.SellBaseStep <= 0 || p.PriceStep <= 0 || p.MinimumQuoteSize <= 0 ||
-                p.RawQuantityScale is < 0 or > 28 || p.RawQuantityStep <= 0) ||
+                p.RawQuantityScale is < 0 or > 28 || p.RawQuantityStep <= 0 || !Enum.IsDefined(p.BuyBaseRounding)) ||
             rules.Pairs.Select(p => p.Symbol).Distinct().Count() != rules.Pairs.Count)
             throw new InvalidDataException("BITKUB_EXECUTION_RULES_UNVERIFIED");
         return rules with { Pairs = rules.Pairs.ToArray() };

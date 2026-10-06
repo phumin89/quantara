@@ -1,5 +1,11 @@
 # Live implementation evidence
 
+## Rounded buys and actual permission observation: 2026-10-06
+
+This checkpoint supersedes the earlier unconfirmed Trade-permission observation. Actual signed preflight succeeded: **THB 0, Trade token probe passed, no nonzero coins/open orders/history, stable wallet**. No real order or activation occurred; company and execution remain disabled.
+
+Fixed milliseconds-versus-seconds history filtering; added independently confirmed, opt-in base rounding and separate gross quote accounting for budget buys, retaining legacy JSON behavior. Added isolated non-financial preflight and bounded private broker evidence capture. **518 headless checks and 63 actual PostgreSQL integration checks passed**. See [the round review](live-rounded-settlement-review-2026-10-06.md) and [the small-capital proof plan](bitkub-small-capital-proof.md). Real amount/fee/rounding/lineage proof, funding, a verified private profile and explicit owner activation/transaction approval remain required.
+
 ## Owner setup, daily lifecycle and isolated company: 2026-10-06
 
 This checkpoint supersedes the remaining implementation statements in earlier sections. The deployed app has **execution disabled, no production account and no real order sent**. Latest signed Bitkub read: THB 0 and no nonzero coins.

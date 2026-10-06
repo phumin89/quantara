@@ -38,6 +38,50 @@ public sealed class BitkubExecutionFlowTests(PostgresFixture database)
     }
 
     [Fact]
+    public async Task Rounded_budget_buy_persists_gross_quote_and_is_idempotent_after_restart()
+    {
+        var (store, account, template) = await Setup();
+        var clock = new LiveExecutionFlowTests.TestClock(FixedNow);
+        var handler = new BitkubHandler(clock) { Accepted = true, RoundedBuy = true };
+        using var broker = new BitkubLiveBroker("test-key", "test-secret", handler, clock);
+        var rules = Rules() with { Pairs = [Rules().Pairs[0] with { BuyBaseRounding = BitkubBuyBaseRounding.FloorToBaseStep }] };
+        var adapter = new BitkubExecutionAdapter(broker, store, account.AccountId, clock, rules);
+        var intent = template with { AccountId = account.AccountId };
+        Assert.Equal(LiveOrderState.Acknowledged, (await new LiveExecutionService(store, adapter, clock).SubmitAsync(intent)).State);
+        await new LiveExecutionService(store, adapter, clock).SuspendForRecoveryAsync(account.AccountId);
+        var source = new BitkubReconciliationSource(broker, adapter, account.AccountId, clock);
+        var reconciliation = new LiveReconciliation(store, source, clock);
+        Assert.True((await reconciliation.ReconcileAsync(account.AccountId)).Complete);
+        Assert.True((await new LiveReconciliation(new LiveTradingStore(database.ConnectionString), source, clock).ReconcileAsync(account.AccountId)).Complete);
+        Assert.Equal(LiveOrderState.Filled, (await new LiveExecutionService(new LiveTradingStore(database.ConnectionString), adapter, clock).SubmitAsync(intent)).State);
+        var restored = await new LiveTradingStore(database.ConnectionString).ReadAccountAsync(account.AccountId);
+        var fill = Assert.Single(restored.Fills);
+        Assert.Equal(.00696259m, fill.Quantity);
+        Assert.Equal(696.2599m, fill.QuoteAmount);
+        Assert.Equal(1.7401m, fill.CashFee);
+        Assert.Equal(302m, restored.Snapshot.CashBalance);
+        Assert.Equal(.00696259m, Assert.Single(restored.Snapshot.Positions).Quantity);
+        Assert.Equal(698m, restored.Snapshot.DailyTurnover);
+        Assert.False(restored.Gate.Armed);
+        Assert.Equal(1, handler.PlacementCount);
+        Assert.Single(restored.Orders);
+    }
+
+    [Fact]
+    public async Task Pre_epoch_history_is_ignored_when_current_owned_history_is_valid()
+    {
+        var (store, account, template) = await Setup();
+        var clock = new LiveExecutionFlowTests.TestClock(FixedNow);
+        var handler = new BitkubHandler(clock) { Accepted = true, IncludePreEpochHistory = true };
+        using var broker = new BitkubLiveBroker("test-key", "test-secret", handler, clock);
+        var adapter = new BitkubExecutionAdapter(broker, store, account.AccountId, clock, Rules());
+        Assert.Equal(LiveOrderState.Acknowledged, (await new LiveExecutionService(store, adapter, clock).SubmitAsync(template with { AccountId = account.AccountId })).State);
+        var result = await new LiveReconciliation(store, new BitkubReconciliationSource(broker, adapter, account.AccountId, clock), clock).ReconcileAsync(account.AccountId);
+        Assert.True(result.Complete);
+        Assert.Single((await new LiveTradingStore(database.ConnectionString).ReadAccountAsync(account.AccountId)).Fills);
+    }
+
+    [Fact]
     public async Task Missing_rules_releases_unsent_reservation_without_placing()
     {
         var (store, account, template) = await Setup();
@@ -136,7 +180,7 @@ public sealed class BitkubExecutionFlowTests(PostgresFixture database)
     {
         var account = new LiveAccountId(Guid.NewGuid());
         var intent = new LiveIntent(account, Guid.NewGuid(), Guid.NewGuid(), TradingMode.Live, "BTC-THB", OrderSide.Buy, .007m, 100000, 1, 1, "e") with { BuyBudget = 700m };
-        var raw = new BrokerOrderFillEvidence("order", "txn", 100000, 698, 2, .26m, FixedNow.ToUnixTimeSeconds());
+        var raw = new BrokerOrderFillEvidence("order", "txn", 100000, 698, 2, .26m, FixedNow.ToUnixTimeMilliseconds());
         var fill = BitkubReconciliationSource.Normalize(account, intent, "order", raw, Rules());
         Assert.Equal(1.74m, fill.CashFee);
         Assert.Equal(.0069626m, fill.Quantity);
@@ -149,7 +193,7 @@ public sealed class BitkubExecutionFlowTests(PostgresFixture database)
         var intent = new LiveIntent(account, Guid.NewGuid(), Guid.NewGuid(), TradingMode.Live, "BTC-THB",
             OrderSide.Buy, .007m, 100000, 1, 1, "synthetic") { BuyBudget = 700m };
         var fill = BitkubReconciliationSource.Normalize(account, intent, "order",
-            new("order", "txn", 100000, 698, 2, .26m, FixedNow.ToUnixTimeSeconds()),
+            new("order", "txn", 100000, 698, 2, .26m, FixedNow.ToUnixTimeMilliseconds()),
             Rules() with { BuyHistoryAmount = BitkubBuyHistoryAmount.QuoteBeforeCashFee });
         Assert.Equal(.00698m, fill.Quantity);
         Assert.Equal(1.74m, fill.CashFee);
@@ -163,7 +207,7 @@ public sealed class BitkubExecutionFlowTests(PostgresFixture database)
         var intent = new LiveIntent(account, Guid.NewGuid(), Guid.NewGuid(), TradingMode.Live, "BTC-THB",
             OrderSide.Sell, .00698m, 100000, 1, 1, "synthetic");
         var fill = BitkubReconciliationSource.Normalize(account, intent, "order",
-            new("order", "txn", 100000, .00698m, 2, .26m, FixedNow.ToUnixTimeSeconds()), Rules());
+            new("order", "txn", 100000, .00698m, 2, .26m, FixedNow.ToUnixTimeMilliseconds()), Rules());
         Assert.Equal(.00698m, fill.Quantity);
         Assert.Equal(1.74m, fill.CashFee);
         Assert.Equal(696.26m, fill.Quantity * fill.Price - fill.CashFee);
@@ -248,7 +292,7 @@ public sealed class BitkubExecutionFlowTests(PostgresFixture database)
     }
 
     private static BitkubVerifiedExecutionRules Rules() => new("synthetic-confirmation", new string('a', 64), .0025m,
-        BitkubBuyHistoryAmount.QuoteIncludingCashFee, [new("BTC-THB", 1, .00000001m, .01m, 10, 0, 1)]);
+        BitkubBuyHistoryAmount.QuoteIncludingCashFee, [new BitkubPairExecutionRules("BTC-THB", 1, .00000001m, .01m, 10, 0, 1) with { BuyBaseRounding = BitkubBuyBaseRounding.Exact }]);
 
     private sealed class BitkubHandler(LiveExecutionFlowTests.TestClock clock) : HttpMessageHandler
     {
@@ -258,6 +302,8 @@ public sealed class BitkubExecutionFlowTests(PostgresFixture database)
         public bool ChangedMarketRules { get; init; }
         public bool ConflictingFee { get; init; }
         public bool HistoryUnavailable { get; init; }
+        public bool RoundedBuy { get; init; }
+        public bool IncludePreEpochHistory { get; init; }
         public List<string> Paths { get; } = [];
         public int PlacementCount { get; private set; }
         private string ClientId { get; set; } = "CLIENT";
@@ -272,10 +318,13 @@ public sealed class BitkubExecutionFlowTests(PostgresFixture database)
             if (path.EndsWith("/place-bid")) { PlacementCount++; ClientId = JsonDocument.Parse(request.Content!.ReadAsStringAsync().GetAwaiter().GetResult()).RootElement.GetProperty("client_id").GetString()!; if (LosePlacementReply) throw new HttpRequestException("reply lost"); return Reply(Accepted ? "{\"error\":0,\"result\":{\"id\":\"order-1\",\"typ\":\"limit\",\"amt\":698,\"rat\":100000,\"ci\":\"" + ClientId + "\",\"ts\":\"1\",\"fee\":0,\"cre\":0,\"rec\":0}}" : "{\"error\":1,\"result\":null}"); }
             if (path.EndsWith("/my-open-orders")) return Reply("{\"error\":0,\"result\":[]}");
             if (path.EndsWith("/cancel-order")) return Reply("{\"error\":0}");
-            var ts = clock.Now.ToUnixTimeSeconds();
-            if (path.EndsWith("/my-order-history")) return Reply(HistoryUnavailable ? "{\"error\":0,\"result\":[],\"pagination\":{\"has_next\":false}}" : "{\"error\":0,\"result\":[{\"txn_id\":\"txn-1\",\"order_id\":\"order-1\",\"parent_order_id\":\"order-1\",\"super_order_id\":\"order-1\",\"client_id\":\"" + ClientId + "\",\"side\":\"buy\",\"type\":\"limit\",\"rate\":\"100000\",\"amount\":\"698\",\"fee\":\"" + (ConflictingFee ? "1.75" : "1.74") + "\",\"credit\":\"0\",\"ts\":" + ts + "}],\"pagination\":{\"has_next\":false}}");
-            if (path.EndsWith("/order-info")) return Reply("{\"error\":0,\"result\":{\"id\":\"order-1\",\"first\":\"order-1\",\"parent\":\"order-1\",\"last\":\"order-1\",\"client_id\":\"" + ClientId + "\",\"post_only\":false,\"amount\":\"698\",\"rate\":100000,\"fee\":1.74,\"credit\":0,\"filled\":698,\"total\":698,\"status\":\"filled\",\"partial_filled\":false,\"remaining\":0,\"history\":[{\"amount\":698,\"credit\":0,\"fee\":1.74,\"id\":\"order-1\",\"rate\":100000,\"timestamp\":" + ts + ",\"txn_id\":\"txn-1\"}]}}");
-            if (path.EndsWith("/balances")) return Reply(WalletMismatch ? "{\"code\":\"0\",\"data\":[{\"currency\":\"THB\",\"available\":\"301\",\"reserved\":\"0\",\"total\":\"301\"},{\"currency\":\"BTC\",\"available\":\"0.0069626\",\"reserved\":\"0\",\"total\":\"0.0069626\"}]}" : "{\"code\":\"0\",\"data\":[{\"currency\":\"THB\",\"available\":\"302\",\"reserved\":\"0\",\"total\":\"302\"},{\"currency\":\"BTC\",\"available\":\"0.0069626\",\"reserved\":\"0\",\"total\":\"0.0069626\"}]}");
+            var ts = clock.Now.ToUnixTimeMilliseconds();
+            var fee = RoundedBuy ? "1.7401" : (ConflictingFee ? "1.75" : "1.74");
+            var amount = "698";
+            var old = IncludePreEpochHistory ? "{\"txn_id\":\"old-txn\",\"order_id\":\"old-order\",\"parent_order_id\":\"old-order\",\"super_order_id\":\"old-order\",\"client_id\":\"foreign\",\"side\":\"buy\",\"type\":\"limit\",\"rate\":\"100000\",\"amount\":\"698\",\"fee\":\"1.74\",\"credit\":\"0\",\"ts\":" + (clock.Now.AddDays(-1).ToUnixTimeMilliseconds()) + "}," : "";
+            if (path.EndsWith("/my-order-history")) return Reply(HistoryUnavailable ? "{\"error\":0,\"result\":[],\"pagination\":{\"has_next\":false}}" : "{\"error\":0,\"result\":[" + old + "{\"txn_id\":\"txn-1\",\"order_id\":\"order-1\",\"parent_order_id\":\"order-1\",\"super_order_id\":\"order-1\",\"client_id\":\"" + ClientId + "\",\"side\":\"buy\",\"type\":\"limit\",\"rate\":\"100000\",\"amount\":\"" + amount + "\",\"fee\":\"" + fee + "\",\"credit\":\"0\",\"ts\":" + ts + "}],\"pagination\":{\"has_next\":false}}");
+            if (path.EndsWith("/order-info")) return Reply("{\"error\":0,\"result\":{\"id\":\"order-1\",\"first\":\"order-1\",\"parent\":\"order-1\",\"last\":\"order-1\",\"client_id\":\"" + ClientId + "\",\"post_only\":false,\"amount\":\"698\",\"rate\":100000,\"fee\":" + fee + ",\"credit\":0,\"filled\":698,\"total\":698,\"status\":\"filled\",\"partial_filled\":false,\"remaining\":0,\"history\":[{\"amount\":" + amount + ",\"credit\":0,\"fee\":" + fee + ",\"id\":\"order-1\",\"rate\":100000,\"timestamp\":" + ts + ",\"txn_id\":\"txn-1\"}]}}");
+            if (path.EndsWith("/balances")) { var btc = RoundedBuy ? "0.00696259" : "0.0069626"; return Reply(WalletMismatch ? "{\"code\":\"0\",\"data\":[{\"currency\":\"THB\",\"available\":\"301\",\"reserved\":\"0\",\"total\":\"301\"},{\"currency\":\"BTC\",\"available\":\"" + btc + "\",\"reserved\":\"0\",\"total\":\"" + btc + "\"}]}" : "{\"code\":\"0\",\"data\":[{\"currency\":\"THB\",\"available\":\"302\",\"reserved\":\"0\",\"total\":\"302\"},{\"currency\":\"BTC\",\"available\":\"" + btc + "\",\"reserved\":\"0\",\"total\":\"" + btc + "\"}]}"); }
             if (path.EndsWith("/ticker")) return Reply("[{\"symbol\":\"BTC_THB\",\"highest_bid\":\"99999\",\"lowest_ask\":\"100000\"}]");
             throw new InvalidOperationException(path);
         }
