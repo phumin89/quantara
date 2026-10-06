@@ -67,6 +67,90 @@ public sealed class LiveCompanyCoordinatorTests : IDisposable
         Assert.Single(client.Intents);
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Canceled_meeting_is_reported_without_retry_and_next_day_requires_fresh_authority(bool acceptedBeforeCancellation)
+    {
+        using var cancellation = new CancellationTokenSource();
+        var client = new Client();
+        var gateway = new Gateway();
+        var originalPacket = client.Packet;
+        void Interrupt()
+        {
+            cancellation.Cancel();
+            cancellation.Token.ThrowIfCancellationRequested();
+        }
+        if (acceptedBeforeCancellation) client.AfterSubmit = Interrupt;
+        else gateway.AfterFinal = Interrupt;
+        var coordinator = Coordinator(client, gateway);
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => coordinator.TickAsync(cancellation.Token));
+
+        var journal = new JsonDailyMeetingJournal(Path.Combine(root, "live-meetings.json"), Scope);
+        var interrupted = Assert.Single(journal.ReadAll());
+        Assert.Equal("INTERRUPTED", interrupted.Status);
+        Assert.Equal("INTERRUPTED", coordinator.Status);
+        Assert.Equal(Scope, interrupted.AccountContext);
+        Assert.Equal(originalPacket, client.Packet);
+        var acceptedCount = acceptedBeforeCancellation ? 1 : 0;
+        Assert.Equal(acceptedCount, client.Intents.Count);
+        if (acceptedBeforeCancellation)
+        {
+            Assert.Equal(interrupted.AttemptId, Assert.Single(client.Intents).DecisionId);
+            Assert.NotNull(interrupted.Summary);
+        }
+        else Assert.Null(interrupted.Summary);
+        Assert.Empty(client.Meetings);
+        var modelCalls = gateway.Inputs.Count;
+
+        client.AfterSubmit = null;
+        gateway.AfterFinal = null;
+        var restarted = Coordinator(client, gateway);
+        await restarted.TickAsync();
+
+        var published = Assert.Single(client.Meetings);
+        Assert.Equal(interrupted.AttemptId, published.AttemptId);
+        Assert.Equal("INTERRUPTED", published.Status);
+        if (acceptedBeforeCancellation)
+            Assert.Contains(published.Summary!.Reports, report => report.Role == "ceo" && report.Summary == "Review completed market bars");
+        Assert.Equal("ALREADY_ATTEMPTED", restarted.Status);
+        Assert.Equal(acceptedCount, client.Intents.Count);
+        Assert.Equal(modelCalls, gateway.Inputs.Count);
+
+        clock.Now = clock.Now.AddDays(1);
+        var fresh = originalPacket with
+        {
+            Snapshot = originalPacket.Snapshot with
+            {
+                Version = 2, ObservedAt = clock.Now,
+                Quotes = [.. originalPacket.Snapshot.Quotes.Select(quote => quote with { ObservedAt = clock.Now })]
+            }
+        };
+        foreach (var invalid in new[] { originalPacket, fresh with { Armed = false },
+            fresh with { Snapshot = fresh.Snapshot with { Reconciled = false } } })
+        {
+            client.Packet = invalid;
+            await restarted.TickAsync();
+            Assert.Equal("LIVE_BLOCKED", restarted.Status);
+            Assert.Equal(acceptedCount, client.Intents.Count);
+            Assert.Equal(modelCalls, gateway.Inputs.Count);
+            Assert.Single(journal.ReadAll());
+        }
+
+        client.Packet = fresh;
+        await restarted.TickAsync();
+
+        Assert.Equal("ORDER_PENDING", restarted.Status);
+        Assert.Equal(acceptedCount + 1, client.Intents.Count);
+        var nextDay = journal.Read(interrupted.BusinessDate.AddDays(1));
+        Assert.NotNull(nextDay);
+        Assert.Equal("ORDER_PENDING", nextDay.Status);
+        Assert.Equal(nextDay.AttemptId, client.Intents[^1].DecisionId);
+        Assert.NotEqual(interrupted.AttemptId, nextDay.AttemptId);
+        Assert.Single(client.Meetings);
+    }
+
     [Fact]
     public async Task Polling_version_refresh_with_unchanged_money_and_bounded_quote_uses_fresh_snapshot()
     {
@@ -262,12 +346,14 @@ public sealed class LiveCompanyCoordinatorTests : IDisposable
                 [new("BTC-THB", .01m, .00000001m, 1m, 10m)] }, true, false);
         public List<LiveIntent> Intents { get; } = [];
         public List<DailyMeetingAttempt> Meetings { get; } = [];
+        public Action? AfterSubmit { get; set; }
         public Task SaveMeetingAsync(DailyMeetingAttempt attempt, CancellationToken cancellationToken)
         { Meetings.Add(attempt); return Task.CompletedTask; }
         public Task<LiveResearchPacket> ReadAsync(LiveAccountId accountId, CancellationToken cancellationToken) => Task.FromResult(Packet);
         public Task<LiveIntentReceipt> SubmitAsync(LiveIntent intent, CancellationToken cancellationToken)
         {
             Intents.Add(intent);
+            AfterSubmit?.Invoke();
             return Task.FromResult(new LiveIntentReceipt(intent, LiveOrderState.Acknowledged, []));
         }
     }

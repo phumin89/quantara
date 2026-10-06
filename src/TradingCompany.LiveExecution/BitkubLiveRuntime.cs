@@ -128,23 +128,32 @@ internal sealed class BitkubActivationSource(BitkubLiveBroker broker, LiveAccoun
         var (key, secret) = BitkubCredentialsFile.Read(credentialsPath);
         var fingerprint = "sha256:" + Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(key + "\0" + secret)));
         if (fingerprint != verification.CredentialFingerprint) throw new InvalidDataException("Activation unavailable.");
+        // The saved profile binds the account, but it cannot prove permission that
+        // may have been revoked since startup. All owner activation paths use this probe.
+        var tradePermission = await broker.CheckTradePermissionAsync(cancellationToken);
         var wallet = await broker.GetWalletAsync(cancellationToken);
         var opens = new List<BrokerOpenOrderEvidence>();
         foreach (var pair in verification.Rules.Pairs) opens.AddRange(await broker.GetOpenOrdersAsync(pair.Symbol, cancellationToken));
         var cash = wallet.Single(b => b.Currency == "THB");
-        if (cash.Total != account.Snapshot.CashBalance || cash.Reserved != account.Snapshot.CashReserved ||
+        // Local risk reservations retain fee headroom until terminal reconciliation.
+        // Broker reservations must match its open orders and fit inside that headroom.
+        if (cash.Total != account.Snapshot.CashBalance || cash.Reserved > account.Snapshot.CashReserved ||
+            cash.Reserved != opens.Where(o => o.Side == OrderSide.Buy).Sum(o => o.RawAmount) ||
+            opens.Select(o => o.OrderId).Distinct(StringComparer.Ordinal).Count() != opens.Count ||
             wallet.Where(b => b.Currency != "THB" && b.Total != 0).Any(b =>
                 !account.Snapshot.Positions.Any(p => p.Symbol == b.Currency + "-THB" && p.Quantity == b.Total && p.ReservedQuantity == b.Reserved)) ||
             account.Snapshot.Positions.Any(p => !wallet.Any(b => b.Currency + "-THB" == p.Symbol && b.Total == p.Quantity && b.Reserved == p.ReservedQuantity)) ||
-            opens.Any(o => !account.Orders.Any(l => l.BrokerId == o.OrderId && l.Intent.Id.ToString("N") == o.ClientId &&
+            opens.Any(o => o.Type != "limit" || o.RawAmount <= 0 || !account.Orders.Any(l =>
+                l.State is LiveOrderState.Acknowledged or LiveOrderState.Open or LiveOrderState.PartiallyFilled &&
+                l.BrokerId == o.OrderId && l.Intent.Id.ToString("N") == o.ClientId &&
                 l.Intent.Symbol == o.Symbol && l.Intent.Side == o.Side && l.Intent.LimitPrice == o.Rate &&
-                (o.Side == OrderSide.Buy ? l.ReservedCash : l.ReservedQuantity) == o.RawAmount)) ||
-            account.Orders.Any(l => l.State is LiveOrderState.Open or LiveOrderState.PartiallyFilled &&
+                (o.Side == OrderSide.Buy ? o.RawAmount <= l.ReservedCash : o.RawAmount == l.ReservedQuantity))) ||
+            account.Orders.Any(l => l.State is LiveOrderState.Acknowledged or LiveOrderState.Open or LiveOrderState.PartiallyFilled &&
                 !opens.Any(o => o.OrderId == l.BrokerId && o.ClientId == l.Intent.Id.ToString("N"))))
             throw new InvalidDataException("Activation unavailable.");
         var empty = wallet.All(b => b.Currency == "THB" || b.Total == 0) && cash.Reserved == 0 && opens.Count == 0;
         return new(accountId, verification.BrokerAccountReference, fingerprint, account.Mandate.Version, account.Snapshot.Version,
-            started, true, account.Gate.IsolationVerified, verification.TradePermissionVerified, empty);
+            started, true, account.Gate.IsolationVerified, tradePermission, empty);
     }
 }
 

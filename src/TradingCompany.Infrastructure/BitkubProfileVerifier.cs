@@ -31,7 +31,7 @@ public static class BitkubProfileVerifier
             var before = Read(beforeBytes, currentFingerprint, now);
             var bought = Read(boughtBytes, currentFingerprint, now);
             var sold = Read(soldBytes, currentFingerprint, now);
-            // Each capture is already bounded to 24 hours below. A pause between the
+            // Captures are bounded to the broker's history window below. A pause between the
             // owner's actions does not invalidate ordered, corroborated trade evidence.
             if (before.observedAt >= bought.observedAt || bought.observedAt >= sold.observedAt ||
                 before.thbTotal <= 0 || sold.thbTotal <= 0 ||
@@ -111,7 +111,10 @@ public static class BitkubProfileVerifier
         if (!capture.completed || !capture.walletReadSucceeded || capture.liveEnabled || capture.stableWallet != true ||
             capture.tradePermissionConfirmed != true || capture.openOrderCount != 0 ||
             capture.credentialFingerprint != fingerprint || capture.source != "https://api.bitkub.com/api/v4/wallet/balances" ||
-            capture.observedAt > now || now - capture.observedAt > TimeSpan.FromHours(24) ||
+            // Historical canary evidence does not authorize today's money. The command
+            // rechecks current key, permission, wallet, orders and market rules before saving.
+            // Stay inside the published archive boundary so those trades remain corroborable.
+            capture.observedAt > now || now - capture.observedAt >= TimeSpan.FromDays(90) ||
             capture.walletBalances is null || capture.walletBalances.Length is 0 or > 256 ||
             capture.walletBalances.Any(b => b is null || string.IsNullOrEmpty(b.Currency) || b.Currency.Length > 20 ||
                 b.Currency.Any(c => !char.IsAsciiLetterUpper(c) && !char.IsAsciiDigit(c))) ||

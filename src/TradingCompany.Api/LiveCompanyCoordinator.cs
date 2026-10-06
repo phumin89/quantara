@@ -126,7 +126,13 @@ public sealed class LiveCompanyCoordinator(ILiveCompanyClient client, IHistorica
             }
             Finish("HOLD");
         }
-        catch (OperationCanceledException) { Status = "INTERRUPTED"; throw; }
+        catch (OperationCanceledException)
+        {
+            // Record this attempt without replaying it. Any submitted order and
+            // unresolved financial outcome remain the executor's responsibility.
+            Finish("INTERRUPTED");
+            throw;
+        }
         catch (Exception) { if (claimedDay is not null) Finish("LIVE_UNAVAILABLE"); else Status = "LIVE_UNAVAILABLE"; }
         finally { tick.Release(); }
 

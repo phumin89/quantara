@@ -199,13 +199,25 @@ public sealed class BitkubProfileVerifierTests
     }
 
     [Theory]
-    [InlineData(-25)]
+    [InlineData(-2160)]
+    [InlineData(-2161)]
     [InlineData(1)]
     public void Stale_or_future_capture_is_rejected(int hours)
     {
         var capture = JsonNode.Parse(Json(Capture("before")))!;
         SetObservedAt(capture, Now.AddHours(hours));
         AssertRejected(capture.ToJsonString(), Json(Capture("bought")), Json(Capture("sold")));
+    }
+
+    [Fact]
+    public void Historical_canary_baseline_does_not_expire_while_the_owner_completes_the_round_trip()
+    {
+        var before = JsonNode.Parse(Json(Capture("before")))!;
+        SetObservedAt(before, Now.AddDays(-30));
+        var profile = BitkubProfileVerifier.Verify(Encoding(before.ToJsonString()),
+            Encoding(Json(Capture("bought"))), Encoding(Json(Capture("sold"))), Fingerprint, Now);
+        Assert.True(profile.AccountBindingVerified);
+        Assert.Equal(BitkubBuyHistoryAmount.QuoteIncludingCashFee, profile.Rules.BuyHistoryAmount);
     }
 
     [Theory]
