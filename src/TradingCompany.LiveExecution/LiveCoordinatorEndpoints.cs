@@ -1,5 +1,6 @@
 using TradingCompany.Application;
 using TradingCompany.Domain;
+using TradingCompany.Infrastructure;
 
 namespace TradingCompany.LiveExecution;
 
@@ -23,6 +24,12 @@ public static class LiveCoordinatorEndpoints
             var mandate = account.Mandate;
             var now = clock.GetUtcNow();
             var baseline = account.PerformanceBaseline;
+            var broker = context.RequestServices.GetService<BitkubLiveBroker>();
+            string[] researchSymbols = broker is null ? mandate.AllowedSymbols.ToArray() : ["BTC-THB", "ETH-THB", "SOL-THB"];
+            var researchQuotes = account.Snapshot.Quotes.Where(q => researchSymbols.Contains(q.Symbol)).ToList();
+            if (broker is not null)
+                foreach (var symbol in researchSymbols.Where(s => researchQuotes.All(q => q.Symbol != s)))
+                    researchQuotes.Add(await broker.GetQuoteAsync(symbol, context.RequestAborted));
             // Construct readiness explicitly rather than trusting a saved armed flag.
             var ready = account.Gate.Armed && !account.Gate.Stopped && account.Gate.IsolationVerified &&
                 (context.RequestServices.GetService<BitkubReceiptObserver>() is not { } observer || observer.Ready) &&
@@ -40,9 +47,10 @@ public static class LiveCoordinatorEndpoints
                 {
                     MaximumOrderNotional = mandate.MaximumOrderNotional,
                     MaximumDailyTurnover = mandate.MaximumDailyTurnover,
+                    ResearchSymbols = researchSymbols,
                     OrderSizing = context.RequestServices.GetService<BitkubConfiguredAccount>()?.Verification.Rules.Pairs
                         .Select(p => new LiveOrderSizing(p.Symbol, p.PriceStep, p.SellBaseStep, p.BuyQuoteStep, p.MinimumQuoteSize)).ToArray() ?? []
-                }, ready, account.Gate.Stopped));
+                }, ready, account.Gate.Stopped) { ResearchQuotes = researchQuotes });
         });
         routes.MapPost("/intents", async (LiveIntent intent, HttpContext context) =>
         {

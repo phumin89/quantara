@@ -21,6 +21,21 @@ public sealed class LiveOwnerActivation(BitkubConfiguredAccount configured, Live
         }
         var account = await controls.ReadAsync(token);
         if (account.Gate.Stopped) return new(false, ["OWNER_STOP_ACTIVE"]);
+        var symbols = configured.Verification.Rules.Pairs.Select(p => p.Symbol).Order(StringComparer.Ordinal).ToArray();
+        if (account.Mandate.AllowedSymbols.Any(s => !symbols.Contains(s)))
+            return new(false, ["MARKET_REMOVAL_REQUIRES_MANDATE_UPDATE"]);
+        if (!account.Mandate.AllowedSymbols.Order(StringComparer.Ordinal).SequenceEqual(symbols))
+        {
+            if (account.Orders.Any(o => o.State is not (TradingCompany.Domain.LiveOrderState.Filled or
+                TradingCompany.Domain.LiveOrderState.Cancelled or TradingCompany.Domain.LiveOrderState.Rejected)))
+                return new(false, ["UNRESOLVED_ORDER"]);
+            var expanded = await controls.SaveMandateAsync(account.Mandate with
+            {
+                Version = checked(account.Mandate.Version + 1), AllowedSymbols = symbols
+            }, token);
+            if (!expanded.Allowed) return new(false, expanded.Violations);
+            account = await controls.ReadAsync(token);
+        }
         var approvedMandate = account.Mandate.Version;
         if (account.PerformanceBaseline is null)
         {
@@ -47,6 +62,56 @@ public sealed class LiveOwnerActivation(BitkubConfiguredAccount configured, Live
                 approvedMandate, account.Snapshot.Version, true, false), token);
         }
         return new(activated.Allowed, activated.Violations);
+    }
+
+    public static async Task<int> PrepareMarketsAsync()
+    {
+        try
+        {
+            var builder = Host.CreateApplicationBuilder(new HostApplicationBuilderSettings
+            { EnvironmentName = Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT") });
+            builder.Logging.ClearProviders();
+            builder.Configuration.AddInMemoryCollection(new Dictionary<string, string?> { ["LiveExecution:Enabled"] = "true" });
+            BitkubLiveRuntime.Configure(builder.Services, builder.Configuration);
+            using var host = builder.Build(); // No background service, ledger update or execution is started.
+            var broker = host.Services.GetRequiredService<BitkubLiveBroker>();
+            var configured = host.Services.GetRequiredService<BitkubConfiguredAccount>();
+            using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+            if (!await broker.CheckTradePermissionAsync(deadline.Token)) throw new InvalidDataException();
+            var markets = new List<BrokerSymbolRules>();
+            foreach (var symbol in new[] { "BTC-THB", "ETH-THB", "SOL-THB" })
+                markets.Add(await broker.GetSymbolRulesAsync(symbol, deadline.Token));
+            var v = configured.Verification;
+            var previous = new BitkubVerifiedProfile(v.BrokerAccountReference, v.CredentialFingerprint, v.ConfirmationReference,
+                v.EvidenceHash, v.AccountBindingVerified, v.TradePermissionVerified, v.Rules);
+            var credentials = BitkubCredentialsFile.Read(builder.Configuration["Bitkub:CredentialsFile"]!);
+            var fingerprint = "sha256:" + Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(
+                System.Text.Encoding.UTF8.GetBytes(credentials.ApiKey + "\0" + credentials.ApiSecret)));
+            var expanded = BitkubProfileVerifier.ExpandReceiptMarkets(previous, markets, fingerprint, DateTimeOffset.UtcNow);
+            var profile = "/profile-output/bitkub-verification.json";
+            using var lease = new FileStream(profile + ".lock", FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None);
+            var before = await File.ReadAllBytesAsync(profile, deadline.Token);
+            var current = System.Text.Json.JsonSerializer.Deserialize<BitkubVerifiedProfile>(before) ?? throw new InvalidDataException();
+            if (System.Text.Json.JsonSerializer.Serialize(current) != System.Text.Json.JsonSerializer.Serialize(previous))
+                throw new InvalidDataException();
+            if (System.Text.Json.JsonSerializer.Serialize(expanded) != System.Text.Json.JsonSerializer.Serialize(previous))
+            {
+                var backup = profile + ".before-multi-market";
+                if (File.Exists(backup) && !(await File.ReadAllBytesAsync(backup, deadline.Token)).SequenceEqual(before))
+                    throw new InvalidDataException();
+                if (!File.Exists(backup)) await File.WriteAllBytesAsync(backup, before, deadline.Token);
+                var temporary = profile + ".pending-" + Guid.NewGuid().ToString("N");
+                try
+                {
+                    await File.WriteAllBytesAsync(temporary, System.Text.Json.JsonSerializer.SerializeToUtf8Bytes(expanded), deadline.Token);
+                    File.Move(temporary, profile, overwrite: true);
+                }
+                finally { if (File.Exists(temporary)) File.Delete(temporary); }
+            }
+            Console.WriteLine("BTC, ETH and SOL market rules verified. Existing account retained; no activation or order.");
+            return 0;
+        }
+        catch { Console.WriteLine("Market expansion did not verify. No activation or order was sent."); return 1; }
     }
 
     public static async Task<int> RunCommandAsync(bool activate = true)

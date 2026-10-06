@@ -8,6 +8,7 @@ $testCases = @(
     @{ Name='build-fails'; Failure='build'; Activation=$false; Changed=$false },
     @{ Name='verification-fails'; Failure='verify'; Activation=$false; Changed=$false },
     @{ Name='shutdown-fails'; Failure='stop'; Activation=$false; Changed=$false },
+    @{ Name='market-verification-fails'; Failure='markets'; Activation=$false; Changed=$false },
     @{ Name='ledger-fails'; Failure='ledger'; Activation=$false; Changed=$false },
     @{ Name='frontend-fails'; Failure='web'; Activation=$false; Changed=$false },
     @{ Name='executor-fails'; Failure='owner'; Activation=$false; Changed=$false },
@@ -26,6 +27,7 @@ function global:docker {
     $arguments = @($args)
     $stage = if ($arguments -contains 'build') { 'build' }
         elseif ($arguments -contains '--verify-live-configuration') { 'verify' }
+        elseif ($arguments -contains '--prepare-multi-asset-profile') { 'markets' }
         elseif ($arguments -contains '--activate-full-spot-live') { 'activate' }
         elseif ($arguments -contains 'stop') { 'stop' }
         elseif ($arguments[-1] -eq 'ledger') { 'ledger' }

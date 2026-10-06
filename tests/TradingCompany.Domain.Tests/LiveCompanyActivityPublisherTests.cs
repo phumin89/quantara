@@ -30,7 +30,7 @@ public sealed class LiveCompanyActivityPublisherTests
         Assert.Equal(started.Roles[0].ChangedAt, client.Activities[^1].Roles[0].ChangedAt);
 
         using var json = JsonDocument.Parse(JsonSerializer.Serialize(started, new JsonSerializerOptions(JsonSerializerDefaults.Web)));
-        Assert.Equal(["accountContext", "meetingId", "observedAt", "roles"], json.RootElement.EnumerateObject().Select(property => property.Name));
+        Assert.Equal(["accountContext", "meetingId", "observedAt", "roles", "researchSymbols", "tradingSymbols"], json.RootElement.EnumerateObject().Select(property => property.Name));
         Assert.Equal(["role", "status", "changedAt"], json.RootElement.GetProperty("roles")[0].EnumerateObject().Select(property => property.Name));
         Assert.DoesNotContain("private model text", json.RootElement.GetRawText());
     }

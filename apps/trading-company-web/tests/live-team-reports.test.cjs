@@ -4,6 +4,13 @@ const React=require('react'),{renderToStaticMarkup}=require('react-dom/server');
 const scope={mode:1,accountId:'1'.repeat(32)};
 const role=(name)=>({role:name,summary:name==='portfolio-final'?'เก็บเงินสดไว้รอข้อมูลครบ':'เหตุผลจากข้อมูลที่ตรวจแล้ว',providerModel:'fixture',inputTokens:2,outputTokens:2,artifactId:'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',evidenceHash:'a'.repeat(64),dataCutoff:'2026-10-05'});
 const fixture=()=>({accountContext:scope,meetings:[{businessDate:'2026-10-06',attemptId:'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',status:'HOLD',accountContext:scope,summary:{modelCalls:8,inputTokens:16,outputTokens:16,reports:[role('portfolio-final'),role('risk-critic'),role('portfolio-initial')]}}]});
+test('meeting parser accepts legacy and same-day review slots, sorts latest hour first, and selects by attempt id',()=>{
+ const x=fixture(); x.meetings.push({...x.meetings[0],reviewHour:14,attemptId:'cccccccc-cccc-4ccc-8ccc-cccccccccccc'}); x.meetings.push({...x.meetings[0],businessDate:'2026-10-05',reviewHour:null,attemptId:'dddddddd-dddd-4ddd-8ddd-dddddddddddd'});
+ const parsed=readMeetings(x); assert.deepEqual(parsed.meetings.map(m=>m.attemptId),['cccccccc-cccc-4ccc-8ccc-cccccccccccc','bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb','dddddddd-dddd-4ddd-8ddd-dddddddddddd']);
+ const html=renderToStaticMarkup(React.createElement(LiveMeetingView,{meetings:parsed.meetings,selected:'cccccccc-cccc-4ccc-8ccc-cccccccccccc',onSelect(){}})); assert.ok(html.includes('ทบทวน 14:00'));
+ for (const hour of [-1,24,1.5]) { const bad=fixture(); bad.meetings[0].reviewHour=hour; assert.equal(readMeetings(bad),undefined); }
+ const duplicate=fixture(); duplicate.meetings.push({...duplicate.meetings[0],reviewHour:null,attemptId:'cccccccc-cccc-4ccc-8ccc-cccccccccccc'}); assert.equal(readMeetings(duplicate),undefined);
+});
 test('meeting parser rejects malformed summaries, duplicate roles and cross-account reports',()=>{
  for(const mutate of [x=>x.meetings[0].summary.reports.push(role('risk-critic')),x=>x.meetings[0].summary.reports[0].summary={},x=>x.meetings[0].accountContext={...scope,accountId:'2'.repeat(32)},x=>x.meetings[0].summary.reports=null,x=>x.meetings[0].businessDate='2026-02-30',x=>x.meetings[0].attemptId='',x=>x.meetings.push({...x.meetings[0]})]){const x=fixture();mutate(x);assert.equal(readMeetings(x),undefined);}
  assert.equal(readMeetings(fixture()).meetings.length,1);

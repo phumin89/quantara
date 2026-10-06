@@ -6,12 +6,14 @@ using System.Text.Json;
 namespace TradingCompany.Api;
 
 public sealed class LiveCompanyCoordinator(ILiveCompanyClient client, IHistoricalMarketEvidenceProvider markets,
-    IAiCompanyMeetingRunner meeting, IDailyMeetingJournal journal, TimeProvider clock, LiveAccountId accountId)
+    IAiCompanyMeetingRunner meeting, IDailyMeetingJournal journal, TimeProvider clock, LiveAccountId accountId, bool continuousReviews = false)
 {
     private readonly SemaphoreSlim tick = new(1, 1);
     private readonly TradingAccountContext context = new(TradingMode.Live, accountId.Value.ToString("N"));
     private readonly HashSet<Guid> published = [];
     public string Status { get; private set; } = "DISABLED";
+    public IReadOnlyList<string> ResearchUniverse { get; private set; } = [];
+    public IReadOnlyList<string> TradingUniverse { get; private set; } = [];
 
     public async Task TickAsync(CancellationToken cancellationToken = default)
     {
@@ -28,23 +30,43 @@ public sealed class LiveCompanyCoordinator(ILiveCompanyClient client, IHistorica
             foreach (var completed in journal.ReadAll().Where(a => a.Status != "STARTED").TakeLast(31))
                 if (!published.Contains(completed.AttemptId))
                 { await client.SaveMeetingAsync(completed, cancellationToken); published.Add(completed.AttemptId); }
+            journal.EnsureReconciled();
             var saved = journal.Read(day);
-            if (saved is not null && saved.Status != "STARTED")
+            if (!continuousReviews && saved is not null && saved.Status != "STARTED")
             {
                 Status = "ALREADY_ATTEMPTED"; return;
             }
-            if (now.ToOffset(TimeSpan.FromHours(7)).TimeOfDay < TimeSpan.FromHours(9)) { Status = "BEFORE_MEETING"; return; }
+            var dailyDue = saved is null && now.ToOffset(TimeSpan.FromHours(7)).Hour >= 9;
+            var latest = journal.ReadAll().Where(a => a.Status != "STARTED")
+                .OrderBy(a => a.BusinessDate).ThenBy(a => a.ReviewSnapshot?.ObservedAt ??
+                    new DateTimeOffset(a.BusinessDate.ToDateTime(new TimeOnly(a.ReviewHour ?? 9, 0)), TimeSpan.FromHours(7))).LastOrDefault();
+            if (!dailyDue && (!continuousReviews || latest is null)) { Status = "BEFORE_MEETING"; return; }
+            int? reviewHour = continuousReviews && !dailyDue ? now.ToOffset(TimeSpan.FromHours(7)).Hour : null;
+            if (reviewHour is { } hour && journal.Read(day, hour) is not null) { Status = "ALREADY_ATTEMPTED"; return; }
+            if (reviewHour is { } currentHour && saved?.ReviewSnapshot is { } dailySnapshot &&
+                dailySnapshot.ObservedAt.ToOffset(TimeSpan.FromHours(7)).Hour == currentHour)
+            { Status = "ALREADY_ATTEMPTED"; return; }
             if (!meeting.Enabled || string.IsNullOrWhiteSpace(meeting.Model)) { Status = "MODEL_UNAVAILABLE"; return; }
             var packet = await client.ReadAsync(accountId, cancellationToken);
+            now = clock.GetUtcNow();
             if (!ValidPacket(packet, now)) { Status = "LIVE_BLOCKED"; return; }
+            ResearchUniverse = ResearchSymbols(packet).ToArray();
+            TradingUniverse = packet.Limits.AllowedSymbols.ToArray();
             journal.EnsureReconciled();
-            if (!journal.TryBegin(day, decisionId)) { Status = "ALREADY_ATTEMPTED"; return; }
+            if (continuousReviews && (packet.Snapshot.CashReserved > 0 || packet.Snapshot.PendingBuyNotional > 0 ||
+                packet.Snapshot.PendingSellNotional > 0 || packet.Snapshot.Positions.Any(p => p.ReservedQuantity > 0)))
+            { Status = "ORDER_PENDING"; return; }
+            var checkpoint = packet.Snapshot with { Quotes = ResearchQuotes(packet) };
+            if (reviewHour is not null && latest?.ReviewSnapshot is { } previous && !NeedsReview(previous, checkpoint))
+            { Status = "WATCHING"; return; }
+            var begun = continuousReviews ? journal.TryBegin(day, decisionId, reviewHour, checkpoint) : journal.TryBegin(day, decisionId);
+            if (!begun) { Status = "ALREADY_ATTEMPTED"; return; }
             claimedDay = day;
             var cutoff = DateOnly.FromDateTime(now.UtcDateTime).AddDays(-1);
             var candidates = new List<AiCompanyCandidateEvidence>();
             try
             {
-                foreach (var text in packet.Limits.AllowedSymbols)
+                foreach (var text in ResearchSymbols(packet))
                 {
                     var symbol = new Symbol(text);
                     var evidence = await markets.GetEvidenceAsync(symbol, cutoff.AddDays(-399), cutoff, cancellationToken);
@@ -65,7 +87,11 @@ public sealed class LiveCompanyCoordinator(ILiveCompanyClient client, IHistorica
                     candidates.Add(new($"{text}:{cutoff:yyyy-MM-dd}", symbol, cutoff, bars[^1].Close,
                         held is not null, held?.Quantity ?? 0m, 0m, forecast.Score, forecast.Direction,
                         selection.SelectedStrategy, selection.Promoted, selection.SelectedEvidence?.OutOfSampleReturn ?? 0,
-                        selection.SelectedEvidence?.MaxDrawdownPercent ?? 0));
+                        selection.SelectedEvidence?.MaxDrawdownPercent ?? 0)
+                    {
+                        ExecutionAllowed = packet.Limits.AllowedSymbols.Contains(text),
+                        CurrentQuote = checkpoint.Quotes.Single(q => q.Symbol == text)
+                    });
                 }
             }
             catch (OperationCanceledException) { throw; }
@@ -79,12 +105,18 @@ public sealed class LiveCompanyCoordinator(ILiveCompanyClient client, IHistorica
                     snapshot.DailyLoss, snapshot.Drawdown, snapshot.Positions.Count), candidates,
                 "Live account advisory meeting. Use supplied actual balances and completed bars only. No leverage or borrowing. " +
                 "Unrealized P&L is unavailable; its zero field is a placeholder. All proposals require independent executor risk validation.",
-                packet.Limits.MaximumPositionWeight, packet.Limits.MaximumOpenPositions) { AccountContext = context };
+                packet.Limits.MaximumPositionWeight, packet.Limits.MaximumOpenPositions)
+            {
+                AccountContext = context, PortfolioReview = reviewHour is not null, ObservedAt = now,
+                PreviousConclusion = reviewHour is null ? null : latest?.Summary?.Reports
+                    .SingleOrDefault(r => r.Role == "portfolio-final")?.Summary
+            };
             var result = await meeting.RunAsync(input, cancellationToken);
             summary = Summarize(result);
             if (result.Status != "COMPLETED") { Finish(result.Status); return; }
             if (result.AccountContext != context || !ValidProposals(result.Proposals, packet.Limits)) { Finish("INVALID_FINAL"); return; }
-            foreach (var proposal in result.Proposals.Where(p => p.Action != PortfolioAction.Hold))
+            foreach (var proposal in result.Proposals.Where(p => p.Action != PortfolioAction.Hold)
+                .OrderBy(p => p.Action == PortfolioAction.Buy ? 1 : 0))
             {
                 // Polling may refresh the version and quote while advice is produced. Only
                 // unchanged owned money/quantities and bounded prices can use that advice.
@@ -127,7 +159,7 @@ public sealed class LiveCompanyCoordinator(ILiveCompanyClient client, IHistorica
                 var order = await client.SubmitAsync(intent, cancellationToken);
                 if (order.Intent != intent) { Finish("EXECUTOR_REPLY_INVALID"); return; }
                 // Execution changes the snapshot version. Refresh/research is required for
-                // further proposals; one non-HOLD intent per daily meeting in this first slice.
+                // further proposals. One non-HOLD intent per saved meeting/review.
                 Finish(order.State == LiveOrderState.Rejected ? "RISK_REJECTED" : "ORDER_PENDING");
                 return;
             }
@@ -189,9 +221,29 @@ public sealed class LiveCompanyCoordinator(ILiveCompanyClient client, IHistorica
         if (m.OrderSizing is null || m.OrderSizing.Any(p => p is null || p.PriceStep <= 0 || p.BaseStep <= 0 || p.QuoteStep <= 0 || p.MinimumQuoteSize <= 0) ||
             m.OrderSizing.Select(p => p.Symbol).Distinct().Count() != m.OrderSizing.Count ||
             m.AllowedSymbols.Any(symbol => m.OrderSizing.Count(p => p.Symbol == symbol) != 1)) return false;
-        return m.AllowedSymbols.All(symbol => s.Quotes.Count(q => q.Symbol == symbol && q.Bid > 0 && q.Ask >= q.Bid &&
-            q.ObservedAt <= now && now - q.ObservedAt <= TimeSpan.FromSeconds(30)) == 1);
+        if (!m.AllowedSymbols.All(symbol => s.Quotes.Count(q => q.Symbol == symbol && q.Bid > 0 && q.Ask >= q.Bid &&
+            q.ObservedAt <= now && now - q.ObservedAt <= TimeSpan.FromSeconds(30)) == 1) ||
+            m.ResearchSymbols is null || packet.ResearchQuotes is null) return false;
+        var research = ResearchSymbols(packet);
+        var quotes = ResearchQuotes(packet);
+        return research.Count is > 0 and <= 3 && research.Distinct().Count() == research.Count &&
+            research.All(symbol => symbol is "BTC-THB" or "ETH-THB" or "SOL-THB") &&
+            m.AllowedSymbols.All(research.Contains) && quotes.Count == research.Count &&
+            quotes.All(q => q is not null && research.Contains(q.Symbol) && q.Bid > 0 && q.Ask >= q.Bid &&
+                q.ObservedAt <= now && now - q.ObservedAt <= TimeSpan.FromSeconds(30)) &&
+            quotes.Select(q => q.Symbol).Distinct().Count() == quotes.Count;
     }
+
+    private static IReadOnlyList<string> ResearchSymbols(LiveResearchPacket packet) =>
+        packet.Limits.ResearchSymbols.Count == 0 ? packet.Limits.AllowedSymbols : packet.Limits.ResearchSymbols;
+
+    private static IReadOnlyList<LiveQuote> ResearchQuotes(LiveResearchPacket packet) =>
+        packet.ResearchQuotes.Count == 0 ? packet.Snapshot.Quotes : packet.ResearchQuotes;
+
+    private static bool NeedsReview(LiveSnapshot before, LiveSnapshot current) => !SameOwnedMoney(before, current) ||
+        before.Quotes.Count != current.Quotes.Count || current.Quotes.Any(q =>
+            before.Quotes.SingleOrDefault(p => p.Symbol == q.Symbol) is not { } old || old.Bid <= 0 || old.Ask <= 0 ||
+            Math.Abs(q.Bid - old.Bid) >= old.Bid * .01m || Math.Abs(q.Ask - old.Ask) >= old.Ask * .01m);
 
     private static bool SameOwnedMoney(LiveSnapshot before, LiveSnapshot after) => after.Version >= before.Version &&
         before.CashBalance == after.CashBalance && before.CashReserved == after.CashReserved &&

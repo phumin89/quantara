@@ -31,24 +31,58 @@ public static class BitkubProfileVerifier
                 fingerprint[7..].Any(c => !char.IsAsciiHexDigit(c))) throw Invalid();
             var capture = Read(bytes, fingerprint, now, allowZeroCash: true);
             if (now - capture.observedAt > TimeSpan.FromMinutes(5) ||
-                capture.walletBalances.Any(b => b.Currency is not ("THB" or "BTC") && b.Total != 0) ||
+                capture.walletBalances.Any(b => b.Currency is not ("THB" or "BTC" or "ETH" or "SOL") && b.Total != 0) ||
                 capture.walletBalances.All(b => b.Total == 0)) throw Invalid();
-            var market = capture.marketRules.Single(p => p.Symbol == "BTC-THB");
-            if (market.BaseAssetScale != 8 || market.QuoteAssetScale != 2 || market.BaseQuantityScale != 8 ||
-                market.QuoteQuantityScale != 2 || market.QuantityScale != 0 || market.QuantityStep != 1 ||
-                market.PriceStep != .01m || market.MinimumQuoteSize != 10) throw Invalid();
+            var pairs = ReceiptPairs(capture.marketRules, now);
             var hash = Convert.ToHexStringLower(SHA256.HashData(bytes.Span));
             var reference = "authenticated-bitkub-order-receipts:" + capture.observedAt.ToUnixTimeMilliseconds();
             var rules = new BitkubVerifiedExecutionRules(reference + ";" + FeeReference +
                 ";https://github.com/bitkub/bitkub-official-api-docs/blob/master/websocket-private.md", hash, CashFeeCeiling,
                 BitkubBuyHistoryAmount.AuthenticatedOrderReceipts,
-                [new("BTC-THB", 1m, .00000001m, market.PriceStep, market.MinimumQuoteSize, market.QuantityScale, market.QuantityStep)
-                    { BuyBaseRounding = BitkubBuyBaseRounding.FloorToBaseStep }]);
+                pairs);
             return new("bitkub:credential:" + fingerprint[7..], fingerprint, reference, hash, true, true,
                 BitkubExecutionAdapter.ValidateRules(rules));
         }
         catch (Exception error) when (error is JsonException or InvalidOperationException or OverflowException or ArgumentException)
         { throw Invalid(); }
+    }
+
+    // Reversible market expansion only; retains the existing key/account and fee model.
+    public static BitkubVerifiedProfile ExpandReceiptMarkets(BitkubVerifiedProfile previous,
+        IReadOnlyList<BrokerSymbolRules> markets, string fingerprint, DateTimeOffset now)
+    {
+        if (fingerprint is not { Length: 71 } || !fingerprint.StartsWith("sha256:", StringComparison.Ordinal) ||
+            fingerprint[7..].Any(c => !char.IsAsciiHexDigit(c)) ||
+            previous.CredentialFingerprint != fingerprint || !previous.AccountBindingVerified || !previous.TradePermissionVerified ||
+            previous.BrokerAccountReference != "bitkub:credential:" + fingerprint[7..] ||
+            previous.Rules.BuyHistoryAmount != BitkubBuyHistoryAmount.AuthenticatedOrderReceipts ||
+            previous.EvidenceHash != previous.Rules.EvidenceHash) throw Invalid();
+        _ = BitkubExecutionAdapter.ValidateRules(previous.Rules);
+        var pairs = ReceiptPairs(markets, now);
+        if (previous.Rules.Pairs.OrderBy(p => p.Symbol).SequenceEqual(pairs)) return previous;
+        // Expansion never changes any rule already used by outstanding orders.
+        if (previous.Rules.Pairs.Any(p => !pairs.Contains(p))) throw Invalid();
+        var hash = Convert.ToHexStringLower(SHA256.HashData(JsonSerializer.SerializeToUtf8Bytes(new { previous.EvidenceHash, markets })));
+        var reference = "authenticated-bitkub-multi-market:" + now.ToUnixTimeMilliseconds();
+        return previous with
+        {
+            ConfirmationReference = reference, EvidenceHash = hash,
+            Rules = previous.Rules with { ConfirmationReference = reference + ";" + FeeReference,
+                EvidenceHash = hash, Pairs = pairs }
+        };
+    }
+
+    private static BitkubPairExecutionRules[] ReceiptPairs(IReadOnlyList<BrokerSymbolRules> markets, DateTimeOffset now)
+    {
+        var sorted = markets.OrderBy(p => p.Symbol, StringComparer.Ordinal).ToArray();
+        if (!sorted.Select(p => p.Symbol).SequenceEqual(new[] { "BTC-THB", "ETH-THB", "SOL-THB" }) ||
+            sorted.Any(p => p.BaseAssetScale != 8 || p.QuoteAssetScale != 2 || p.BaseQuantityScale != 8 ||
+                p.QuoteQuantityScale != 2 || p.QuantityScale != 0 || p.QuantityStep != 1 || p.PriceScale != 2 ||
+                p.PriceStep != .01m || p.MinimumQuoteSize != 10 || p.Status != "active" || p.Source != "exchange" ||
+                p.MarketSegment != "SPOT" || p.FreezeBuy || p.FreezeSell || p.FreezeCancel ||
+                p.ObservedAt > now || now - p.ObservedAt > TimeSpan.FromSeconds(60))) throw Invalid();
+        return sorted.Select(m => new BitkubPairExecutionRules(m.Symbol, 1m, .00000001m, m.PriceStep,
+            m.MinimumQuoteSize, m.QuantityScale, m.QuantityStep) { BuyBaseRounding = BitkubBuyBaseRounding.FloorToBaseStep }).ToArray();
     }
 
     public static BitkubVerifiedProfile Verify(ReadOnlyMemory<byte> beforeBytes, ReadOnlyMemory<byte> boughtBytes,

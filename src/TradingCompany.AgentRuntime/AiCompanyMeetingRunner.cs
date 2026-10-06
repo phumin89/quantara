@@ -49,7 +49,7 @@ public sealed class AiCompanyMeetingRunner : IAiCompanyMeetingRunner
 
     private static readonly Step[] Steps =
     [
-        new("ceo", "Set today's objective and capital-preservation priorities. Do not create proposals.", false),
+        new("ceo", "Set today's objective, compare opportunities and allocation tradeoffs. Preserve capital when evidence is insufficient. Do not create proposals.", false),
         new("chief-of-staff", "Create role assignments and decision agenda from the CEO artifact. Do not create proposals.", false),
         new("market-research", "Assess market regime from supplied evidence only. News and current external facts are unavailable. Do not create proposals.", false),
         new("security-analysis", "Compare equity and crypto candidates as a specialist. Do not create proposals.", false),
@@ -104,17 +104,27 @@ public sealed class AiCompanyMeetingRunner : IAiCompanyMeetingRunner
 
         try
         {
-            foreach (var step in Steps)
+            var steps = input.PortfolioReview && input.AccountContext?.Mode == TradingCompany.Domain.TradingMode.Live
+                ? Steps.Where(s => s.Role is "portfolio-initial" or "risk-critic" or "portfolio-final") : Steps;
+            foreach (var step in steps)
             {
                 cancellationToken.ThrowIfCancellationRequested();
                 await Publish("AgentSpawned", step.Role, "idle", "Assigned specialist role", cancellationToken);
                 await Publish("AgentStartedTask", step.Role, "working", "Reviewing meeting evidence", cancellationToken);
+                var instructions = CommonPermissions + step.Instructions +
+                    (input.AccountContext?.Mode == TradingCompany.Domain.TradingMode.Live ?
+                        " Write summaries, recommendations, risks, thesis and invalidation in clear Thai. " +
+                        "Compare all supplied candidates. Only ExecutionAllowed=true symbols may appear in proposals, including HOLD. " +
+                        "Discuss research-only candidates in summaries. " +
+                        "LastPrice is a completed daily close; CurrentQuote is the current bid/ask used to value the real portfolio. " +
+                        "A portfolio review reassesses the previous conclusion using current prices and holdings; " +
+                        "it does not establish a new intraday strategy or prove trading edge." : "");
                 var inputJson = JsonSerializer.Serialize(new { meeting = input, priorArtifacts = priorOutputs }, JsonOptions);
                 // Market evidence alone is insufficient: cash, mandate, limits and earlier
                 // role outputs are all decision inputs. Old evidence-only keys intentionally miss.
                 var contextHash = Convert.ToHexStringLower(SHA256.HashData(JsonSerializer.SerializeToUtf8Bytes(
                     new { version = "meeting-context-v2", inputJson, options.ReasoningEffort,
-                        options.MaxOutputTokens, instructions = CommonPermissions + step.Instructions }, JsonOptions)));
+                        options.MaxOutputTokens, instructions }, JsonOptions)));
                 var key = new AgentArtifactKey(
                     options.Model, options.PromptVersion, step.Role, contextHash,
                     options.MandateVersion, input.DataCutoff);
@@ -135,7 +145,7 @@ public sealed class AiCompanyMeetingRunner : IAiCompanyMeetingRunner
                         options.Model,
                         options.ReasoningEffort,
                         options.PromptVersion,
-                        CommonPermissions + step.Instructions,
+                        instructions,
                         inputJson,
                         AiCompanyContract.OutputJsonSchema,
                         options.MaxOutputTokens,

@@ -11,6 +11,43 @@ public sealed class BitkubProfileVerifierTests
     private static readonly DateTimeOffset Now = new(2026, 10, 6, 12, 0, 0, TimeSpan.Zero);
     private const string Fingerprint = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
 
+    [Fact]
+    public void Receipt_market_expansion_replaces_BTC_only_rules_with_all_three_markets()
+    {
+        var previous = PreviousReceiptProfile();
+        var expanded = BitkubProfileVerifier.ExpandReceiptMarkets(previous, Markets(), Fingerprint, Now);
+        Assert.Equal(new[] { "BTC-THB", "ETH-THB", "SOL-THB" }, expanded.Rules.Pairs.Select(p => p.Symbol));
+        Assert.NotEqual(previous.EvidenceHash, expanded.EvidenceHash);
+        Assert.Equal(previous.BrokerAccountReference, expanded.BrokerAccountReference);
+        Assert.Equal(previous.Rules.MaximumCashFeeRate, expanded.Rules.MaximumCashFeeRate);
+    }
+
+    [Fact]
+    public void Receipt_market_expansion_is_idempotent_for_matching_rules()
+    {
+        var previous = PreviousReceiptProfile();
+        var expanded = BitkubProfileVerifier.ExpandReceiptMarkets(previous, Markets(), Fingerprint, Now);
+        Assert.Same(expanded, BitkubProfileVerifier.ExpandReceiptMarkets(expanded, Markets(), Fingerprint, Now));
+    }
+
+    [Theory]
+    [InlineData("fingerprint")]
+    [InlineData("legacy-fee")]
+    [InlineData("malformed-eth")]
+    [InlineData("stale")]
+    public void Receipt_market_expansion_rejects_unproven_public_metadata(string defect)
+    {
+        var markets = Markets();
+        if (defect == "malformed-eth") markets[1] = markets[1] with { QuantityScale = 8 };
+        if (defect == "stale") markets[2] = markets[2] with { ObservedAt = Now.AddMinutes(-2) };
+        var previous = PreviousReceiptProfile() with
+        {
+            Rules = defect == "legacy-fee" ? PreviousReceiptProfile().Rules with { BuyHistoryAmount = BitkubBuyHistoryAmount.QuoteIncludingCashFee } : PreviousReceiptProfile().Rules
+        };
+        var fingerprint = defect == "fingerprint" ? "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb" : Fingerprint;
+        Assert.Throws<InvalidDataException>(() => BitkubProfileVerifier.ExpandReceiptMarkets(previous, markets, fingerprint, Now));
+    }
+
     [Theory]
     [InlineData("before")]
     [InlineData("bought")]
@@ -22,10 +59,24 @@ public sealed class BitkubProfileVerifierTests
         Assert.Equal(BitkubBuyHistoryAmount.AuthenticatedOrderReceipts, profile.Rules.BuyHistoryAmount);
         Assert.True(profile.AccountBindingVerified);
         Assert.True(profile.TradePermissionVerified);
-        Assert.Single(profile.Rules.Pairs);
-        Assert.Equal("BTC-THB", profile.Rules.Pairs.Single().Symbol);
-        Assert.Equal(1m, profile.Rules.Pairs.Single().BuyQuoteStep);
-        Assert.Equal(.00000001m, profile.Rules.Pairs.Single().SellBaseStep);
+        Assert.Equal(new[] { "BTC-THB", "ETH-THB", "SOL-THB" }, profile.Rules.Pairs.Select(p => p.Symbol));
+        Assert.All(profile.Rules.Pairs, pair =>
+        {
+            Assert.Equal(1m, pair.BuyQuoteStep);
+            Assert.Equal(.00000001m, pair.SellBaseStep);
+            Assert.Equal(BitkubBuyBaseRounding.FloorToBaseStep, pair.BuyBaseRounding);
+        });
+    }
+
+    [Fact]
+    public void Receipt_profile_accepts_owned_ETH_and_SOL_holdings()
+    {
+        var capture = JsonNode.Parse(Json(Capture("before")))!;
+        capture["walletBalances"]!.AsArray().Add(new JsonObject { ["Currency"] = "ETH", ["Available"] = 1m, ["Reserved"] = 0m, ["Total"] = 1m });
+        capture["walletBalances"]!.AsArray().Add(new JsonObject { ["Currency"] = "SOL", ["Available"] = 2m, ["Reserved"] = 0m, ["Total"] = 2m });
+        SetObservedAt(capture, Now.AddSeconds(-1));
+        var profile = BitkubProfileVerifier.ForOrderReceipts(Encoding(capture.ToJsonString()), Fingerprint, Now);
+        Assert.Equal(3, profile.Rules.Pairs.Count);
     }
 
     [Fact]
@@ -46,6 +97,8 @@ public sealed class BitkubProfileVerifierTests
     [InlineData("opens")]
     [InlineData("minimum")]
     [InlineData("quantity-unit")]
+    [InlineData("eth-sizing")]
+    [InlineData("sol-sizing")]
     [InlineData("unsupported")]
     [InlineData("empty")]
     public void Receipt_profile_requires_current_supported_funded_observations(string defect)
@@ -61,6 +114,8 @@ public sealed class BitkubProfileVerifierTests
             case "opens": capture["openOrderCount"] = 1; break;
             case "minimum": capture["marketRules"]![0]!["MinimumQuoteSize"] = 1m; break;
             case "quantity-unit": capture["marketRules"]![0]!["QuantityScale"] = 8; break;
+            case "eth-sizing": capture["marketRules"]![1]!["QuantityScale"] = 8; break;
+            case "sol-sizing": capture["marketRules"]![2]!["MinimumQuoteSize"] = 1m; break;
             case "unsupported": capture["walletBalances"]!.AsArray().Add(new JsonObject
                 { ["Currency"] = "DOGE", ["Available"] = 1m, ["Reserved"] = 0m, ["Total"] = 1m }); break;
             case "empty": SetWallet(capture, "THB", 0m); break;
@@ -381,6 +436,18 @@ public sealed class BitkubProfileVerifierTests
 
     private static BitkubVerifiedProfile Verify()
         => BitkubProfileVerifier.Verify(Encoding(Json(Capture("before"))), Encoding(Json(Capture("bought"))), Encoding(Json(Capture("sold"))), Fingerprint, Now);
+
+    private static BitkubVerifiedProfile PreviousReceiptProfile()
+        => new("bitkub:credential:" + Fingerprint[7..], Fingerprint, "old", new string('a', 64), true, true,
+            new("old;https://www.bitkub.com/en/fee/cryptocurrency", new string('a', 64), .0035m,
+                BitkubBuyHistoryAmount.AuthenticatedOrderReceipts,
+                [new("BTC-THB", 1m, .00000001m, .01m, 10m, 0, 1m) { BuyBaseRounding = BitkubBuyBaseRounding.FloorToBaseStep }]));
+
+    private static List<BrokerSymbolRules> Markets()
+        => [SymbolRule("BTC-THB"), SymbolRule("ETH-THB"), SymbolRule("SOL-THB")];
+
+    private static BrokerSymbolRules SymbolRule(string symbol)
+        => new(symbol, Now.AddSeconds(-1), 8, 2, 8, 2, 2, .01m, 0, 1m, 10m, false, false, false, "active", "exchange", "SPOT");
 
     private static Dictionary<string, object?> Capture(string stage)
     {

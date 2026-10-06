@@ -27,7 +27,11 @@ public sealed record AiCompanyCandidateEvidence(
     StrategyKind Strategy,
     bool StrategyPromoted,
     decimal OutOfSampleReturn,
-    decimal ValidatedDrawdown);
+    decimal ValidatedDrawdown)
+{
+    public bool ExecutionAllowed { get; init; } = true;
+    public LiveQuote? CurrentQuote { get; init; }
+}
 
 public sealed record AiCompanyMeetingInput(
     DateOnly DataCutoff,
@@ -40,6 +44,12 @@ public sealed record AiCompanyMeetingInput(
 {
     [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
     public TradingAccountContext? AccountContext { get; init; }
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingDefault)]
+    public bool PortfolioReview { get; init; }
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public DateTimeOffset? ObservedAt { get; init; }
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public string? PreviousConclusion { get; init; }
 }
 
 public sealed record AiCompanyProposal(

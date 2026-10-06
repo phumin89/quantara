@@ -443,13 +443,124 @@ public sealed class LiveCompanyCoordinatorTests : IDisposable
         Assert.Empty(client.Intents);
     }
 
-    private LiveCompanyCoordinator Coordinator(Client client, Gateway gateway, Market? market = null)
+    [Fact]
+    public async Task Researches_all_symbols_but_only_allowed_symbol_can_execute()
+    {
+        var client = new Client { Packet = new Client().Packet with
+        {
+            Limits = new(1000, .2m, 3, .003m, .01m, ["BTC-THB"]) { ResearchSymbols = ["BTC-THB", "ETH-THB"], OrderSizing = [new("BTC-THB", .01m, .00000001m, 1m, 10m)] },
+            ResearchQuotes = [new("BTC-THB", 100000, 100000, LiveRiskTests.Now), new("ETH-THB", 3000, 3000, LiveRiskTests.Now)]
+        }};
+        var gateway = new Gateway { ProposalSymbol = "ETH-THB" };
+        var coordinator = Coordinator(client, gateway);
+        await coordinator.TickAsync();
+        Assert.Equal(2, gateway.Inputs[0].Candidates.Count);
+        Assert.Contains(gateway.Inputs[0].Candidates, c => !c.ExecutionAllowed && c.CurrentQuote!.Symbol == "ETH-THB");
+        Assert.Equal("INVALID_FINAL", coordinator.Status);
+        Assert.Empty(client.Intents);
+    }
+
+    [Fact]
+    public async Task Continuous_reviews_skip_stable_hour_and_run_after_price_change_once()
+    {
+        var client = new Client(); var gateway = new Gateway(); var coordinator = Coordinator(client, gateway, continuous: true);
+        await coordinator.TickAsync();
+        clock.Now = LiveRiskTests.Now.AddHours(1);
+        client.Packet = client.Packet with { Snapshot = client.Packet.Snapshot with { ObservedAt = clock.Now,
+            Quotes = client.Packet.Snapshot.Quotes.Select(q => q with { ObservedAt = clock.Now }).ToArray() } };
+        await coordinator.TickAsync();
+        Assert.Equal("WATCHING", coordinator.Status);
+        client.Packet = client.Packet with { Snapshot = client.Packet.Snapshot with { Version = 2,
+            ObservedAt = clock.Now, Quotes = [new("BTC-THB", 98000, 98000, clock.Now)] }, ResearchQuotes = [new("BTC-THB", 98000, 98000, clock.Now)] };
+        await coordinator.TickAsync();
+        Assert.Equal(11, gateway.Inputs.Count);
+        Assert.Equal(new[] { "portfolio-initial", "risk-critic", "portfolio-final" }, gateway.Roles.Skip(8));
+        await coordinator.TickAsync();
+        Assert.Equal("ALREADY_ATTEMPTED", coordinator.Status);
+        var restarted = Coordinator(client, gateway, continuous: true);
+        await restarted.TickAsync();
+        Assert.Equal("ALREADY_ATTEMPTED", restarted.Status);
+    }
+
+    [Fact]
+    public async Task Allowed_researched_eth_buy_uses_its_current_quote_and_sizing()
+    {
+        var client = new Client { Packet = new Client().Packet with
+        {
+            Limits = new(1000, .2m, 3, .003m, .01m, ["ETH-THB"]) { ResearchSymbols = ["ETH-THB"], OrderSizing = [new("ETH-THB", .001m, .000001m, 1m, 1m)] },
+            ResearchQuotes = [new("ETH-THB", 3000, 3000, LiveRiskTests.Now)],
+            Snapshot = LiveRiskTests.Snapshot with { Quotes = [new("ETH-THB", 3000, 3000, LiveRiskTests.Now)] }
+        }};
+        var gateway = new Gateway { ProposalSymbol = "ETH-THB" };
+        await Coordinator(client, gateway).TickAsync();
+        var intent = Assert.Single(client.Intents);
+        Assert.Equal("ETH-THB", intent.Symbol);
+        Assert.Equal(3000m, intent.LimitPrice);
+    }
+
+    [Fact]
+    public async Task Continuous_review_runs_when_owned_cash_changes()
+    {
+        var client = new Client(); var gateway = new Gateway(); var coordinator = Coordinator(client, gateway, continuous: true);
+        await coordinator.TickAsync();
+        clock.Now = LiveRiskTests.Now.AddHours(1);
+        client.Packet = client.Packet with { Snapshot = client.Packet.Snapshot with { Version = 2, ObservedAt = clock.Now, CashBalance = 999, Equity = 999,
+            Quotes = client.Packet.Snapshot.Quotes.Select(q => q with { ObservedAt = clock.Now }).ToArray() } };
+        await coordinator.TickAsync();
+        Assert.Equal(11, gateway.Inputs.Count);
+    }
+
+    [Fact]
+    public async Task Malformed_research_quotes_block_before_model_quota()
+    {
+        var client = new Client { Packet = new Client().Packet with { ResearchQuotes = [new("BTC-THB", 100000, 100000, LiveRiskTests.Now), new("BTC-THB", 100000, 100000, LiveRiskTests.Now)] } };
+        var gateway = new Gateway();
+        var coordinator = Coordinator(client, gateway);
+        await coordinator.TickAsync();
+        Assert.Equal("LIVE_BLOCKED", coordinator.Status);
+        Assert.Empty(gateway.Inputs);
+    }
+
+    [Fact]
+    public async Task Continuous_review_blocks_pending_orders()
+    {
+        var client = new Client();
+        client.Packet = client.Packet with { Snapshot = client.Packet.Snapshot with { CashReserved = 1 } };
+        var gateway = new Gateway();
+        var coordinator = Coordinator(client, gateway, continuous: true);
+        await coordinator.TickAsync();
+        Assert.Equal("ORDER_PENDING", coordinator.Status);
+        Assert.Empty(gateway.Inputs);
+    }
+
+    private LiveCompanyCoordinator Coordinator(Client client, Gateway gateway, Market? market = null, bool continuous = false)
     {
         var runner = new AiCompanyMeetingRunner(gateway,
             new JsonAgentDecisionArtifactStore(Path.Combine(root, "artifacts")),
             new(true, "test-model", "medium", "company-v1", "live-v1", 600, 8, 20000, TimeSpan.FromSeconds(30)));
         return new(client, market ?? new Market(), runner,
-            new JsonDailyMeetingJournal(Path.Combine(root, "live-meetings.json"), Scope), clock, LiveRiskTests.Account);
+            new JsonDailyMeetingJournal(Path.Combine(root, "live-meetings.json"), Scope), clock, LiveRiskTests.Account, continuous);
+    }
+
+    [Fact]
+    public async Task Overnight_portfolio_review_does_not_replace_next_daily_research_meeting()
+    {
+        var client = new Client(); var gateway = new Gateway { Scenario = "hold" };
+        var coordinator = Coordinator(client, gateway, continuous: true);
+        await coordinator.TickAsync();
+        clock.Now = LiveRiskTests.Now.AddDays(1).AddHours(-2);
+        client.Packet = client.Packet with { Snapshot = client.Packet.Snapshot with { Version = 2, ObservedAt = clock.Now,
+            CashBalance = 999, Equity = 999, Quotes = client.Packet.Snapshot.Quotes.Select(q => q with { ObservedAt = clock.Now }).ToArray() } };
+        await coordinator.TickAsync();
+        Assert.Equal(11, gateway.Inputs.Count);
+        Assert.True(gateway.Inputs[^1].PortfolioReview);
+        clock.Now = clock.Now.AddHours(2);
+        client.Packet = client.Packet with { Snapshot = client.Packet.Snapshot with { Version = 3, ObservedAt = clock.Now,
+            Quotes = client.Packet.Snapshot.Quotes.Select(q => q with { ObservedAt = clock.Now }).ToArray() } };
+        await coordinator.TickAsync();
+        Assert.Equal(19, gateway.Inputs.Count);
+        Assert.False(gateway.Inputs[^1].PortfolioReview);
+        Assert.Empty(client.Intents);
     }
 
     private static Client HoldingsClient(decimal quantity = .01m, decimal reservedQuantity = 0m, decimal cash = 0m)
@@ -497,14 +608,17 @@ public sealed class LiveCompanyCoordinatorTests : IDisposable
         public string Scenario { get; init; } = "buy";
         public string Action { get; init; } = "BUY";
         public decimal TargetWeight { get; init; } = .15m;
+        public string ProposalSymbol { get; init; } = "BTC-THB";
         public Action? AfterFinal { get; set; }
         public List<AiCompanyMeetingInput> Inputs { get; } = [];
+        public List<string> Roles { get; } = [];
         public Task<AgentModelResponse> CompleteStructuredAsync(AgentModelRequest request, CancellationToken cancellationToken)
         {
             if (Scenario == "model-down") throw new AgentModelUnavailableException("fixture");
             using var document = JsonDocument.Parse(request.InputJson);
             var input = document.RootElement.GetProperty("meeting").Deserialize<AiCompanyMeetingInput>(new JsonSerializerOptions(JsonSerializerDefaults.Web))!;
             Inputs.Add(input);
+            Roles.Add(request.Role);
             if (request.Role == "portfolio-final") AfterFinal?.Invoke();
             var output = JsonSerializer.Serialize(new
             {
@@ -513,7 +627,7 @@ public sealed class LiveCompanyCoordinatorTests : IDisposable
                 dataCutoff = input.DataCutoff.ToString("yyyy-MM-dd"), evidenceHash = input.EvidenceHash,
                 proposals = request.Role != "portfolio-final" || Scenario == "hold" ? [] : new[]
                 {
-                    new { action = Action, symbol = Scenario == "invalid-output" ? "INVENTED" : "BTC-THB", targetWeight = TargetWeight,
+                    new { action = Action, symbol = Scenario == "invalid-output" ? "INVENTED" : ProposalSymbol, targetWeight = TargetWeight,
                         confidence = .8m, thesis = "Supplied evidence supports entry", invalidation = "Trend deteriorates" }
                 }
             });

@@ -38,6 +38,92 @@ public sealed class BitkubOnboardingFlowTests(PostgresFixture database)
     }
 
     [Fact]
+    public async Task Existing_BTC_account_expands_to_all_verified_spot_markets_without_resetting_state()
+    {
+        using var fixture = await Setup(multiMarkets: true);
+        Assert.True((await fixture.Provisioner.ProvisionAsync(fixture.Request, default)).Allowed);
+        var before = await fixture.Store.ReadAccountAsync(fixture.Id);
+        Assert.True((await fixture.Services.GetRequiredService<LiveReconciliation>().InitializeBaselineAsync(
+            new(fixture.Id, before.Mandate.Version, before.Snapshot.Version), default)).Complete);
+        before = await fixture.Store.ReadAccountAsync(fixture.Id);
+        Assert.True((await fixture.Activation.ActivateFullSpotAsync(default)).Activated);
+        var expanded = await fixture.Store.ReadAccountAsync(fixture.Id);
+        Assert.Equal(before.Mandate.Version + 1, expanded.Mandate.Version);
+        Assert.Equal(new[] { "BTC-THB", "ETH-THB", "SOL-THB" }, expanded.Mandate.AllowedSymbols);
+        Assert.Equal(before.Mandate.MaximumOpenPositions, expanded.Mandate.MaximumOpenPositions);
+        Assert.Equal(JsonSerializer.Serialize(before.Mandate), JsonSerializer.Serialize(expanded.Mandate with
+        { Version = before.Mandate.Version, AllowedSymbols = before.Mandate.AllowedSymbols }));
+        Assert.Equal(before.Mandate.CapitalAllocation, expanded.Mandate.CapitalAllocation);
+        Assert.Equal(before.Snapshot.CashBalance, expanded.Snapshot.CashBalance);
+        Assert.Equal(JsonSerializer.Serialize(before.OpeningBalance), JsonSerializer.Serialize(expanded.OpeningBalance));
+        Assert.Equal(before.PerformanceBaseline, expanded.PerformanceBaseline);
+        Assert.True(expanded.Gate.Armed);
+        Assert.Equal(0, fixture.Handler.OrderWrites);
+        Assert.True((await fixture.Activation.ActivateFullSpotAsync(default)).Activated);
+        Assert.Equal(expanded.Mandate.Version, (await fixture.Store.ReadAccountAsync(fixture.Id)).Mandate.Version);
+    }
+
+    [Fact]
+    public async Task Older_profile_cannot_silently_remove_markets_from_an_existing_mandate()
+    {
+        using var fixture = await Setup(multiMarkets: true);
+        Assert.True((await fixture.Activation.ActivateFullSpotAsync(default)).Activated);
+        var before = await fixture.Store.ReadAccountAsync(fixture.Id);
+        var configured = fixture.Services.GetRequiredService<BitkubConfiguredAccount>();
+        var narrower = configured with { Verification = configured.Verification with
+        { Rules = configured.Verification.Rules with { Pairs = configured.Verification.Rules.Pairs.Where(p => p.Symbol == "BTC-THB").ToArray() } } };
+        var activation = new LiveOwnerActivation(narrower, fixture.Store,
+            fixture.Services.GetRequiredService<BitkubLiveBroker>(), fixture.Provisioner,
+            fixture.Services.GetRequiredService<LiveReconciliation>(), fixture.Services.GetRequiredService<LiveOwnerControls>());
+
+        var result = await activation.ActivateFullSpotAsync(default);
+
+        Assert.False(result.Activated);
+        Assert.Contains("MARKET_REMOVAL_REQUIRES_MANDATE_UPDATE", result.Reasons);
+        var after = await fixture.Store.ReadAccountAsync(fixture.Id);
+        Assert.Equal(JsonSerializer.Serialize(before.Mandate), JsonSerializer.Serialize(after.Mandate));
+        Assert.Equal(before.Gate, after.Gate);
+        Assert.Equal(0, fixture.Handler.OrderWrites);
+    }
+
+    [Fact]
+    public async Task Stopped_BTC_account_cannot_expand_verified_spot_markets()
+    {
+        using var fixture = await Setup(multiMarkets: true);
+        Assert.True((await fixture.Provisioner.ProvisionAsync(fixture.Request, default)).Allowed);
+        await fixture.Services.GetRequiredService<LiveOwnerControls>().StopAsync();
+        var result = await fixture.Activation.ActivateFullSpotAsync(default);
+        Assert.False(result.Activated);
+        Assert.Contains("OWNER_STOP_ACTIVE", result.Reasons);
+        Assert.Equal(["BTC-THB"], (await fixture.Store.ReadAccountAsync(fixture.Id)).Mandate.AllowedSymbols);
+    }
+
+    [Fact]
+    public async Task Pending_owned_order_blocks_market_expansion_without_changing_mandate()
+    {
+        using var fixture = await Setup(multiMarkets: true);
+        Assert.True((await fixture.Provisioner.ProvisionAsync(fixture.Request, default)).Allowed);
+        var account = await fixture.Store.ReadAccountAsync(fixture.Id);
+        Assert.True((await fixture.Services.GetRequiredService<LiveReconciliation>().InitializeBaselineAsync(
+            new(fixture.Id, account.Mandate.Version, account.Snapshot.Version), default)).Complete);
+        account = await fixture.Store.ReadAccountAsync(fixture.Id);
+        Assert.True((await fixture.Services.GetRequiredService<LiveOwnerControls>().ArmAsync(
+            new(fixture.Id, account.BrokerAccountReference!, account.Mandate.Version, account.Snapshot.Version, true, false))).Allowed);
+        await fixture.Store.WithAccountLockAsync(fixture.Id, async (tx, ct) =>
+        {
+            var intent = new LiveIntent(fixture.Id, Guid.NewGuid(), Guid.NewGuid(), TradingMode.Live, "BTC-THB", OrderSide.Buy,
+                .001m, 100000m, tx.Account.Mandate.Version, tx.Account.Snapshot.Version, "synthetic-owned-evidence") { BuyBudget = 100m };
+            Assert.Equal(LiveOrderState.Reserved, tx.Reserve(intent, Now).State);
+            await tx.CommitAsync(ct); return 0;
+        });
+        var result = await fixture.Activation.ActivateFullSpotAsync(default);
+        Assert.False(result.Activated);
+        Assert.Contains("UNRESOLVED_ORDER", result.Reasons);
+        Assert.Equal(account.Mandate.Version, (await fixture.Store.ReadAccountAsync(fixture.Id)).Mandate.Version);
+        Assert.Equal(0, fixture.Handler.OrderWrites);
+    }
+
+    [Fact]
     public async Task Owner_activation_requires_funds_and_trade_permission()
     {
         using var empty = await Setup();
@@ -417,9 +503,9 @@ public sealed class BitkubOnboardingFlowTests(PostgresFixture database)
         await worker.StopAsync(default);
     }
 
-    private async Task<Fixture> Setup()
+    private async Task<Fixture> Setup(bool multiMarkets = false)
     {
-        var fixture = new Fixture(database.ConnectionString);
+        var fixture = new Fixture(database.ConnectionString, multiMarkets);
         await fixture.Store.EnsureSchemaAsync();
         return fixture;
     }
@@ -436,16 +522,20 @@ public sealed class BitkubOnboardingFlowTests(PostgresFixture database)
         public BitkubAccountProvisioner Provisioner => Services.GetRequiredService<BitkubAccountProvisioner>();
         public LiveOwnerActivation Activation => Services.GetRequiredService<LiveOwnerActivation>();
         public LiveMandateUpdate Request => new(Id, 0, 1000, 200, 500, 50, .1m, .2m, 1, .01m, .003m, ["BTC-THB"], Now.AddHours(1));
-        public Fixture(string connectionString)
+        public Fixture(string connectionString, bool multiMarkets = false)
         {
             Credentials = Path.Combine(directory, "credentials.env");
             File.WriteAllText(Credentials, "BITKUB_API_KEY=test-key\nBITKUB_API_SECRET=test-secret\n");
             Handler = new Handler(Clock);
             var broker = new BitkubLiveBroker("test-key", "test-secret", Handler, Clock);
+            BitkubPairExecutionRules[] pairs = multiMarkets ? [new BitkubPairExecutionRules("BTC-THB", 1, .00000001m, .01m, 10, 0, 1),
+                new BitkubPairExecutionRules("ETH-THB", 1, .00000001m, .01m, 10, 0, 1),
+                new BitkubPairExecutionRules("SOL-THB", 1, .00000001m, .01m, 10, 0, 1)] :
+                [new BitkubPairExecutionRules("BTC-THB", 1, .00000001m, .01m, 10, 0, 1)];
             var verification = new BitkubLiveVerification("synthetic-account", broker.CredentialFingerprint,
                 "synthetic-account-confirmation", new string('a', 64), true, true,
                 new("synthetic-rules-confirmation", new string('b', 64), .0025m,
-                    BitkubBuyHistoryAmount.QuoteIncludingCashFee, [new("BTC-THB", 1, .00000001m, .01m, 10, 0, 1)]));
+                    BitkubBuyHistoryAmount.QuoteIncludingCashFee, pairs));
             var path = Path.Combine(directory, "verification.json");
             File.WriteAllText(path, JsonSerializer.Serialize(verification));
             var config = new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?>
@@ -529,9 +619,14 @@ public sealed class BitkubOnboardingFlowTests(PostgresFixture database)
                     parent_order_id = "manual-buy-order", super_order_id = "manual-buy-order", client_id = "manual-client",
                     side = "buy", type = "market", rate = "100000", amount = "235.154875", fee = "0.587875", credit = "0",
                     ts = at.ToUnixTimeMilliseconds() } } : [], pagination = new { has_next = false } }));
-            if (path.EndsWith("/ticker")) return Reply(JsonSerializer.Serialize(new[] { new { symbol = "BTC_THB",
+            if (path.EndsWith("/ticker"))
+            {
+                var requested = request.RequestUri!.Query.TrimStart('?').Split('&').Select(p => p.Split('=', 2)).Where(p => p.Length == 2 && p[0] == "sym").Select(p => Uri.UnescapeDataString(p[1])).FirstOrDefault() ?? "BTC_THB";
+                var symbol = requested.Replace('-', '_');
+                return Reply(JsonSerializer.Serialize(new[] { new { symbol,
                 highest_bid = Bid.ToString(System.Globalization.CultureInfo.InvariantCulture),
                 lowest_ask = Ask.ToString(System.Globalization.CultureInfo.InvariantCulture) } }));
+            }
             OrderWrites++;
             throw new InvalidOperationException("Unexpected provider operation in onboarding test.");
         }

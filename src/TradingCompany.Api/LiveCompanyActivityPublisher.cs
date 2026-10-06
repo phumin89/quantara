@@ -14,6 +14,9 @@ public sealed class LiveCompanyActivityPublisher : BackgroundService, IRealtimeE
     private readonly Dictionary<string, LiveRoleActivity> roles = new(StringComparer.Ordinal);
     private Guid? meetingId;
     private DateTimeOffset lastEventAt = DateTimeOffset.MinValue;
+    private string? coordinatorStatus;
+    private IReadOnlyList<string> researchSymbols = [];
+    private IReadOnlyList<string> tradingSymbols = [];
 
     public LiveCompanyActivityPublisher(ILiveCompanyClient client, TimeProvider clock, LiveAccountId account)
     {
@@ -84,6 +87,16 @@ public sealed class LiveCompanyActivityPublisher : BackgroundService, IRealtimeE
         finally { sends.Release(); }
     }
 
+    public void UpdateCoordinatorStatus(string status, IReadOnlyList<string> research, IReadOnlyList<string> trading)
+    {
+        lock (stateLock)
+        {
+            coordinatorStatus = status;
+            researchSymbols = research.ToArray();
+            tradingSymbols = trading.ToArray();
+        }
+    }
+
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         using var timer = new PeriodicTimer(TimeSpan.FromSeconds(15), clock);
@@ -98,7 +111,8 @@ public sealed class LiveCompanyActivityPublisher : BackgroundService, IRealtimeE
     private async Task SendSnapshotAsync(CancellationToken cancellationToken)
     {
         LiveCompanyActivity snapshot;
-        lock (stateLock) snapshot = new(scope, meetingId, clock.GetUtcNow(), roles.Values.ToArray());
+        lock (stateLock) snapshot = new(scope, meetingId, clock.GetUtcNow(), roles.Values.ToArray())
+        { CoordinatorStatus = coordinatorStatus, ResearchSymbols = researchSymbols, TradingSymbols = tradingSymbols };
         try { await client.SaveActivityAsync(snapshot, cancellationToken); }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
         catch (Exception) { } // Telemetry transport cannot interrupt meeting or order validation.

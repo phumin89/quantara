@@ -62,7 +62,7 @@ public static class LiveCompanyHost
             new(TradingMode.Live, id.ToString("N"))));
         services.AddSingleton(sp => new LiveCompanyCoordinator(sp.GetRequiredService<ILiveCompanyClient>(),
             sp.GetRequiredService<IHistoricalMarketEvidenceProvider>(), sp.GetRequiredService<IAiCompanyMeetingRunner>(),
-            sp.GetRequiredService<IDailyMeetingJournal>(), sp.GetRequiredService<TimeProvider>(), account));
+            sp.GetRequiredService<IDailyMeetingJournal>(), sp.GetRequiredService<TimeProvider>(), account, continuousReviews: true));
         services.AddHostedService<LiveCompanyWorker>();
     }
 
@@ -104,7 +104,11 @@ public sealed class LiveCompanyWorker(LiveCompanyCoordinator company, TimeProvid
             do
             {
                 try { await company.TickAsync(stoppingToken); }
-                finally { await activity.EndMeetingAsync(stoppingToken); }
+                finally
+                {
+                    activity.UpdateCoordinatorStatus(company.Status, company.ResearchUniverse, company.TradingUniverse);
+                    await activity.EndMeetingAsync(stoppingToken);
+                }
             } while (await timer.WaitForNextTickAsync(stoppingToken));
         }
         catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested) { }

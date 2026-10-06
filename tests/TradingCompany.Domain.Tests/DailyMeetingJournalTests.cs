@@ -1,5 +1,6 @@
 using TradingCompany.Infrastructure;
 using TradingCompany.Application;
+using TradingCompany.Domain;
 using System.Text.Json.Serialization;
 using Xunit;
 
@@ -122,11 +123,75 @@ public sealed class DailyMeetingJournalTests : IDisposable
         Assert.Throws<InvalidDataException>(() => Store().Read(Day));
     }
 
+    [Fact]
+    public void Live_review_slots_are_unique_and_readable_after_restart()
+    {
+        var account = new TradingAccountContext(TradingMode.Live, "11111111111111111111111111111111");
+        var store = new JsonDailyMeetingJournal(StatePath, account);
+        Assert.True(store.TryBegin(Day, Guid.NewGuid(), 9, null));
+        store.Complete(Day, store.Read(Day, 9)!.AttemptId, "COMPLETED");
+        Assert.False(new JsonDailyMeetingJournal(StatePath, account).TryBegin(Day, Guid.NewGuid(), 9, null));
+        Assert.True(new JsonDailyMeetingJournal(StatePath, account).TryBegin(Day, Guid.NewGuid(), 10, null));
+        Assert.Equal(9, new JsonDailyMeetingJournal(StatePath, account).Read(Day, 9)!.ReviewHour);
+        Assert.Null(new JsonDailyMeetingJournal(StatePath, account).Read(Day));
+    }
+
+    [Fact]
+    public void Unfinished_review_blocks_later_slots_and_hour_rollback()
+    {
+        var account = new TradingAccountContext(TradingMode.Live, "11111111111111111111111111111111");
+        var store = new JsonDailyMeetingJournal(StatePath, account);
+        Assert.True(store.TryBegin(Day, Guid.NewGuid(), 12, null));
+        Assert.Throws<InvalidDataException>(() => store.TryBegin(Day, Guid.NewGuid(), 13, null));
+        store.Complete(Day, store.Read(Day, 12)!.AttemptId, "COMPLETED");
+        Assert.Throws<InvalidOperationException>(() => store.TryBegin(Day, Guid.NewGuid(), 11, null));
+        Assert.Throws<InvalidOperationException>(() => store.TryBegin(Day.AddDays(-1), Guid.NewGuid(), 12, null));
+    }
+
+    [Fact]
+    public void Review_hour_requires_live_context_and_matching_snapshot_account()
+    {
+        Assert.Throws<InvalidOperationException>(() => Store().TryBegin(Day, Guid.NewGuid(), 9, null));
+        var account = new TradingAccountContext(TradingMode.Live, "11111111111111111111111111111111");
+        var snapshot = new LiveSnapshot(new LiveAccountId(Guid.Parse("22222222-2222-2222-2222-222222222222")), 1,
+            DateTimeOffset.UtcNow, 0, 0, 0, [], 1, 0, 0, 0, true, []);
+        Assert.Throws<ArgumentException>(() => new JsonDailyMeetingJournal(StatePath, account)
+            .TryBegin(Day, Guid.NewGuid(), 9, snapshot));
+    }
+
+    [Fact]
+    public void Review_hour_range_is_bounded()
+    {
+        var account = new TradingAccountContext(TradingMode.Live, "11111111111111111111111111111111");
+        var store = new JsonDailyMeetingJournal(StatePath, account);
+        Assert.True(store.TryBegin(Day, Guid.NewGuid(), 0, null));
+        store.Complete(Day, store.Read(Day, 0)!.AttemptId, "COMPLETED");
+        Assert.True(store.TryBegin(Day, Guid.NewGuid(), 23, null));
+        Assert.Throws<ArgumentOutOfRangeException>(() => store.TryBegin(Day, Guid.NewGuid(), -1, null));
+        Assert.Throws<ArgumentOutOfRangeException>(() => store.Read(Day, 24));
+    }
+
     private static string Hash(DailyMeetingAttempt[] attempts) =>
         Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(
             System.Text.Json.JsonSerializer.SerializeToUtf8Bytes(attempts,
                 new System.Text.Json.JsonSerializerOptions(System.Text.Json.JsonSerializerDefaults.Web)
                 { DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull })));
+
+    [Fact]
+    public void Legacy_live_envelope_hash_remains_readable_when_review_fields_are_absent()
+    {
+        var scope = new TradingAccountContext(TradingMode.Live, "11111111111111111111111111111111");
+        var id = Guid.NewGuid();
+        var old = new[] { new { BusinessDate = Day, AttemptId = id, Status = "HOLD", AccountContext = scope } };
+        var json = new System.Text.Json.JsonSerializerOptions(System.Text.Json.JsonSerializerDefaults.Web);
+        var oldHash = Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(System.Text.Json.JsonSerializer.SerializeToUtf8Bytes(old, json)));
+        Directory.CreateDirectory(root);
+        File.WriteAllText(StatePath, System.Text.Json.JsonSerializer.Serialize(new { Hash = oldHash, Attempts = old }, json));
+        var upgraded = new JsonDailyMeetingJournal(StatePath, scope);
+        Assert.Equal(id, upgraded.Read(Day)!.AttemptId);
+        Assert.True(upgraded.TryBegin(Day, Guid.NewGuid(), 14, null));
+        Assert.Equal("HOLD", upgraded.Read(Day)!.Status);
+    }
 
     public void Dispose() { if (Directory.Exists(root)) Directory.Delete(root, true); }
 }

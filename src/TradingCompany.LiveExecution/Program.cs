@@ -14,6 +14,11 @@ public class LiveProgram
 
     public static void Main(string[] args)
     {
+        if (args.SequenceEqual(["--prepare-multi-asset-profile"]))
+        {
+            Environment.ExitCode = LiveOwnerActivation.PrepareMarketsAsync().GetAwaiter().GetResult();
+            return;
+        }
         if (args.SequenceEqual(["--activate-full-spot-live"]))
         {
             Environment.ExitCode = LiveOwnerActivation.RunCommandAsync().GetAwaiter().GetResult();

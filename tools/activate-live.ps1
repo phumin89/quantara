@@ -57,12 +57,16 @@ try {
     if (!(Test-Path -LiteralPath $activationAuthFile -PathType Leaf)) { throw 'Codex sign-in is required for the CEO. Configuration was preserved.' }
     $env:QUANTARA_CODEX_AUTH_FILE = $activationAuthFile
     # Validate/build before changing the currently working application's configuration.
-    $dockerExitCode = Invoke-ActivationDocker -Arguments @('compose', '--env-file', 'NUL', '-p', 'quantara-owner-readonly', '-f', $composePath, '--profile', 'live-company', 'build', 'owner', 'company') -OutputPath (Join-Path $logRoot 'activation-build.log')
+    $dockerExitCode = Invoke-ActivationDocker -Arguments @('compose', '--env-file', 'NUL', '-p', 'quantara-owner-readonly', '-f', $composePath, '--profile', 'live-company', 'build', 'owner', 'company', 'owner-web') -OutputPath (Join-Path $logRoot 'activation-build.log')
     if ($dockerExitCode -ne 0) { throw 'Live build failed. Current configuration was preserved.' }
     $dockerExitCode = Invoke-ActivationDocker @('compose', '--env-file', 'NUL', '-p', 'quantara-owner-readonly', '-f', $composePath, 'run', '--rm', '--no-deps', '-T', 'owner', '--verify-live-configuration')
     if ($dockerExitCode -ne 0) { throw 'Broker profile/key/Trade verification did not pass. Live was not opened.' }
     $dockerExitCode = Invoke-ActivationDocker @('compose', '--env-file', 'NUL', '-p', 'quantara-owner-readonly', '-f', $composePath, '--profile', 'live-company', 'stop', 'company')
     if ($dockerExitCode -ne 0) { throw 'Could not stop existing CEO activity. Configuration was preserved.' }
+    $profileDirectory = Join-Path $activationRoot '.runtime/live'
+    $dockerExitCode = Invoke-ActivationDocker @('compose', '--env-file', 'NUL', '-p', 'quantara-owner-readonly', '-f', $composePath,
+        'run', '--rm', '--no-deps', '-T', '--volume', "${profileDirectory}:/profile-output", 'owner', '--prepare-multi-asset-profile')
+    if ($dockerExitCode -ne 0) { throw 'BTC/ETH/SOL market verification failed. Existing account and mandate were preserved.' }
     $configurationChanged = $true
     $settings.LiveExecution.Enabled = $true
     [IO.File]::WriteAllText($settingsPath, ($settings | ConvertTo-Json -Depth 12))

@@ -2,7 +2,7 @@
 
 Quantara is the owner's Live trading application. A persistent sidebar connects Office, Account/assets and Trading pages without reloading the app. The colored Pixel Office stays on the homepage; a floating team room opens with the current system conclusion and reasons. It does not invent team activity or import paper reports into Live. Historical paper data is retained; strategy/backtest and accounting verification run headlessly and only when requested.
 
-**Current production status:** authenticated Bitkub wallet viewing works. Real-money execution remains disabled. Wallet access is not verified trading-account binding, an approved investment budget or permission to place orders.
+Authenticated Bitkub wallet viewing works. Execution requires explicit owner activation of a verified account and mandate; the current authority and reconciliation state are shown on Trading. Wallet viewing and installing new code do not approve orders or expand an existing mandate.
 
 ## Start the app
 
@@ -33,9 +33,9 @@ The Docker verification runner mounts source/test files only, not broker credent
 
 ## Remaining Live gates
 
-The execution, opening inventory, daily baseline, isolated CEO and reconciliation paths are implemented and tested. The BTC profile now uses authenticated private order receipts containing explicit executed amounts, received coins and wallet fees. A manual sell or fee-credit exhaustion is not required. Initial actual THB/BTC holdings are imported once as opening assets, without inventing application trades or profits. See [the operator steps](docs/bitkub-small-capital-proof.md).
+The execution, opening inventory, daily baseline, isolated company and reconciliation paths are implemented and tested. The receipt profile supports BTC/THB, ETH/THB and SOL/THB using authenticated private order receipts containing explicit executed amounts, received coins and wallet fees. A manual sell or fee-credit exhaustion is not required. Actual supported opening assets are imported once without inventing application trades or profits. See [the operator steps](docs/bitkub-small-capital-proof.md).
 
-After the profile passes, the owner intentionally opens `Enable Auto Trading.cmd`. It validates the current key/profile, initializes a funded account under the approved full-Spot mandate, verifies the receipt observer, reconciles and arms through the existing owner controls, then starts the isolated CEO. This permits subsequent real BTC orders that pass the deterministic RiskEngine. It never clears an owner Stop or resets losses. Missing or contradictory receipts fail closed. A real app order and durable recovery proof remain outstanding; synthetic tests are not completed Live trading. `Quantara.cmd` continues to open the app without activating financial authority.
+The owner intentionally opens `Enable Auto Trading.cmd`. It verifies the three current market rules, retains a backup of a BTC-only receipt profile, and approves the verified market universe through the existing owner activation controls. Existing capital, per-order/daily limits, maximum open positions, opening balance, losses and owner Stop remain unchanged. After reconciliation it starts the isolated company: full eight-role research after 09:00 Bangkok, and three-role portfolio reviews when owned money/quantities change or bid/ask moves at least 1%, at most once per Bangkok hour. Pending orders block new reviews; every new order still passes RiskEngine. Saved conclusions are shown by review round. Missing or contradictory receipts fail closed. A real app order and durable real-broker recovery proof remain outstanding; synthetic tests are not completed Live trading. `Quantara.cmd` opens the app without changing financial authority.
 
 No withdrawals, bank transfers, margin, leverage or short selling are authorized. Paper ledgers and historical/backtest profits never fund or authorize Live orders. The 700/2100-THB example is illustrative, not a configured target. Jev remains deferred.
 

@@ -10,14 +10,25 @@ public sealed record LiveResearchLimits(decimal CapitalAllocation, decimal Maxim
     public IReadOnlyList<LiveOrderSizing> OrderSizing { get; init; } = [];
     public decimal? MaximumOrderNotional { get; init; }
     public decimal? MaximumDailyTurnover { get; init; }
+    public IReadOnlyList<string> ResearchSymbols { get; init; } = [];
 }
 public sealed record LiveResearchPacket(TradingAccountContext AccountContext, long MandateVersion,
-    LiveSnapshot Snapshot, LiveResearchLimits Limits, bool Armed, bool Stopped);
+    LiveSnapshot Snapshot, LiveResearchLimits Limits, bool Armed, bool Stopped)
+{
+    // Public quotes for comparison do not enlarge the owner's execution mandate.
+    public IReadOnlyList<LiveQuote> ResearchQuotes { get; init; } = [];
+}
 public sealed record LiveIntentReceipt(LiveIntent Intent, LiveOrderState State, IReadOnlyList<string> Violations);
 // Display-only telemetry. It carries no proposal, authority, prompt or broker credential.
 public sealed record LiveRoleActivity(string Role, string Status, DateTimeOffset ChangedAt);
 public sealed record LiveCompanyActivity(TradingAccountContext AccountContext, Guid? MeetingId,
-    DateTimeOffset ObservedAt, IReadOnlyList<LiveRoleActivity> Roles);
+    DateTimeOffset ObservedAt, IReadOnlyList<LiveRoleActivity> Roles)
+{
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public string? CoordinatorStatus { get; init; }
+    public IReadOnlyList<string> ResearchSymbols { get; init; } = [];
+    public IReadOnlyList<string> TradingSymbols { get; init; } = [];
+}
 public static class LiveActivityValidation
 {
     public static readonly TimeSpan Lifetime = TimeSpan.FromSeconds(45);
@@ -27,7 +38,14 @@ public static class LiveActivityValidation
         activity.Roles is { Count: <= 8 } && (activity.MeetingId is { } id ? id != Guid.Empty : activity.Roles.Count == 0) &&
         activity.Roles.All(r => r is not null && IsRole(r.Role) && IsStatus(r.Status) && r.ChangedAt <= activity.ObservedAt) &&
         activity.Roles.Select(r => r.Role).Distinct(StringComparer.Ordinal).Count() == activity.Roles.Count &&
-        activity.Roles.Count(r => r.Status == "working") <= 1;
+        activity.Roles.Count(r => r.Status == "working") <= 1 &&
+        (activity.CoordinatorStatus is null || activity.CoordinatorStatus.Length is > 0 and <= 100 &&
+            activity.CoordinatorStatus.All(c => char.IsAsciiLetterUpper(c) || c == '_')) &&
+        ValidSymbols(activity.ResearchSymbols) && ValidSymbols(activity.TradingSymbols) &&
+        activity.TradingSymbols.All(activity.ResearchSymbols.Contains);
+
+    private static bool ValidSymbols(IReadOnlyList<string>? symbols) => symbols is { Count: <= 3 } &&
+        symbols.All(s => s is "BTC-THB" or "ETH-THB" or "SOL-THB") && symbols.Distinct().Count() == symbols.Count;
 
     public static bool IsRole(string role) => role is "ceo" or "chief-of-staff" or "market-research" or "security-analysis" or
         "quant-research" or "portfolio-initial" or "risk-critic" or "portfolio-final";

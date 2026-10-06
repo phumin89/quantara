@@ -13,6 +13,11 @@ public static class LiveMeetingReports
             attempt.BusinessDate > DateOnly.FromDateTime(now.ToOffset(TimeSpan.FromHours(7)).DateTime) ||
             string.IsNullOrWhiteSpace(attempt.Status) || attempt.Status.Length > 100 || attempt.Status == "STARTED" ||
             attempt.Status.Any(c => !(char.IsAsciiLetterUpper(c) || c == '_')) ||
+            attempt.ReviewHour is < 0 or > 23 ||
+            (attempt.ReviewHour is { } hour && new DateTimeOffset(attempt.BusinessDate.ToDateTime(new TimeOnly(hour, 0)),
+                TimeSpan.FromHours(7)) > now) ||
+            (attempt.ReviewSnapshot is { } checkpoint && (checkpoint.AccountId != account || !checkpoint.Reconciled ||
+                checkpoint.ObservedAt > now || DateOnly.FromDateTime(checkpoint.ObservedAt.ToOffset(TimeSpan.FromHours(7)).DateTime) != attempt.BusinessDate)) ||
             JsonSerializer.SerializeToUtf8Bytes(attempt).Length > 60 * 1024)
             throw new InvalidDataException("Invalid meeting report.");
         if (attempt.Summary is not { } summary) return;
@@ -30,7 +35,8 @@ public static class LiveMeetingReports
     }
     public static IReadOnlyList<DailyMeetingAttempt> Read(LiveAccountState account) => account.Audit
         .Where(a => a.Kind == AuditKind).Select(a => JsonSerializer.Deserialize<DailyMeetingAttempt>(a.Detail)
-            ?? throw new InvalidDataException("Invalid saved meeting.")).OrderByDescending(a => a.BusinessDate).ToArray();
+            ?? throw new InvalidDataException("Invalid saved meeting.")).OrderByDescending(a => a.BusinessDate)
+            .ThenByDescending(a => a.ReviewHour ?? 9).ToArray();
 }
 
 public sealed partial class LiveAccountTransaction
@@ -39,7 +45,8 @@ public sealed partial class LiveAccountTransaction
     {
         LiveMeetingReports.Validate(attempt, Account.AccountId, now);
         var detail = JsonSerializer.Serialize(attempt);
-        var existing = LiveMeetingReports.Read(Account).SingleOrDefault(a => a.BusinessDate == attempt.BusinessDate || a.AttemptId == attempt.AttemptId);
+        var existing = LiveMeetingReports.Read(Account).SingleOrDefault(a =>
+            (a.BusinessDate == attempt.BusinessDate && a.ReviewHour == attempt.ReviewHour) || a.AttemptId == attempt.AttemptId);
         if (existing is not null)
         {
             if (JsonSerializer.Serialize(existing) != detail) throw new InvalidDataException("Meeting identity conflict.");

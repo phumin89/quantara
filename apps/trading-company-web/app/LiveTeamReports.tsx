@@ -5,7 +5,7 @@ const roles: Record<string, string> = { ceo: "CEO", "chief-of-staff": "หัว
 const statuses: Record<string, string> = { HOLD: "คงพอร์ต · ยังไม่ส่งคำสั่ง", ORDER_PENDING: "ส่งคำสั่งแล้ว · ยังรอยืนยันผลจากตลาด", RISK_REJECTED: "ระบบไม่อนุมัติคำสั่ง", RESEARCH_UNAVAILABLE: "ข้อมูลตลาดไม่ครบ จึงไม่มีคำสั่ง", SNAPSHOT_CHANGED: "บัญชีหรือสิทธิ์เปลี่ยนระหว่างประชุม จึงไม่มีคำสั่ง", PRICE_CHANGED: "ราคาเปลี่ยนเกินขอบเขต จึงไม่มีคำสั่ง", LIVE_UNAVAILABLE: "ยังยืนยันผลรอบนี้ไม่ได้ ตรวจรายการคำสั่งก่อนดำเนินการต่อ" };
 type Scope = { mode: 1; accountId: string };
 type Report = { role: string; summary: string; providerModel: string; inputTokens: number; outputTokens: number; artifactId: string; evidenceHash: string; dataCutoff: string };
-type Meeting = { businessDate: string; attemptId: string; status: string; accountContext: Scope; summary: { modelCalls: number; inputTokens: number; outputTokens: number; reports: Report[] } | null };
+type Meeting = { businessDate: string; reviewHour?: number | null; attemptId: string; status: string; accountContext: Scope; summary: { modelCalls: number; inputTokens: number; outputTokens: number; reports: Report[] } | null };
 type Meetings = { accountContext: Scope; meetings: Meeting[] };
 const object = (v: unknown): v is Record<string, unknown> => !!v && typeof v === "object" && !Array.isArray(v);
 const text = (v: unknown, max: number): v is string => typeof v === "string" && v.length > 0 && v.length <= max;
@@ -16,12 +16,13 @@ export function readMeetings(value: unknown): Meetings | undefined {
   if (!object(value) || !object(value.accountContext)) return;
   const scope = value.accountContext;
   if (scope.mode !== 1 || typeof scope.accountId !== "string" || !/^[0-9a-f]{32}$/i.test(scope.accountId) || /^0{32}$/.test(scope.accountId) || !Array.isArray(value.meetings) || value.meetings.length > 31) return;
-  const days = new Set(), ids = new Set();
+  const slots = new Set(), ids = new Set();
   for (const m of value.meetings) {
-    if (!object(m) || !date(m.businessDate) || !uuid(m.attemptId) || days.has(m.businessDate) || ids.has(m.attemptId) ||
+    const hour = m && object(m) ? m.reviewHour : undefined;
+    if (!object(m) || !date(m.businessDate) || !uuid(m.attemptId) || (hour !== undefined && hour !== null && (typeof hour !== "number" || !Number.isInteger(hour) || hour < 0 || hour > 23)) || slots.has(`${m.businessDate}:${hour ?? "daily"}`) || ids.has(m.attemptId) ||
         !text(m.status, 100) || !/^[A-Z_]+$/.test(m.status) || m.status === "STARTED" || !object(m.accountContext) ||
         m.accountContext.mode !== scope.mode || m.accountContext.accountId !== scope.accountId) return;
-    days.add(m.businessDate); ids.add(m.attemptId);
+    slots.add(`${m.businessDate}:${hour ?? "daily"}`); ids.add(m.attemptId);
     if (m.summary == null) continue;
     const s = m.summary;
     if (!object(s) || !count(s.modelCalls) || s.modelCalls > 8 || !count(s.inputTokens) || !count(s.outputTokens) || !Array.isArray(s.reports) || s.reports.length > 8) return;
@@ -33,7 +34,7 @@ export function readMeetings(value: unknown): Meetings | undefined {
       seen.add(r.role);
     }
   }
-  return { accountContext: scope as Scope, meetings: (value.meetings as Meeting[]).slice().sort((a, b) => b.businessDate.localeCompare(a.businessDate)) };
+  return { accountContext: scope as Scope, meetings: (value.meetings as Meeting[]).slice().sort((a, b) => b.businessDate.localeCompare(a.businessDate) || (b.reviewHour ?? 9) - (a.reviewHour ?? 9)) };
 }
 export async function readLiveMeetings(origin: string, fetcher: typeof fetch = fetch, signal?: AbortSignal) {
   if (origin !== "https://localhost:3000") return;
@@ -62,9 +63,9 @@ export function LiveTeamReports({ enabled }: { enabled: boolean }) {
   </section>;
 }
 export function LiveMeetingView({ meetings, selected, onSelect }: { meetings: Meeting[]; selected: string; onSelect: (value: string) => void }) {
-  const meeting = meetings.find(m => m.businessDate === selected) ?? meetings[0];
+  const meeting = meetings.find(m => m.attemptId === selected) ?? meetings.find(m => m.businessDate === selected) ?? meetings[0];
   const reports = meeting.summary?.reports ?? [], final = reports.find(r => r.role === "portfolio-final"), initial = reports.find(r => r.role === "portfolio-initial");
-  return <><label className="team-meeting-date">วันที่ประชุม<select value={meeting.businessDate} onChange={e => onSelect(e.target.value)}>{meetings.map(m => <option key={m.businessDate} value={m.businessDate}>{new Date(m.businessDate + "T00:00:00Z").toLocaleDateString("th-TH", { timeZone: "Asia/Bangkok", dateStyle: "medium" })}</option>)}</select></label>
+  return <><label className="team-meeting-date">รอบประชุม<select value={meeting.attemptId} onChange={e => onSelect(e.target.value)}>{meetings.map(m => <option key={m.attemptId} value={m.attemptId}>{new Date(m.businessDate + "T00:00:00Z").toLocaleDateString("th-TH", { timeZone: "Asia/Bangkok", dateStyle: "medium" })} · {m.reviewHour == null ? "ประชุมประจำวัน" : `ทบทวน ${String(m.reviewHour).padStart(2, "0")}:00`}</option>)}</select></label>
     <p className="team-meeting-outcome">{statuses[meeting.status] ?? "รอบสิ้นสุดโดยยังไม่มีข้อเสนอที่นำไปใช้ได้"}</p>
     {final && <p className="team-meeting-conclusion">{final.summary}</p>}
     {!!reports.length && <details><summary>อ่านเหตุผลจากทีม</summary>{reports.filter(r => !["portfolio-final", "portfolio-initial"].includes(r.role)).map(r => <article className="team-role-report" key={r.role}><h4>{roles[r.role]}</h4><p>{r.summary}</p></article>)}

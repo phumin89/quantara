@@ -116,7 +116,8 @@ public static class LiveEndpoints
             if (controls is null) return Unconfigured();
             var account = await controls.ReadAsync(context.RequestAborted);
             return Results.Ok(new { accountContext = new TradingAccountContext(TradingMode.Live, account.AccountId.Value.ToString("N")),
-                meetings = LiveMeetingReports.Read(account).Take(31) });
+                meetings = LiveMeetingReports.Read(account).Take(31).Select(m => new
+                { m.BusinessDate, m.AttemptId, m.Status, m.Summary, m.AccountContext, m.ReviewHour }) });
         });
         ownerControls.MapPost("/preflight", async (HttpContext context) =>
         {

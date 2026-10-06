@@ -60,10 +60,13 @@ internal static class BitkubProfileCommand
                     !expected.History.OrderBy(h => h.TransactionId).SequenceEqual(observed.History.OrderBy(h => h.TransactionId)))
                     throw new InvalidDataException();
             }
-            var market = await broker.GetSymbolRulesAsync("BTC-THB", deadline.Token);
-            var expectedMarket = JsonSerializer.Deserialize<BrokerSymbolRules[]>(finalCapture.RootElement.GetProperty("marketRules"))!
-                .Single(p => p.Symbol == "BTC-THB");
-            if (market with { ObservedAt = expectedMarket.ObservedAt } != expectedMarket) throw new InvalidDataException();
+            var expectedMarkets = JsonSerializer.Deserialize<BrokerSymbolRules[]>(finalCapture.RootElement.GetProperty("marketRules"))!;
+            foreach (var pair in profile.Rules.Pairs)
+            {
+                var market = await broker.GetSymbolRulesAsync(pair.Symbol, deadline.Token);
+                var expectedMarket = expectedMarkets.Single(p => p.Symbol == pair.Symbol);
+                if (market with { ObservedAt = expectedMarket.ObservedAt } != expectedMarket) throw new InvalidDataException();
+            }
             if (useReceipts)
             {
                 var subscribed = false;
@@ -91,7 +94,7 @@ internal static class BitkubProfileCommand
             var pending = profilePath + ".pending-" + Guid.NewGuid().ToString("N");
             await File.WriteAllTextAsync(pending, JsonSerializer.Serialize(profile, new JsonSerializerOptions { WriteIndented = true }));
             File.Move(pending, profilePath, overwrite: true);
-            Console.WriteLine(useReceipts ? "BTC Spot profile prepared with authenticated order receipts. Existing cash/coins retained; execution remains disabled. No order was sent."
+            Console.WriteLine(useReceipts ? "BTC, ETH and SOL Spot profile prepared with authenticated order receipts. Existing cash/coins retained; execution remains disabled. No order was sent."
                 : "Verified BTC Spot profile saved from matching broker captures. Execution remains disabled; no order was sent.");
             return 0;
         }
