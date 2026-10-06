@@ -1,12 +1,12 @@
 # Quantara — Live Workspace
 
-Reviewed 2026-10-05. This replaces the former single-column page and Sandbox mode navigation. Preserve the owner's modern monochrome interface, self-hosted IBM Plex Sans Thai and colored Pixel Office.
+Reviewed 2026-10-06. This replaces the former single-column page and Sandbox mode navigation. Preserve the owner's modern monochrome interface, self-hosted IBM Plex Sans Thai and colored Pixel Office.
 
 ## Layout and navigation
 
 The persistent app shell uses a 224px left sidebar on desktop, with Office, Account/assets and Trading links. Each is a real Next route (`/`, `/account`, `/trading`), reachable directly and through client navigation. One shared owner/account provider survives route changes. Use one selected black navigation item, consistent stroke SVG icons, and a single connection label in the header. Sidebar status identifies Live/Bitkub without implying execution is enabled.
 
-Content uses the available screen width. Align the page title and content padding. Office leads the homepage; current company and cash summaries sit alongside it on wide screens, below on smaller screens. Account contains verified balances and assets; Trading contains readiness and order outcomes. Do not gather every function into one long document or add empty navigation destinations.
+Content uses the available screen width. Align the page title and content padding. Office opens with the current status, blocking reason and one next action. Pixel and cash/help sit alongside each other on wide screens, below on smaller screens. A three-step checklist distinguishes reading a balance, reconciled trading account and explicit execution permission; completion never implies a meeting or fill. Account contains verified balances and assets; Trading contains readiness and order outcomes. Do not gather every function into one long document or add empty navigation destinations.
 
 At 700px and below, navigation becomes a compact top row and financial content stacks. Native scrolling belongs to each readable region when needed. Keep a skip link, keyboard focus, one H1 per route, controls of at least 44px and no page overflow at 375px.
 
@@ -18,9 +18,9 @@ Use native forms, clear disabled/loading/error states and visible focus. Hover c
 
 ## Office and team room
 
-The original Pixel renderer and artwork are bundled with the frontend. The current viewer draws a stationary office and resizes it; it does not connect to the paper bridge, launch agents or suggest completed work. Its caption explicitly says Live team activity is not displayed yet. Connect real Live events before adding active workers or work animations.
+The original Pixel renderer and artwork are bundled with the frontend. The current viewer draws a stationary office and resizes it; it does not connect to the paper bridge, launch agents or suggest completed work. Its caption points to verified reports; adjacent help explicitly explains that the image is not connected to live activity. Connect real Live events before adding active workers or work animations. Desktop stage is 380–528px, narrow tablet 300px and phone 240–280px; preserve crisp integer pixel zoom.
 
-The persistent floating team room is separate from the page. It supports close, minimize, Escape and focus return; phones use a full viewport reader. Open with the current verified system conclusion and its reasons, then disclose the source. Until a Live report feed is connected, state that reports are unavailable rather than inventing a team conversation. Future reports should prioritize decisions, reasons and meaningful disagreements, retaining raw evidence behind disclosures.
+The persistent floating team room is separate from the page. It has one minimize button, Escape and focus return; phones use a full viewport reader. Use a content-sized window for disabled/unavailable access, with one status and recovery route. System status is labelled separately from recorded meeting conclusions. The account-bound report reader puts decisions first and team reasoning behind disclosures. When the feed cannot be read, say reports are unavailable rather than claiming none exist. Never invent a team conversation.
 
 ## Current data and access
 

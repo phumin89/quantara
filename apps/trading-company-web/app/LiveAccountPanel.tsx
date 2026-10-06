@@ -192,7 +192,7 @@ export function LiveAccountProvider({ children }: { children: ReactNode }) {
   return <LiveContext.Provider value={{ state, account, wallet, refreshing, busy, code, rememberBrowser, message,
     setCode, setRememberBrowser, refresh: () => setRevision(r => r + 1), act }}>
     {children}
-    <CompanyChat><LiveTeamSummary /></CompanyChat>
+    <CompanyChat compact={state.kind !== "connected" || state.status.state === "DISABLED"}><LiveTeamSummary /></CompanyChat>
   </LiveContext.Provider>;
 }
 
@@ -249,36 +249,80 @@ export function LiveTradingPanel() {
 }
 
 export function LiveOfficeWorkspace() {
-  const { state, wallet, account } = useLiveAccount();
-  const caption = state.kind === "connected" ? labels[state.status.state] : state.kind === "pair-required" ? "ยืนยันเจ้าของเพื่อดูสถานะบัญชี" : "ยังยืนยันสถานะบริษัทล่าสุดไม่ได้";
+  return <LiveOfficeWorkspaceView {...useLiveAccount()} />;
+}
+
+function officeSummary(state: Connection) {
+  if (state.kind !== "connected") return {
+    title: state.kind === "loading" ? "กำลังตรวจสถานะ Live" : state.kind === "pair-required" ? "เชื่อมบัญชีเพื่อดูสถานะทีม" : "ยังยืนยันสถานะ Live ไม่ได้",
+    description: state.kind === "pair-required" ? "ยืนยันเจ้าของที่หน้าบัญชีเพื่ออ่านยอดและสถานะจริง การเชื่อมบัญชียังไม่เปิดซื้อขาย" :
+      state.kind === "loading" ? "กำลังอ่านข้อมูลล่าสุดจากบริการบัญชี" : "ตรวจการเชื่อมต่อที่หน้าบัญชี การขาดการเชื่อมต่อไม่ได้ยืนยันว่าระบบหยุดเทรดแล้ว",
+    href: "/account", action: state.kind === "pair-required" ? "เชื่อมบัญชี" : "ตรวจการเชื่อมต่อ",
+  };
+  const status = state.status;
+  return {
+    title: status.state === "DISABLED" ? "Live ยังไม่เปิดใช้งาน" : labels[status.state],
+    description: status.state === "ARMED" ? "เปิดสิทธิ์ส่งคำสั่งแล้ว ทุกคำสั่งยังต้องผ่านการตรวจความเสี่ยง อ่านผลรอบที่บันทึกไว้ในห้องทีม" :
+      status.state === "DISABLED" ? "ระบบส่งคำสั่งยังไม่เปิด รอบประชุม Live ต้องมีบัญชีที่ตรวจแล้วและสิทธิ์จากเจ้าของก่อน" :
+      status.state === "STOPPED" ? "หยุดส่งคำสั่งใหม่แล้ว สินทรัพย์และคำสั่งค้างยังต้องตรวจจากหน้าการเทรด" :
+      status.reasons.map(reason => reasons[reason] ?? "มีเงื่อนไขจากบริการบัญชีที่ต้องตรวจสอบ").join(" · ") || "ตรวจยอดบัญชีและวงเงินก่อนเปิดสิทธิ์ส่งคำสั่ง",
+    href: "/trading", action: status.armed ? "ดูคำสั่งและผลการเทรด" : "ตรวจความพร้อมเพื่อเปิด Live",
+  };
+}
+
+export function LiveOfficeWorkspaceView({ state, wallet, account }: Observation) {
+  const summary = officeSummary(state);
   const cash = wallet?.balances.find(b => b.currency === "THB")?.available ??
     (account ? account.snapshot.cashBalance - account.snapshot.cashReserved : undefined);
-  return <div className="office-workspace"><LiveOffice />
-    <div className="office-overview">
-      <section><h2>บริษัทตอนนี้</h2><p className="office-state">{caption}</p>
-        <p>CEO ประชุมจากยอดที่ตรวจแล้วหลังเจ้าของเปิดสิทธิ์ อ่านข้อสรุปและเหตุผลย้อนหลังได้ในห้องทีม</p>
-        <Link href="/trading" className="workspace-link">ดูสถานะการเทรด<Arrow /></Link>
-      </section>
-      <section><h2>บัญชี Bitkub</h2><p className="office-balance">{cash === undefined ? "ยังยืนยันยอดไม่ได้" : new Intl.NumberFormat("th-TH", { style: "currency", currency: "THB" }).format(cash)}</p>
-        <p>{cash === undefined ? "ยืนยันเจ้าของและตรวจยอดล่าสุดที่หน้าบัญชี" : "THB ที่ใช้ได้ · การอ่านยอดไม่เปิดสิทธิ์ซื้อขาย"}</p>
-        <Link href="/account" className="workspace-link">ดูบัญชีและสินทรัพย์<Arrow /></Link>
-      </section>
+  const observation = wallet?.observedAt ?? account?.snapshot.observedAt;
+  const reconciled = account?.snapshot.reconciled === true;
+  const armed = state.kind === "connected" && state.status.armed;
+  return <div className="office-workspace">
+    <section className="office-summary" aria-labelledby="office-status-heading">
+      <div><h2 id="office-status-heading">{summary.title}</h2><p>{summary.description}</p></div>
+      <Link href={summary.href} className="workspace-primary">{summary.action}<Arrow /></Link>
+    </section>
+    <div className="office-grid">
+      <LiveOffice />
+      <aside className="office-overview" aria-label="บัญชีและการทำงานของทีม">
+        <section><h2>เงินสดที่ใช้ได้</h2><p className="office-balance">{cash === undefined ? "ยังยืนยันยอดไม่ได้" : new Intl.NumberFormat("th-TH", { style: "currency", currency: "THB" }).format(cash)}</p>
+          <p>{cash === undefined ? "อ่านยอดล่าสุดได้ที่หน้าบัญชี" : "THB จากบัญชี Bitkub · การอ่านยอดไม่เปิดสิทธิ์ซื้อขาย"}</p>
+          {observation && <p className="office-observation">อ่านยอดจากตลาดเมื่อ<time dateTime={observation}>{new Date(observation).toLocaleString("th-TH", { timeZone: "Asia/Bangkok" })}</time></p>}
+          <Link href="/account" className="workspace-link">ดูบัญชีและสินทรัพย์<Arrow /></Link>
+        </section>
+        <section className="office-help"><h2>ติดตามการตัดสินใจ</h2>
+          <p>เปิดห้องทีมจากปุ่มแชตมุมล่างขวา เพื่ออ่านข้อสรุป เหตุผล และรายงานที่บันทึกไว้ของแต่ละรอบ</p>
+          <p>ภาพ Pixel ยังไม่เชื่อมกิจกรรมสด ใช้รายงานทีมและสถานะคำสั่งเพื่อตรวจการทำงาน</p>
+        </section>
+      </aside>
     </div>
+    <section className="office-progress" aria-labelledby="office-progress-heading"><h2 id="office-progress-heading">ก่อนทีมเริ่มซื้อขาย</h2>
+      <ol className="office-steps">
+        <li data-complete={cash !== undefined}><strong>อ่านยอดบัญชี</strong><span>{cash === undefined ? "ยังยืนยันยอดไม่ได้" : "อ่านยอดล่าสุดแล้ว"}</span><p>ยอดนี้ใช้ดูเงินที่มีจริง ยังไม่ใช่วงเงินที่อนุญาตให้ CEO ใช้</p></li>
+        <li data-complete={reconciled}><strong>ตรวจบัญชีสำหรับซื้อขาย</strong><span>{reconciled ? "ตรวจยอดกับตลาดแล้ว" : "ยังยืนยันการตรวจยอดไม่ได้"}</span><p>ต้องยืนยันผลคำสั่ง ค่าธรรมเนียม และผูกบัญชีก่อนเปิด Live</p></li>
+        <li data-complete={armed}><strong>เปิดสิทธิ์ส่งคำสั่ง</strong><span>{armed ? "เปิดสิทธิ์แล้ว" : state.kind === "connected" && state.status.state === "STOPPED" ? "เจ้าของสั่งหยุดแล้ว" : "ยังไม่เปิดสิทธิ์"}</span><p>เจ้าของอนุมัติวงเงินก่อนเริ่ม ระบบความเสี่ยงตรวจทุกคำสั่งจาก CEO</p></li>
+      </ol>
+    </section>
   </div>;
 }
 function Arrow() { return <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14m-5-5 5 5-5 5" /></svg>; }
 
 function LiveTeamSummary() {
-  const { state, wallet, account } = useLiveAccount();
-  const title = state.kind === "connected" ? labels[state.status.state] : "ยังยืนยันสถานะ Live ไม่ได้";
+  return <LiveTeamSummaryView {...useLiveAccount()} />;
+}
+
+export function LiveTeamSummaryView({ state, wallet, account }: Observation) {
+  const summary = officeSummary(state);
   const observation = wallet?.observedAt ?? account?.snapshot.observedAt;
+  const reportsAvailable = state.kind === "connected" && state.status.state !== "DISABLED";
   return <div className="live-team-summary">
-    <section className="team-conclusion"><h3>ข้อสรุปล่าสุด</h3><p className="team-conclusion-text">{title}</p>
-      {state.kind === "connected" && state.status.reasons.length > 0 && <><h4>เหตุผลจากระบบ</h4><ul>{state.status.reasons.map((r, i) => <li key={`${r}-${i}`}>{reasons[r] ?? "มีเงื่อนไขที่ต้องตรวจจากบริการบัญชี"}</li>)}</ul></>}
+    <section className="team-conclusion"><h3>สถานะระบบตอนนี้</h3><p className="team-conclusion-text">{summary.title}</p>
+      {!reportsAvailable && <><p>{summary.description}</p><Link href={summary.href} className="workspace-link">{summary.action}<Arrow /></Link></>}
+      {!reportsAvailable && <p className="data-freshness">ขณะนี้ยังอ่านรายงาน Live ที่ผูกกับบัญชีไม่ได้</p>}
+      {reportsAvailable && state.status.reasons.length > 0 && <><h4>เหตุผลจากระบบ</h4><ul>{state.status.reasons.map((r, i) => <li key={`${r}-${i}`}>{reasons[r] ?? "มีเงื่อนไขที่ต้องตรวจจากบริการบัญชี"}</li>)}</ul></>}
       {observation && <p className="data-freshness">อ่านบัญชีเมื่อ {new Date(observation).toLocaleTimeString("th-TH", { timeZone: "Asia/Bangkok" })}</p>}
     </section>
-    <LiveTeamReports enabled={state.kind === "connected" && state.status.state !== "DISABLED"} />
-    {state.kind === "connected" && state.status.state === "DISABLED" && <section className="team-report-state"><h3>รายงานประชุม Live</h3><p>ระบบประชุมเริ่มเมื่อบัญชีผ่านการตรวจและเจ้าของเปิดสิทธิ์แล้ว ขณะนี้ยังไม่มีรายงานประชุม Live ที่ยืนยันได้</p></section>}
+    <LiveTeamReports enabled={reportsAvailable} />
   </div>;
 }
 

@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { CompanyConversation } from "./companyConversationView";
 
-export function CompanyChat({ api, children }: { api?: string; children?: ReactNode }) {
+export function CompanyChat({ api, children, compact = false }: { api?: string; children?: ReactNode; compact?: boolean }) {
   const [open, setOpen] = useState(false);
   const [minimized, setMinimized] = useState(false);
   const launcherRef = useRef<HTMLButtonElement>(null);
@@ -49,6 +49,7 @@ export function CompanyChat({ api, children }: { api?: string; children?: ReactN
     <section
       id="company-team-chat"
       className="team-chat-panel"
+      data-compact={compact}
       role="dialog"
       aria-labelledby="company-team-chat-title"
       hidden={!open}
