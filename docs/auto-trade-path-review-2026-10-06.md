@@ -31,3 +31,15 @@ The owner must intentionally run the activation launcher to authorize real BTC o
 The receipt mode currently supports BTC-THB, bounded to the confirmed market metadata. Unknown/conflicting results, owner Stop and interrupted financial authority remain fail closed. Keep all state on rollback: stop the company and disable execution before changing the executor image; preserve the additive schema, profile, journals and volumes. Do not downgrade an armed executor or discard conflict evidence to regain readiness. REST coverage still enforces the existing 90-day archive boundary.
 
 Source contracts reviewed: [REST V3](https://github.com/bitkub/bitkub-official-api-docs/blob/master/rest-v3.md), [private WebSocket specification](https://github.com/bitkub/bitkub-official-api-docs/blob/master/websocket-private.md), and [published fee schedule](https://www.bitkub.com/en/fee/cryptocurrency).
+
+## Windows owner launcher repair
+
+The owner's actual launcher uses Windows PowerShell 5.1. The prior check only parsed the script and did not run that shell's native-command behavior. Docker build progress on stderr combined with ErrorActionPreference=Stop reproduced a terminating NativeCommandError even when the command succeeded, before configuration changes or activation.
+
+The lead reviewed and corrected the bounded worker patch: a local Docker helper captures stdout/stderr under scoped Continue, reads the global native exit variable, restores Stop before logging/file handling, renders native text without PowerShell error formatting and returns only the integer exit code. All activation and rollback stages still check their original nonzero failure gates. Missing native exit codes and log write errors fail closed. The wrapper still uses the owner's manual activation action; no financial authority was opened during repair.
+
+The PowerShell 5.1 app health request also reproduced a NullReferenceException without basic parsing. The request now uses UseBasicParsing; a real trusted HTTPS read returned 200 without changing TLS verification.
+
+Verification: tools/test-activate-live.ps1 passed **12 isolated cases on Windows PowerShell 5.1 and the same 12 on PowerShell 7**. It copies the launcher to temporary synthetic state, replaces Docker/broker/browser health with stubs and emits actual native stderr/exit codes. Cases cover success, each failure gate, rollback progress/nonzero failure, missing launch result and log-write failure. Initial configuration and CEO-disabled outcomes are checked; no real key, auth file, Docker or activation is accessed by this test.
+
+The extracted production native helper also completed a real Docker build and the existing read-only profile/key/Trade verification on Windows PowerShell 5.1. Execution and company flags were confirmed still disabled. Source runtime/UI behavior is unchanged, so the prior 736/95 backend checks and responsive UI checks were not repeated. The owner can retry Enable Auto Trading.cmd; actual activation and real-order acceptance remain an owner action and are still unverified.

@@ -11,6 +11,28 @@ New-Item -ItemType Directory -Force -Path $logRoot | Out-Null
 $configurationChanged = $false
 $activationAttempted = $false
 $previousCompanyAuth = $env:QUANTARA_CODEX_AUTH_FILE
+function Invoke-ActivationDocker {
+    param(
+        [Parameter(Mandatory)][string[]]$Arguments,
+        [string]$OutputPath
+    )
+    $previousErrorActionPreference = $ErrorActionPreference
+    try {
+        $ErrorActionPreference = 'Continue'
+        $global:LASTEXITCODE = $null
+        $output = @(& docker @Arguments 2>&1)
+        $nativeExitCode = $global:LASTEXITCODE
+    } finally {
+        $ErrorActionPreference = $previousErrorActionPreference
+    }
+    if ($null -eq $nativeExitCode) { throw 'Docker command could not be started.' }
+    # Windows PowerShell wraps native stderr in ErrorRecord objects. Render the
+    # original text; progress must not look like a PowerShell exception.
+    $lines = @($output | ForEach-Object { $_.ToString() })
+    if ($OutputPath) { $lines | Out-File -FilePath $OutputPath -Encoding utf8 }
+    elseif ($lines) { $lines | Out-Host }
+    return [int]$nativeExitCode
+}
 Push-Location $activationRoot
 try {
     $settingsOriginal = [IO.File]::ReadAllText($settingsPath)
@@ -35,48 +57,48 @@ try {
     if (!(Test-Path -LiteralPath $activationAuthFile -PathType Leaf)) { throw 'Codex sign-in is required for the CEO. Configuration was preserved.' }
     $env:QUANTARA_CODEX_AUTH_FILE = $activationAuthFile
     # Validate/build before changing the currently working application's configuration.
-    & docker compose --env-file NUL -p quantara-owner-readonly -f $composePath --profile live-company build owner company *> (Join-Path $logRoot 'activation-build.log')
-    if ($LASTEXITCODE -ne 0) { throw 'Live build failed. Current configuration was preserved.' }
-    & docker compose --env-file NUL -p quantara-owner-readonly -f $composePath run --rm --no-deps -T owner --verify-live-configuration
-    if ($LASTEXITCODE -ne 0) { throw 'Broker profile/key/Trade verification did not pass. Live was not opened.' }
-    & docker compose --env-file NUL -p quantara-owner-readonly -f $composePath --profile live-company stop company
-    if ($LASTEXITCODE -ne 0) { throw 'Could not stop existing CEO activity. Configuration was preserved.' }
+    $dockerExitCode = Invoke-ActivationDocker -Arguments @('compose', '--env-file', 'NUL', '-p', 'quantara-owner-readonly', '-f', $composePath, '--profile', 'live-company', 'build', 'owner', 'company') -OutputPath (Join-Path $logRoot 'activation-build.log')
+    if ($dockerExitCode -ne 0) { throw 'Live build failed. Current configuration was preserved.' }
+    $dockerExitCode = Invoke-ActivationDocker @('compose', '--env-file', 'NUL', '-p', 'quantara-owner-readonly', '-f', $composePath, 'run', '--rm', '--no-deps', '-T', 'owner', '--verify-live-configuration')
+    if ($dockerExitCode -ne 0) { throw 'Broker profile/key/Trade verification did not pass. Live was not opened.' }
+    $dockerExitCode = Invoke-ActivationDocker @('compose', '--env-file', 'NUL', '-p', 'quantara-owner-readonly', '-f', $composePath, '--profile', 'live-company', 'stop', 'company')
+    if ($dockerExitCode -ne 0) { throw 'Could not stop existing CEO activity. Configuration was preserved.' }
     $configurationChanged = $true
     $settings.LiveExecution.Enabled = $true
     [IO.File]::WriteAllText($settingsPath, ($settings | ConvertTo-Json -Depth 12))
     # Leave the advisory disabled until the owner command commits verified activation.
     $advisory.LiveCompany.Enabled = $false
     [IO.File]::WriteAllText($advisoryPath, ($advisory | ConvertTo-Json -Depth 12))
-    & docker compose --env-file NUL -p quantara-owner-readonly -f $composePath --profile live-execution up -d --wait ledger
-    if ($LASTEXITCODE -ne 0) { throw 'Private ledger is not healthy. AI was not started.' }
-    & docker compose --env-file NUL -p quantara-owner-readonly -f $composePath up -d owner-web
-    if ($LASTEXITCODE -ne 0) { throw 'Frontend startup failed. AI was not started.' }
-    & docker compose --env-file NUL -p quantara-owner-readonly -f $composePath up -d --force-recreate --no-deps owner
-    if ($LASTEXITCODE -ne 0) { throw 'Executor startup failed. AI was not started.' }
+    $dockerExitCode = Invoke-ActivationDocker @('compose', '--env-file', 'NUL', '-p', 'quantara-owner-readonly', '-f', $composePath, '--profile', 'live-execution', 'up', '-d', '--wait', 'ledger')
+    if ($dockerExitCode -ne 0) { throw 'Private ledger is not healthy. AI was not started.' }
+    $dockerExitCode = Invoke-ActivationDocker @('compose', '--env-file', 'NUL', '-p', 'quantara-owner-readonly', '-f', $composePath, 'up', '-d', 'owner-web')
+    if ($dockerExitCode -ne 0) { throw 'Frontend startup failed. AI was not started.' }
+    $dockerExitCode = Invoke-ActivationDocker @('compose', '--env-file', 'NUL', '-p', 'quantara-owner-readonly', '-f', $composePath, 'up', '-d', '--force-recreate', '--no-deps', 'owner')
+    if ($dockerExitCode -ne 0) { throw 'Executor startup failed. AI was not started.' }
     $executorReady = $false
     for ($attempt = 0; $attempt -lt 15; $attempt++) {
-        try { $executorReady = (Invoke-WebRequest 'https://localhost:3000/' -TimeoutSec 3).StatusCode -eq 200; if ($executorReady) { break } }
+        try { $executorReady = (Invoke-WebRequest 'https://localhost:3000/' -UseBasicParsing -TimeoutSec 3).StatusCode -eq 200; if ($executorReady) { break } }
         catch { Start-Sleep -Milliseconds 500 }
     }
     if (!$executorReady) { throw 'Executor did not become ready. AI was not started.' }
     $activationAttempted = $true
-    & docker compose --env-file NUL -p quantara-owner-readonly -f $composePath run --rm --no-deps -T owner --activate-full-spot-live
-    if ($LASTEXITCODE -ne 0) { throw 'Owner activation did not pass. AI remains disabled; review the reported reason.' }
+    $dockerExitCode = Invoke-ActivationDocker @('compose', '--env-file', 'NUL', '-p', 'quantara-owner-readonly', '-f', $composePath, 'run', '--rm', '--no-deps', '-T', 'owner', '--activate-full-spot-live')
+    if ($dockerExitCode -ne 0) { throw 'Owner activation did not pass. AI remains disabled; review the reported reason.' }
     $advisory.LiveCompany.Enabled = $true
     [IO.File]::WriteAllText($advisoryPath, ($advisory | ConvertTo-Json -Depth 12))
-    & docker compose --env-file NUL -p quantara-owner-readonly -f $composePath --profile live-company up -d company
-    if ($LASTEXITCODE -ne 0) { throw 'CEO startup failed. Inspect owner activation in the app before retrying.' }
+    $dockerExitCode = Invoke-ActivationDocker @('compose', '--env-file', 'NUL', '-p', 'quantara-owner-readonly', '-f', $composePath, '--profile', 'live-company', 'up', '-d', 'company')
+    if ($dockerExitCode -ne 0) { throw 'CEO startup failed. Inspect owner activation in the app before retrying.' }
     if (!$NoBrowser) { Start-Process 'https://localhost:3000/trading' }
     Write-Output 'Live owner activation completed. The separate CEO process may submit Spot proposals within the saved mandate.'
 } catch {
     if ($configurationChanged) {
         $advisory.LiveCompany.Enabled = $false
         [IO.File]::WriteAllText($advisoryPath, ($advisory | ConvertTo-Json -Depth 12))
-        & docker compose --env-file NUL -p quantara-owner-readonly -f $composePath --profile live-company stop company *> $null
-        if ($LASTEXITCODE -ne 0) { Write-Warning 'Could not verify CEO shutdown. Stop the company container in Docker and inspect /trading.' }
+        $dockerExitCode = Invoke-ActivationDocker -Arguments @('compose', '--env-file', 'NUL', '-p', 'quantara-owner-readonly', '-f', $composePath, '--profile', 'live-company', 'stop', 'company') -OutputPath $null
+        if ($dockerExitCode -ne 0) { Write-Warning 'Could not verify CEO shutdown. Stop the company container in Docker and inspect /trading.' }
         if (!$activationAttempted) {
             [IO.File]::WriteAllText($settingsPath, $settingsOriginal)
-            & docker compose --env-file NUL -p quantara-owner-readonly -f $composePath up -d --force-recreate --no-deps owner *> $null
+            $dockerExitCode = Invoke-ActivationDocker -Arguments @('compose', '--env-file', 'NUL', '-p', 'quantara-owner-readonly', '-f', $composePath, 'up', '-d', '--force-recreate', '--no-deps', 'owner') -OutputPath $null
         } else {
             Write-Warning 'CEO configuration is disabled. Activation may have committed; inspect /trading. No balances, orders or owner Stop were reset.'
         }
