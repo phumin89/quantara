@@ -16,6 +16,9 @@ public sealed class LiveReconciliationWorker(LiveExecutionService? execution, Li
         {
             if (durableStore is not null && !await durableStore.ExistsAsync(accountId, cancellationToken))
             {
+                // No account existed at this startup. Subsequent owner onboarding is
+                // current authorization, not persisted authority requiring restart recovery.
+                recovered = true;
                 Status = "ACCOUNT_NOT_PROVISIONED";
                 await base.StartAsync(cancellationToken);
                 return;
@@ -46,6 +49,8 @@ public sealed class LiveReconciliationWorker(LiveExecutionService? execution, Li
                 {
                     using var deadline = CancellationTokenSource.CreateLinkedTokenSource(stoppingToken);
                     deadline.CancelAfter(TimeSpan.FromSeconds(25));
+                    if (durableStore is not null && !await durableStore.ExistsAsync(accountId, deadline.Token))
+                    { Status = "ACCOUNT_NOT_PROVISIONED"; continue; }
                     if (!recovered)
                     {
                         if (!await durableStore!.ExistsAsync(accountId, deadline.Token)) continue;

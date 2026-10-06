@@ -14,6 +14,16 @@ public class LiveProgram
 
     public static void Main(string[] args)
     {
+        if (args.SequenceEqual(["--activate-full-spot-live"]))
+        {
+            Environment.ExitCode = LiveOwnerActivation.RunCommandAsync().GetAwaiter().GetResult();
+            return;
+        }
+        if (args.SequenceEqual(["--verify-live-configuration"]))
+        {
+            Environment.ExitCode = LiveOwnerActivation.RunCommandAsync(activate: false).GetAwaiter().GetResult();
+            return;
+        }
         if (args.Contains("--pair-owner-client", StringComparer.Ordinal))
         {
             if (args.Length != 1 || Console.IsOutputRedirected || Console.IsInputRedirected)

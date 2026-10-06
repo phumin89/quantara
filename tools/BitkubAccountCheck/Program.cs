@@ -4,6 +4,8 @@ using System.Text;
 using TradingCompany.Infrastructure;
 
 // Separate diagnostic process: direct file reads, no credential export, model or executor.
+if (args.Length == 4 && args[0] == "--verify-evidence-env")
+    return await BitkubProfileCommand.VerifyAsync(args[1..]);
 var captureEvidence = args.SequenceEqual(["--capture-evidence-env"]);
 var preflight = captureEvidence || args.SequenceEqual(["--preflight-env"]);
 var unattended = preflight || args.SequenceEqual(["--check-env"]);

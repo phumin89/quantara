@@ -31,7 +31,9 @@ The Docker verification runner mounts source/test files only, not broker credent
 
 ## Remaining Live gates
 
-Production trading still needs verified broker/account binding and permissions, quantity/fee/credit normalization, complete order and recovery reconciliation, a provisioned account and daily baseline lifecycle, positive owner-defined limits, and explicit owner activation. Missing evidence fails closed. The deterministic RiskEngine remains authoritative; model output is advisory and untrusted.
+The execution, provisioning, daily baseline, isolated CEO and reconciliation paths are implemented and tested. Current actual broker evidence is THB 0 with successful Trade permission, no supported open orders or history. Funding and real buy/sell settlement proof remain necessary before preparing the verified private BTC profile. Use `tools/bitkub-proof.ps1` to capture and verify that evidence; see [the operator steps](docs/bitkub-small-capital-proof.md).
+
+After the profile passes, the owner intentionally runs `pwsh -NoProfile -File tools/activate-live.ps1`. It validates the current key/profile, initializes a funded account under the approved full-Spot mandate, reconciles and arms through the existing owner controls, then starts the isolated CEO. This permits subsequent real orders that pass the deterministic RiskEngine. It never clears an owner Stop or resets losses. Missing evidence fails closed. A real app order and durable recovery proof remain outstanding; synthetic tests are not completed Live trading.
 
 No withdrawals, bank transfers, margin, leverage or short selling are authorized. Paper ledgers and historical/backtest profits never fund or authorize Live orders. The 700/2100-THB example is illustrative, not a configured target. Jev remains deferred.
 

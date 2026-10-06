@@ -16,6 +16,56 @@ public sealed class BitkubOnboardingFlowTests(PostgresFixture database)
     private static readonly DateTimeOffset Now = new(2026, 10, 5, 5, 0, 0, TimeSpan.Zero);
 
     [Fact]
+    public async Task Owner_activation_provisions_and_arms_funded_empty_account_without_orders()
+    {
+        using var fixture = await Setup();
+        var result = await fixture.Activation.ActivateFullSpotAsync(default);
+        Assert.True(result.Activated, string.Join(",", result.Reasons));
+        var account = await fixture.Store.ReadAccountAsync(fixture.Id);
+        Assert.Equal(1000m, account.Mandate.CapitalAllocation);
+        Assert.Equal(1000m, account.Mandate.MaximumOrderNotional);
+        Assert.Equal(1000m, account.Mandate.MaximumDailyTurnover);
+        Assert.Equal(1000m, account.Mandate.MaximumDailyLoss);
+        Assert.Equal(1m, account.Mandate.MaximumDrawdown);
+        Assert.Equal(1m, account.Mandate.MaximumPortfolioExposure);
+        Assert.True(account.Mandate.AutomaticDailyRollover);
+        Assert.NotNull(account.PerformanceBaseline);
+        Assert.True(account.Snapshot.Reconciled);
+        Assert.True(account.Gate.Armed);
+        Assert.Empty(account.Orders);
+        Assert.Equal(0, fixture.Handler.OrderWrites);
+    }
+
+    [Fact]
+    public async Task Owner_activation_requires_funds_and_trade_permission()
+    {
+        using var empty = await Setup();
+        empty.Handler.Cash = 0;
+        var noFunds = await empty.Activation.ActivateFullSpotAsync(default);
+        Assert.False(noFunds.Activated);
+        Assert.Contains("FUNDS_REQUIRED", noFunds.Reasons);
+        Assert.False(await empty.Store.ExistsAsync(empty.Id));
+        using var denied = await Setup();
+        denied.Handler.TradePermission = false;
+        var result = await denied.Activation.ActivateFullSpotAsync(default);
+        Assert.False(result.Activated);
+        Assert.Contains("TRADE_PERMISSION_REQUIRED", result.Reasons);
+        Assert.False(await denied.Store.ExistsAsync(denied.Id));
+    }
+
+    [Fact]
+    public async Task Owner_stop_is_preserved_by_activation()
+    {
+        using var fixture = await Setup();
+        Assert.True((await fixture.Activation.ActivateFullSpotAsync(default)).Activated);
+        await fixture.Services.GetRequiredService<LiveOwnerControls>().StopAsync();
+        var result = await fixture.Activation.ActivateFullSpotAsync(default);
+        Assert.False(result.Activated);
+        Assert.Contains("OWNER_STOP_ACTIVE", result.Reasons);
+        Assert.True((await fixture.Store.ReadAccountAsync(fixture.Id)).Gate.Stopped);
+    }
+
+    [Fact]
     public async Task Matching_signed_cash_wallet_provisions_once_without_arming_or_resetting_ledger()
     {
         using var fixture = await Setup();
@@ -108,6 +158,47 @@ public sealed class BitkubOnboardingFlowTests(PostgresFixture database)
         Assert.Empty(fixture.Handler.Paths);
     }
 
+    [Fact]
+    public async Task Account_activated_after_worker_start_is_not_treated_as_restart_recovery()
+    {
+        using var fixture = await Setup();
+        using var worker = new LiveReconciliationWorker(fixture.Services.GetRequiredService<LiveExecutionService>(),
+            fixture.Services.GetRequiredService<LiveReconciliation>(), fixture.Id, fixture.Clock, fixture.Store);
+        await worker.StartAsync(default);
+        await fixture.Clock.TimerReady.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.True((await fixture.Activation.ActivateFullSpotAsync(default)).Activated);
+        var previous = await fixture.Store.ReadAccountAsync(fixture.Id);
+        fixture.Clock.Tick();
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+        LiveAccountState account;
+        do
+        {
+            await Task.Delay(10, timeout.Token);
+            account = await fixture.Store.ReadAccountAsync(fixture.Id, timeout.Token);
+        } while (account.Snapshot.Version == previous.Snapshot.Version);
+        Assert.True(account.Gate.Armed);
+        Assert.True(account.Snapshot.Reconciled);
+        Assert.DoesNotContain(account.Audit, a => a.Kind == "RecoverySuspended");
+        Assert.Equal(0, fixture.Handler.OrderWrites);
+        await worker.StopAsync(default);
+    }
+
+    [Fact]
+    public async Task Existing_armed_account_is_disarmed_before_executor_start_returns()
+    {
+        using var fixture = await Setup();
+        Assert.True((await fixture.Activation.ActivateFullSpotAsync(default)).Activated);
+        using var worker = new LiveReconciliationWorker(fixture.Services.GetRequiredService<LiveExecutionService>(),
+            fixture.Services.GetRequiredService<LiveReconciliation>(), fixture.Id, fixture.Clock, fixture.Store);
+        await worker.StartAsync(default);
+        var account = await fixture.Store.ReadAccountAsync(fixture.Id);
+        Assert.False(account.Gate.Armed);
+        Assert.Contains(account.Audit, a => a.Kind == "RecoverySuspended");
+        Assert.Equal(1000m, account.Snapshot.CashBalance);
+        Assert.Equal(0, fixture.Handler.OrderWrites);
+        await worker.StopAsync(default);
+    }
+
     private async Task<Fixture> Setup()
     {
         var fixture = new Fixture(database.ConnectionString);
@@ -125,6 +216,7 @@ public sealed class BitkubOnboardingFlowTests(PostgresFixture database)
         public ServiceProvider Services { get; }
         public LiveTradingStore Store => Services.GetRequiredService<LiveTradingStore>();
         public BitkubAccountProvisioner Provisioner => Services.GetRequiredService<BitkubAccountProvisioner>();
+        public LiveOwnerActivation Activation => Services.GetRequiredService<LiveOwnerActivation>();
         public LiveMandateUpdate Request => new(Id, 0, 1000, 200, 500, 50, .1m, .2m, 1, .01m, .003m, ["BTC-THB"], Now.AddHours(1));
         public Fixture(string connectionString)
         {
@@ -148,24 +240,48 @@ public sealed class BitkubOnboardingFlowTests(PostgresFixture database)
             services.AddSingleton<TimeProvider>(Clock);
             BitkubLiveRuntime.Configure(services, config);
             services.AddSingleton(broker);
+            services.AddSingleton<LiveOwnerActivation>();
             Services = services.BuildServiceProvider();
         }
         public void Dispose() { Services.Dispose(); Directory.Delete(directory, true); }
     }
 
-    private sealed class TestClock : TimeProvider { public override DateTimeOffset GetUtcNow() => Now; }
+    private sealed class TestClock : TimeProvider
+    {
+        private DateTimeOffset now = Now;
+        private ManualTimer? timer;
+        public TaskCompletionSource TimerReady { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public override DateTimeOffset GetUtcNow() => now;
+        public override ITimer CreateTimer(TimerCallback callback, object? state, TimeSpan dueTime, TimeSpan period)
+        {
+            timer = new(callback, state);
+            TimerReady.TrySetResult();
+            return timer;
+        }
+        public void Tick() { now = now.AddSeconds(30); timer!.Fire(); }
+        private sealed class ManualTimer(TimerCallback callback, object? state) : ITimer
+        {
+            private bool disposed;
+            public void Fire() { if (!disposed) callback(state); }
+            public bool Change(TimeSpan dueTime, TimeSpan period) => false;
+            public void Dispose() => disposed = true;
+            public ValueTask DisposeAsync() { Dispose(); return ValueTask.CompletedTask; }
+        }
+    }
     private sealed class Handler(TestClock clock) : HttpMessageHandler
     {
         public List<string> Paths { get; } = [];
         public int WalletReads { get; private set; }
         public int OrderWrites { get; private set; }
         public bool ChangeAfterFirstRead { get; set; }
+        public bool TradePermission { get; set; } = true;
         public decimal Cash { get; set; } = 1000;
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken token)
         {
             var path = request.RequestUri!.AbsolutePath;
             Paths.Add(path);
             if (path.EndsWith("/servertime")) return Reply(clock.GetUtcNow().ToUnixTimeMilliseconds().ToString());
+            if (path.EndsWith("/wstoken")) return Reply(TradePermission ? "{\"error\":0,\"result\":\"synthetic-token-012345678901234567890123456789\"}" : "{\"error\":52,\"result\":null}");
             if (path.EndsWith("/balances"))
             {
                 WalletReads++;

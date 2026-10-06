@@ -1,5 +1,11 @@
 # Live implementation evidence
 
+## Explicit owner activation and broker proof tooling: 2026-10-06
+
+The owner has requested Live activation and chosen full available Spot capital; repeated limit/activation approval questions are not a remaining blocker. Added private three-capture profile verification, an explicit owner activation command and operator scripts, and corrected newly provisioned account recovery. **536 headless + 68 actual PostgreSQL checks passed**, with production reader/executor/company builds and normal-TLS deployment checks. Lead independently reviewed the actual code and corrected fixture, shape, credential, Stop and recovery cases.
+
+Actual signed read still shows **THB 0, successful Trade probe, no coins/open orders/history**. Actual zero/reused evidence and the unverified private profile were rejected; no flag was promoted, production account provisioned, activation performed or order sent. Remaining: funding, real broker buy/sell settlement proof, then intentional owner activation and actual app-order/recovery evidence. See [the round review](live-activation-review-2026-10-06.md) and [operator steps](bitkub-small-capital-proof.md). Status remains **INCOMPLETE Live trading**.
+
 ## Rounded buys and actual permission observation: 2026-10-06
 
 This checkpoint supersedes the earlier unconfirmed Trade-permission observation. Actual signed preflight succeeded: **THB 0, Trade token probe passed, no nonzero coins/open orders/history, stable wallet**. No real order or activation occurred; company and execution remain disabled.
