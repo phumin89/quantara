@@ -19,6 +19,28 @@ namespace TradingCompany.Domain.Tests;
 
 public sealed class LiveCoordinatorAccessTests
 {
+    [Fact]
+    public async Task Scoped_report_is_persisted_once_without_financial_mutation()
+    {
+        await using var factory = new Factory();
+        using var client = factory.Client();
+        var before = factory.Store.Account;
+        var report = new DailyMeetingAttempt(new(2026, 9, 27), Guid.NewGuid(), "HOLD",
+            new(8, 80, 40, [new("portfolio-final", "Hold actual cash", "test", 10, 5, Guid.NewGuid().ToString(), new string('a', 64), new(2026, 9, 26))]))
+        { AccountContext = new(TradingMode.Live, LiveRiskTests.Account.Value.ToString("N")) };
+        foreach (var replay in Enumerable.Range(0, 2))
+            Assert.Equal(HttpStatusCode.OK, (await client.PostAsJsonAsync("/internal/live/meetings", report)).StatusCode);
+        Assert.Single(LiveMeetingReports.Read(factory.Store.Account));
+        Assert.Equal(before.Snapshot, factory.Store.Account.Snapshot);
+        Assert.Equal(before.Gate, factory.Store.Account.Gate);
+        Assert.Equal(0, factory.Broker.PlaceCalls);
+        var conflict = report with { Status = "ORDER_PENDING" };
+        Assert.Equal(HttpStatusCode.ServiceUnavailable, (await client.PostAsJsonAsync("/internal/live/meetings", conflict)).StatusCode);
+        Assert.Single(LiveMeetingReports.Read(factory.Store.Account));
+        var foreign = report with { AccountContext = new(TradingMode.Live, Guid.NewGuid().ToString("N")) };
+        Assert.Equal(HttpStatusCode.Forbidden, (await client.PostAsJsonAsync("/internal/live/meetings", foreign)).StatusCode);
+    }
+
     private const string Token = "test-coordinator-token-012345678901234567890";
 
     [Fact]
@@ -173,6 +195,11 @@ public sealed class LiveCoordinatorAccessTests
                 services.AddSingleton<ILiveTradingStore>(Store);
                 services.AddSingleton(new LiveOwnerControls(Store, new NoPreflight(), new Clock(), LiveRiskTests.Account));
                 services.AddSingleton(new LiveExecutionService(Store, Broker, new Clock()));
+                services.AddSingleton(new BitkubConfiguredAccount(LiveRiskTests.Account,
+                    new("test-account", "key-fingerprint", "synthetic-fixture", new string('a', 64), true, true,
+                        new("synthetic-fixture", new string('b', 64), .003m,
+                            TradingCompany.Infrastructure.BitkubBuyHistoryAmount.QuoteBeforeCashFee,
+                            [new("BTC-THB", 1m, .00000001m, .01m, 10m, 8, 1m)]))));
             });
         }
         public HttpClient Client(string token = Token)

@@ -79,7 +79,8 @@ public sealed class LiveExecutionTests
     private sealed class TestStore : ILiveTradingStore
     {
         public LiveAccountState State { get; set; } = new(LiveRiskTests.Account, LiveRiskTests.Mandate,
-            LiveRiskTests.Gate, LiveRiskTests.Snapshot, [], [], []);
+            LiveRiskTests.Gate, LiveRiskTests.Snapshot, [], [], [])
+        { PerformanceBaseline = new(new(2026, 9, 27), 1000m, 1000m) };
         public Action? OnLease { get; set; }
         public bool FailAcknowledgement { get; init; }
         public Task<LiveSnapshot> ReadAsync(LiveAccountId id, CancellationToken cancellationToken = default) => Task.FromResult(State.Snapshot);

@@ -17,7 +17,8 @@ public sealed class BitkubAccountProvisioner(LiveTradingStore store, BitkubLiveB
         var mandate = new LiveMandate(id, 1, verified.CredentialFingerprint, request.CapitalAllocation,
             request.MaximumOrderNotional, request.MaximumDailyTurnover, request.MaximumDailyLoss,
             request.MaximumDrawdown, request.MaximumPortfolioExposure, request.MaximumOpenPositions,
-            request.MaximumSlippage, request.FeeReserveRate, request.AllowedSymbols, request.ExpiresAt);
+            request.MaximumSlippage, request.FeeReserveRate, request.AllowedSymbols, request.ExpiresAt)
+            { AutomaticDailyRollover = request.AutomaticDailyRollover };
         if (!LiveRiskPolicy.IsValidMandate(mandate) || mandate.ExpiresAt <= clock.GetUtcNow() ||
             mandate.FeeReserveRate < verified.Rules.MaximumCashFeeRate ||
             mandate.AllowedSymbols.Any(s => !verified.Rules.Pairs.Any(p => p.Symbol == s)))

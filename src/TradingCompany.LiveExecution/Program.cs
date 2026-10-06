@@ -46,7 +46,8 @@ public class LiveProgram
             throw new InvalidOperationException("Container binding requires the container runtime.");
         builder.WebHost.ConfigureKestrel(options =>
         {
-            options.Limits.MaxRequestBodySize = 4096;
+            // Bounded eight-role meeting reports use the same authenticated TLS listener.
+            options.Limits.MaxRequestBodySize = 64 * 1024;
             if (containerHost)
             {
                 options.ListenAnyIP(7443, endpoint => endpoint.UseHttps());

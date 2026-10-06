@@ -31,6 +31,7 @@ public interface IDailyMeetingJournal
     TradingAccountContext? AccountContext => null;
     void EnsureReconciled();
     DailyMeetingAttempt? Read(DateOnly businessDate);
+    IReadOnlyList<DailyMeetingAttempt> ReadAll();
     bool TryBegin(DateOnly businessDate, Guid attemptId);
     void Complete(DateOnly businessDate, Guid attemptId, string status, DailyMeetingSummary? summary = null);
 }

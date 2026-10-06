@@ -1,5 +1,7 @@
 using TradingCompany.Application;
 using TradingCompany.Domain;
+using System.Security.Claims;
+using TradingCompany.Infrastructure;
 
 namespace TradingCompany.LiveExecution;
 
@@ -12,6 +14,41 @@ public static class LiveEndpoints
         var ownerControls = app.MapGroup("/live").RequireAuthorization("Owner");
         live.AddEndpointFilter(SafeResult);
         ownerControls.AddEndpointFilter(SafeResult);
+        live.MapGet("/setup", async (HttpContext context, TimeProvider clock, OwnerSession sessions) =>
+        {
+            var canControl = sessions.CanControl(context.User.FindFirstValue("sid"));
+            var configured = context.RequestServices.GetService<BitkubConfiguredAccount>();
+            if (configured is null) return Results.Ok(new { configured = false, canControl,
+                reasons = new[] { "BROKER_VERIFICATION_REQUIRED" } });
+            var store = context.RequestServices.GetRequiredService<LiveTradingStore>();
+            var rules = configured.Verification.Rules;
+            var exists = await store.ExistsAsync(configured.AccountId, context.RequestAborted);
+            LiveAccountState? account = exists ? await store.ReadAccountAsync(configured.AccountId, context.RequestAborted) : null;
+            decimal capital;
+            if (account is null)
+            {
+                using var deadline = CancellationTokenSource.CreateLinkedTokenSource(context.RequestAborted);
+                deadline.CancelAfter(TimeSpan.FromSeconds(25));
+                var wallet = await context.RequestServices.GetRequiredService<BitkubLiveBroker>().GetWalletAsync(deadline.Token);
+                capital = wallet.Single(b => b.Currency == "THB").Total;
+            }
+            else capital = account.Mandate.CapitalAllocation;
+            var now = clock.GetUtcNow();
+            var today = DateOnly.FromDateTime(now.ToOffset(TimeSpan.FromHours(7)).DateTime);
+            return Results.Ok(new { configured = true, canControl, reasons = Array.Empty<string>(),
+                accountId = configured.AccountId, brokerAccountReference = configured.Verification.BrokerAccountReference,
+                verifiedSymbols = rules.Pairs.Select(p => p.Symbol), minimumFeeReserveRate = rules.MaximumCashFeeRate,
+                fullSpotCapitalAllowed = true, availableCapital = capital, provisioned = exists,
+                mandate = account is null ? null : OwnerMandate(account.Mandate),
+                snapshotVersion = account?.Snapshot.Version, mandateVersion = account?.Mandate.Version,
+                baselineEstablished = account?.PerformanceBaseline is not null,
+                needsDailyBaseline = account?.PerformanceBaseline is { } b && b.BangkokDate != today,
+                // Raw activation state governs day-reset controls; /status remains the
+                // authoritative execution readiness view with baseline/freshness checks.
+                armed = account?.Gate.Armed ?? false, stopped = account?.Gate.Stopped ?? false,
+                reconciled = account is not null && account.Snapshot.Reconciled && account.Snapshot.ObservedAt <= now &&
+                    now - account.Snapshot.ObservedAt <= TimeSpan.FromSeconds(30), observedAt = account?.Snapshot.ObservedAt });
+        });
         live.MapGet("/status", async (HttpContext context, TimeProvider clock) =>
         {
             var controls = Controls(context);
@@ -68,6 +105,14 @@ public static class LiveEndpoints
             if (reader is null) return Unconfigured();
             return Results.Ok(await reader.ReadAsync(context.RequestAborted));
         });
+        live.MapGet("/meetings", async (HttpContext context) =>
+        {
+            var controls = Controls(context);
+            if (controls is null) return Unconfigured();
+            var account = await controls.ReadAsync(context.RequestAborted);
+            return Results.Ok(new { accountContext = new TradingAccountContext(TradingMode.Live, account.AccountId.Value.ToString("N")),
+                meetings = LiveMeetingReports.Read(account).Take(31) });
+        });
         ownerControls.MapPost("/preflight", async (HttpContext context) =>
         {
             var controls = Controls(context);
@@ -90,6 +135,25 @@ public static class LiveEndpoints
             var account = await controls.ReadAsync(context.RequestAborted);
             if (request.AccountId != account.AccountId) return Results.Conflict(new { code = "ACCOUNT_MISMATCH" });
             var result = await reconciliation.InitializeBaselineAsync(request, context.RequestAborted);
+            return Results.Json(result, statusCode: result.Complete ? 200 : 409);
+        });
+        ownerControls.MapPost("/day-baseline", async (LiveBaselineRequest request, HttpContext context) =>
+        {
+            var controls = Controls(context);
+            var reconciliation = context.RequestServices.GetService<LiveReconciliation>();
+            if (controls is null || reconciliation is null) return Unconfigured();
+            var account = await controls.ReadAsync(context.RequestAborted);
+            if (request.AccountId != account.AccountId) return Results.Conflict(new { code = "ACCOUNT_MISMATCH" });
+            var result = await reconciliation.RollDailyBaselineAsync(request, context.RequestAborted);
+            return Results.Json(result, statusCode: result.Complete ? 200 : 409);
+        });
+        ownerControls.MapPost("/reconcile", async (HttpContext context) =>
+        {
+            var controls = Controls(context);
+            var reconciliation = context.RequestServices.GetService<LiveReconciliation>();
+            if (controls is null || reconciliation is null) return Unconfigured();
+            var account = await controls.ReadAsync(context.RequestAborted);
+            var result = await reconciliation.ReconcileAsync(account.AccountId, context.RequestAborted);
             return Results.Json(result, statusCode: result.Complete ? 200 : 409);
         });
         ownerControls.MapPost("/arm", async (LiveArmRequest request, HttpContext context) =>
@@ -141,5 +205,8 @@ public static class LiveEndpoints
     }
 
     private static LiveOwnerControls? Controls(HttpContext context) => context.RequestServices.GetService<LiveOwnerControls>();
+    private static object OwnerMandate(LiveMandate m) => new { m.Version, m.CapitalAllocation, m.MaximumOrderNotional,
+        m.MaximumDailyTurnover, m.MaximumDailyLoss, m.MaximumDrawdown, m.MaximumPortfolioExposure,
+        m.MaximumOpenPositions, m.MaximumSlippage, m.FeeReserveRate, m.AllowedSymbols, m.ExpiresAt, m.AutomaticDailyRollover };
     private static IResult Unconfigured() => Results.Json(new { code = "LIVE_ACCOUNT_NOT_CONFIGURED" }, statusCode: 503);
 }

@@ -59,10 +59,12 @@ public interface ILiveAccountTransaction
     void SuspendForRecovery(DateTimeOffset now);
     LiveReconciliationResult Reconcile(LiveBrokerEvidence first, LiveBrokerEvidence second, DateTimeOffset now);
     LiveReconciliationResult InitializeBaseline(LiveBaselineRequest request, LiveBrokerEvidence first, LiveBrokerEvidence second, DateTimeOffset now);
+    LiveReconciliationResult RollDailyBaseline(LiveBaselineRequest request, LiveBrokerEvidence first, LiveBrokerEvidence second, DateTimeOffset now);
     LiveReconciliationResult FailReconciliation(string code, DateTimeOffset now);
     void RecordTransition(Guid id, LiveOrderState state, string? brokerId, DateTimeOffset now);
     void ApplyFill(BrokerFill fill, DateTimeOffset now);
     void SetStopped(bool stopped);
+    void RecordMeeting(DailyMeetingAttempt attempt, DateTimeOffset now);
     Task CommitAsync(CancellationToken cancellationToken);
     Task VerifyLeaseAsync(CancellationToken cancellationToken);
 }

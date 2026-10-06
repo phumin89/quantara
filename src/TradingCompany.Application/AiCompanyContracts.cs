@@ -111,7 +111,7 @@ public static class AiCompanyContract
                 "properties": {
                   "action": { "type": "string", "enum": ["HOLD", "BUY", "TRIM", "SELL"] },
                   "symbol": { "type": "string", "minLength": 1 },
-                  "targetWeight": { "type": "number", "minimum": 0, "maximum": 0.20 },
+                  "targetWeight": { "type": "number", "minimum": 0, "maximum": 1 },
                   "confidence": { "type": "number", "minimum": 0, "maximum": 1 },
                   "thesis": { "type": "string", "minLength": 1 },
                   "invalidation": { "type": "string", "minLength": 1 }
@@ -199,7 +199,7 @@ public static class AiCompanyContract
             var symbol = new Symbol(RequiredString(item, "symbol"));
             var targetWeight = RequiredDecimal(item, "targetWeight");
             var confidence = RequiredDecimal(item, "confidence");
-            if (targetWeight is < 0m or > .20m) violations.Add("INVALID_TARGET_WEIGHT");
+            if (targetWeight is < 0m or > 1m) violations.Add("INVALID_TARGET_WEIGHT");
             if (confidence is < 0m or > 1m) violations.Add("INVALID_CONFIDENCE");
             result.Add(new(action, symbol, targetWeight, confidence,
                 RequiredString(item, "thesis"), RequiredString(item, "invalidation")));

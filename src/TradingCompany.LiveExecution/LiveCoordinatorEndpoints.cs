@@ -34,8 +34,12 @@ public static class LiveCoordinatorEndpoints
                     (o.CancellationRequestedAt is not null && o.State is not (LiveOrderState.Rejected or LiveOrderState.Filled or LiveOrderState.Cancelled) &&
                      o.CancellationOutcome != BrokerSubmissionState.Rejected));
             return Results.Ok(new LiveResearchPacket(new(TradingMode.Live, accountId.ToString("N")), mandate.Version,
-                account.Snapshot, new(mandate.CapitalAllocation, Math.Min(.2m, mandate.MaximumPortfolioExposure),
-                    mandate.MaximumOpenPositions, mandate.FeeReserveRate, mandate.MaximumSlippage, mandate.AllowedSymbols), ready, account.Gate.Stopped));
+                account.Snapshot, new(mandate.CapitalAllocation, mandate.MaximumPortfolioExposure,
+                    mandate.MaximumOpenPositions, mandate.FeeReserveRate, mandate.MaximumSlippage, mandate.AllowedSymbols)
+                {
+                    OrderSizing = context.RequestServices.GetService<BitkubConfiguredAccount>()?.Verification.Rules.Pairs
+                        .Select(p => new LiveOrderSizing(p.Symbol, p.PriceStep, p.SellBaseStep, p.BuyQuoteStep, p.MinimumQuoteSize)).ToArray() ?? []
+                }, ready, account.Gate.Stopped));
         });
         routes.MapPost("/intents", async (LiveIntent intent, HttpContext context) =>
         {
@@ -47,6 +51,19 @@ public static class LiveCoordinatorEndpoints
             var order = await execution.SubmitAsync(intent, context.RequestAborted);
             // No credentials, prepared wire body, raw audit or capability state leaves the executor.
             return Results.Ok(new LiveIntentReceipt(order.Intent, order.State, order.Violations));
+        });
+        routes.MapPost("/meetings", async (DailyMeetingAttempt attempt, HttpContext context, TimeProvider clock) =>
+        {
+            if (attempt.AccountContext?.Mode != TradingMode.Live || !Guid.TryParse(attempt.AccountContext.AccountId, out var account) || !Bound(context, account)) return Results.StatusCode(403);
+            var store = context.RequestServices.GetService<ILiveTradingStore>();
+            if (store is null) return Results.StatusCode(503);
+            await store.WithAccountLockAsync(new(account), async (tx, token) =>
+            {
+                tx.RecordMeeting(attempt, clock.GetUtcNow());
+                await tx.CommitAsync(token);
+                return true;
+            }, context.RequestAborted);
+            return Results.Ok(new { saved = true });
         });
     }
 

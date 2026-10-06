@@ -33,8 +33,11 @@ public sealed class LiveReconciliation(ILiveTradingStore store, ILiveReconciliat
     // Owner onboarding only. No owner-supplied balances and no automatic day/loss reset.
     public Task<LiveReconciliationResult> InitializeBaselineAsync(LiveBaselineRequest request, CancellationToken cancellationToken = default)
         => ReadAndReconcile(request.AccountId, request, cancellationToken);
+    public Task<LiveReconciliationResult> RollDailyBaselineAsync(LiveBaselineRequest request, CancellationToken cancellationToken = default)
+        => ReadAndReconcile(request.AccountId, request, cancellationToken, manualDay: true);
 
-    private Task<LiveReconciliationResult> ReadAndReconcile(LiveAccountId accountId, LiveBaselineRequest? initialization, CancellationToken cancellationToken)
+    private Task<LiveReconciliationResult> ReadAndReconcile(LiveAccountId accountId, LiveBaselineRequest? initialization,
+        CancellationToken cancellationToken, bool manualDay = false)
         => store.WithAccountLockAsync(accountId, async (tx, ct) =>
         {
             LiveBrokerEvidence first;
@@ -51,7 +54,7 @@ public sealed class LiveReconciliation(ILiveTradingStore store, ILiveReconciliat
                 return blocked;
             }
             if (initialization is not null) await tx.VerifyLeaseAsync(ct);
-            var result = initialization is null
+            var result = manualDay ? tx.RollDailyBaseline(initialization!, first, second, clock.GetUtcNow()) : initialization is null
                 ? tx.Reconcile(first, second, clock.GetUtcNow())
                 : tx.InitializeBaseline(initialization, first, second, clock.GetUtcNow());
             await Persist(tx);

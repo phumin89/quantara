@@ -1,5 +1,15 @@
 # Live implementation evidence
 
+## Owner setup, daily lifecycle and isolated company: 2026-10-06
+
+This checkpoint supersedes the remaining implementation statements in earlier sections. The deployed app has **execution disabled, no production account and no real order sent**. Latest signed Bitkub read: THB 0 and no nonzero coins.
+
+Added full-capital owner consent/activation UI, guarded Bangkok-day rollover, refreshed-quote advice, isolated scheduled Live entry point, idempotent PostgreSQL meeting reports and conclusion-first dated chat. Private persistent Live storage is prepared with an empty schema. No broker profile was falsely marked verified; company and execution configuration remain disabled.
+
+Validation: **495** headless checks, **61** actual PostgreSQL checks and **27** frontend checks passed. TypeScript/production builds passed. Three responsive sizes reviewed with synthetic data. Actual isolated TLS transport accepts the pinned public certificate and rejects a different certificate. Anonymous private reads remain unauthorized; the three deployed SPA routes return 200.
+
+See [the round review](live-owner-onboarding-review-2026-10-06.md) for findings, corrections and practical limits. Remaining: funding/Trade permission, real broker unit/rounding/fee/lineage evidence and verified private profile, explicit owner activation, and separately authorized real canary proof. Unsupported rounding, deposits and unresolved outcomes remain blocked. This checkpoint is not completed Live trading.
+
 ## Verified execution adapter and onboarding: 2026-10-06
 
 This section supersedes earlier implementation-status statements below; older sections are historical evidence. **The deployed application still has real-money execution disabled. No real order was sent.**

@@ -49,11 +49,127 @@ public sealed class LiveCompanyCoordinatorTests : IDisposable
         Assert.Equal("ALREADY_ATTEMPTED", restarted.Status);
     }
 
+    [Fact]
+    public async Task Completed_meeting_summary_is_saved_and_published_on_following_tick_without_resubmitting()
+    {
+        var client = new Client();
+        var gateway = new Gateway();
+        var coordinator = Coordinator(client, gateway);
+        await coordinator.TickAsync();
+        Assert.Single(client.Intents);
+        Assert.Empty(client.Meetings);
+
+        await coordinator.TickAsync();
+        var saved = Assert.Single(client.Meetings);
+        Assert.Equal("ORDER_PENDING", saved.Status);
+        Assert.NotNull(saved.Summary);
+        Assert.Contains(saved.Summary!.Reports, report => report.Role == "ceo" && report.Summary == "Review completed market bars");
+        Assert.Single(client.Intents);
+    }
+
+    [Fact]
+    public async Task Polling_version_refresh_with_unchanged_money_and_bounded_quote_uses_fresh_snapshot()
+    {
+        var client = new Client();
+        var gateway = new Gateway();
+        gateway.AfterFinal = () => client.Packet = client.Packet with
+        {
+            Snapshot = client.Packet.Snapshot with
+            {
+                Version = 2,
+                ObservedAt = clock.Now,
+                Quotes = [new("BTC-THB", 99990, 100010, clock.Now)]
+            }
+        };
+        await Coordinator(client, gateway).TickAsync();
+        var intent = Assert.Single(client.Intents);
+        Assert.Equal(2, intent.SnapshotVersion);
+        Assert.Equal(100010m, intent.LimitPrice);
+        Assert.Equal(.00149985m, intent.Quantity);
+        Assert.Equal(intent.Quantity * intent.LimitPrice, intent.BuyBudget);
+    }
+
+    [Theory]
+    [InlineData("cash")]
+    [InlineData("position")]
+    [InlineData("reserve")]
+    [InlineData("turnover")]
+    [InlineData("mandate")]
+    public async Task Polling_owned_state_changes_never_dispatch(string defect)
+    {
+        var client = new Client();
+        var gateway = new Gateway();
+        gateway.AfterFinal = () => client.Packet = defect switch
+        {
+            "cash" => client.Packet with { Snapshot = client.Packet.Snapshot with { Version = 2, CashBalance = 999, Equity = 999 } },
+            "position" => client.Packet with { Snapshot = client.Packet.Snapshot with { Version = 2, Positions = [new("BTC-THB", .0001m, 0, 100000m)], Equity = 1010 } },
+            "reserve" => client.Packet with { Snapshot = client.Packet.Snapshot with { Version = 2, CashReserved = 1 } },
+            "turnover" => client.Packet with { Snapshot = client.Packet.Snapshot with { Version = 2, DailyTurnover = 1 } },
+            _ => client.Packet with { MandateVersion = 2 }
+        };
+        await Coordinator(client, gateway).TickAsync();
+        Assert.Empty(client.Intents);
+    }
+
+    [Fact]
+    public async Task Polling_quote_beyond_owner_slippage_never_dispatches()
+    {
+        var client = new Client();
+        var gateway = new Gateway
+        {
+            AfterFinal = () => client.Packet = client.Packet with
+            { Snapshot = client.Packet.Snapshot with { Version = 2, ObservedAt = clock.Now,
+                Quotes = [new("BTC-THB", 99900, 101001, clock.Now)] } }
+        };
+        var coordinator = Coordinator(client, gateway);
+        await coordinator.TickAsync();
+        Assert.Empty(client.Intents);
+        Assert.Equal("PRICE_CHANGED", coordinator.Status);
+    }
+
+    [Fact]
+    public async Task Full_capital_buy_reserves_fee_inside_the_cash_limit()
+    {
+        var client = new Client { Packet = new Client().Packet with
+        { Limits = new(1000, 1m, 3, .003m, .01m, ["BTC-THB"]) { OrderSizing = [new("BTC-THB", .01m, .00000001m, 1m, 10m)] } } };
+        var gateway = new Gateway { TargetWeight = 1m };
+        await Coordinator(client, gateway).TickAsync();
+        var intent = Assert.Single(client.Intents);
+        Assert.True(intent.BuyBudget!.Value * (1 + client.Packet.Limits.FeeReserveRate) <= 1000m);
+    }
+
+    [Fact]
+    public async Task Missing_order_sizing_blocks_before_model_quota()
+    {
+        var client = new Client { Packet = new Client().Packet with
+        { Limits = new(1000, .2m, 3, .003m, .01m, ["BTC-THB"]) } };
+        var gateway = new Gateway();
+        var coordinator = Coordinator(client, gateway);
+        await coordinator.TickAsync();
+        Assert.Equal("LIVE_BLOCKED", coordinator.Status);
+        Assert.Empty(gateway.Inputs);
+    }
+
+    [Fact]
+    public async Task Trim_quantity_is_rounded_down_to_the_broker_base_step()
+    {
+        var snapshot = LiveRiskTests.Snapshot with
+        {
+            Positions = [new("BTC-THB", .003456789123m, 0, 100000m)], Equity = 1345.6789123m
+        };
+        var client = new Client { Packet = new Client().Packet with { Snapshot = snapshot } };
+        var gateway = new Gateway { Action = "TRIM", TargetWeight = .1m };
+        await Coordinator(client, gateway).TickAsync();
+        var intent = Assert.Single(client.Intents);
+        Assert.Equal(OrderSide.Sell, intent.Side);
+        Assert.Equal(.00245578m, intent.Quantity);
+        Assert.Equal(0, decimal.Remainder(intent.Quantity, .00000001m));
+    }
+
     [Theory]
     [InlineData("hold")]
     [InlineData("invalid-output")]
     [InlineData("model-down")]
-    [InlineData("stale-version")]
     [InlineData("stop-during-meeting")]
     [InlineData("quote-expired")]
     public async Task Missing_authority_or_invalid_advice_never_dispatches(string scenario)
@@ -62,7 +178,6 @@ public sealed class LiveCompanyCoordinatorTests : IDisposable
         var gateway = new Gateway { Scenario = scenario };
         gateway.AfterFinal = () =>
         {
-            if (scenario == "stale-version") client.Packet = client.Packet with { Snapshot = client.Packet.Snapshot with { Version = 2 } };
             if (scenario == "stop-during-meeting") client.Packet = client.Packet with { Stopped = true };
             if (scenario == "quote-expired") clock.Now = clock.Now.AddSeconds(31);
         };
@@ -143,8 +258,12 @@ public sealed class LiveCompanyCoordinatorTests : IDisposable
     private sealed class Client : ILiveCompanyClient
     {
         public LiveResearchPacket Packet { get; set; } = new(Scope, 1, LiveRiskTests.Snapshot,
-            new(1000m, .2m, 3, .003m, .01m, ["BTC-THB"]), true, false);
+            new(1000m, .2m, 3, .003m, .01m, ["BTC-THB"]) { OrderSizing =
+                [new("BTC-THB", .01m, .00000001m, 1m, 10m)] }, true, false);
         public List<LiveIntent> Intents { get; } = [];
+        public List<DailyMeetingAttempt> Meetings { get; } = [];
+        public Task SaveMeetingAsync(DailyMeetingAttempt attempt, CancellationToken cancellationToken)
+        { Meetings.Add(attempt); return Task.CompletedTask; }
         public Task<LiveResearchPacket> ReadAsync(LiveAccountId accountId, CancellationToken cancellationToken) => Task.FromResult(Packet);
         public Task<LiveIntentReceipt> SubmitAsync(LiveIntent intent, CancellationToken cancellationToken)
         {
@@ -155,6 +274,8 @@ public sealed class LiveCompanyCoordinatorTests : IDisposable
     internal sealed class Gateway : ITradingAgentGateway
     {
         public string Scenario { get; init; } = "buy";
+        public string Action { get; init; } = "BUY";
+        public decimal TargetWeight { get; init; } = .15m;
         public Action? AfterFinal { get; set; }
         public List<AiCompanyMeetingInput> Inputs { get; } = [];
         public Task<AgentModelResponse> CompleteStructuredAsync(AgentModelRequest request, CancellationToken cancellationToken)
@@ -171,7 +292,7 @@ public sealed class LiveCompanyCoordinatorTests : IDisposable
                 dataCutoff = input.DataCutoff.ToString("yyyy-MM-dd"), evidenceHash = input.EvidenceHash,
                 proposals = request.Role != "portfolio-final" || Scenario == "hold" ? [] : new[]
                 {
-                    new { action = "BUY", symbol = Scenario == "invalid-output" ? "INVENTED" : "BTC-THB", targetWeight = .15m,
+                    new { action = Action, symbol = Scenario == "invalid-output" ? "INVENTED" : "BTC-THB", targetWeight = TargetWeight,
                         confidence = .8m, thesis = "Supplied evidence supports entry", invalidation = "Trend deteriorates" }
                 }
             });

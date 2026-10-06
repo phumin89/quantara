@@ -8,7 +8,10 @@ public sealed record LiveArmRequest(LiveAccountId AccountId, string BrokerAccoun
 public sealed record LiveMandateUpdate(LiveAccountId AccountId, long ExpectedVersion, decimal CapitalAllocation,
     decimal MaximumOrderNotional, decimal MaximumDailyTurnover, decimal MaximumDailyLoss, decimal MaximumDrawdown,
     decimal MaximumPortfolioExposure, int MaximumOpenPositions, decimal MaximumSlippage, decimal FeeReserveRate,
-    IReadOnlyList<string> AllowedSymbols, DateTimeOffset? ExpiresAt);
+    IReadOnlyList<string> AllowedSymbols, DateTimeOffset? ExpiresAt)
+{
+    public bool AutomaticDailyRollover { get; init; }
+}
 public sealed record LivePreflightResult(bool Ready, long MandateVersion, long SnapshotVersion,
     string? BrokerAccountReference, IReadOnlyList<string> Violations);
 
@@ -78,7 +81,8 @@ public sealed class LiveOwnerControls(ILiveTradingStore store, ILiveActivationSo
             var mandate = new LiveMandate(accountId, update.ExpectedVersion + 1, tx.Account.Mandate.CredentialFingerprint,
                 update.CapitalAllocation, update.MaximumOrderNotional, update.MaximumDailyTurnover, update.MaximumDailyLoss,
                 update.MaximumDrawdown, update.MaximumPortfolioExposure, update.MaximumOpenPositions,
-                update.MaximumSlippage, update.FeeReserveRate, update.AllowedSymbols, update.ExpiresAt);
+                update.MaximumSlippage, update.FeeReserveRate, update.AllowedSymbols, update.ExpiresAt)
+                { AutomaticDailyRollover = update.AutomaticDailyRollover };
             var result = tx.SaveMandate(mandate, clock.GetUtcNow());
             if (result.Allowed) await tx.CommitAsync(ct);
             return result;

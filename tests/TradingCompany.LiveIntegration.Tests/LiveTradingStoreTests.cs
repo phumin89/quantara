@@ -418,7 +418,8 @@ public sealed class LiveTradingStoreTests(PostgresFixture database)
         var id = new LiveAccountId(Guid.NewGuid());
         var mandate = new LiveMandate(id, 1, "test-key", 1000, 800, 5000, 100, .2m, .8m, 3, .01m, .003m, ["BTC-THB"], null);
         var snapshot = new LiveSnapshot(id, 1, Now, 1000, 0, 0, [], 1000, 0, 0, 0, true, [new("BTC-THB", 99900, 100000, Now)]);
-        var state = new LiveAccountState(id, mandate, new(true, false, "test-key", true, 1), snapshot, [], [], []);
+        var state = new LiveAccountState(id, mandate, new(true, false, "test-key", true, 1), snapshot, [], [], [])
+        { PerformanceBaseline = new(DateOnly.FromDateTime(Now.ToOffset(TimeSpan.FromHours(7)).DateTime), 1000m, 1000m) };
         await store.CreateAsync(state);
         return (store, state, new(id, Guid.NewGuid(), Guid.NewGuid(), TradingMode.Live, "BTC-THB", OrderSide.Buy, .007m, 100000, 1, 1, "test-evidence"));
     }

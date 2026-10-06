@@ -82,5 +82,6 @@ public sealed class LiveAccountTransactionTests
     }
 
     private static LiveAccountTransaction Transaction(LiveSnapshot snapshot, LiveMandate mandate)
-        => new(new(LiveRiskTests.Account, mandate, LiveRiskTests.Gate, snapshot, [], [], []), (_, _) => Task.CompletedTask);
+        => new(new(LiveRiskTests.Account, mandate, LiveRiskTests.Gate, snapshot, [], [], [])
+        { PerformanceBaseline = new(new(2026, 9, 27), 1000m, 1000m) }, (_, _) => Task.CompletedTask);
 }

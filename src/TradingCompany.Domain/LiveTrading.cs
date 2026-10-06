@@ -8,7 +8,10 @@ public sealed record LiveMandate(LiveAccountId AccountId, long Version, string C
     decimal CapitalAllocation, decimal MaximumOrderNotional, decimal MaximumDailyTurnover,
     decimal MaximumDailyLoss, decimal MaximumDrawdown, decimal MaximumPortfolioExposure,
     int MaximumOpenPositions, decimal MaximumSlippage, decimal FeeReserveRate,
-    IReadOnlyList<string> AllowedSymbols, DateTimeOffset? ExpiresAt);
+    IReadOnlyList<string> AllowedSymbols, DateTimeOffset? ExpiresAt)
+{
+    public bool AutomaticDailyRollover { get; init; }
+}
 public sealed record LiveIntent(LiveAccountId AccountId, Guid DecisionId, Guid Id, TradingMode Mode,
     string Symbol, OrderSide Side, decimal Quantity, decimal LimitPrice, long MandateVersion,
     long SnapshotVersion, string EvidenceHash)

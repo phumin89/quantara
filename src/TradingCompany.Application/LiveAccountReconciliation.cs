@@ -59,9 +59,12 @@ public sealed partial class LiveAccountTransaction
         if (!SameMoneyEvidence(first, second)) return FailReconciliation("BROKER_OBSERVATIONS_CHANGED", now);
         var baseline = Account.PerformanceBaseline;
         var today = DateOnly.FromDateTime(now.ToOffset(TimeSpan.FromHours(7)).DateTime);
-        if (baseline is null || baseline.BangkokDate != today || baseline.DayStartEquity <= 0 ||
+        if (baseline is null || baseline.BangkokDate > today || baseline.DayStartEquity <= 0 ||
             baseline.HighWaterEquity < baseline.DayStartEquity)
             return FailReconciliation("DAILY_BASELINE_REQUIRED", now);
+        if (baseline.BangkokDate != today)
+            return Account.Mandate.AutomaticDailyRollover ? ReconcileAcrossDay(first, second, now, false)
+                : FailReconciliation("DAILY_BASELINE_REQUIRED", now);
         if (Account.Orders.Any(o => o.State is LiveOrderState.Reserved or LiveOrderState.Proposed))
             return FailReconciliation("RECOVERY_REQUIRED", now);
 
@@ -141,6 +144,74 @@ public sealed partial class LiveAccountTransaction
         catch (Exception error) when (error is InvalidDataException or InvalidOperationException or OverflowException or ArgumentException)
         { return FailReconciliation("RECONCILIATION_MISMATCH", now); }
     }
+
+    public LiveReconciliationResult RollDailyBaseline(LiveBaselineRequest request, LiveBrokerEvidence first,
+        LiveBrokerEvidence second, DateTimeOffset now)
+    {
+        if (request.AccountId != Account.AccountId) return FailReconciliation("ACCOUNT_MISMATCH", now);
+        if (request.MandateVersion != Account.Mandate.Version || request.SnapshotVersion != Account.Snapshot.Version)
+            return FailReconciliation("STALE_APPROVAL", now);
+        if (Account.Gate.Armed || Account.PerformanceBaseline is not { } baseline || baseline.DayStartEquity <= 0 ||
+            baseline.HighWaterEquity < baseline.DayStartEquity || baseline.BangkokDate >= BangkokDate(now))
+            return FailReconciliation("DAILY_BASELINE_REQUIRED", now);
+        return ReconcileAcrossDay(first, second, now, true);
+    }
+
+    private LiveReconciliationResult ReconcileAcrossDay(LiveBrokerEvidence first, LiveBrokerEvidence second,
+        DateTimeOffset now, bool manual)
+    {
+        var before = Account;
+        var baseline = before.PerformanceBaseline!;
+        var today = BangkokDate(now);
+        var candidate = new LiveAccountTransaction(before with
+        {
+            PerformanceBaseline = baseline with { BangkokDate = today },
+            Gate = before.Gate with { Armed = false }
+        }, (_, _) => throw new InvalidOperationException("Detached day reconciliation cannot persist."));
+        var result = candidate.Reconcile(first, second, now);
+        if (!result.Complete) return FailReconciliation(result.Violations[0], now);
+        var allSettled = candidate.Account.Orders.All(o => o.State is LiveOrderState.Rejected or LiveOrderState.Filled or LiveOrderState.Cancelled);
+        var fillsUnchanged = candidate.Account.Fills.OrderBy(f => f.TransactionId, StringComparer.Ordinal)
+            .SequenceEqual(before.Fills.OrderBy(f => f.TransactionId, StringComparer.Ordinal));
+        var continuous = before.Snapshot.Reconciled && before.Snapshot.ObservedAt <= now &&
+            now - before.Snapshot.ObservedAt <= TimeSpan.FromSeconds(90) &&
+            BangkokDate(before.Snapshot.ObservedAt) == baseline.BangkokDate && baseline.BangkokDate.AddDays(1) == today;
+        // Stable evidence may straddle midnight. The second observation must be in the
+        // new day; both observations have already passed the exact-money/freshness checks.
+        var newDayRead = BangkokDate(second.ObservedAt) == today &&
+            (BangkokDate(first.ObservedAt) == today || !manual && BangkokDate(first.ObservedAt) == baseline.BangkokDate);
+        var canRoll = allSettled && fillsUnchanged && newDayRead && (manual || continuous);
+        var snapshot = candidate.Account.Snapshot;
+        if (canRoll)
+        {
+            var start = manual ? snapshot.Equity : before.Snapshot.Equity;
+            if (start <= 0) return FailReconciliation("DAILY_BASELINE_REQUIRED", now);
+            candidate.Account = candidate.Account with
+            {
+                PerformanceBaseline = candidate.Account.PerformanceBaseline! with { DayStartEquity = start },
+                Snapshot = snapshot with { DailyTurnover = 0, DailyLoss = Math.Max(0, start - snapshot.Equity) },
+                Gate = before.Gate with { Armed = !manual && before.Gate.Armed && !before.Gate.Stopped &&
+                    before.Gate.IsolationVerified && before.Gate.ArmedMandateVersion == before.Mandate.Version &&
+                    (before.Mandate.ExpiresAt is null || before.Mandate.ExpiresAt > now) }
+            };
+            candidate.Audit(now, "DailyPerformanceBaselineEstablished", null,
+                JsonSerializer.Serialize(new { automatic = !manual, baseline = candidate.Account.PerformanceBaseline }));
+            Account = candidate.Account;
+            return new(true, snapshot.Version, []);
+        }
+        // Recover real fills and reservations across midnight even when the daily risk frame
+        // cannot be advanced. Preserve the old baseline and require explicit owner action.
+        candidate.Account = candidate.Account with
+        {
+            PerformanceBaseline = baseline with { HighWaterEquity = candidate.Account.PerformanceBaseline!.HighWaterEquity },
+            Gate = before.Gate with { Armed = false }
+        };
+        candidate.Audit(now, "DailyBaselineRequired", null, "Interrupted day or unsettled orders; execution disarmed");
+        Account = candidate.Account;
+        return new(false, Account.Snapshot.Version, ["DAILY_BASELINE_REQUIRED"]);
+    }
+
+    private static DateOnly BangkokDate(DateTimeOffset time) => DateOnly.FromDateTime(time.ToOffset(TimeSpan.FromHours(7)).DateTime);
 
     private static bool ValidEvidence(LiveBrokerEvidence? evidence, DateTimeOffset now)
     {

@@ -52,6 +52,17 @@ public sealed class LiveExecutionClient : ILiveCompanyClient
             coordinatorToken.Length is < 32 or > 256 || coordinatorToken.Any(char.IsControl)) throw Unavailable();
     }
 
+    public async Task SaveMeetingAsync(DailyMeetingAttempt attempt, CancellationToken cancellationToken)
+    {
+        EnsureBinding(boundAccount);
+        LiveMeetingReports.Validate(attempt, boundAccount, DateTimeOffset.UtcNow);
+        using var request = new HttpRequestMessage(HttpMethod.Post, "https://localhost:7443/internal/live/meetings");
+        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", coordinatorToken);
+        request.Content = JsonContent.Create(attempt, options: Json);
+        using var response = await transport.SendAsync(request, cancellationToken);
+        if (response.StatusCode != HttpStatusCode.OK) throw Unavailable();
+    }
+
     private async Task<T> Send<T>(HttpMethod method, string path, LiveIntent? intent, CancellationToken cancellationToken)
     {
         try

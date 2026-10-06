@@ -1,10 +1,16 @@
-# Starts the protected wallet viewer. No execution/store/mandate/order service is registered.
+# Starts the protected app. Live/AI stay opt-in and require verified private configuration.
 param([switch]$Rebuild, [switch]$NoBrowser)
 $ErrorActionPreference = 'Stop'
 $projectRoot = Split-Path -Parent $PSScriptRoot
 $runtimeRoot = Join-Path $projectRoot '.runtime'
 $tlsRuntime = Join-Path $runtimeRoot 'owner-tls'
 $composeFile = Join-Path $projectRoot 'docker-compose.owner-readonly.yml'
+$liveEnabled = $false
+if (Test-Path -LiteralPath (Join-Path $tlsRuntime 'appsettings.Production.json')) {
+    $launchSettings = Get-Content -LiteralPath (Join-Path $tlsRuntime 'appsettings.Production.json') -Raw | ConvertFrom-Json
+    $liveEnabled = $launchSettings.LiveExecution.Enabled -eq $true
+    $launchSettings = $null
+}
 
 & docker info --format '{{.ServerVersion}}'
 if ($LASTEXITCODE -ne 0) { throw 'Docker is unavailable. Open Docker Desktop, then open Quantara again.' }
@@ -13,7 +19,7 @@ $ownedHostLabels = if ($LASTEXITCODE -eq 0) { $ownedLabelsJson | ConvertFrom-Jso
 $hostRunning = & docker inspect --format '{{.State.Running}}' quantara-owner-readonly-owner-1 2>$null
 $ownedHostRunning = $LASTEXITCODE -eq 0 -and $hostRunning.Trim() -eq 'true' -and
     $ownedHostLabels.'com.docker.compose.project' -eq 'quantara-owner-readonly' -and $ownedHostLabels.'com.docker.compose.service' -eq 'owner'
-if ($ownedHostRunning -and -not $Rebuild) {
+if ($ownedHostRunning -and -not $Rebuild -and -not $liveEnabled) {
     try { $alreadyReady = (Invoke-WebRequest 'https://localhost:3000/' -UseBasicParsing -TimeoutSec 3).StatusCode -eq 200 }
     catch { $alreadyReady = $false }
     if ($alreadyReady) {
@@ -53,8 +59,35 @@ if ($Rebuild -or $LASTEXITCODE -ne 0) {
 }
 & docker compose --env-file NUL -p quantara-owner-readonly -f $composeFile up -d owner-web
 if ($LASTEXITCODE -ne 0) { throw 'Public frontend startup failed.' }
+if ($liveEnabled) {
+    if (-not (Test-Path -LiteralPath (Join-Path $runtimeRoot 'live/bitkub-verification.json')) -or
+        -not (Test-Path -LiteralPath (Join-Path $runtimeRoot 'live-db/database.env'))) {
+        throw 'Verified broker profile and private Live database configuration are required.'
+    }
+    & docker compose --env-file NUL -p quantara-owner-readonly -f $composeFile --profile live-execution up -d --wait ledger
+    if ($LASTEXITCODE -ne 0) { throw 'Private Live ledger is not healthy.' }
+}
 & docker compose --env-file NUL -p quantara-owner-readonly -f $composeFile up -d owner
 if ($LASTEXITCODE -ne 0) { throw 'Read-only owner service startup failed.' }
+if ($liveEnabled -and (Test-Path -LiteralPath (Join-Path $runtimeRoot 'live-company/advisory.json'))) {
+    $companySettings = Get-Content -LiteralPath (Join-Path $runtimeRoot 'live-company/advisory.json') -Raw | ConvertFrom-Json
+    $companyEnabled = $companySettings.LiveCompany.Enabled -eq $true
+    $companySettings = $null
+    if ($companyEnabled) {
+        $codexAuthRoot = if ($env:CODEX_HOME) { $env:CODEX_HOME } else { Join-Path ([Environment]::GetFolderPath('UserProfile')) '.codex' }
+        $companyAuthFile = Join-Path $codexAuthRoot 'auth.json'
+        if (-not (Test-Path -LiteralPath $companyAuthFile -PathType Leaf)) { throw 'Codex sign-in is missing. No AI meeting was started.' }
+        $previousCompanyAuthFile = $env:QUANTARA_CODEX_AUTH_FILE
+        $env:QUANTARA_CODEX_AUTH_FILE = $companyAuthFile
+        try {
+            & docker compose --env-file NUL -p quantara-owner-readonly -f $composeFile --profile live-company up -d company
+            if ($LASTEXITCODE -ne 0) { throw 'Isolated Live company startup failed.' }
+        } finally {
+            if ($previousCompanyAuthFile) { $env:QUANTARA_CODEX_AUTH_FILE = $previousCompanyAuthFile }
+            else { Remove-Item Env:\QUANTARA_CODEX_AUTH_FILE }
+        }
+    }
+}
 $frontendDeadline = (Get-Date).AddSeconds(45)
 $frontendReady = $false
 do {

@@ -1,0 +1,99 @@
+"use client";
+import { useEffect, useRef, useState } from "react";
+import Link from "next/link";
+import { requestJson } from "./requestJson";
+import { executorOrigin, fullSpotMandate, ownerMutation, ownerOrigin, readOwnerSetup, sameOwnerConsent } from "./ownerSetupClient";
+import type { OwnerSetup } from "./ownerSetupClient";
+const cash = (n: number) => new Intl.NumberFormat("th-TH", { style: "currency", currency: "THB" }).format(n);
+export function LiveOwnerSetup({ onChanged }: { onChanged?: () => void }) {
+  const [setup, setSetup] = useState<OwnerSetup>();
+  const [loading, setLoading] = useState(true);
+  const [busy, setBusy] = useState(false);
+  const [fullCapital, setFullCapital] = useState(false);
+  const [confirmLive, setConfirmLive] = useState(false);
+  const [notice, setNotice] = useState("");
+  const [error, setError] = useState("");
+  const inFlight = useRef(false);
+  const abort = useRef<AbortController | null>(null);
+  const consent = useRef<OwnerSetup | undefined>(undefined);
+  async function load(signal?: AbortSignal) {
+    if (window.location.origin !== ownerOrigin) throw new Error("เปิดแอพที่ https://localhost:3000 เพื่อควบคุมบัญชี");
+    const result = await requestJson(`${executorOrigin}/live/setup`, { credentials: "include", signal });
+    if (result.status === 401) throw new Error("ยืนยันเจ้าของที่หน้าบัญชีก่อนตั้งค่าการเทรด");
+    const next = result.status === 200 ? readOwnerSetup(result.data) : undefined;
+    if (!next) throw new Error("ยังตรวจข้อมูลตั้งค่าไม่ได้ ตรวจการเชื่อมต่อแล้วลองอ่านสถานะอีกครั้ง");
+    if (!signal?.aborted) {
+      if (consent.current && !sameOwnerConsent(consent.current, next)) { setFullCapital(false); setConfirmLive(false); }
+      consent.current = next; setSetup(next);
+    }
+    return next;
+  }
+  useEffect(() => {
+    const controller = new AbortController(); abort.current = controller;
+    void load(controller.signal).catch(e => { if (!controller.signal.aborted) setError(e.message); }).finally(() => { if (!controller.signal.aborted) setLoading(false); });
+    return () => { controller.abort(); abort.current?.abort(); };
+  }, []);
+  async function act(path: string) {
+    if (inFlight.current || !setup?.canControl) return;
+    inFlight.current = true; setBusy(true); setError(""); setNotice("");
+    const controller = new AbortController(); abort.current?.abort(); abort.current = controller;
+    try {
+      const fresh = await load(controller.signal);
+      if (!fresh.canControl || !sameOwnerConsent(setup, fresh)) {
+        setFullCapital(false); setConfirmLive(false); throw new Error("สิทธิ์หรือวงเงินเปลี่ยน ตรวจข้อมูลใหม่ก่อนยืนยัน");
+      }
+      const body = path === "/live/provision" || path === "/live/mandate" ? fullSpotMandate(fresh) : path === "/live/arm" ?
+        { accountId: fresh.accountId, brokerAccountReference: fresh.brokerAccountReference, mandateVersion: fresh.mandateVersion,
+          snapshotVersion: fresh.snapshotVersion, confirmLive: confirmLive, clearStop: fresh.stopped } :
+        { accountId: fresh.accountId, mandateVersion: fresh.mandateVersion, snapshotVersion: fresh.snapshotVersion };
+      if (!body || path === "/live/arm" && (!confirmLive || !fresh.reconciled || fresh.needsDailyBaseline)) throw new Error("ต้องตรวจยอดและยืนยันการใช้เงินจริงก่อน");
+      const result = await ownerMutation(window.location.origin, path, body, fetch, controller.signal);
+      setFullCapital(false); setConfirmLive(false);
+      if (result.status < 200 || result.status >= 300) {
+        setError(result.status === 403 ? "สิทธิ์ควบคุมหมดอายุ ยืนยันสิทธิ์จากตัวเปิดแอพใหม่ได้ โดยยังดูบัญชีต่อได้" :
+          result.status === 409 ? "เงื่อนไขบัญชีเปลี่ยนหรือยอดยังไม่ครบ ระบบไม่เปิดสิทธิ์เพิ่ม ตรวจสถานะด้านล่างก่อน" :
+          "ยังยืนยันผลไม่ได้ กำลังอ่านสถานะใหม่ ไม่มีการส่งคำขอซ้ำอัตโนมัติ");
+      } else setNotice(path === "/live/arm" ? "รับคำขอเปิดสิทธิ์แล้ว ตรวจสถานะการเทรดด้านบน" : "บันทึกขั้นตอนแล้ว การบันทึกวงเงินหรือยอดไม่เปิดการเทรด");
+      await load(controller.signal); onChanged?.();
+    } catch (e) { if (!controller.signal.aborted) setError(e instanceof Error ? e.message : "ยังยืนยันผลไม่ได้ ตรวจสถานะก่อนดำเนินการอีกครั้ง"); }
+    finally { inFlight.current = false; if (!controller.signal.aborted) setBusy(false); }
+  }
+  async function refresh() { if (inFlight.current) return; setLoading(true); setError(""); try { await load(abort.current?.signal); } catch (e) { setError(e instanceof Error ? e.message : "อ่านสถานะไม่ได้"); } finally { setLoading(false); } }
+  const disabled = busy || !setup?.canControl;
+  const expired = !!setup?.mandate?.expiresAt && Date.parse(setup.mandate.expiresAt) <= Date.now();
+  return <section className="owner-setup" aria-labelledby="owner-setup-title">
+    <h2 id="owner-setup-title">เริ่มใช้บัญชี Live</h2>
+    {loading ? <p role="status">กำลังตรวจข้อมูลตั้งค่า…</p> : !setup?.configured ? <>
+      <p>ยังรอยืนยันกติกาคำสั่งและการผูกบัญชี Bitkub ระบบจึงยังปิดการซื้อขาย</p>
+      <p>ดูยอดเงินจริงได้ที่ <Link href="/account">หน้าบัญชี</Link> เมื่อเชื่อมครบ ขั้นตั้งวงเงินจะปรากฏที่นี่</p>
+    </> : <>
+      {!setup.canControl && <p className="owner-setup-alert">สิทธิ์ดูบัญชียังใช้ได้ กรุณายืนยันสิทธิ์ควบคุมจากตัวเปิดแอพก่อนเปิดการเทรด</p>}
+      {!setup.provisioned ? <form onSubmit={e => { e.preventDefault(); if (fullCapital && fullSpotMandate(setup)) void act("/live/provision"); }}>
+        <p>ทุนจากบัญชีที่ตรวจแล้ว <strong>{cash(setup.availableCapital ?? 0)}</strong></p>
+        <p>CEO เลือกเหรียญและขนาดคำสั่งได้ภายในทุนนี้ ซื้อขายเฉพาะ Spot เงินที่ใช้และค่าธรรมเนียมต้องไม่เกินยอดจริง</p>
+        <label className="owner-setup-confirm"><input type="checkbox" checked={fullCapital} onChange={e => setFullCapital(e.target.checked)} disabled={disabled} />
+          <span>อนุญาตใช้ทุนทั้งหมด และรับขีดจำกัดขาดทุนสูงสุดเท่าทุนที่อนุญาต</span></label>
+        <p className="owner-setup-note">วงเงินซื้อขายรวมต่อวันเท่าทุนหนึ่งรอบ ตรวจยอดเมื่อเปลี่ยนวันโดยเก็บยอดสูงสุดสะสมไว้ การบันทึกนี้ยังไม่เปิดการเทรด</p>
+        <button type="submit" disabled={disabled || !fullCapital || !fullSpotMandate(setup)}>{busy ? "กำลังบันทึก…" : "บันทึกวงเงินสำหรับ CEO"}</button>
+        {(setup.availableCapital ?? 0) <= 0 && <p>ต้องมี THB ในบัญชีที่ตรวจแล้วก่อนตั้งวงเงินจริง</p>}
+      </form> : <>
+        <dl className="money-breakdown"><div><dt>ทุนที่อนุญาต</dt><dd>{cash(setup.mandate!.capitalAllocation)}</dd></div><div><dt>สูงสุดต่อคำสั่ง</dt><dd>{cash(setup.mandate!.maximumOrderNotional)}</dd></div><div><dt>ขาดทุนสูงสุดต่อวัน</dt><dd>{cash(setup.mandate!.maximumDailyLoss)}</dd></div></dl>
+        <div className="owner-setup-actions">
+          {!setup.baselineEstablished && <button disabled={disabled} onClick={() => void act("/live/baseline")}>ตรวจและบันทึกยอดเริ่มต้น</button>}
+          {setup.needsDailyBaseline && <button disabled={disabled || setup.armed} onClick={() => void act("/live/day-baseline")}>ตรวจยอดเริ่มวันใหม่</button>}
+          <button disabled={disabled} onClick={() => void act("/live/reconcile")}>ตรวจยอดและคำสั่งกับ Bitkub</button>
+        </div>
+        {!setup.armed && <>
+          <label className="owner-setup-confirm"><input type="checkbox" checked={confirmLive} onChange={e => setConfirmLive(e.target.checked)} disabled={disabled} />
+            <span>อนุญาตให้ CEO ส่งคำสั่งเงินจริงตามวงเงินที่บันทึก{setup.stopped ? " และยกเลิกคำสั่งหยุดเดิม" : ""}</span></label>
+          <button disabled={disabled || !confirmLive || !setup.reconciled || !setup.baselineEstablished || setup.needsDailyBaseline || expired}
+            onClick={() => void act("/live/arm")}>{busy ? "กำลังตรวจและเปิดสิทธิ์…" : "เปิดสิทธิ์ซื้อขายเงินจริง"}</button>
+          {expired && <p>คำอนุมัติวงเงินหมดอายุ ต้องบันทึกวงเงินใหม่ก่อนเปิดสิทธิ์</p>}
+        </>}
+      </>}
+    </>}
+    {error && <p className="owner-setup-alert" role="alert">{error}</p>}
+    {notice && <p role="status">{notice}</p>}
+    <button type="button" disabled={busy || loading} onClick={() => void refresh()}>อ่านสถานะตั้งค่าอีกครั้ง</button>
+  </section>;
+}

@@ -4,6 +4,8 @@ import type { ReactNode } from "react";
 import Link from "next/link";
 import { CompanyChat } from "./CompanyChat";
 import { LiveOffice } from "./LiveOffice";
+import { LiveOwnerSetup } from "./LiveOwnerSetup";
+import { LiveTeamReports } from "./LiveTeamReports";
 import { requestJson } from "./requestJson";
 import { readLiveAccount, orderLabels } from "./liveAccount";
 import type { LiveAccount } from "./liveAccount";
@@ -21,6 +23,7 @@ const labels: Record<Status["state"], string> = {
 };
 const reasons: Record<string, string> = {
   EXECUTOR_NOT_CONFIGURED: "บัญชีสำหรับเทรดและระบบส่งคำสั่งยังไม่พร้อม",
+  ACCOUNT_NOT_PROVISIONED: "บันทึกวงเงินสำหรับ CEO และตรวจยอดเริ่มต้นที่ขั้นตั้งบัญชีด้านล่าง",
   ISOLATION_REQUIRED: "ยังไม่ผ่านการแยกสิทธิ์ระบบเงินจริงออกจาก AI",
   INVALID_MANDATE: "ต้องกำหนดวงเงินและข้อจำกัดให้ครบ",
   MANDATE_EXPIRED: "คำอนุมัติวงเงินหมดอายุ", ACCOUNT_BINDING_CHANGED: "การผูกบัญชีเปลี่ยน ต้องตรวจใหม่",
@@ -74,7 +77,7 @@ export function LiveReadinessView({ state, code, busy, rememberBrowser = true, a
   return <section className="live-readiness" aria-labelledby="live-heading">
     <h2 id="live-heading">{accountOnly ? "เชื่อมบัญชี Bitkub" : "สถานะการเทรด"}</h2>
     <p className="live-state" role="status">{title}</p>
-    <p>{accountOnly ? "ยืนยันเจ้าของเพื่ออ่านยอดจาก Bitkub ในเบราว์เซอร์นี้" : state.kind === "connected" && state.status.state === "ARMED" ? "ระบบรายงานสิทธิ์ส่งคำสั่งแล้ว ดูผลที่ยืนยันได้จากรายการคำสั่ง" : "ยังเปิดซื้อขายเงินจริงไม่ได้ ขั้นนี้เชื่อม Bitkub เพื่อดูยอดหลังยืนยันเจ้าของ"}</p>
+    <p>{accountOnly ? "ยืนยันเจ้าของเพื่ออ่านยอดจาก Bitkub ในเบราว์เซอร์นี้" : state.kind === "connected" && state.status.state === "ARMED" ? "ระบบรายงานสิทธิ์ส่งคำสั่งแล้ว ดูผลที่ยืนยันได้จากรายการคำสั่ง" : state.kind === "connected" && state.status.state !== "DISABLED" ? "ตรวจยอดและวงเงินด้านล่างก่อนเปิดสิทธิ์ CEO การอ่านบัญชีหรือบันทึกวงเงินยังไม่เริ่มซื้อขาย" : "ยังเปิดซื้อขายเงินจริงไม่ได้ ขั้นนี้เชื่อม Bitkub เพื่อดูยอดหลังยืนยันเจ้าของ"}</p>
     {state.kind === "https-required" && <p>Live ต้องใช้ https://localhost:3000 และบริการเจ้าของบัญชีที่เชื่อถือได้ ยังไม่ต้องป้อนข้อมูลบัญชีหรือโอนเงิน</p>}
     {state.kind === "unavailable" && <p>ยังยืนยันสถานะและยอดเงินไม่ได้ ตรวจบริการเจ้าของบัญชีและใบรับรอง HTTPS แล้วลองตรวจอีกครั้ง อย่าถือว่าการขาดการเชื่อมต่อคือคำสั่งหยุดสำเร็จ</p>}
     {state.kind === "pair-required" && <>
@@ -235,8 +238,9 @@ export function LiveAccountPanel() {
 }
 
 export function LiveTradingPanel() {
-  const { state, account } = useLiveAccount();
+  const { state, account, refresh } = useLiveAccount();
   return <div className="trading-workspace"><OwnerAccess />
+    {state.kind === "connected" && <LiveOwnerSetup onChanged={refresh} />}
     {state.kind === "connected" && <section className="trading-orders"><h2>รายการคำสั่ง</h2>
       {account ? <LiveOrdersView account={account} /> : <p>ยังไม่มีบัญชีสำหรับส่งคำสั่งที่ตรวจยอดแล้ว จึงยังแสดงรายการคำสั่ง Live ไม่ได้</p>}
     </section>}
@@ -252,7 +256,7 @@ export function LiveOfficeWorkspace() {
   return <div className="office-workspace"><LiveOffice />
     <div className="office-overview">
       <section><h2>บริษัทตอนนี้</h2><p className="office-state">{caption}</p>
-        <p>สถานะงานของทีมต้องมาจากรายงาน Live ที่บันทึกไว้ ขณะนี้ช่องรายงานทีมยังไม่เชื่อมกับแอป</p>
+        <p>CEO ประชุมจากยอดที่ตรวจแล้วหลังเจ้าของเปิดสิทธิ์ อ่านข้อสรุปและเหตุผลย้อนหลังได้ในห้องทีม</p>
         <Link href="/trading" className="workspace-link">ดูสถานะการเทรด<Arrow /></Link>
       </section>
       <section><h2>บัญชี Bitkub</h2><p className="office-balance">{cash === undefined ? "ยังยืนยันยอดไม่ได้" : new Intl.NumberFormat("th-TH", { style: "currency", currency: "THB" }).format(cash)}</p>
@@ -273,9 +277,8 @@ function LiveTeamSummary() {
       {state.kind === "connected" && state.status.reasons.length > 0 && <><h4>เหตุผลจากระบบ</h4><ul>{state.status.reasons.map((r, i) => <li key={`${r}-${i}`}>{reasons[r] ?? "มีเงื่อนไขที่ต้องตรวจจากบริการบัญชี"}</li>)}</ul></>}
       {observation && <p className="data-freshness">อ่านบัญชีเมื่อ {new Date(observation).toLocaleTimeString("th-TH", { timeZone: "Asia/Bangkok" })}</p>}
     </section>
-    <section className="team-report-state"><h3>รายงานทีม</h3><p>ยังไม่ได้เชื่อมรายงานทีม Live จึงไม่มีบทสนทนาหรือผลซื้อขายที่ยืนยันได้ในห้องนี้</p>
-      <details><summary>ที่มาของข้อสรุปนี้</summary><p>แสดงสถานะจากบริการบัญชี และยอดที่อ่านจาก Bitkub เท่านั้น ข้อสรุปนี้ไม่ใช่คำแนะนำจาก AI หรือหลักฐานว่าเกิดการซื้อขายแล้ว</p></details>
-    </section>
+    <LiveTeamReports enabled={state.kind === "connected" && state.status.state !== "DISABLED"} />
+    {state.kind === "connected" && state.status.state === "DISABLED" && <section className="team-report-state"><h3>รายงานประชุม Live</h3><p>ระบบประชุมเริ่มเมื่อบัญชีผ่านการตรวจและเจ้าของเปิดสิทธิ์แล้ว ขณะนี้ยังไม่มีรายงานประชุม Live ที่ยืนยันได้</p></section>}
   </div>;
 }
 

@@ -25,6 +25,7 @@ public sealed partial class LiveAccountTransaction(LiveAccountState initial, Fun
             return existing;
         }
         var decision = LiveRiskPolicy.Evaluate(intent, Account.Snapshot, Account.Mandate, Account.Gate, now);
+        if (!CurrentDailyBaseline(now)) decision = new(false, [.. decision.Violations, "DAILY_BASELINE_REQUIRED"]);
         if (Account.Orders.Any(o => o.State is LiveOrderState.Dispatching or LiveOrderState.Unknown))
             decision = new(false, [.. decision.Violations, "UNKNOWN_ORDER_OUTCOME"]);
         var hash = Convert.ToHexStringLower(SHA256.HashData(JsonSerializer.SerializeToUtf8Bytes(intent)));
@@ -88,11 +89,16 @@ public sealed partial class LiveAccountTransaction(LiveAccountState initial, Fun
         var view = ReservationSnapshot(Account.Snapshot with { Version = order.Intent.SnapshotVersion },
             Account.Orders.Where(o => o.Intent.Id != order.Intent.Id).ToArray());
         var violations = LiveRiskPolicy.Evaluate(order.Intent, view, Account.Mandate, Account.Gate, now).Violations.ToList();
+        if (!CurrentDailyBaseline(now)) violations.Add("DAILY_BASELINE_REQUIRED");
         if (Account.Snapshot.Version != expectedVersion) violations.Add("STALE_APPROVAL");
         if (Account.Orders.Any(o => o.Intent.Id != order.Intent.Id && o.State is LiveOrderState.Dispatching or LiveOrderState.Unknown))
             violations.Add("UNKNOWN_ORDER_OUTCOME");
         return violations;
     }
+
+    private bool CurrentDailyBaseline(DateTimeOffset now) => Account.PerformanceBaseline is { } baseline &&
+        baseline.BangkokDate == DateOnly.FromDateTime(now.ToOffset(TimeSpan.FromHours(7)).DateTime) &&
+        baseline.DayStartEquity > 0 && baseline.HighWaterEquity >= baseline.DayStartEquity;
 
     public void RejectBeforeDispatch(Guid id, string code, DateTimeOffset now)
     {

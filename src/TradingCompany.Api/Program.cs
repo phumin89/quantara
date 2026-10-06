@@ -5,6 +5,12 @@ using TradingCompany.Domain;
 using TradingCompany.Infrastructure;
 using TradingCompany.AgentRuntime;
 
+if (args.Contains("--live-company", StringComparer.Ordinal))
+{
+    await LiveCompanyHost.RunAsync(args.Where(a => a != "--live-company").ToArray());
+    return;
+}
+
 var builder = WebApplication.CreateBuilder(args);
 var webOrigin = builder.Configuration["WebOrigin"] ?? "http://localhost:3000";
 var webOrigins = webOrigin is "http://localhost:3000" or "http://127.0.0.1:3000"

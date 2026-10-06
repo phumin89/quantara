@@ -12,9 +12,13 @@ public sealed class PostgresFixture : IAsyncLifetime
 
     public async Task InitializeAsync()
     {
-        await Docker("run", "-d", "--name", container, "-p", "127.0.0.1::5432", "-e", "POSTGRES_PASSWORD", "-e", "POSTGRES_DB=quantara_live_test", "postgres:16-alpine");
-        var port = (await Docker("port", container, "5432/tcp")).Trim().Split(':')[^1];
-        ConnectionString = new NpgsqlConnectionStringBuilder { Host = "127.0.0.1", Port = int.Parse(port), Database = "quantara_live_test", Username = "postgres", Password = password, Pooling = false, Timeout = 2 }.ToString();
+        var network = Environment.GetEnvironmentVariable("QUANTARA_TEST_DOCKER_NETWORK");
+        if (!string.IsNullOrWhiteSpace(network) && !System.Text.RegularExpressions.Regex.IsMatch(network, "^quantara-live-tests-[a-f0-9]{32}$"))
+            throw new InvalidDataException("Dedicated test network name required.");
+        var binding = string.IsNullOrWhiteSpace(network) ? new[] { "-p", "127.0.0.1::5432" } : ["--network", network];
+        await Docker(["run", "-d", "--name", container, .. binding, "-e", "POSTGRES_PASSWORD", "-e", "POSTGRES_DB=quantara_live_test", "postgres:16-alpine"]);
+        var port = string.IsNullOrWhiteSpace(network) ? (await Docker("port", container, "5432/tcp")).Trim().Split(':')[^1] : "5432";
+        ConnectionString = new NpgsqlConnectionStringBuilder { Host = string.IsNullOrWhiteSpace(network) ? "127.0.0.1" : container, Port = int.Parse(port), Database = "quantara_live_test", Username = "postgres", Password = password, Pooling = false, Timeout = 2 }.ToString();
         for (var attempt = 0; attempt < 30; attempt++)
         {
             try { await using var connection = new NpgsqlConnection(ConnectionString); await connection.OpenAsync(); return; }
