@@ -108,6 +108,13 @@ public sealed class LiveCompanyCoordinator(ILiveCompanyClient client, IHistorica
                     (current.Snapshot.CashBalance - current.Snapshot.CashReserved) / (1 + current.Limits.FeeReserveRate)) / price
                     : proposal.Action == PortfolioAction.Sell ? held?.Quantity ?? 0
                     : (held?.Quantity ?? 0) - proposal.TargetWeight * equity / price;
+                var fees = 1 + current.Limits.FeeReserveRate;
+                var turnoverLeft = (current.Limits.MaximumDailyTurnover ?? current.Limits.CapitalAllocation) -
+                    current.Snapshot.DailyTurnover - (current.Snapshot.PendingBuyNotional + current.Snapshot.PendingSellNotional) * fees;
+                var orderCeiling = Math.Max(0, Math.Min(current.Limits.MaximumOrderNotional ?? current.Limits.CapitalAllocation,
+                    turnoverLeft)) / fees;
+                quantity = Math.Min(quantity, orderCeiling / price);
+                if (side == OrderSide.Sell) quantity = Math.Min(quantity, (held?.Quantity ?? 0) - (held?.ReservedQuantity ?? 0));
                 quantity = decimal.Floor(quantity / sizing.BaseStep) * sizing.BaseStep;
                 if (quantity <= 0 || (side == OrderSide.Sell && (held is null || quantity > held.Quantity - held.ReservedQuantity))) continue;
                 var budget = quantity * price;
@@ -166,6 +173,7 @@ public sealed class LiveCompanyCoordinator(ILiveCompanyClient client, IHistorica
             s.AccountId != accountId || s.Version <= 0 || !s.Reconciled || s.ObservedAt > now || now - s.ObservedAt > TimeSpan.FromSeconds(30) ||
             s.Equity <= 0 || s.CashBalance < 0 || s.CashReserved < 0 || s.CashReserved > s.CashBalance ||
             m.CapitalAllocation <= 0 || m.MaximumPositionWeight is <= 0 or > 1m || m.MaximumOpenPositions <= 0 ||
+            m.MaximumOrderNotional is <= 0 || m.MaximumDailyTurnover is <= 0 ||
             m.FeeReserveRate is <= 0 or > .1m || m.MaximumSlippage is < 0 or > .02m ||
             m.AllowedSymbols is not { Count: > 0 } || m.AllowedSymbols.Any(symbol => symbol is not ("BTC-THB" or "ETH-THB" or "SOL-THB")) ||
             m.AllowedSymbols.Distinct().Count() != m.AllowedSymbols.Count || s.Positions is null || s.Quotes is null ||

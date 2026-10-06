@@ -33,7 +33,7 @@ public sealed record BrokerOrderEvidence(string Symbol, OrderSide Side, string O
     bool PartiallyFilled, decimal RawRemaining, IReadOnlyList<BrokerOrderFillEvidence> History);
 
 /// <summary>Private broker transport. Execution requires the verified, owner-gated Live host.</summary>
-public sealed class BitkubLiveBroker : IDisposable
+public sealed partial class BitkubLiveBroker : IDisposable
 {
     // The official permission table requires Trade for wstoken. Issue and discard a
     // token; this never creates/cancels an order or returns authentication material.
@@ -440,14 +440,14 @@ public sealed class BitkubLiveBroker : IDisposable
         { throw Unavailable(); }
     }
 
-    private static JsonElement Required(JsonElement item, string name)
+    internal static JsonElement Required(JsonElement item, string name)
     {
         var properties = item.EnumerateObject().Where(p => p.NameEquals(name)).ToArray();
         if (properties.Length != 1) throw Unavailable();
         return properties[0].Value;
     }
 
-    private static decimal Amount(JsonElement item, string name)
+    internal static decimal Amount(JsonElement item, string name)
     {
         var value = Required(item, name).GetString();
         if (!decimal.TryParse(value, NumberStyles.AllowDecimalPoint, CultureInfo.InvariantCulture, out var amount) || amount < 0 ||
@@ -456,7 +456,7 @@ public sealed class BitkubLiveBroker : IDisposable
         return amount;
     }
 
-    private static string Identifier(JsonElement item, string name)
+    internal static string Identifier(JsonElement item, string name)
     {
         var value = Required(item, name).GetString();
         if (!ValidIdentifier(value)) throw Unavailable();

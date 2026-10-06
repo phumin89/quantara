@@ -1,8 +1,10 @@
 # Capture private broker observations, or verify three before/buy/sell captures.
 # No broker placement, cancellation, activation, model or AI sign-in is available here.
-param([string[]]$Captures = @())
+param([string[]]$Captures = @(), [switch]$OrderReceipts)
 $ErrorActionPreference = 'Stop'
-if ($Captures.Count -notin @(0, 3)) { throw 'Pass no captures to read, or exactly three captures in before/buy/sell order.' }
+if (($OrderReceipts -and $Captures.Count -ne 1) -or (!$OrderReceipts -and $Captures.Count -notin @(0, 3))) {
+    throw 'OrderReceipts requires one fresh capture; legacy proof requires three captures.'
+}
 $proofRoot = Split-Path -Parent $PSScriptRoot
 $proofRuntime = Join-Path $proofRoot '.runtime'
 $proofOutput = Join-Path $proofRuntime 'bitkub-preflight-linux'
@@ -17,8 +19,8 @@ if ($LASTEXITCODE -ne 0) { throw 'Broker reader build failed. Inspect work/live-
 $readerMounts = @('--mount', "type=bind,source=$proofRoot/.env,target=/check/.env,readonly",
     '--mount', "type=bind,source=$proofOutput,target=/app")
 $readerArguments = @('--capture-evidence-env')
-if ($Captures.Count -eq 3) {
-    $readerArguments = @('--verify-evidence-env')
+if ($Captures.Count -gt 0) {
+    $readerArguments = @(if ($OrderReceipts) { '--verify-order-receipts-env' } else { '--verify-evidence-env' })
     $index = 0
     foreach ($capture in $Captures) {
         $captureFullPath = (Resolve-Path -LiteralPath $capture).Path

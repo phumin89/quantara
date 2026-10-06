@@ -3,7 +3,7 @@ using TradingCompany.Domain;
 
 namespace TradingCompany.Infrastructure;
 
-public enum BitkubBuyHistoryAmount { QuoteBeforeCashFee, QuoteIncludingCashFee }
+public enum BitkubBuyHistoryAmount { QuoteBeforeCashFee, QuoteIncludingCashFee, AuthenticatedOrderReceipts }
 public enum BitkubBuyBaseRounding { Exact, FloorToBaseStep }
 public sealed record BitkubPairExecutionRules(string Symbol, decimal BuyQuoteStep, decimal SellBaseStep,
     decimal PriceStep, decimal MinimumQuoteSize, int RawQuantityScale, decimal RawQuantityStep)
@@ -26,9 +26,10 @@ public sealed class BitkubExecutionAdapter : ILiveBroker
     private readonly TimeProvider clock;
     private readonly BitkubVerifiedExecutionRules? rules;
     private readonly string? credentialsPath;
+    private readonly Func<bool>? receiptStreamReady;
 
     public BitkubExecutionAdapter(BitkubLiveBroker transport, ILiveTradingStore store, LiveAccountId accountId,
-        TimeProvider clock, BitkubVerifiedExecutionRules? rules, string? credentialsPath = null)
+        TimeProvider clock, BitkubVerifiedExecutionRules? rules, string? credentialsPath = null, Func<bool>? receiptStreamReady = null)
     {
         this.transport = transport;
         this.store = store;
@@ -36,6 +37,7 @@ public sealed class BitkubExecutionAdapter : ILiveBroker
         this.clock = clock;
         this.rules = rules is null ? null : ValidateRules(rules);
         this.credentialsPath = credentialsPath;
+        this.receiptStreamReady = receiptStreamReady;
     }
 
     internal BitkubVerifiedExecutionRules VerifiedRules()
@@ -103,6 +105,7 @@ public sealed class BitkubExecutionAdapter : ILiveBroker
 
     public async Task<PreparedLiveOrder> PrepareAsync(LiveIntent intent, CancellationToken cancellationToken)
     {
+        RequireReceiptStream();
         var amount = WireAmount(intent);
         _ = await BoundAccount(cancellationToken);
         var expected = VerifiedRules().Pairs.Single(p => p.Symbol == intent.Symbol);
@@ -120,6 +123,7 @@ public sealed class BitkubExecutionAdapter : ILiveBroker
 
     public async Task<BrokerSubmission> PlaceAsync(PreparedLiveOrder request, CancellationToken cancellationToken)
     {
+        RequireReceiptStream();
         var amount = WireAmount(request.Intent);
         var account = await BoundAccount(cancellationToken);
         var now = clock.GetUtcNow();
@@ -136,6 +140,12 @@ public sealed class BitkubExecutionAdapter : ILiveBroker
         return request.Intent.Side == OrderSide.Buy
             ? await transport.SendBudgetLimitRequestAsync(request, amount, cancellationToken)
             : await transport.SendLimitRequestAsync(request, cancellationToken);
+    }
+
+    private void RequireReceiptStream()
+    {
+        if (VerifiedRules().BuyHistoryAmount == BitkubBuyHistoryAmount.AuthenticatedOrderReceipts && receiptStreamReady?.Invoke() != true)
+            throw new InvalidDataException("BITKUB_ORDER_RECEIPT_STREAM_REQUIRED");
     }
 
     public async Task<BrokerCancellation> CancelAsync(string symbol, string orderId, OrderSide side, CancellationToken cancellationToken)

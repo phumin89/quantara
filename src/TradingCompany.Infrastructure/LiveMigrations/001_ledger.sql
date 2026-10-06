@@ -38,6 +38,29 @@ ON live.intent_evidence FOR EACH STATEMENT EXECUTE FUNCTION live.reject_history_
 CREATE OR REPLACE TRIGGER immutable_fill_evidence BEFORE UPDATE OR DELETE OR TRUNCATE
 ON live.fill_evidence FOR EACH STATEMENT EXECUTE FUNCTION live.reject_history_mutation();
 
+-- Observer starts before onboarding and never mutates the account ledger.
+CREATE TABLE IF NOT EXISTS live.bitkub_order_receipts (
+    account_id uuid NOT NULL,
+    credential_fingerprint text NOT NULL,
+    order_id text NOT NULL,
+    updated_at bigint NOT NULL CHECK (updated_at > 0),
+    client_id text NOT NULL,
+    document jsonb NOT NULL,
+    PRIMARY KEY (account_id, credential_fingerprint, order_id, updated_at)
+);
+CREATE OR REPLACE TRIGGER immutable_bitkub_receipts BEFORE UPDATE OR DELETE OR TRUNCATE
+ON live.bitkub_order_receipts FOR EACH STATEMENT EXECUTE FUNCTION live.reject_history_mutation();
+CREATE TABLE IF NOT EXISTS live.bitkub_receipt_conflicts (
+    account_id uuid NOT NULL,
+    credential_fingerprint text NOT NULL,
+    order_id text NOT NULL,
+    updated_at bigint NOT NULL,
+    document jsonb NOT NULL,
+    PRIMARY KEY (account_id, credential_fingerprint, order_id, updated_at)
+);
+CREATE OR REPLACE TRIGGER immutable_bitkub_receipt_conflicts BEFORE UPDATE OR DELETE OR TRUNCATE
+ON live.bitkub_receipt_conflicts FOR EACH STATEMENT EXECUTE FUNCTION live.reject_history_mutation();
+
 CREATE OR REPLACE FUNCTION live.record_account_evidence() RETURNS trigger LANGUAGE plpgsql AS $$
 DECLARE
     item jsonb;
@@ -49,6 +72,10 @@ BEGIN
     IF TG_OP = 'UPDATE' THEN
         IF NEW.id <> OLD.id OR NEW.revision <> OLD.revision + 1 THEN
             RAISE EXCEPTION 'Invalid account revision' USING ERRCODE = '23514';
+        END IF;
+        IF NULLIF(OLD.document->'OpeningBalance', 'null'::jsonb) IS DISTINCT FROM
+           NULLIF(NEW.document->'OpeningBalance', 'null'::jsonb) THEN
+            RAISE EXCEPTION 'Opening wallet cannot be rewritten' USING ERRCODE = '23514';
         END IF;
         IF EXISTS (
             SELECT 1 FROM jsonb_array_elements(OLD.document->'Audit') WITH ORDINALITY a(value, ordinal)

@@ -5,7 +5,7 @@ namespace TradingCompany.Infrastructure;
 
 // Produces account-scoped normalized evidence. It never places, cancels or arms.
 public sealed class BitkubReconciliationSource(BitkubLiveBroker transport, BitkubExecutionAdapter execution,
-    LiveAccountId accountId, TimeProvider clock) : ILiveReconciliationSource
+    LiveAccountId accountId, TimeProvider clock, BitkubOrderReceiptJournal? receipts = null) : ILiveReconciliationSource
 {
     public async Task<LiveBrokerEvidence> ReadAsync(LiveAccountId requestedAccount, CancellationToken cancellationToken)
     {
@@ -14,9 +14,14 @@ public sealed class BitkubReconciliationSource(BitkubLiveBroker transport, Bitku
         cancellationToken = deadline.Token;
         if (requestedAccount != accountId) throw Unavailable();
         var rules = execution.VerifiedRules();
+        if (rules.BuyHistoryAmount == BitkubBuyHistoryAmount.AuthenticatedOrderReceipts)
+        {
+            if (receipts is null) throw Unavailable();
+            await receipts.CheckHealthyAsync(cancellationToken);
+        }
         var account = await execution.BoundAccount(cancellationToken, requireExecutionLimits: false);
         var started = clock.GetUtcNow();
-        var epoch = account.FirstActivatedAt ?? account.Snapshot.ObservedAt;
+        var epoch = account.OpeningBalance?.ObservedAt ?? account.FirstActivatedAt ?? account.Snapshot.ObservedAt;
         // The published REST archive boundary is 90 days. Never call a truncated history complete.
         if (epoch > started || started - epoch >= TimeSpan.FromDays(90)) throw Unavailable();
         var expected = account.Orders.Where(o => o.State != LiveOrderState.Rejected).ToArray();
@@ -52,6 +57,12 @@ public sealed class BitkubReconciliationSource(BitkubLiveBroker transport, Bitku
                     info.History.Count != matchingHistory.Length) throw Unavailable();
 
                 var orderFills = new List<BrokerFill>();
+                IReadOnlyList<BrokerFill>? receivedFills = null;
+                if (rules.BuyHistoryAmount == BitkubBuyHistoryAmount.AuthenticatedOrderReceipts && info.History.Count > 0)
+                {
+                    var receipt = receipts is null ? null : await receipts.ReadLatestAsync(brokerId, clientId, cancellationToken);
+                    receivedFills = BitkubOrderReceipts.Normalize(accountId, owned.Intent, info, rules, receipt ?? throw Unavailable());
+                }
                 foreach (var raw in info.History)
                 {
                     var corroborated = matchingHistory.SingleOrDefault(h => h.TransactionId == raw.TransactionId);
@@ -59,7 +70,8 @@ public sealed class BitkubReconciliationSource(BitkubLiveBroker transport, Bitku
                         corroborated.Rate != raw.Rate || corroborated.RawAmount != raw.RawAmount ||
                         corroborated.ReportedFee != raw.ReportedFee || corroborated.FeeCredit != raw.FeeCredit ||
                         corroborated.Timestamp != raw.Timestamp) throw Unavailable();
-                    var fill = Normalize(accountId, owned.Intent, brokerId, raw, rules);
+                    var fill = receivedFills is null ? Normalize(accountId, owned.Intent, brokerId, raw, rules)
+                        : receivedFills.Single(f => f.TransactionId == raw.TransactionId);
                     var previous = account.Fills.SingleOrDefault(f => f.TransactionId == fill.TransactionId);
                     // REST has no correction revision; conflicting history requires investigation.
                     if (previous is not null && previous != fill) throw Unavailable();
@@ -99,6 +111,7 @@ public sealed class BitkubReconciliationSource(BitkubLiveBroker transport, Bitku
     internal static BrokerFill Normalize(LiveAccountId account, LiveIntent intent, string brokerId,
         BrokerOrderFillEvidence raw, BitkubVerifiedExecutionRules rules)
     {
+        if (!Enum.IsDefined(rules.BuyHistoryAmount) || rules.BuyHistoryAmount == BitkubBuyHistoryAmount.AuthenticatedOrderReceipts) throw Unavailable();
         if (raw.RawAmount <= 0 || raw.Rate <= 0 || raw.ReportedFee < 0 || raw.FeeCredit < 0 ||
             raw.FeeCredit > raw.ReportedFee || raw.Timestamp <= 0 || string.IsNullOrWhiteSpace(raw.TransactionId)) throw Unavailable();
         var fee = raw.ReportedFee - raw.FeeCredit;

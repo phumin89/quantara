@@ -35,12 +35,17 @@ public sealed record BrokerFill(LiveAccountId AccountId, string TransactionId, s
     public decimal GrossQuoteAmount => QuoteAmount ?? Quantity * Price;
 }
 public sealed record LiveAuditEvent(DateTimeOffset At, string Kind, Guid? IntentId, string Detail);
+// Authenticated wallet inventory at onboarding, not an application trade or profit.
+// Immutable after account creation; reconciliation must never absorb later deposits.
+public sealed record LiveOpeningBalance(DateTimeOffset ObservedAt, string CredentialFingerprint,
+    string BrokerAccountReference, decimal CashBalance, IReadOnlyList<LiveBrokerPosition> Positions);
 public sealed record LiveAccountState(LiveAccountId AccountId, LiveMandate Mandate, LiveGateState Gate,
     LiveSnapshot Snapshot, IReadOnlyList<LiveOrderRecord> Orders, IReadOnlyList<BrokerFill> Fills, IReadOnlyList<LiveAuditEvent> Audit)
 {
     public LivePerformanceBaseline? PerformanceBaseline { get; init; }
     public DateTimeOffset? FirstActivatedAt { get; init; }
     public string? BrokerAccountReference { get; init; }
+    public LiveOpeningBalance? OpeningBalance { get; init; }
 }
 
 public interface ILiveTradingStore

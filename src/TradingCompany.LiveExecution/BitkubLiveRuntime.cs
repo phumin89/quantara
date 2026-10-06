@@ -47,23 +47,32 @@ public static class BitkubLiveRuntime
         });
         services.AddSingleton(_ => new LiveTradingStore(connection));
         services.AddSingleton<ILiveTradingStore>(sp => sp.GetRequiredService<LiveTradingStore>());
+        var usesReceipts = verification.Rules.BuyHistoryAmount == BitkubBuyHistoryAmount.AuthenticatedOrderReceipts;
+        if (usesReceipts)
+        {
+            services.AddSingleton(_ => new BitkubOrderReceiptJournal(connection, account, verification.CredentialFingerprint));
+            services.AddSingleton<BitkubReceiptObserver>();
+        }
         services.AddSingleton<BitkubExecutionAdapter>(sp => new BitkubExecutionAdapter(
             sp.GetRequiredService<BitkubLiveBroker>(), sp.GetRequiredService<ILiveTradingStore>(), account,
-            sp.GetRequiredService<TimeProvider>(), verification.Rules, credentialsPath));
+            sp.GetRequiredService<TimeProvider>(), verification.Rules, credentialsPath,
+            usesReceipts ? () => sp.GetRequiredService<BitkubReceiptObserver>().Ready : null));
         services.AddSingleton<ILiveBroker>(sp => sp.GetRequiredService<BitkubExecutionAdapter>());
         services.AddSingleton<BitkubReconciliationSource>(sp => new BitkubReconciliationSource(
             sp.GetRequiredService<BitkubLiveBroker>(), sp.GetRequiredService<BitkubExecutionAdapter>(), account,
-            sp.GetRequiredService<TimeProvider>()));
+            sp.GetRequiredService<TimeProvider>(), sp.GetService<BitkubOrderReceiptJournal>()));
         services.AddSingleton<ILiveReconciliationSource>(sp => sp.GetRequiredService<BitkubReconciliationSource>());
         services.AddSingleton<ILiveActivationSource>(sp => new BitkubActivationSource(
             sp.GetRequiredService<BitkubLiveBroker>(), account,
-            verification, credentialsPath, sp.GetRequiredService<TimeProvider>()));
+            verification, credentialsPath, sp.GetRequiredService<TimeProvider>(),
+            usesReceipts ? () => sp.GetRequiredService<BitkubReceiptObserver>().Ready : null));
         services.AddSingleton(sp => new LiveOwnerControls(sp.GetRequiredService<ILiveTradingStore>(),
             sp.GetRequiredService<ILiveActivationSource>(), sp.GetRequiredService<TimeProvider>(), account));
         services.AddSingleton<LiveExecutionService>();
         services.AddSingleton<LiveReconciliation>();
         services.AddSingleton<BitkubAccountProvisioner>();
         services.AddHostedService<LiveSchemaService>();
+        if (usesReceipts) services.AddHostedService(sp => sp.GetRequiredService<BitkubReceiptObserver>());
     }
 
     private static BitkubLiveVerification ReadVerification(string path)
@@ -115,11 +124,14 @@ public static class BitkubLiveRuntime
 }
 
 internal sealed class BitkubActivationSource(BitkubLiveBroker broker, LiveAccountId accountId,
-    BitkubLiveVerification verification, string credentialsPath, TimeProvider clock) : ILiveActivationSource
+    BitkubLiveVerification verification, string credentialsPath, TimeProvider clock,
+    Func<bool>? receiptStreamReady = null) : ILiveActivationSource
 {
     public async Task<LiveActivationEvidence> CheckAsync(LiveAccountState account, CancellationToken cancellationToken)
     {
         var started = clock.GetUtcNow();
+        if (verification.Rules.BuyHistoryAmount == BitkubBuyHistoryAmount.AuthenticatedOrderReceipts && receiptStreamReady?.Invoke() != true)
+            throw new InvalidDataException("BITKUB_ORDER_RECEIPT_STREAM_REQUIRED");
         using var deadline = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         deadline.CancelAfter(TimeSpan.FromSeconds(25));
         cancellationToken = deadline.Token;
@@ -152,8 +164,17 @@ internal sealed class BitkubActivationSource(BitkubLiveBroker broker, LiveAccoun
                 !opens.Any(o => o.OrderId == l.BrokerId && o.ClientId == l.Intent.Id.ToString("N"))))
             throw new InvalidDataException("Activation unavailable.");
         var empty = wallet.All(b => b.Currency == "THB" || b.Total == 0) && cash.Reserved == 0 && opens.Count == 0;
+        var openingVerified = account.OpeningBalance is { } opening &&
+            opening.ObservedAt <= started && opening.CredentialFingerprint == fingerprint &&
+            opening.BrokerAccountReference == verification.BrokerAccountReference && opening.CashBalance == cash.Total &&
+            cash.Reserved == 0 && opens.Count == 0 && opening.Positions is not null &&
+            opening.Positions.Select(p => p.Symbol).Distinct(StringComparer.Ordinal).Count() == opening.Positions.Count &&
+            opening.Positions.Count == wallet.Count(b => b.Currency != "THB" && b.Total != 0) &&
+            opening.Positions.All(p => p.Quantity > 0 && p.ReservedQuantity == 0 &&
+                verification.Rules.Pairs.Any(r => r.Symbol == p.Symbol) &&
+                wallet.Any(b => b.Currency + "-THB" == p.Symbol && b.Total == p.Quantity && b.Reserved == 0));
         return new(accountId, verification.BrokerAccountReference, fingerprint, account.Mandate.Version, account.Snapshot.Version,
-            started, true, account.Gate.IsolationVerified, tradePermission, empty);
+            started, true, account.Gate.IsolationVerified, tradePermission, empty) { OpeningBalanceVerified = openingVerified };
     }
 }
 

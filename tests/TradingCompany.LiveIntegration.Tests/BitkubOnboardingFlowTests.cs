@@ -2,6 +2,7 @@ using System.Net;
 using System.Text.Json;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Npgsql;
 using TradingCompany.Application;
 using TradingCompany.Domain;
 using TradingCompany.Infrastructure;
@@ -84,6 +85,223 @@ public sealed class BitkubOnboardingFlowTests(PostgresFixture database)
         Assert.Equal(3, fixture.Handler.WalletReads);
         Assert.Equal(account.Snapshot.CashBalance, (await fixture.Store.ReadAccountAsync(fixture.Id)).Snapshot.CashBalance);
         Assert.Equal(account.Snapshot.Version, (await fixture.Store.ReadAccountAsync(fixture.Id)).Snapshot.Version);
+        Assert.Equal(0, fixture.Handler.OrderWrites);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Full_spot_provisioning_persists_exact_supported_opening_holdings_including_coin_only_funding(bool coinOnly)
+    {
+        using var fixture = await Setup();
+        fixture.Handler.Cash = coinOnly ? 0m : 1000m;
+        fixture.Handler.Btc = .00234567m;
+        fixture.Handler.Bid = 99_999.12m;
+        fixture.Handler.Ask = 100_000.12m;
+
+        var result = await fixture.Provisioner.ProvisionFullSpotAsync(default);
+
+        Assert.True(result.Allowed, string.Join(",", result.Violations));
+        var account = await new LiveTradingStore(database.ConnectionString).ReadAccountAsync(fixture.Id);
+        var equity = fixture.Handler.Cash + fixture.Handler.Btc * fixture.Handler.Bid;
+        Assert.Equal(equity, account.Mandate.CapitalAllocation);
+        Assert.Equal(equity, account.Mandate.MaximumOrderNotional);
+        Assert.Equal(equity, account.Mandate.MaximumDailyTurnover);
+        Assert.Equal(equity, account.Mandate.MaximumDailyLoss);
+        Assert.Equal(1m, account.Mandate.MaximumPortfolioExposure);
+        Assert.Equal(1m, account.Mandate.MaximumDrawdown);
+        Assert.True(account.Mandate.AutomaticDailyRollover);
+        Assert.Equal(fixture.Handler.Cash, account.Snapshot.CashBalance);
+        Assert.Equal(0m, account.Snapshot.CashReserved);
+        Assert.Equal(equity, account.Snapshot.Equity);
+        var position = Assert.Single(account.Snapshot.Positions);
+        Assert.Equal("BTC-THB", position.Symbol);
+        Assert.Equal(fixture.Handler.Btc, position.Quantity);
+        Assert.Equal(0m, position.ReservedQuantity);
+        Assert.Equal(fixture.Handler.Bid, position.MarketPrice);
+        Assert.NotNull(account.OpeningBalance);
+        Assert.Equal(Now, account.OpeningBalance.ObservedAt);
+        Assert.Equal("synthetic-account", account.OpeningBalance.BrokerAccountReference);
+        Assert.Equal(fixture.Services.GetRequiredService<BitkubLiveBroker>().CredentialFingerprint, account.OpeningBalance.CredentialFingerprint);
+        Assert.Equal(fixture.Handler.Cash, account.OpeningBalance.CashBalance);
+        Assert.Equal(new LiveBrokerPosition("BTC-THB", fixture.Handler.Btc, 0m), Assert.Single(account.OpeningBalance.Positions));
+        Assert.False(account.Gate.Armed);
+        Assert.False(account.Snapshot.Reconciled);
+        Assert.Null(account.PerformanceBaseline);
+        Assert.Empty(account.Orders);
+        Assert.Empty(account.Fills);
+        Assert.Equal(0, fixture.Handler.OrderWrites);
+    }
+
+    [Fact]
+    public async Task Explicit_allocation_must_include_the_full_marked_opening_holdings()
+    {
+        using var fixture = await Setup();
+        fixture.Handler.Btc = .00234567m;
+        var mismatch = await fixture.Provisioner.ProvisionAsync(fixture.Request, default);
+        Assert.Contains("CAPITAL_ALLOCATION_MISMATCH", mismatch.Violations);
+        Assert.False(await fixture.Store.ExistsAsync(fixture.Id));
+
+        var equity = fixture.Handler.Cash + fixture.Handler.Btc * fixture.Handler.Bid;
+        var result = await fixture.Provisioner.ProvisionAsync(fixture.Request with { CapitalAllocation = equity }, default);
+
+        Assert.True(result.Allowed, string.Join(",", result.Violations));
+        var account = await fixture.Store.ReadAccountAsync(fixture.Id);
+        Assert.Equal(equity, account.Snapshot.Equity);
+        Assert.Equal(fixture.Handler.Btc, Assert.Single(account.Snapshot.Positions).Quantity);
+        Assert.False(account.Gate.Armed);
+        Assert.Equal(0, fixture.Handler.OrderWrites);
+    }
+
+    [Theory]
+    [InlineData("cash-reserve")]
+    [InlineData("coin-reserve")]
+    [InlineData("foreign-open")]
+    [InlineData("unsupported-coin")]
+    public async Task Opening_holdings_require_no_reserves_foreign_opens_or_unsupported_coins(string defect)
+    {
+        using var fixture = await Setup();
+        fixture.Handler.Btc = .00234567m;
+        if (defect == "cash-reserve") fixture.Handler.CashReserved = 1m;
+        if (defect == "coin-reserve") fixture.Handler.BtcReserved = .00000001m;
+        if (defect == "foreign-open") fixture.Handler.ForeignOpen = true;
+        if (defect == "unsupported-coin") fixture.Handler.Eth = 1m;
+
+        if (defect == "foreign-open")
+            await Assert.ThrowsAsync<InvalidDataException>(() => fixture.Provisioner.ProvisionFullSpotAsync(default));
+        else Assert.False((await fixture.Provisioner.ProvisionFullSpotAsync(default)).Allowed);
+
+        Assert.False(await fixture.Store.ExistsAsync(fixture.Id));
+        Assert.Equal(0, fixture.Handler.OrderWrites);
+    }
+
+    [Fact]
+    public async Task Changed_coin_quantity_between_signed_observations_cannot_create_an_account()
+    {
+        using var fixture = await Setup();
+        fixture.Handler.Btc = .00234567m;
+        fixture.Handler.ChangeCoinsAfterFirstRead = true;
+
+        await Assert.ThrowsAsync<InvalidDataException>(() => fixture.Provisioner.ProvisionFullSpotAsync(default));
+
+        Assert.False(await fixture.Store.ExistsAsync(fixture.Id));
+        Assert.Equal(0, fixture.Handler.OrderWrites);
+    }
+
+    [Fact]
+    public async Task Existing_manual_buy_before_opening_is_excluded_and_activation_cannot_reset_the_opening_balance()
+    {
+        using var fixture = await Setup();
+        fixture.Handler.Btc = .00234567m;
+        fixture.Handler.ManualHistoryAt = Now.AddSeconds(-1);
+
+        var result = await fixture.Activation.ActivateFullSpotAsync(default);
+
+        Assert.True(result.Activated, string.Join(",", result.Reasons));
+        var account = await fixture.Store.ReadAccountAsync(fixture.Id);
+        Assert.True(account.Gate.Armed);
+        Assert.True(account.Snapshot.Reconciled);
+        Assert.Equal(fixture.Handler.Btc, Assert.Single(account.Snapshot.Positions).Quantity);
+        Assert.Equal(account.Snapshot.Equity, account.PerformanceBaseline!.DayStartEquity);
+        Assert.Empty(account.Orders);
+        Assert.Empty(account.Fills);
+        var reads = fixture.Handler.WalletReads;
+        Assert.Contains("ACCOUNT_ALREADY_PROVISIONED", (await fixture.Provisioner.ProvisionFullSpotAsync(default)).Violations);
+        Assert.Equal(reads, fixture.Handler.WalletReads);
+        var restored = await new LiveTradingStore(database.ConnectionString).ReadAccountAsync(fixture.Id);
+        Assert.Equal(JsonSerializer.Serialize(account.OpeningBalance), JsonSerializer.Serialize(restored.OpeningBalance));
+        Assert.Equal(account.FirstActivatedAt, restored.FirstActivatedAt);
+        Assert.Equal(account.Snapshot.Version, restored.Snapshot.Version);
+        Assert.Equal(account.PerformanceBaseline, restored.PerformanceBaseline);
+        Assert.Equal(0, fixture.Handler.OrderWrites);
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(1)]
+    public async Task Manual_buy_at_or_after_opening_blocks_activation_without_importing_or_replaying_a_fill(int secondsAfterOpening)
+    {
+        using var fixture = await Setup();
+        fixture.Handler.Btc = .00234567m;
+        Assert.True((await fixture.Provisioner.ProvisionFullSpotAsync(default)).Allowed);
+        var original = await fixture.Store.ReadAccountAsync(fixture.Id);
+        fixture.Handler.ManualHistoryAt = original.OpeningBalance!.ObservedAt.AddSeconds(secondsAfterOpening);
+        fixture.Clock.Advance(TimeSpan.FromSeconds(2));
+
+        var result = await fixture.Activation.ActivateFullSpotAsync(default);
+
+        Assert.False(result.Activated);
+        var account = await fixture.Store.ReadAccountAsync(fixture.Id);
+        Assert.False(account.Gate.Armed);
+        Assert.False(account.Snapshot.Reconciled);
+        Assert.Null(account.PerformanceBaseline);
+        Assert.Equal(original.Snapshot.CashBalance, account.Snapshot.CashBalance);
+        Assert.Equal(fixture.Handler.Btc, Assert.Single(account.Snapshot.Positions).Quantity);
+        Assert.Equal(JsonSerializer.Serialize(original.OpeningBalance), JsonSerializer.Serialize(account.OpeningBalance));
+        Assert.Empty(account.Orders);
+        Assert.Empty(account.Fills);
+        Assert.Equal(0, fixture.Handler.OrderWrites);
+    }
+
+    [Fact]
+    public async Task Manual_buy_since_opening_cannot_hide_before_first_activation()
+    {
+        using var fixture = await Setup();
+        fixture.Handler.Btc = .00234567m;
+        Assert.True((await fixture.Provisioner.ProvisionFullSpotAsync(default)).Allowed);
+        fixture.Clock.Advance(TimeSpan.FromSeconds(2));
+        Assert.True((await fixture.Activation.ActivateFullSpotAsync(default)).Activated);
+        var original = await fixture.Store.ReadAccountAsync(fixture.Id);
+        fixture.Handler.ManualHistoryAt = original.OpeningBalance!.ObservedAt.AddSeconds(1);
+        Assert.True(fixture.Handler.ManualHistoryAt < original.FirstActivatedAt);
+
+        var result = await fixture.Services.GetRequiredService<LiveReconciliation>().ReconcileAsync(fixture.Id);
+
+        Assert.False(result.Complete);
+        var account = await fixture.Store.ReadAccountAsync(fixture.Id);
+        Assert.False(account.Gate.Armed);
+        Assert.False(account.Snapshot.Reconciled);
+        Assert.Equal(original.Snapshot.CashBalance, account.Snapshot.CashBalance);
+        Assert.Equal(fixture.Handler.Btc, Assert.Single(account.Snapshot.Positions).Quantity);
+        Assert.Equal(original.FirstActivatedAt, account.FirstActivatedAt);
+        Assert.Equal(original.PerformanceBaseline, account.PerformanceBaseline);
+        Assert.Equal(JsonSerializer.Serialize(original.OpeningBalance), JsonSerializer.Serialize(account.OpeningBalance));
+        Assert.Empty(account.Orders);
+        Assert.Empty(account.Fills);
+        Assert.Equal(0, fixture.Handler.OrderWrites);
+    }
+
+    [Theory]
+    [InlineData("cash")]
+    [InlineData("positions")]
+    [InlineData("removed")]
+    [InlineData("null")]
+    public async Task Persisted_opening_balance_is_immutable_without_changing_ledger_amounts_or_history(string mutation)
+    {
+        using var fixture = await Setup();
+        fixture.Handler.Btc = .00234567m;
+        fixture.Handler.ManualHistoryAt = Now.AddSeconds(-1);
+        Assert.True((await fixture.Activation.ActivateFullSpotAsync(default)).Activated);
+        var original = await fixture.Store.ReadAccountAsync(fixture.Id);
+        var changed = JsonSerializer.SerializeToNode(original)!.AsObject();
+        if (mutation == "cash") changed["OpeningBalance"]!["CashBalance"] = original.OpeningBalance!.CashBalance + 1m;
+        if (mutation == "positions") changed["OpeningBalance"]!["Positions"]![0]!["Quantity"] = fixture.Handler.Btc + .00000001m;
+        if (mutation == "removed") changed.Remove("OpeningBalance");
+        if (mutation == "null") changed["OpeningBalance"] = null;
+        await using var connection = new NpgsqlConnection(database.ConnectionString);
+        await connection.OpenAsync();
+        await using var command = new NpgsqlCommand(
+            "UPDATE live.accounts SET document=@document::jsonb,revision=revision+1 WHERE id=@id", connection);
+        command.Parameters.AddWithValue("document", changed.ToJsonString());
+        command.Parameters.AddWithValue("id", fixture.Id.Value);
+
+        var error = await Assert.ThrowsAsync<PostgresException>(() => command.ExecuteNonQueryAsync());
+
+        Assert.Equal("23514", error.SqlState);
+        var retained = await new LiveTradingStore(database.ConnectionString).ReadAccountAsync(fixture.Id);
+        Assert.Equal(JsonSerializer.Serialize(original), JsonSerializer.Serialize(retained));
+        Assert.Equal(original.Snapshot.CashBalance, retained.Snapshot.CashBalance);
+        Assert.Equal(fixture.Handler.Btc, Assert.Single(retained.Snapshot.Positions).Quantity);
         Assert.Equal(0, fixture.Handler.OrderWrites);
     }
 
@@ -259,6 +477,7 @@ public sealed class BitkubOnboardingFlowTests(PostgresFixture database)
             return timer;
         }
         public void Tick() { now = now.AddSeconds(30); timer!.Fire(); }
+        public void Advance(TimeSpan duration) { now = now.Add(duration); }
         private sealed class ManualTimer(TimerCallback callback, object? state) : ITimer
         {
             private bool disposed;
@@ -274,8 +493,17 @@ public sealed class BitkubOnboardingFlowTests(PostgresFixture database)
         public int WalletReads { get; private set; }
         public int OrderWrites { get; private set; }
         public bool ChangeAfterFirstRead { get; set; }
+        public bool ChangeCoinsAfterFirstRead { get; set; }
+        public bool ForeignOpen { get; set; }
         public bool TradePermission { get; set; } = true;
         public decimal Cash { get; set; } = 1000;
+        public decimal CashReserved { get; set; }
+        public decimal Btc { get; set; }
+        public decimal BtcReserved { get; set; }
+        public decimal Eth { get; set; }
+        public decimal Bid { get; set; } = 99_999m;
+        public decimal Ask { get; set; } = 100_000m;
+        public DateTimeOffset? ManualHistoryAt { get; set; }
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken token)
         {
             var path = request.RequestUri!.AbsolutePath;
@@ -286,19 +514,32 @@ public sealed class BitkubOnboardingFlowTests(PostgresFixture database)
             {
                 WalletReads++;
                 var cash = ChangeAfterFirstRead && WalletReads > 1 ? Cash - 1 : Cash;
+                var btc = ChangeCoinsAfterFirstRead && WalletReads > 1 ? Btc + .00000001m : Btc;
                 return Reply(JsonSerializer.Serialize(new { code = "0", data = new[]
                 {
-                    new { currency = "THB", available = cash.ToString(System.Globalization.CultureInfo.InvariantCulture), reserved = "0", total = cash.ToString(System.Globalization.CultureInfo.InvariantCulture) },
-                    new { currency = "BTC", available = "0", reserved = "0", total = "0" },
-                    new { currency = "ETH", available = "0", reserved = "0", total = "0" }
+                    Balance("THB", cash, CashReserved), Balance("BTC", btc, BtcReserved), Balance("ETH", Eth, 0m)
                 }}));
             }
-            if (path.EndsWith("/my-open-orders")) return Reply("{\"error\":0,\"result\":[]}");
-            if (path.EndsWith("/my-order-history")) return Reply("{\"error\":0,\"result\":[],\"pagination\":{\"has_next\":false}}");
-            if (path.EndsWith("/ticker")) return Reply("[{\"symbol\":\"BTC_THB\",\"highest_bid\":\"99999\",\"lowest_ask\":\"100000\"}]");
+            if (path.EndsWith("/my-open-orders")) return Reply(JsonSerializer.Serialize(new { error = 0,
+                result = ForeignOpen ? new[] { new { id = "manual-order", side = "buy", type = "limit", rate = "100000",
+                    amount = "10", receive = "0", fee = "0", credit = "0", parent_id = "manual-order",
+                    super_id = "manual-order", client_id = "manual-client", ts = clock.GetUtcNow().ToUnixTimeMilliseconds() } } : [] }));
+            if (path.EndsWith("/my-order-history")) return Reply(JsonSerializer.Serialize(new { error = 0,
+                result = ManualHistoryAt is { } at ? new[] { new { txn_id = "manual-buy-tx", order_id = "manual-buy-order",
+                    parent_order_id = "manual-buy-order", super_order_id = "manual-buy-order", client_id = "manual-client",
+                    side = "buy", type = "market", rate = "100000", amount = "235.154875", fee = "0.587875", credit = "0",
+                    ts = at.ToUnixTimeMilliseconds() } } : [], pagination = new { has_next = false } }));
+            if (path.EndsWith("/ticker")) return Reply(JsonSerializer.Serialize(new[] { new { symbol = "BTC_THB",
+                highest_bid = Bid.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                lowest_ask = Ask.ToString(System.Globalization.CultureInfo.InvariantCulture) } }));
             OrderWrites++;
             throw new InvalidOperationException("Unexpected provider operation in onboarding test.");
         }
+        private static object Balance(string currency, decimal total, decimal reserved) => new
+        {
+            currency, available = (total - reserved).ToString(System.Globalization.CultureInfo.InvariantCulture),
+            reserved = reserved.ToString(System.Globalization.CultureInfo.InvariantCulture), total = total.ToString(System.Globalization.CultureInfo.InvariantCulture)
+        };
         private static Task<HttpResponseMessage> Reply(string body) => Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(body) });
     }
 }

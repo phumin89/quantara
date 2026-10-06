@@ -21,6 +21,36 @@ public static class BitkubProfileVerifier
     private static readonly JsonSerializerOptions Json = new()
     { UnmappedMemberHandling = JsonUnmappedMemberHandling.Disallow };
 
+    // No manual sale or global cash-fee convention is required. Every future fill
+    // requires a durable authenticated receipt with explicit wallet debit/receive.
+    public static BitkubVerifiedProfile ForOrderReceipts(ReadOnlyMemory<byte> bytes, string fingerprint, DateTimeOffset now)
+    {
+        try
+        {
+            if (fingerprint is not { Length: 71 } || !fingerprint.StartsWith("sha256:", StringComparison.Ordinal) ||
+                fingerprint[7..].Any(c => !char.IsAsciiHexDigit(c))) throw Invalid();
+            var capture = Read(bytes, fingerprint, now, allowZeroCash: true);
+            if (now - capture.observedAt > TimeSpan.FromMinutes(5) ||
+                capture.walletBalances.Any(b => b.Currency is not ("THB" or "BTC") && b.Total != 0) ||
+                capture.walletBalances.All(b => b.Total == 0)) throw Invalid();
+            var market = capture.marketRules.Single(p => p.Symbol == "BTC-THB");
+            if (market.BaseAssetScale != 8 || market.QuoteAssetScale != 2 || market.BaseQuantityScale != 8 ||
+                market.QuoteQuantityScale != 2 || market.QuantityScale != 0 || market.QuantityStep != 1 ||
+                market.PriceStep != .01m || market.MinimumQuoteSize != 10) throw Invalid();
+            var hash = Convert.ToHexStringLower(SHA256.HashData(bytes.Span));
+            var reference = "authenticated-bitkub-order-receipts:" + capture.observedAt.ToUnixTimeMilliseconds();
+            var rules = new BitkubVerifiedExecutionRules(reference + ";" + FeeReference +
+                ";https://github.com/bitkub/bitkub-official-api-docs/blob/master/websocket-private.md", hash, CashFeeCeiling,
+                BitkubBuyHistoryAmount.AuthenticatedOrderReceipts,
+                [new("BTC-THB", 1m, .00000001m, market.PriceStep, market.MinimumQuoteSize, market.QuantityScale, market.QuantityStep)
+                    { BuyBaseRounding = BitkubBuyBaseRounding.FloorToBaseStep }]);
+            return new("bitkub:credential:" + fingerprint[7..], fingerprint, reference, hash, true, true,
+                BitkubExecutionAdapter.ValidateRules(rules));
+        }
+        catch (Exception error) when (error is JsonException or InvalidOperationException or OverflowException or ArgumentException)
+        { throw Invalid(); }
+    }
+
     public static BitkubVerifiedProfile Verify(ReadOnlyMemory<byte> beforeBytes, ReadOnlyMemory<byte> boughtBytes,
         ReadOnlyMemory<byte> soldBytes, string currentFingerprint, DateTimeOffset now)
     {
@@ -102,7 +132,7 @@ public static class BitkubProfileVerifier
         { throw Invalid(); }
     }
 
-    private static Capture Read(ReadOnlyMemory<byte> bytes, string fingerprint, DateTimeOffset now)
+    private static Capture Read(ReadOnlyMemory<byte> bytes, string fingerprint, DateTimeOffset now, bool allowZeroCash = false)
     {
         if (bytes.Length is 0 or > 512 * 1024) throw Invalid();
         using var document = JsonDocument.Parse(bytes);
@@ -120,7 +150,7 @@ public static class BitkubProfileVerifier
                 b.Currency.Any(c => !char.IsAsciiLetterUpper(c) && !char.IsAsciiDigit(c))) ||
             capture.walletBalances.Select(b => b.Currency).Distinct().Count() != capture.walletBalances.Length ||
             capture.walletBalances.Any(b => b.Available < 0 || b.Reserved != 0 || b.Total != b.Available) ||
-            capture.thbTotal <= 0 || capture.thbAvailable != capture.thbTotal || capture.thbReserved != 0 ||
+            (allowZeroCash ? capture.thbTotal < 0 : capture.thbTotal <= 0) || capture.thbAvailable != capture.thbTotal || capture.thbReserved != 0 ||
             capture.walletBalances.Single(b => b.Currency == "THB").Total != capture.thbTotal ||
             capture.marketRules is null || capture.marketRules.Length != 3 ||
             capture.marketRules.Any(p => p is null) ||

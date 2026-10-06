@@ -10,6 +10,66 @@ namespace TradingCompany.LiveIntegration.Tests;
 [Collection("Live database")]
 public sealed class BitkubExecutionFlowTests(PostgresFixture database)
 {
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Durable_receipt_reconciles_cash_fee_and_received_coins_without_global_fee_assumption(bool rounded)
+    {
+        var (store, account, intent) = await Setup();
+        var clock = new LiveExecutionFlowTests.TestClock(FixedNow);
+        var handler = new BitkubHandler(clock) { Accepted = true, RoundedBuy = rounded };
+        using var broker = new BitkubLiveBroker("test-key", "test-secret", handler, clock);
+        var rules = ReceiptRules();
+        var adapter = new BitkubExecutionAdapter(broker, store, account.AccountId, clock, rules, receiptStreamReady: () => true);
+        var executor = new LiveExecutionService(store, adapter, clock);
+        Assert.Equal(LiveOrderState.Acknowledged, (await executor.SubmitAsync(intent)).State);
+        var journal = new BitkubOrderReceiptJournal(database.ConnectionString, account.AccountId, broker.CredentialFingerprint);
+        var reconciliation = new LiveReconciliation(store, new BitkubReconciliationSource(broker, adapter, account.AccountId, clock, journal), clock);
+        // REST history alone cannot stand in for the missing authoritative receipt.
+        Assert.False((await reconciliation.ReconcileAsync(account.AccountId)).Complete);
+        Assert.Equal(1000m, (await store.ReadAsync(account.AccountId)).CashBalance);
+        var receipt = new BitkubOrderReceipt("order-1", intent.Id.ToString("N"), "BTC-THB", OrderSide.Buy, "filled",
+            100000m, 698m, 698m, rounded ? .00696259m : .0069626m, rounded ? 1.7401m : 1.74m, 0m,
+            rounded ? 1.7401m : 1.74m, FixedNow.ToUnixTimeMilliseconds());
+        await journal.AppendAsync(receipt);
+        Assert.True((await reconciliation.ReconcileAsync(account.AccountId)).Complete);
+        var restored = await new LiveTradingStore(database.ConnectionString).ReadAccountAsync(account.AccountId);
+        Assert.Equal(302m, restored.Snapshot.CashBalance);
+        Assert.Equal(receipt.ReceivedAmount, Assert.Single(restored.Snapshot.Positions).Quantity);
+        Assert.Equal(receipt.CashFee, Assert.Single(restored.Fills).CashFee);
+        Assert.Equal(698m, restored.Fills.Sum(f => f.GrossQuoteAmount + f.CashFee));
+        var restartedJournal = new BitkubOrderReceiptJournal(database.ConnectionString, account.AccountId, broker.CredentialFingerprint);
+        var restarted = new LiveReconciliation(new LiveTradingStore(database.ConnectionString),
+            new BitkubReconciliationSource(broker, adapter, account.AccountId, clock, restartedJournal), clock);
+        Assert.True((await restarted.ReconcileAsync(account.AccountId)).Complete);
+        Assert.Single((await store.ReadAccountAsync(account.AccountId)).Fills);
+        Assert.Equal(1, handler.PlacementCount);
+        Assert.False((await store.ReadAccountAsync(account.AccountId)).Gate.Armed);
+        await Assert.ThrowsAsync<InvalidDataException>(() => journal.AppendAsync(receipt with { ReceivedAmount = .5m }));
+        Assert.False((await restarted.ReconcileAsync(account.AccountId)).Complete);
+        Assert.Equal(302m, (await store.ReadAsync(account.AccountId)).CashBalance);
+    }
+
+    [Fact]
+    public async Task Disconnected_receipt_stream_blocks_before_any_broker_placement()
+    {
+        var (store, account, intent) = await Setup();
+        var clock = new LiveExecutionFlowTests.TestClock(FixedNow);
+        var handler = new BitkubHandler(clock) { Accepted = true };
+        using var broker = new BitkubLiveBroker("test-key", "test-secret", handler, clock);
+        var adapter = new BitkubExecutionAdapter(broker, store, account.AccountId, clock, ReceiptRules(), receiptStreamReady: () => false);
+        Assert.Equal(LiveOrderState.Rejected, (await new LiveExecutionService(store, adapter, clock).SubmitAsync(intent)).State);
+        Assert.Equal(0, handler.PlacementCount);
+        Assert.Equal(1000m, (await store.ReadAsync(account.AccountId)).CashBalance);
+        Assert.Empty((await store.ReadAccountAsync(account.AccountId)).Fills);
+    }
+
+    private static BitkubVerifiedExecutionRules ReceiptRules() => Rules() with
+    {
+        BuyHistoryAmount = BitkubBuyHistoryAmount.AuthenticatedOrderReceipts,
+        Pairs = [Rules().Pairs[0] with { BuyBaseRounding = BitkubBuyBaseRounding.FloorToBaseStep }]
+    };
+
     [Fact]
     public async Task Accepted_buy_is_durable_and_reconciles_from_authoritative_fill_evidence()
     {

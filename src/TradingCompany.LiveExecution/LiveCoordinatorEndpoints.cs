@@ -25,6 +25,7 @@ public static class LiveCoordinatorEndpoints
             var baseline = account.PerformanceBaseline;
             // Construct readiness explicitly rather than trusting a saved armed flag.
             var ready = account.Gate.Armed && !account.Gate.Stopped && account.Gate.IsolationVerified &&
+                (context.RequestServices.GetService<BitkubReceiptObserver>() is not { } observer || observer.Ready) &&
                 LiveRiskPolicy.IsValidMandate(mandate) && !(mandate.ExpiresAt <= now) &&
                 account.Gate.ArmedMandateVersion == mandate.Version && account.Gate.CredentialFingerprint == mandate.CredentialFingerprint &&
                 account.Snapshot.Reconciled && baseline is not null && baseline.DayStartEquity > 0 &&
@@ -37,6 +38,8 @@ public static class LiveCoordinatorEndpoints
                 account.Snapshot, new(mandate.CapitalAllocation, mandate.MaximumPortfolioExposure,
                     mandate.MaximumOpenPositions, mandate.FeeReserveRate, mandate.MaximumSlippage, mandate.AllowedSymbols)
                 {
+                    MaximumOrderNotional = mandate.MaximumOrderNotional,
+                    MaximumDailyTurnover = mandate.MaximumDailyTurnover,
                     OrderSizing = context.RequestServices.GetService<BitkubConfiguredAccount>()?.Verification.Rules.Pairs
                         .Select(p => new LiveOrderSizing(p.Symbol, p.PriceStep, p.SellBaseStep, p.BuyQuoteStep, p.MinimumQuoteSize)).ToArray() ?? []
                 }, ready, account.Gate.Stopped));

@@ -16,16 +16,7 @@ public sealed class LiveOwnerActivation(BitkubConfiguredAccount configured, Live
         if (!await broker.CheckTradePermissionAsync(token)) return new(false, ["TRADE_PERMISSION_REQUIRED"]);
         if (!await store.ExistsAsync(configured.AccountId, token))
         {
-            var wallet = await broker.GetWalletAsync(token);
-            var cash = wallet.Single(b => b.Currency == "THB");
-            if (cash.Total <= 0) return new(false, ["FUNDS_REQUIRED"]);
-            if (cash.Reserved != 0 || wallet.Any(b => b.Currency != "THB" && b.Total != 0))
-                return new(false, ["INITIAL_INVENTORY_NOT_EMPTY"]);
-            var rules = configured.Verification.Rules;
-            var mandate = new LiveMandateUpdate(configured.AccountId, 0, cash.Total, cash.Total, cash.Total, cash.Total,
-                1m, 1m, rules.Pairs.Count, .02m, rules.MaximumCashFeeRate, rules.Pairs.Select(p => p.Symbol).ToArray(), null)
-                { AutomaticDailyRollover = true };
-            var provisioned = await provisioner.ProvisionAsync(mandate, token);
+            var provisioned = await provisioner.ProvisionFullSpotAsync(token);
             if (!provisioned.Allowed) return new(false, provisioned.Violations);
         }
         var account = await controls.ReadAsync(token);
@@ -82,6 +73,11 @@ public sealed class LiveOwnerActivation(BitkubConfiguredAccount configured, Live
             }
             var store = host.Services.GetRequiredService<LiveTradingStore>();
             await store.EnsureSchemaAsync(deadline.Token);
+            if (host.Services.GetService<BitkubReceiptObserver>() is { } observer)
+            {
+                await observer.StartAsync(deadline.Token);
+                while (!observer.Ready) await Task.Delay(100, deadline.Token);
+            }
             var result = await host.Services.GetRequiredService<LiveOwnerActivation>().ActivateFullSpotAsync(deadline.Token);
             Console.WriteLine(result.Activated ? "LIVE_ACTIVATED: owner Spot mandate and broker reconciliation passed. No order was sent by this command." :
                 "LIVE_NOT_ACTIVATED: " + string.Join(",", result.Reasons));

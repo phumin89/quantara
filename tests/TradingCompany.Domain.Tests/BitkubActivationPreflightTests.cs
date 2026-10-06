@@ -288,20 +288,38 @@ public sealed class BitkubActivationPreflightTests
         Assert.DoesNotContain("test-secret", error.ToString());
     }
 
+    [Fact]
+    public async Task Receipt_mode_preflight_requires_connected_observer_before_private_broker_reads()
+    {
+        using var fixture = new Fixture(receiptMode: true);
+        await Unavailable(fixture, Account());
+        Assert.Equal(0, fixture.Wire.PermissionProbes);
+    }
+
+    [Fact]
+    public async Task Receipt_mode_preparation_requires_connected_observer_before_storage_or_broker_reads()
+    {
+        using var fixture = new Fixture(receiptMode: true);
+        var error = await Assert.ThrowsAsync<InvalidDataException>(() => fixture.Broker.PrepareAsync(LiveRiskTests.Intent, default));
+        Assert.Equal("BITKUB_ORDER_RECEIPT_STREAM_REQUIRED", error.Message);
+        Assert.Equal(0, fixture.Wire.PermissionProbes);
+    }
+
     private sealed class Fixture : IDisposable
     {
         private readonly string directory = Directory.CreateTempSubdirectory("quantara-preflight-test-").FullName;
         private readonly ServiceProvider provider;
         public Wire Wire { get; } = new();
         public ILiveActivationSource Source { get; }
+        public ILiveBroker Broker => provider.GetRequiredService<ILiveBroker>();
 
-        public Fixture()
+        public Fixture(bool receiptMode = false)
         {
             var credentials = Path.Combine(directory, "credentials.env");
             var verification = Path.Combine(directory, "verification.json");
             File.WriteAllText(credentials, "BITKUB_API_KEY=test-key\nBITKUB_API_SECRET=test-secret\n");
             var rules = new BitkubVerifiedExecutionRules("synthetic-confirmation", new string('0', 64), .003m,
-                BitkubBuyHistoryAmount.QuoteBeforeCashFee, [
+                receiptMode ? BitkubBuyHistoryAmount.AuthenticatedOrderReceipts : BitkubBuyHistoryAmount.QuoteBeforeCashFee, [
                     new("BTC-THB", 1m, .00000001m, 1m, 10m, 8, .00000001m),
                     new("ETH-THB", 1m, .00000001m, 1m, 10m, 8, .00000001m),
                     new("SOL-THB", 1m, .00000001m, 1m, 10m, 8, .00000001m)]);

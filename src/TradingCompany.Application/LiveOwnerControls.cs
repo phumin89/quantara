@@ -18,7 +18,10 @@ public sealed record LivePreflightResult(bool Ready, long MandateVersion, long S
 // Executor-generated, never bound from a browser or model request.
 public sealed record LiveActivationEvidence(LiveAccountId AccountId, string BrokerAccountReference,
     string CredentialFingerprint, long MandateVersion, long SnapshotVersion, DateTimeOffset ObservedAt,
-    bool CredentialsVerified, bool IsolationVerified, bool PermissionsVerified, bool InitialInventoryEmpty);
+    bool CredentialsVerified, bool IsolationVerified, bool PermissionsVerified, bool InitialInventoryEmpty)
+{
+    public bool OpeningBalanceVerified { get; init; }
+}
 
 public interface ILiveActivationSource
 {
@@ -137,7 +140,7 @@ public sealed partial class LiveAccountTransaction
             errors.Add("ACCOUNT_MISMATCH");
         if (string.IsNullOrWhiteSpace(evidence.BrokerAccountReference) ||
             request.BrokerAccountReference != evidence.BrokerAccountReference ||
-            (Account.FirstActivatedAt is not null && Account.BrokerAccountReference != evidence.BrokerAccountReference) ||
+            (Account.BrokerAccountReference is not null && Account.BrokerAccountReference != evidence.BrokerAccountReference) ||
             string.IsNullOrWhiteSpace(evidence.CredentialFingerprint) ||
             evidence.CredentialFingerprint != Account.Gate.CredentialFingerprint ||
             evidence.CredentialFingerprint != mandate.CredentialFingerprint)
@@ -160,7 +163,9 @@ public sealed partial class LiveAccountTransaction
         if (Account.Orders.Any(o => o.State is LiveOrderState.Reserved or LiveOrderState.Dispatching or LiveOrderState.Unknown ||
             (o.CancellationRequestedAt is not null && o.State is not (LiveOrderState.Filled or LiveOrderState.Cancelled or LiveOrderState.Rejected) &&
              o.CancellationOutcome != BrokerSubmissionState.Rejected))) errors.Add("UNRESOLVED_ORDER");
-        if (Account.FirstActivatedAt is null && (!evidence.InitialInventoryEmpty || snapshot.Positions.Count != 0 ||
+        if (Account.FirstActivatedAt is null &&
+            (!(Account.OpeningBalance is null && snapshot.Positions.Count == 0 && evidence.InitialInventoryEmpty ||
+                evidence.OpeningBalanceVerified && MatchesOpeningBalance(now)) ||
             snapshot.CashReserved != 0 || snapshot.PendingBuyNotional != 0 || snapshot.PendingSellNotional != 0 ||
             Account.Fills.Count != 0 || Account.Orders.Any(o => o.State != LiveOrderState.Rejected)))
             errors.Add("INITIAL_INVENTORY_NOT_EMPTY");
@@ -174,6 +179,24 @@ public sealed partial class LiveAccountTransaction
         }
         catch (OverflowException) { errors.Add("INVALID_SNAPSHOT"); }
         return new(errors.Count == 0, errors.Distinct().ToArray());
+    }
+
+    private bool MatchesOpeningBalance(DateTimeOffset now)
+    {
+        var opening = Account.OpeningBalance;
+        var snapshot = Account.Snapshot;
+        if (opening is null || opening.ObservedAt > snapshot.ObservedAt || opening.ObservedAt > now ||
+            opening.CredentialFingerprint != Account.Gate.CredentialFingerprint ||
+            opening.CredentialFingerprint != Account.Mandate.CredentialFingerprint ||
+            string.IsNullOrWhiteSpace(opening.BrokerAccountReference) || opening.BrokerAccountReference != Account.BrokerAccountReference ||
+            opening.CashBalance < 0 || opening.CashBalance != snapshot.CashBalance || opening.Positions is null ||
+            opening.Positions.Count != snapshot.Positions.Count ||
+            opening.Positions.Any(p => p is null) ||
+            opening.Positions.Select(p => p.Symbol).Distinct(StringComparer.Ordinal).Count() != opening.Positions.Count)
+            return false;
+        return opening.Positions.All(p => p.Quantity > 0 && p.ReservedQuantity == 0 &&
+            Account.Mandate.AllowedSymbols.Contains(p.Symbol, StringComparer.Ordinal) &&
+            snapshot.Positions.Any(s => s.Symbol == p.Symbol && s.Quantity == p.Quantity && s.ReservedQuantity == 0));
     }
 
     public LiveGateDecision Arm(LiveArmRequest request, LiveActivationEvidence evidence, DateTimeOffset now)

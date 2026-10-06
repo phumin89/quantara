@@ -16,16 +16,18 @@ public sealed partial class LiveAccountTransaction
             return FailReconciliation("BASELINE_ALREADY_ESTABLISHED", now);
         var snapshot = Account.Snapshot;
         if (Account.Gate.Armed || !LiveRiskPolicy.IsValidMandate(Account.Mandate) || Account.Mandate.ExpiresAt <= now ||
-            snapshot.Version <= 0 || snapshot.CashBalance <= 0 || snapshot.Equity != snapshot.CashBalance || snapshot.CashReserved != 0 ||
+            snapshot.Version <= 0 || snapshot.CashBalance < 0 || snapshot.Equity <= 0 || snapshot.CashReserved != 0 ||
             snapshot.PendingBuyNotional != 0 || snapshot.PendingSellNotional != 0 || snapshot.PendingBuySymbols.Count != 0 ||
-            snapshot.Positions.Count != 0 || snapshot.DailyLoss != 0 || snapshot.Drawdown != 0 || snapshot.DailyTurnover != 0 ||
+            (Account.OpeningBalance is null ? snapshot.Positions.Count != 0 || snapshot.Equity != snapshot.CashBalance : !MatchesOpeningBalance(now)) ||
+            snapshot.Equity != snapshot.CashBalance + snapshot.Positions.Sum(p => p.Quantity * p.MarketPrice) ||
+            snapshot.DailyLoss != 0 || snapshot.Drawdown != 0 || snapshot.DailyTurnover != 0 ||
             Account.Fills.Count != 0 || Account.Orders.Any(o => o.State != LiveOrderState.Rejected))
             return FailReconciliation("INITIAL_INVENTORY_NOT_EMPTY", now);
 
         var candidate = new LiveAccountTransaction(Account with
         {
             PerformanceBaseline = new(DateOnly.FromDateTime(now.ToOffset(TimeSpan.FromHours(7)).DateTime),
-                snapshot.CashBalance, snapshot.CashBalance),
+                snapshot.Equity, snapshot.Equity),
             Gate = Account.Gate with { Armed = false, ArmedMandateVersion = 0 }
         }, (_, _) => throw new InvalidOperationException("Detached initialization cannot persist."));
         var result = candidate.Reconcile(first, second, now);

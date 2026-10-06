@@ -11,6 +11,63 @@ public sealed class BitkubProfileVerifierTests
     private static readonly DateTimeOffset Now = new(2026, 10, 6, 12, 0, 0, TimeSpan.Zero);
     private const string Fingerprint = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
 
+    [Theory]
+    [InlineData("before")]
+    [InlineData("bought")]
+    public void Receipt_profile_keeps_cash_or_owned_BTC_without_a_manual_sale(string stage)
+    {
+        var capture = JsonNode.Parse(Json(Capture(stage)))!;
+        SetObservedAt(capture, Now.AddSeconds(-1));
+        var profile = BitkubProfileVerifier.ForOrderReceipts(Encoding(capture.ToJsonString()), Fingerprint, Now);
+        Assert.Equal(BitkubBuyHistoryAmount.AuthenticatedOrderReceipts, profile.Rules.BuyHistoryAmount);
+        Assert.True(profile.AccountBindingVerified);
+        Assert.True(profile.TradePermissionVerified);
+        Assert.Single(profile.Rules.Pairs);
+        Assert.Equal("BTC-THB", profile.Rules.Pairs.Single().Symbol);
+        Assert.Equal(1m, profile.Rules.Pairs.Single().BuyQuoteStep);
+        Assert.Equal(.00000001m, profile.Rules.Pairs.Single().SellBaseStep);
+    }
+
+    [Fact]
+    public void Receipt_profile_accepts_funded_coin_only_wallet_with_zero_THB()
+    {
+        var capture = JsonNode.Parse(Json(Capture("bought")))!;
+        SetWallet(capture, "THB", 0m);
+        SetObservedAt(capture, Now.AddSeconds(-1));
+        Assert.Equal(BitkubBuyHistoryAmount.AuthenticatedOrderReceipts,
+            BitkubProfileVerifier.ForOrderReceipts(Encoding(capture.ToJsonString()), Fingerprint, Now).Rules.BuyHistoryAmount);
+    }
+
+    [Theory]
+    [InlineData("stale")]
+    [InlineData("permission")]
+    [InlineData("unstable")]
+    [InlineData("enabled")]
+    [InlineData("opens")]
+    [InlineData("minimum")]
+    [InlineData("quantity-unit")]
+    [InlineData("unsupported")]
+    [InlineData("empty")]
+    public void Receipt_profile_requires_current_supported_funded_observations(string defect)
+    {
+        var capture = JsonNode.Parse(Json(Capture("before")))!;
+        SetObservedAt(capture, Now.AddSeconds(-1));
+        switch (defect)
+        {
+            case "stale": SetObservedAt(capture, Now.AddMinutes(-6)); break;
+            case "permission": capture["tradePermissionConfirmed"] = false; break;
+            case "unstable": capture["stableWallet"] = false; break;
+            case "enabled": capture["liveEnabled"] = true; break;
+            case "opens": capture["openOrderCount"] = 1; break;
+            case "minimum": capture["marketRules"]![0]!["MinimumQuoteSize"] = 1m; break;
+            case "quantity-unit": capture["marketRules"]![0]!["QuantityScale"] = 8; break;
+            case "unsupported": capture["walletBalances"]!.AsArray().Add(new JsonObject
+                { ["Currency"] = "DOGE", ["Available"] = 1m, ["Reserved"] = 0m, ["Total"] = 1m }); break;
+            case "empty": SetWallet(capture, "THB", 0m); break;
+        }
+        Assert.Throws<InvalidDataException>(() => BitkubProfileVerifier.ForOrderReceipts(Encoding(capture.ToJsonString()), Fingerprint, Now));
+    }
+
     [Fact]
     public void Valid_buy_sell_canary_selects_cash_fee_and_floor_rounding()
     {

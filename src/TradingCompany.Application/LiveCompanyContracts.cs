@@ -8,6 +8,8 @@ public sealed record LiveResearchLimits(decimal CapitalAllocation, decimal Maxim
     int MaximumOpenPositions, decimal FeeReserveRate, decimal MaximumSlippage, IReadOnlyList<string> AllowedSymbols)
 {
     public IReadOnlyList<LiveOrderSizing> OrderSizing { get; init; } = [];
+    public decimal? MaximumOrderNotional { get; init; }
+    public decimal? MaximumDailyTurnover { get; init; }
 }
 public sealed record LiveResearchPacket(TradingAccountContext AccountContext, long MandateVersion,
     LiveSnapshot Snapshot, LiveResearchLimits Limits, bool Armed, bool Stopped);

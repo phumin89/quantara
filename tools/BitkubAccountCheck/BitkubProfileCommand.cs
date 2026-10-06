@@ -28,18 +28,22 @@ internal static class BitkubProfileCommand
             }
             var (key, secret) = BitkubCredentialsFile.Read(Path.Combine(project, ".env"));
             var fingerprint = "sha256:" + Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(key + "\0" + secret)));
-            var profile = BitkubProfileVerifier.Verify(evidence[0], evidence[1], evidence[2], fingerprint, DateTimeOffset.UtcNow);
+            var useReceipts = captures.Length == 1;
+            var profile = useReceipts ? BitkubProfileVerifier.ForOrderReceipts(evidence[0], fingerprint, DateTimeOffset.UtcNow)
+                : BitkubProfileVerifier.Verify(evidence[0], evidence[1], evidence[2], fingerprint, DateTimeOffset.UtcNow);
             // Recheck the actual key/permission/wallet before preparing execution configuration.
             using var broker = new BitkubLiveBroker(key, secret);
             using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(25));
             if (!await broker.CheckTradePermissionAsync(deadline.Token)) throw new InvalidDataException();
             var first = await broker.GetWalletAsync(deadline.Token);
             var second = await broker.GetWalletAsync(deadline.Token);
-            using var finalCapture = JsonDocument.Parse(evidence[2]);
+            using var finalCapture = JsonDocument.Parse(evidence[^1]);
             var expectedCash = finalCapture.RootElement.GetProperty("thbTotal").GetDecimal();
+            var expectedWallet = JsonSerializer.Deserialize<BrokerWalletBalance[]>(finalCapture.RootElement.GetProperty("walletBalances"))!;
             if (!first.OrderBy(b => b.Currency).SequenceEqual(second.OrderBy(b => b.Currency)) ||
-                first.Any(b => b.Reserved != 0 || b.Currency != "THB" && b.Total != 0) ||
-                first.Single(b => b.Currency == "THB").Total != expectedCash || expectedCash <= 0 ||
+                !first.OrderBy(b => b.Currency).SequenceEqual(expectedWallet.OrderBy(b => b.Currency)) ||
+                first.Any(b => b.Reserved != 0 || !useReceipts && b.Currency != "THB" && b.Total != 0) ||
+                first.Single(b => b.Currency == "THB").Total != expectedCash || (!useReceipts && expectedCash <= 0) ||
                 !(await File.ReadAllBytesAsync(settingsPath)).SequenceEqual(settingsBytes)) throw new InvalidDataException();
             foreach (var symbol in new[] { "BTC-THB", "ETH-THB", "SOL-THB" })
                 if ((await broker.GetOpenOrdersAsync(symbol, deadline.Token)).Count != 0) throw new InvalidDataException();
@@ -60,6 +64,17 @@ internal static class BitkubProfileCommand
             var expectedMarket = JsonSerializer.Deserialize<BrokerSymbolRules[]>(finalCapture.RootElement.GetProperty("marketRules"))!
                 .Single(p => p.Symbol == "BTC-THB");
             if (market with { ObservedAt = expectedMarket.ObservedAt } != expectedMarket) throw new InvalidDataException();
+            if (useReceipts)
+            {
+                var subscribed = false;
+                try
+                {
+                    await broker.ObserveOrdersAsync((_, _) => Task.CompletedTask,
+                        value => { if (value) { subscribed = true; deadline.Cancel(); } }, deadline.Token);
+                }
+                catch (OperationCanceledException) when (subscribed) { }
+                if (!subscribed) throw new InvalidDataException();
+            }
             var current = BitkubCredentialsFile.Read(Path.Combine(project, ".env"));
             if (current != (key, secret) || !(await File.ReadAllBytesAsync(settingsPath)).SequenceEqual(settingsBytes)) throw new InvalidDataException();
             var profilePath = Path.Combine(runtime, "live", "bitkub-verification.json");
@@ -76,7 +91,8 @@ internal static class BitkubProfileCommand
             var pending = profilePath + ".pending-" + Guid.NewGuid().ToString("N");
             await File.WriteAllTextAsync(pending, JsonSerializer.Serialize(profile, new JsonSerializerOptions { WriteIndented = true }));
             File.Move(pending, profilePath, overwrite: true);
-            Console.WriteLine("Verified BTC Spot profile saved from matching broker captures. Execution remains disabled; no order was sent.");
+            Console.WriteLine(useReceipts ? "BTC Spot profile prepared with authenticated order receipts. Existing cash/coins retained; execution remains disabled. No order was sent."
+                : "Verified BTC Spot profile saved from matching broker captures. Execution remains disabled; no order was sent.");
             return 0;
         }
         catch (InvalidDataException error) when (error.Message == "BITKUB_BUY_CASH_FEE_NOT_PROVEN")

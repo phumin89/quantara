@@ -250,6 +250,124 @@ public sealed class LiveCompanyCoordinatorTests : IDisposable
         Assert.Equal(0, decimal.Remainder(intent.Quantity, .00000001m));
     }
 
+    [Fact]
+    public async Task Zero_cash_opening_holdings_submit_fee_bounded_sell_that_passes_executor_risk()
+    {
+        var client = HoldingsClient();
+        var gateway = new Gateway { Action = "SELL" };
+        await Coordinator(client, gateway).TickAsync();
+
+        var intent = Assert.Single(client.Intents);
+        Assert.Equal(OrderSide.Sell, intent.Side);
+        Assert.Equal(.00797607m, intent.Quantity);
+        Assert.Equal(100000m, intent.LimitPrice);
+        Assert.Null(intent.BuyBudget);
+        Assert.True(LiveRiskPolicy.Evaluate(intent, client.Packet.Snapshot,
+            LiveRiskTests.Mandate, LiveRiskTests.Gate, clock.Now).Allowed);
+        Assert.All(gateway.Inputs, input =>
+        {
+            Assert.Equal(0m, input.Portfolio.Cash);
+            Assert.Equal(1000m, input.Portfolio.Equity);
+        });
+    }
+
+    [Theory]
+    [InlineData("BUY")]
+    [InlineData("SELL")]
+    [InlineData("TRIM")]
+    public async Task Actual_order_limit_caps_every_action_below_capital_allocation(string action)
+    {
+        var client = action == "BUY" ? new Client() : HoldingsClient();
+        client.Packet = client.Packet with
+        {
+            Limits = client.Packet.Limits with { MaximumOrderNotional = 100m, MaximumDailyTurnover = 2000m }
+        };
+        var gateway = new Gateway { Action = action };
+        await Coordinator(client, gateway).TickAsync();
+
+        var intent = Assert.Single(client.Intents);
+        Assert.Equal(action == "BUY" ? OrderSide.Buy : OrderSide.Sell, intent.Side);
+        Assert.Equal(.000997m, intent.Quantity);
+        Assert.True(LiveRiskPolicy.Evaluate(intent, client.Packet.Snapshot,
+            LiveRiskTests.Mandate with { MaximumOrderNotional = 100m }, LiveRiskTests.Gate, clock.Now).Allowed);
+    }
+
+    [Fact]
+    public async Task Remaining_daily_turnover_deducts_both_pending_sides_with_fees_before_sizing_sell()
+    {
+        var client = HoldingsClient(reservedQuantity: .0005m, cash: 1000m);
+        client.Packet = client.Packet with
+        {
+            Limits = client.Packet.Limits with { MaximumDailyTurnover = 1000m },
+            Snapshot = client.Packet.Snapshot with
+            {
+                CashReserved = 150.45m,
+                DailyTurnover = 700m,
+                PendingBuyNotional = 150m,
+                PendingSellNotional = 50m,
+                PendingBuySymbols = ["BTC-THB"]
+            }
+        };
+        await Coordinator(client, new Gateway { Action = "SELL" }).TickAsync();
+
+        var intent = Assert.Single(client.Intents);
+        Assert.Equal(.00099102m, intent.Quantity);
+        Assert.True(LiveRiskPolicy.Evaluate(intent, client.Packet.Snapshot,
+            LiveRiskTests.Mandate with { MaximumDailyTurnover = 1000m }, LiveRiskTests.Gate, clock.Now).Allowed);
+    }
+
+    [Fact]
+    public async Task Sell_clips_owned_unreserved_coins_and_floors_to_base_step()
+    {
+        var client = HoldingsClient(reservedQuantity: .009876543m);
+        client.Packet = client.Packet with
+        {
+            Snapshot = client.Packet.Snapshot with { PendingSellNotional = 987.6543m }
+        };
+        await Coordinator(client, new Gateway { Action = "SELL" }).TickAsync();
+
+        var intent = Assert.Single(client.Intents);
+        Assert.Equal(.00012345m, intent.Quantity);
+        Assert.Equal(0m, decimal.Remainder(intent.Quantity, .00000001m));
+        Assert.True(LiveRiskPolicy.Evaluate(intent, client.Packet.Snapshot,
+            LiveRiskTests.Mandate, LiveRiskTests.Gate, clock.Now).Allowed);
+    }
+
+    [Theory]
+    [InlineData("owned-coins")]
+    [InlineData("daily-limit")]
+    public async Task Sell_below_minimum_quote_size_does_not_submit(string bound)
+    {
+        var client = HoldingsClient(quantity: bound == "owned-coins" ? .00009999m : .01m);
+        if (bound == "daily-limit") client.Packet = client.Packet with
+        {
+            Snapshot = client.Packet.Snapshot with { DailyTurnover = 1990.01m }
+        };
+        var gateway = new Gateway { Action = "SELL" };
+        var coordinator = Coordinator(client, gateway);
+        await coordinator.TickAsync();
+
+        Assert.NotEmpty(gateway.Inputs);
+        Assert.Empty(client.Intents);
+        Assert.Equal("HOLD", coordinator.Status);
+    }
+
+    [Fact]
+    public async Task Legacy_missing_notional_limits_fall_back_to_capital_allocation_with_fee_headroom()
+    {
+        var client = HoldingsClient();
+        client.Packet = client.Packet with
+        {
+            Limits = client.Packet.Limits with { MaximumOrderNotional = null, MaximumDailyTurnover = null }
+        };
+        await Coordinator(client, new Gateway { Action = "SELL" }).TickAsync();
+
+        var intent = Assert.Single(client.Intents);
+        Assert.Equal(.00997008m, intent.Quantity);
+        Assert.True(intent.Quantity * intent.LimitPrice * (1 + client.Packet.Limits.FeeReserveRate)
+            <= client.Packet.Limits.CapitalAllocation);
+    }
+
     [Theory]
     [InlineData("hold")]
     [InlineData("invalid-output")]
@@ -332,6 +450,23 @@ public sealed class LiveCompanyCoordinatorTests : IDisposable
             new(true, "test-model", "medium", "company-v1", "live-v1", 600, 8, 20000, TimeSpan.FromSeconds(30)));
         return new(client, market ?? new Market(), runner,
             new JsonDailyMeetingJournal(Path.Combine(root, "live-meetings.json"), Scope), clock, LiveRiskTests.Account);
+    }
+
+    private static Client HoldingsClient(decimal quantity = .01m, decimal reservedQuantity = 0m, decimal cash = 0m)
+    {
+        var client = new Client();
+        client.Packet = client.Packet with
+        {
+            Snapshot = client.Packet.Snapshot with
+            {
+                CashBalance = cash,
+                Positions = [new("BTC-THB", quantity, reservedQuantity, 100000m)],
+                Equity = cash + quantity * 100000m,
+                Quotes = [new("BTC-THB", 100000m, 100000m, LiveRiskTests.Now)]
+            },
+            Limits = client.Packet.Limits with { MaximumOrderNotional = 800m, MaximumDailyTurnover = 2000m }
+        };
+        return client;
     }
 
     private sealed class Clock : TimeProvider
