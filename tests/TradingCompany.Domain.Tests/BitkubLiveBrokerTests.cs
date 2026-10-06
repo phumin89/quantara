@@ -58,6 +58,28 @@ public sealed class BitkubLiveBrokerTests
     }
 
     [Fact]
+    public async Task Filled_manual_market_order_preserves_numeric_amount_zero_order_rate_and_actual_fill_price()
+    {
+        var response = OrderInfo.Replace("\"amount\":\"4000\"", "\"amount\":4000")
+            .Replace("\"amount\":4000,\"rate\":291000", "\"amount\":4000,\"rate\":0");
+        using var broker = Create(new(response));
+        var order = await broker.GetOrderAsync("BTC-THB", "289", OrderSide.Buy);
+        Assert.Equal(4000m, order.RawAmount);
+        Assert.Equal(0m, order.Rate);
+        Assert.Equal(291000m, Assert.Single(order.History).Rate);
+    }
+
+    [Theory]
+    [InlineData("-1")]
+    [InlineData("1.00000000000000000000000000001")]
+    [InlineData("null")]
+    public async Task Numeric_order_amount_never_accepts_negative_null_or_silent_decimal_rounding(string amount)
+    {
+        using var broker = Create(new(OrderInfo.Replace("\"amount\":\"4000\"", "\"amount\":" + amount)));
+        await Assert.ThrowsAsync<InvalidDataException>(() => broker.GetOrderAsync("BTC-THB", "289", OrderSide.Buy));
+    }
+
+    [Fact]
     public async Task Opaque_order_id_is_escaped_as_one_query_value()
     {
         var handler = new FakeTransport(OrderInfo.Replace("\"id\":\"289\",\"first\"", "\"id\":\"a&sd=sell+/=\",\"first\""));

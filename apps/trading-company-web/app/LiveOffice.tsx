@@ -9,8 +9,7 @@ export function LiveOffice({ activity }: { activity?: LiveActivity }) {
   const working = activity?.roles.find(r => r.status === "working");
   const names: Record<string, string> = { ceo: "CEO", "chief-of-staff": "ผู้ประสานงาน", "market-research": "ทีมตลาด", "security-analysis": "ทีมวิเคราะห์เหรียญ", "quant-research": "ทีมกลยุทธ์", "portfolio-initial": "ทีมพอร์ต", "risk-critic": "ทีมความเสี่ยง", "portfolio-final": "ทีมพอร์ต" };
   return <section className="live-office" aria-label="สำนักงาน Pixel ของ Quantara">
-    <div className="live-office-heading"><h2>สำนักงาน Pixel</h2>
-      {working && <p role="status">{names[working.role]}กำลังวิเคราะห์</p>}</div>
+    {working && <p className="live-office-activity" role="status">{names[working.role]}กำลังวิเคราะห์</p>}
     <iframe ref={frame} onLoad={publish} className="live-office-frame" title="สำนักงาน Pixel ของ Quantara" src="/office/live.html" sandbox="allow-scripts allow-same-origin" />
   </section>;
 }

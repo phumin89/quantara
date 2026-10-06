@@ -22,6 +22,120 @@ public sealed class BitkubProfileVerifierTests
         Assert.Equal(64, profile.EvidenceHash.Length);
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Filled_market_canary_uses_actual_fill_prices_and_paid_fee_wallets(bool multipleBuyFills)
+    {
+        var bought = MarketCapture("bought");
+        var sold = MarketCapture("sold");
+        if (multipleBuyFills)
+            foreach (var capture in new[] { bought, sold }) SplitBuyFill(capture);
+
+        var profile = BitkubProfileVerifier.Verify(Encoding(Json(Capture("before"))),
+            Encoding(bought.ToJsonString()), Encoding(sold.ToJsonString()), Fingerprint, Now);
+
+        Assert.True(profile.AccountBindingVerified);
+        Assert.True(profile.TradePermissionVerified);
+        Assert.Equal(BitkubBuyHistoryAmount.QuoteIncludingCashFee, profile.Rules.BuyHistoryAmount);
+        Assert.Equal(BitkubBuyBaseRounding.FloorToBaseStep, profile.Rules.Pairs.Single().BuyBaseRounding);
+    }
+
+    [Fact]
+    public void Baseline_and_its_market_metadata_can_be_eight_hours_old()
+    {
+        var before = JsonNode.Parse(Json(Capture("before")))!;
+        SetObservedAt(before, Now.AddHours(-8));
+
+        var profile = BitkubProfileVerifier.Verify(Encoding(before.ToJsonString()),
+            Encoding(MarketCapture("bought").ToJsonString()), Encoding(MarketCapture("sold").ToJsonString()), Fingerprint, Now);
+
+        Assert.True(profile.AccountBindingVerified);
+        Assert.Equal(BitkubBuyHistoryAmount.QuoteIncludingCashFee, profile.Rules.BuyHistoryAmount);
+    }
+
+    [Theory]
+    [InlineData("buy", "unknown", 0)]
+    [InlineData("sell", "unknown", 0)]
+    [InlineData("buy", "limit", 0)]
+    [InlineData("sell", "limit", 0)]
+    [InlineData("buy", "market", 3_000_000)]
+    [InlineData("sell", "market", 3_000_000)]
+    [InlineData("buy", "market", -1)]
+    public void Order_rate_must_match_the_history_type(string side, string type, int orderRate)
+    {
+        var bought = MarketCapture("bought");
+        var sold = MarketCapture("sold");
+        var index = side == "buy" ? 0 : 1;
+        foreach (var capture in side == "buy" ? new[] { bought, sold } : new[] { sold })
+        {
+            capture["orderDetails"]![index]!["Rate"] = orderRate;
+            capture["orderHistory"]![index]!["Type"] = type;
+        }
+        AssertRejected(Json(Capture("before")), bought.ToJsonString(), sold.ToJsonString());
+    }
+
+    [Fact]
+    public void Mixed_history_types_in_one_market_order_are_rejected()
+    {
+        var bought = MarketCapture("bought");
+        var sold = MarketCapture("sold");
+        foreach (var capture in new[] { bought, sold })
+        {
+            SplitBuyFill(capture);
+            capture["orderHistory"]![1]!["Type"] = "limit";
+        }
+        AssertRejected(Json(Capture("before")), bought.ToJsonString(), sold.ToJsonString());
+    }
+
+    [Theory]
+    [InlineData("buy", 0)]
+    [InlineData("sell", 0)]
+    [InlineData("buy", -1)]
+    [InlineData("sell", -1)]
+    public void Market_order_requires_positive_actual_fill_prices(string side, int fillRate)
+    {
+        var bought = MarketCapture("bought");
+        var sold = MarketCapture("sold");
+        var index = side == "buy" ? 0 : 1;
+        foreach (var capture in side == "buy" ? new[] { bought, sold } : new[] { sold })
+        {
+            capture["orderHistory"]![index]!["Rate"] = fillRate;
+            capture["orderDetails"]![index]!["History"]![0]!["Rate"] = fillRate;
+        }
+        AssertRejected(Json(Capture("before")), bought.ToJsonString(), sold.ToJsonString());
+    }
+
+    [Fact]
+    public void Actual_market_fill_price_must_respect_the_price_quantum()
+    {
+        var bought = MarketCapture("bought");
+        var sold = MarketCapture("sold");
+        foreach (var capture in new[] { bought, sold })
+        {
+            capture["orderHistory"]![0]!["Rate"] = 3_000_000.001m;
+            capture["orderDetails"]![0]!["History"]![0]!["Rate"] = 3_000_000.001m;
+        }
+        AssertRejected(Json(Capture("before")), bought.ToJsonString(), sold.ToJsonString());
+    }
+
+    [Theory]
+    [InlineData("buy")]
+    [InlineData("sell")]
+    public void Market_fill_must_occur_after_the_prior_capture(string side)
+    {
+        var bought = MarketCapture("bought");
+        var sold = MarketCapture("sold");
+        var index = side == "buy" ? 0 : 1;
+        var timestamp = Now.AddMinutes(side == "buy" ? -2 : -1).ToUnixTimeMilliseconds();
+        foreach (var capture in side == "buy" ? new[] { bought, sold } : new[] { sold })
+        {
+            capture["orderHistory"]![index]!["Timestamp"] = timestamp;
+            capture["orderDetails"]![index]!["History"]![0]!["Timestamp"] = timestamp;
+        }
+        AssertRejected(Json(Capture("before")), bought.ToJsonString(), sold.ToJsonString());
+    }
+
     [Fact]
     public void Verified_profile_roundtrips_through_strict_runtime_contract()
     {
@@ -89,9 +203,9 @@ public sealed class BitkubProfileVerifierTests
     [InlineData(1)]
     public void Stale_or_future_capture_is_rejected(int hours)
     {
-        var capture = Capture("before");
-        capture["observedAt"] = Now.AddHours(hours);
-        AssertRejected(Json(capture), Json(Capture("bought")), Json(Capture("sold")));
+        var capture = JsonNode.Parse(Json(Capture("before")))!;
+        SetObservedAt(capture, Now.AddHours(hours));
+        AssertRejected(capture.ToJsonString(), Json(Capture("bought")), Json(Capture("sold")));
     }
 
     [Theory]
@@ -122,7 +236,9 @@ public sealed class BitkubProfileVerifierTests
         // Keep a consistent sale and wallet so rejection concerns the ambiguous buy fee.
         SetSale(sold, .00001m, 3_000_000m, .075m);
         SetWallet(sold, "THB", 99.925m);
-        AssertRejected(Json(Capture("before")), bought.ToJsonString(), sold.ToJsonString());
+        var error = Assert.Throws<InvalidDataException>(() => BitkubProfileVerifier.Verify(Encoding(Json(Capture("before"))),
+            Encoding(bought.ToJsonString()), Encoding(sold.ToJsonString()), Fingerprint, Now));
+        Assert.Equal("BITKUB_BUY_CASH_FEE_NOT_PROVEN", error.Message);
     }
 
     [Fact]
@@ -149,6 +265,34 @@ public sealed class BitkubProfileVerifierTests
 
     private static void AssertRejected(string before, string bought, string sold)
         => Assert.Throws<InvalidDataException>(() => BitkubProfileVerifier.Verify(Encoding(before), Encoding(bought), Encoding(sold), Fingerprint, Now));
+    private static JsonNode MarketCapture(string stage)
+    {
+        var capture = JsonNode.Parse(Json(Capture(stage)))!;
+        foreach (var history in capture["orderHistory"]!.AsArray()) history!["Type"] = "market";
+        foreach (var detail in capture["orderDetails"]!.AsArray()) detail!["Rate"] = 0m;
+        return capture;
+    }
+    private static void SplitBuyFill(JsonNode capture)
+    {
+        var history = capture["orderHistory"]!.AsArray();
+        var secondHistory = history[0]!.DeepClone();
+        history[0]!["RawAmount"] = 10m; history[0]!["ReportedFee"] = .025m;
+        secondHistory["TransactionId"] = "buy-tx-2";
+        secondHistory["RawAmount"] = 20m; secondHistory["ReportedFee"] = .05m;
+        history.Insert(1, secondHistory);
+        capture["historyCounts"]!["BTC-THB"] = history.Count;
+        var fills = capture["orderDetails"]![0]!["History"]!.AsArray();
+        var secondFill = fills[0]!.DeepClone();
+        fills[0]!["RawAmount"] = 10m; fills[0]!["ReportedFee"] = .025m;
+        secondFill["TransactionId"] = "buy-tx-2";
+        secondFill["RawAmount"] = 20m; secondFill["ReportedFee"] = .05m;
+        fills.Add(secondFill);
+    }
+    private static void SetObservedAt(JsonNode capture, DateTimeOffset observedAt)
+    {
+        capture["observedAt"] = JsonValue.Create(observedAt);
+        foreach (var rule in capture["marketRules"]!.AsArray()) rule!["ObservedAt"] = JsonValue.Create(observedAt.AddSeconds(-1));
+    }
     private static void SetWallet(JsonNode capture, string currency, decimal amount)
     {
         var balance = capture["walletBalances"]!.AsArray().Single(b => b!["Currency"]!.GetValue<string>() == currency)!;

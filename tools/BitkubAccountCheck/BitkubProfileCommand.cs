@@ -79,6 +79,11 @@ internal static class BitkubProfileCommand
             Console.WriteLine("Verified BTC Spot profile saved from matching broker captures. Execution remains disabled; no order was sent.");
             return 0;
         }
+        catch (InvalidDataException error) when (error.Message == "BITKUB_BUY_CASH_FEE_NOT_PROVEN")
+        {
+            Console.WriteLine("Profile not saved: the buy fee was fully covered by credits, so cash-fee accounting is not proven. Obtain paid-fee evidence or Bitkub confirmation; do not repeat trades merely to exhaust credits. Execution remains disabled.");
+            return 1;
+        }
         catch
         {
             // No raw captures, credential identifiers, config/connection data or provider errors.

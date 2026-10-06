@@ -18,13 +18,15 @@ function loadShell(pathname) {
 }
 
 test('shell renders real routes and marks each active page', () => {
-  for (const [route, title] of [['/', 'สำนักงาน'], ['/account', 'บัญชีและสินทรัพย์'], ['/trading', 'การเทรด']]) {
+  for (const [route, title] of [['/', 'ภาพรวมทีม'], ['/account', 'บัญชีและสินทรัพย์'], ['/trading', 'การเทรด']]) {
   const Shell = loadShell(route);
   const html = renderToStaticMarkup(React.createElement(Shell, null, React.createElement('p', null, 'content')));
   assert.match(html, /href="\/"/); assert.match(html, /href="\/account"/); assert.match(html, /href="\/trading"/);
   const activeLink = html.match(/<a[^>]*aria-current="page"[^>]*>/)?.[0];
   assert.ok(activeLink?.includes(`href="${route}"`));
   assert.ok(html.includes(`<h1>${title}</h1>`)); assert.match(html, /ข้ามไปยังเนื้อหาหลัก/);
+  assert.equal((html.match(/<h1>/g) || []).length, 1);
+  assert.match(html, /href="\/"[^>]*>[\s\S]*?สำนักงาน<\/a>/);
   assert.equal((html.match(/aria-current="page"/g) || []).length, 1);
   }
 });

@@ -364,10 +364,14 @@ public sealed class BitkubLiveBroker : IDisposable
             }
             var order = new BrokerOrderEvidence(symbol, side, Identifier(item, "id"), Identifier(item, "first"),
                 Identifier(item, "parent"), Identifier(item, "last"), clientId, Required(item, "post_only").GetBoolean(),
-                Amount(item, "amount"), NumericAmount(item, "rate"), NumericAmount(item, "fee"), NumericAmount(item, "credit"),
+                Required(item, "amount").ValueKind == JsonValueKind.Number ? NumericAmount(item, "amount") : Amount(item, "amount"),
+                NumericAmount(item, "rate"), NumericAmount(item, "fee"), NumericAmount(item, "credit"),
                 NumericAmount(item, "filled"), NumericAmount(item, "total"), Identifier(item, "status"),
                 Required(item, "partial_filled").GetBoolean(), NumericAmount(item, "remaining"), history.ToArray());
-            if (order.OrderId != orderId || order.RawAmount <= 0 || order.Rate <= 0 || order.RawTotal <= 0 ||
+            // Filled manual market orders report a zero order rate; preserve it, using
+            // positive per-fill rates only as evidence. Live limit matching remains separate.
+            if (order.OrderId != orderId || order.RawAmount <= 0 || order.RawTotal <= 0 ||
+                order.Rate == 0 && (order.Status != "filled" || order.History.Count == 0) ||
                 order.Status is not ("filled" or "unfilled" or "cancelled") ||
                 order.RawFilled > order.RawTotal || order.RawRemaining > order.RawTotal) throw Unavailable();
             return order;

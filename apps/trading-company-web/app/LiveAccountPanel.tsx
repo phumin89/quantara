@@ -260,8 +260,7 @@ export function LiveOfficeWorkspace() {
 function officeSummary(state: Connection) {
   if (state.kind !== "connected") return {
     title: state.kind === "loading" ? "กำลังตรวจสถานะ Live" : state.kind === "pair-required" ? "เชื่อมบัญชีเพื่อดูสถานะทีม" : "ยังยืนยันสถานะ Live ไม่ได้",
-    description: state.kind === "pair-required" ? "ยืนยันเจ้าของที่หน้าบัญชีเพื่ออ่านยอดและสถานะจริง การเชื่อมบัญชียังไม่เปิดซื้อขาย" :
-      state.kind === "loading" ? "กำลังอ่านข้อมูลล่าสุดจากบริการบัญชี" : "ตรวจการเชื่อมต่อที่หน้าบัญชี การขาดการเชื่อมต่อไม่ได้ยืนยันว่าระบบหยุดเทรดแล้ว",
+    description: state.kind === "pair-required" || state.kind === "loading" ? "" : "ตรวจการเชื่อมต่อที่หน้าบัญชี การขาดการเชื่อมต่อไม่ได้ยืนยันว่าระบบหยุดเทรดแล้ว",
     href: "/account", action: state.kind === "pair-required" ? "เชื่อมบัญชี" : "ตรวจการเชื่อมต่อ",
   };
   const status = state.status;
@@ -281,9 +280,10 @@ export function LiveOfficeWorkspaceView({ state, wallet, account, activity }: Ob
     (account ? account.snapshot.cashBalance - account.snapshot.cashReserved : undefined);
   const observation = wallet?.observedAt ?? account?.snapshot.observedAt;
   return <div className="office-workspace">
-    <section className="office-summary" aria-labelledby="office-status-heading">
-      <div><h2 id="office-status-heading">{summary.title}</h2>{summary.description && <p>{summary.description}</p>}</div>
-      <Link href={summary.href} className="workspace-primary">{summary.action}<Arrow /></Link>
+    <section className="office-summary" aria-label="สถานะการเทรด Live">
+      <p className="office-status" role="status">{summary.title}</p>
+      <Link href={summary.href} className="workspace-link">{summary.action}<Arrow /></Link>
+      {summary.description && <details className="office-status-details"><summary>รายละเอียดสถานะ</summary><p>{summary.description}</p></details>}
     </section>
     <div className="office-grid">
       <LiveOffice activity={activity} />

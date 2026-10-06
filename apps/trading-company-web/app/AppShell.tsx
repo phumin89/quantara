@@ -5,7 +5,7 @@ import type { ReactNode } from "react";
 import { LiveConnectionBadge } from "./LiveAccountPanel";
 const links = [["/", "สำนักงาน", "M3 21h18M5 21V7l7-4 7 4v14M9 21v-6h6v6M9 9h.01M15 9h.01"], ["/account", "บัญชีและสินทรัพย์", "M3 6h16v3H5a2 2 0 0 1-2-2Zm0 1v12h18V9H5M16 14h3"], ["/trading", "การเทรด", "M3 3v18h18M6 15l5-5 4 3 6-8M16 5h5v5"]] as const;
 export function AppShell({ children }: { children: ReactNode }) {
-  const pathname = usePathname(); const current = links.find(([href]) => href === pathname)?.[1] ?? "สำนักงาน";
+  const pathname = usePathname(); const current = pathname === "/" ? "ภาพรวมทีม" : links.find(([href]) => href === pathname)?.[1] ?? "สำนักงาน";
   return <div className="app-shell">
     <a className="skip-link" href="#main-content">ข้ามไปยังเนื้อหาหลัก</a>
     <aside className="app-sidebar" aria-label="การนำทางหลัก">

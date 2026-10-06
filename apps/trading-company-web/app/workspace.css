@@ -15,17 +15,15 @@
 .connection-dot { width: 7px; height: 7px; border-radius: 50%; background: currentColor; flex-shrink: 0; }
 .refresh-indicator { width: 12px; height: 12px; border: 1px solid var(--muted); border-top-width: 3px; border-radius: 50%; }
 .office-workspace { display: grid; gap: 32px; }
-.office-summary { display: flex; align-items: center; justify-content: space-between; gap: 24px 32px; }
-.office-summary > div { min-width: 0; }
-.office-summary h2 { margin: 0; font-size: clamp(24px, 2vw, 32px); line-height: 1.4; font-weight: 500; text-wrap: balance; }
-.office-summary p { max-width: 70ch; margin: 8px 0 0; color: var(--muted); }
-.workspace-primary { display: inline-flex; flex-shrink: 0; min-height: 44px; align-items: center; justify-content: center; gap: 12px; padding: 8px 20px; border: 1px solid var(--ink); border-radius: 8px; background: var(--ink); color: var(--white); font-size: 15px; font-weight: 500; text-align: center; text-decoration: none; }
-.workspace-primary svg { width: 20px; height: 20px; flex-shrink: 0; fill: none; stroke: currentColor; stroke-width: 1.5; }
+.office-summary { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 0 24px; }
+.office-status { min-width: 0; margin: 0; color: var(--muted); font-size: 16px; }
+.office-status-details { flex-basis: 100%; min-width: 0; color: var(--muted); font-size: 14px; }
+.office-status-details summary { min-height: 44px; padding: 10px 0; cursor: pointer; }
+.office-status-details p { max-width: 70ch; margin: 0 0 8px; overflow-wrap: anywhere; }
+.office-status-details summary:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
 .office-grid { display: grid; grid-template-columns: minmax(0, 1fr) 280px; gap: 32px; align-items: start; }
 .live-office { min-width: 0; border: 1px solid var(--line); border-radius: 14px; overflow: hidden; background: var(--white); }
-.live-office-heading { padding: 20px 24px; }
-.live-office-heading h2 { margin: 0; font-size: 18px; font-weight: 500; }
-.live-office-heading p { margin: 4px 0 0; color: var(--muted); font-size: 14px; }
+.live-office-activity { margin: 0; padding: 12px 16px; color: var(--muted); font-size: 14px; }
 .live-office-frame { display: block; width: 100%; height: clamp(380px, 32vw, 520px); border: 0; background: #171522; }
 .office-overview { min-width: 0; display: grid; gap: 32px; padding: 20px 0 0; }
 .office-overview section { min-width: 0; }
@@ -36,7 +34,7 @@
 .office-observation time { display: block; margin-top: 4px; color: var(--ink); }
 .workspace-link { display: inline-flex; min-height: 44px; align-items: center; gap: 12px; color: var(--ink); text-decoration: none; font-size: 15px; font-weight: 500; }
 .workspace-link svg { width: 20px; height: 20px; flex-shrink: 0; fill: none; stroke: currentColor; stroke-width: 1.5; }
-@media (hover: hover) and (pointer: fine) { .workspace-primary { transition: background-color 150ms ease; } .workspace-primary:hover { background: var(--muted); } .workspace-link:hover { text-decoration: underline; text-underline-offset: 5px; } }
+@media (hover: hover) and (pointer: fine) { .workspace-link:hover { text-decoration: underline; text-underline-offset: 5px; } }
 .account-workspace { max-width: 1200px; }
 .trading-workspace { max-width: 1000px; }
 .account-workspace .money-section { padding-top: 0; border-top: 0; }
@@ -60,15 +58,14 @@
 .team-role-report h4 { color: var(--ink); margin: 12px 0 6px; }
 .team-meeting-date select:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
 a:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
-@media (min-width: 1921px) { .office-grid { gap: 40px; } .live-office-frame { height: 528px; } .live-office-heading h2, .office-overview h2 { font-size: 20px; } .live-office-heading p, .office-overview p { font-size: 16px; } }
+@media (min-width: 1921px) { .office-grid { gap: 40px; } .live-office-frame { height: 528px; } .office-overview h2 { font-size: 20px; } .live-office-activity, .office-overview p { font-size: 16px; } }
 @media (max-width: 1200px) { .office-workspace { gap: 28px; } .office-summary { align-items: flex-start; } .office-grid { grid-template-columns: 1fr; gap: 24px; } .live-office-frame { height: clamp(360px, 42vw, 480px); } .office-overview { padding-top: 0; } }
 @media (min-width: 701px) and (max-width: 1000px) { .live-office-frame { height: 300px; } }
-@media (max-width: 900px) { .office-summary { flex-direction: column; gap: 16px; } }
-@media (max-width: 700px) { .app-header { align-items: flex-start; flex-wrap: wrap; gap: 4px 20px; } .app-header h1 { font-size: 20px; } .live-connection { font-size: 13px; } .office-workspace { gap: 24px; } .office-summary h2 { font-size: 24px; } .office-summary p { font-size: 15px; } .live-office-heading { padding: 16px; } .live-office-frame { height: clamp(240px, 42vw, 280px); } .office-overview { grid-template-columns: 1fr; gap: 24px; } .app-nav-icon { display: none; } .app-nav a { font-size: 14px; } }
+@media (max-width: 700px) { .app-header { align-items: flex-start; flex-wrap: wrap; gap: 4px 20px; } .app-header h1 { font-size: 20px; } .live-connection { font-size: 13px; } .office-workspace { gap: 24px; } .live-office-frame { height: clamp(240px, 42vw, 280px); } .office-overview { grid-template-columns: 1fr; gap: 24px; } .app-nav-icon { display: none; } .app-nav a { font-size: 14px; } }
 .skip-link { position: fixed; z-index: 10; top: 8px; left: 8px; padding: 10px 14px; color: var(--white); background: var(--ink); transform: translateY(-160%); }
 .skip-link:focus { transform: translateY(0); }
 @media (max-width: 700px) { .app-shell { display: block; } .app-sidebar { position: sticky; top: 0; z-index: 5; height: auto; display: block; padding: 12px 16px 8px; border-right: 0; border-bottom: 1px solid var(--line); } .app-brand { display: block; margin-bottom: 8px; } .app-nav { display: flex; gap: 4px; overflow-x: auto; } .app-nav a { flex: 1 0 auto; justify-content: center; white-space: nowrap; } .app-sidebar-status { display: none; } .app-header { min-height: 56px; padding: 12px 16px; } .app-main { padding: 24px 16px 48px; } }
-@media (prefers-reduced-motion: reduce) { .app-nav a, .workspace-primary { transition: none; } }
+@media (prefers-reduced-motion: reduce) { .app-nav a { transition: none; } }
 .owner-setup { max-width: 860px; display: grid; gap: 12px; margin-top: 28px; padding-top: 24px; border-top: 1px solid var(--line); }
 .owner-setup h2 { margin: 0; font-size: 22px; font-weight: 500; }
 .owner-setup p { color: var(--muted); max-width: 70ch; margin: 0; }

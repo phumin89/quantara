@@ -31,8 +31,10 @@ public static class BitkubProfileVerifier
             var before = Read(beforeBytes, currentFingerprint, now);
             var bought = Read(boughtBytes, currentFingerprint, now);
             var sold = Read(soldBytes, currentFingerprint, now);
+            // Each capture is already bounded to 24 hours below. A pause between the
+            // owner's actions does not invalidate ordered, corroborated trade evidence.
             if (before.observedAt >= bought.observedAt || bought.observedAt >= sold.observedAt ||
-                sold.observedAt - before.observedAt > TimeSpan.FromHours(2) || before.thbTotal <= 0 || sold.thbTotal <= 0 ||
+                before.thbTotal <= 0 || sold.thbTotal <= 0 ||
                 before.walletBalances.Any(b => b.Currency != "THB" && b.Total != 0) ||
                 sold.walletBalances.Any(b => b.Currency != "THB" && b.Total != 0) || before.orderHistory.Length != 0 ||
                 before.orderDetails.Length != 0 || bought.orderHistory.Length == 0 || sold.orderHistory.Length <= bought.orderHistory.Length)
@@ -53,9 +55,13 @@ public static class BitkubProfileVerifier
             if (buy.OrderId == sale.OrderId || sold.orderDetails.Length != 2 ||
                 !sold.orderDetails.Any(o => o == buy || SameOrder(o, buy))) throw Invalid();
             var received = bought.walletBalances.SingleOrDefault(b => b.Currency == "BTC")?.Total ?? 0;
+            // Market orders have no limit price; use actual fill bounds only for this
+            // read-only proof. This does not authorize market placement or adoption.
+            var buyPrice = buy.Rate > 0 ? buy.Rate : buy.History.Max(h => h.Rate);
+            var sellPrice = sale.Rate > 0 ? sale.Rate : sale.History.Min(h => h.Rate);
             if (received <= 0 || bought.walletBalances.Any(b => b.Currency is not ("THB" or "BTC") && b.Total != 0) ||
                 sale.RawAmount != received || received % .00000001m != 0 || buy.RawAmount % 1m != 0 ||
-                buy.RawAmount < market.MinimumQuoteSize || sale.RawAmount * sale.Rate < market.MinimumQuoteSize)
+                buy.RawAmount < market.MinimumQuoteSize || sale.RawAmount * sellPrice < market.MinimumQuoteSize)
                 throw Invalid();
 
             var matches = new List<BitkubVerifiedExecutionRules>();
@@ -69,9 +75,9 @@ public static class BitkubProfileVerifier
                 {
                     var account = new LiveAccountId(Guid.Empty);
                     var buyIntent = new LiveIntent(account, Guid.Empty, Guid.Empty, TradingMode.Live, "BTC-THB", OrderSide.Buy,
-                        buy.RawAmount / buy.Rate, buy.Rate, 1, 1, "canary") { BuyBudget = buy.RawAmount };
+                        buy.RawAmount / buyPrice, buyPrice, 1, 1, "canary") { BuyBudget = buy.RawAmount };
                     var buyFills = buy.History.Select(h => BitkubReconciliationSource.Normalize(account, buyIntent, buy.OrderId, h, candidate)).ToArray();
-                    var sellIntent = buyIntent with { Side = OrderSide.Sell, Quantity = received, LimitPrice = sale.Rate, BuyBudget = null };
+                    var sellIntent = buyIntent with { Side = OrderSide.Sell, Quantity = received, LimitPrice = sellPrice, BuyBudget = null };
                     var sellFills = sale.History.Select(h => BitkubReconciliationSource.Normalize(account, sellIntent, sale.OrderId, h, candidate)).ToArray();
                     if (buyFills.Sum(f => f.Quantity) == received && sellFills.Sum(f => f.Quantity) == received &&
                         before.thbTotal - bought.thbTotal == buyFills.Sum(f => f.GrossQuoteAmount + f.CashFee) &&
@@ -80,6 +86,7 @@ public static class BitkubProfileVerifier
                 catch (InvalidDataException) { /* Try only the explicitly supported accounting conventions. */ }
             }
             var amountModes = matches.Select(m => m.BuyHistoryAmount).Distinct().ToArray();
+            if (amountModes.Length > 1) throw new InvalidDataException("BITKUB_BUY_CASH_FEE_NOT_PROVEN");
             if (amountModes.Length != 1) throw Invalid();
             // Exact evidence does not prove a rounding convention. Keep Exact in that case.
             var selected = matches.FirstOrDefault(m => m.Pairs[0].BuyBaseRounding == BitkubBuyBaseRounding.Exact) ?? matches.Single();
@@ -132,7 +139,7 @@ public static class BitkubProfileVerifier
     {
         var order = capture.orderDetails.Single();
         if (order.Symbol != "BTC-THB" || order.Side != (side == "buy" ? OrderSide.Buy : OrderSide.Sell) ||
-            order.Status != "filled" || order.PartiallyFilled || order.RawRemaining != 0 || order.RawAmount <= 0 || order.Rate <= 0 ||
+            order.Status != "filled" || order.PartiallyFilled || order.RawRemaining != 0 || order.RawAmount <= 0 || order.Rate < 0 ||
             order.RawTotal != order.RawAmount || order.RawFilled <= 0 || order.RawFilled > order.RawTotal || order.OrderId != order.FirstOrderId ||
             order.OrderId != order.LastOrderId || order.ParentOrderId != order.OrderId && order.ParentOrderId != "0" ||
             order.History is null || order.History.Count is 0 or > 8 || order.History.Count != capture.orderHistory.Length ||
@@ -144,12 +151,13 @@ public static class BitkubProfileVerifier
             if (raw is null || string.IsNullOrWhiteSpace(raw.TransactionId)) throw Invalid();
             var history = capture.orderHistory.Single(h => h.TransactionId == raw.TransactionId);
             if (raw.OrderId != order.OrderId || history.OrderId != order.OrderId || history.ParentOrderId != order.OrderId ||
-                history.SuperOrderId != order.OrderId || history.ClientId != order.ClientId || history.Side != side || history.Type != "limit" ||
+                history.SuperOrderId != order.OrderId || history.ClientId != order.ClientId || history.Side != side ||
+                history.Type != (order.Rate == 0 ? "market" : "limit") ||
                 history.Rate != raw.Rate || history.RawAmount != raw.RawAmount || history.ReportedFee != raw.ReportedFee ||
                 history.FeeCredit != raw.FeeCredit || history.Timestamp != raw.Timestamp ||
                 history.Timestamp <= after.ToUnixTimeMilliseconds() || history.Timestamp > capture.observedAt.ToUnixTimeMilliseconds() ||
-                raw.Rate <= 0 || raw.RawAmount <= 0 || raw.ReportedFee < 0 || raw.FeeCredit < 0 || raw.FeeCredit > raw.ReportedFee ||
-                side == "buy" && raw.Rate > order.Rate || side == "sell" && raw.Rate < order.Rate) throw Invalid();
+                raw.Rate <= 0 || raw.Rate % .01m != 0 || raw.RawAmount <= 0 || raw.ReportedFee < 0 || raw.FeeCredit < 0 || raw.FeeCredit > raw.ReportedFee ||
+                order.Rate > 0 && (side == "buy" && raw.Rate > order.Rate || side == "sell" && raw.Rate < order.Rate)) throw Invalid();
         }
         if (order.ReportedFee != order.History.Sum(h => h.ReportedFee) || order.FeeCredit != order.History.Sum(h => h.FeeCredit)) throw Invalid();
         return order;
