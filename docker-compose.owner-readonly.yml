@@ -3,7 +3,8 @@ services:
     build: { context: ./src, dockerfile: TradingCompany.LiveExecution/Dockerfile }
     image: quantara-owner-readonly:latest
     restart: unless-stopped
-    ports: ["127.0.0.1:3000:3000", "127.0.0.1:7443:7443"]
+    # First Docker port link opens the app through a fixed HTTPS redirect.
+    ports: ["127.0.0.1:2080:2080", "127.0.0.1:3000:3000", "127.0.0.1:7443:7443"]
     environment:
       ASPNETCORE_ENVIRONMENT: Production
       OwnerWeb__ProxyEnabled: 'true'

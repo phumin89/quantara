@@ -1,5 +1,9 @@
 # Live implementation evidence
 
+## Funded observation and Docker launch repair: 2026-10-06
+
+Latest signed wallet observation: **THB 5,000**, Trade probe passed, no holdings/open orders/history. The private funded baseline was captured; no order or activation occurred. Fixed Docker's HTTP/IP launch through the existing owner's loopback-only `2080:2080` entry, redirecting to canonical HTTPS without exposing account data/actions. Focused owner/proxy/coordinator checks **94 passed**; production build, actual redirect/authentication boundaries and Windows launcher passed. Remembered viewing remains intact. See [the launch review](docker-launch-review-2026-10-06.md). Actual buy/sell settlement proof, intentional owner activation and a reconciled app order remain outstanding.
+
 ## Explicit owner activation and broker proof tooling: 2026-10-06
 
 The owner has requested Live activation and chosen full available Spot capital; repeated limit/activation approval questions are not a remaining blocker. Added private three-capture profile verification, an explicit owner activation command and operator scripts, and corrected newly provisioned account recovery. **536 headless + 68 actual PostgreSQL checks passed**, with production reader/executor/company builds and normal-TLS deployment checks. Lead independently reviewed the actual code and corrected fixture, shape, credential, Stop and recovery cases.

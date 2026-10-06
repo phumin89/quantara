@@ -14,6 +14,8 @@ Start Docker Desktop, then double-click `Quantara.cmd`. It opens the app and reu
 
 Open [Quantara](https://localhost:3000). The launcher requires the existing trusted localhost certificate and ports 3000/7443 either free or occupied by the verified owned service. It starts only the owner service and internal frontend. Both restart with Docker; closing the terminal does not stop the app. Use `-Rebuild` on the script after source changes. Existing TLS files and remembered viewing remain intact during normal startup.
 
+From Docker Desktop, click **2080:2080** on the `owner` service. Its loopback-only HTTP entry redirects to `https://localhost:3000`, preserving the existing browser identity. Port 2080 must also be available. Ports 3000 and 7443 require HTTPS; Docker's HTTP/IP links for those ports are not launch links. The HTTP entry serves only redirects for the three public pages; owner data and actions remain on authenticated HTTPS.
+
 Pair once in Account or Trading using the local code window. Select **จำเบราว์เซอร์นี้สำหรับดูบัญชี 30 วัน** to retain viewing access across browser closures and service restarts. Navigation and normal startup do not ask for a new code. Without that choice, access lasts eight hours and is lost on restart. Logging out forgets the browser. A fresh local code is available through `tools/pair-live-owner.ps1`; issuing it revokes the prior session, so request one only when needed.
 
 The owner-entered Bitkub key and secret stay in the ignored project `.env`, mounted read-only only in the owner service. Never paste them into chat. Remembered viewing is encrypted, revocable and separate from financial control access. Installing, pairing, remembering, restarting or opening the app does not activate Live trading. Pixel artwork is bundled with the frontend; it needs no additional Pixel server or scheduled AI process.
@@ -31,7 +33,7 @@ The Docker verification runner mounts source/test files only, not broker credent
 
 ## Remaining Live gates
 
-The execution, provisioning, daily baseline, isolated CEO and reconciliation paths are implemented and tested. Current actual broker evidence is THB 0 with successful Trade permission, no supported open orders or history. Funding and real buy/sell settlement proof remain necessary before preparing the verified private BTC profile. Use `tools/bitkub-proof.ps1` to capture and verify that evidence; see [the operator steps](docs/bitkub-small-capital-proof.md).
+The execution, provisioning, daily baseline, isolated CEO and reconciliation paths are implemented and tested. The latest signed observation is THB 5,000 with successful Trade permission, no supported open orders or history. Real buy/sell settlement proof remains necessary before preparing the verified private BTC profile. Use `tools/bitkub-proof.ps1` to capture and verify that evidence; see [the operator steps](docs/bitkub-small-capital-proof.md).
 
 After the profile passes, the owner intentionally runs `pwsh -NoProfile -File tools/activate-live.ps1`. It validates the current key/profile, initializes a funded account under the approved full-Spot mandate, reconciles and arms through the existing owner controls, then starts the isolated CEO. This permits subsequent real orders that pass the deterministic RiskEngine. It never clears an owner Stop or resets losses. Missing evidence fails closed. A real app order and durable recovery proof remain outstanding; synthetic tests are not completed Live trading.
 

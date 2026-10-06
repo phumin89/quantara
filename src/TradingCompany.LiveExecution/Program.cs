@@ -61,12 +61,20 @@ public class LiveProgram
             if (containerHost)
             {
                 options.ListenAnyIP(7443, endpoint => endpoint.UseHttps());
-                if (serveOwnerWeb) options.ListenAnyIP(3000, endpoint => endpoint.UseHttps());
+                if (serveOwnerWeb)
+                {
+                    options.ListenAnyIP(3000, endpoint => endpoint.UseHttps());
+                    options.ListenAnyIP(2080);
+                }
             }
             else
             {
                 options.ListenLocalhost(7443, endpoint => endpoint.UseHttps());
-                if (serveOwnerWeb) options.ListenLocalhost(3000, endpoint => endpoint.UseHttps());
+                if (serveOwnerWeb)
+                {
+                    options.ListenLocalhost(3000, endpoint => endpoint.UseHttps());
+                    options.ListenLocalhost(2080);
+                }
             }
         });
         builder.Services.AddSingleton<TimeProvider>(TimeProvider.System);
@@ -154,6 +162,11 @@ public class LiveProgram
         {
             context.Response.Headers.CacheControl = "no-store";
             context.Response.Headers.XContentTypeOptions = "nosniff";
+            if (serveOwnerWeb && context.Connection.LocalPort == 2080)
+            {
+                OwnerLaunchRedirect.Handle(context);
+                return;
+            }
             if (serveOwnerWeb && context.Request.Host.Value == "localhost:3000")
             {
                 using var frontend = context.RequestServices.GetRequiredService<IHttpClientFactory>().CreateClient("owner-web");

@@ -28,7 +28,7 @@ if ($ownedHostRunning -and -not $Rebuild -and -not $liveEnabled) {
         return
     }
 }
-foreach ($localPort in @(3000,7443)) {
+foreach ($localPort in @(2080,3000,7443)) {
     if ((Get-NetTCPConnection -State Listen -LocalPort $localPort -ErrorAction SilentlyContinue) -and -not $ownedHostRunning) {
         throw "Port $localPort is in use. No process was stopped. Stop the existing app before starting this viewer."
     }
