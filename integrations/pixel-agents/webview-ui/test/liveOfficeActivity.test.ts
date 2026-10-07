@@ -50,7 +50,7 @@ function message(value: unknown, origin = LIVE_ACTIVITY_ORIGIN, source: unknown 
   return readLiveOfficeMessage({ source, origin, data: { type: 'quantara-live-activity', activity: value } }, parent, viewer, now);
 }
 
-test('starts empty and only projects the working role reported by a fresh Live event', () => {
+test('fresh activity shows configured staff and animates only the reported working role', () => {
   const state = office();
   applyLiveOfficeActivity(state, readLiveOfficeActivity(undefined, now));
   assert.equal(state.getCharacters().length, 0);
@@ -58,7 +58,7 @@ test('starts empty and only projects the working role reported by a fresh Live e
   assert.ok(accepted?.activity);
   applyLiveOfficeActivity(state, accepted.activity);
   const [character] = state.getCharacters();
-  assert.equal(state.getCharacters().length, 1);
+  assert.equal(state.getCharacters().length, 8);
   assert.equal(character.id, 1);
   assert.equal(character.agentName, 'ceo');
   assert.equal(character.isActive, true);
@@ -68,8 +68,8 @@ test('starts empty and only projects the working role reported by a fresh Live e
   assert.equal(character.matrixEffect, null);
 });
 
-test('missing, empty and expired activity immediately clears characters and their seats', () => {
-  for (const value of [undefined, null, { ...activity(), roles: [] }, { ...activity(), meetingId: null, roles: [] }, { ...activity(), observedAt: new Date(now - 45_000).toISOString() }, { ...activity(), observedAt: new Date(now - 45_001).toISOString() }]) {
+test('missing, invalid and expired activity immediately clears characters and their seats', () => {
+  for (const value of [undefined, null, { ...activity(), observedAt: new Date(now - 45_000).toISOString() }, { ...activity(), observedAt: new Date(now - 45_001).toISOString() }, { ...activity(), meetingId: null, roles: [], observedAt: new Date(now - 45_000).toISOString() }]) {
     const state = office();
     applyLiveOfficeActivity(state, readLiveOfficeActivity(activity(), now));
     const accepted = message(value);
@@ -78,6 +78,28 @@ test('missing, empty and expired activity immediately clears characters and thei
     assert.equal(state.getCharacters().length, 0);
     assert.equal([...state.seats.values()].some((seat) => seat.assigned), false);
   }
+});
+
+test('valid empty heartbeat keeps all configured staff inactive', () => {
+  const state = office();
+  const accepted = message({ ...activity(), meetingId: null, roles: [] });
+  assert.ok(accepted?.activity);
+  applyLiveOfficeActivity(state, accepted.activity);
+  assert.equal(state.getCharacters().length, 8);
+  assert.equal(state.getCharacters().filter(character => character.isActive).length, 0);
+});
+
+test('a new failed scout snapshot keeps the team at its seats and clears earlier work', () => {
+  const state = office();
+  applyLiveOfficeActivity(state, readLiveOfficeActivity(activity(), now));
+  const positions = state.getCharacters().map(character => [character.id, character.x, character.y]);
+  const scout = { ...activity(), meetingId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', roles: [{ ...activity().roles[0], role: 'market-research', status: 'failed' }] };
+  applyLiveOfficeActivity(state, readLiveOfficeActivity(scout, now));
+  assert.deepEqual(state.getCharacters().map(character => [character.id, character.x, character.y]), positions);
+  assert.equal(state.getCharacters().filter(character => character.isActive).length, 0);
+  applyLiveOfficeActivity(state, readLiveOfficeActivity({ ...scout, roles: [{ ...scout.roles[0], status: 'working' }] }, now));
+  assert.deepEqual(state.getCharacters().filter(character => character.isActive).map(character => character.agentName), ['market-research']);
+  assert.equal(state.characters.get(1)?.isActive, false);
 });
 
 test('rejects foreign origins, other frames, self messages and standalone viewers', () => {
@@ -153,7 +175,7 @@ test('completed, failed and idle roles remain inactive, static and at their seat
   ] }, now));
   const before = state.getCharacters().map((character) => ({ id: character.id, x: character.x, y: character.y }));
   for (let index = 0; index < 1_200; index++) animateLiveOfficeWork(state, 0.25);
-  assert.equal(state.getCharacters().length, 3);
+  assert.equal(state.getCharacters().length, 8);
   for (const character of state.getCharacters()) {
     assert.equal(character.isActive, false);
     assert.equal(character.state, CharacterState.IDLE);
@@ -183,7 +205,7 @@ test('known roles keep stable IDs and seats across sparse snapshots and account 
   assert.deepEqual(state.getCharacters().map((character) => character.id).sort((a, b) => a - b), [1, 2, 3, 4, 5, 6, 7, 8]);
   const finalSeat = state.characters.get(8)?.seatId;
   applyLiveOfficeActivity(state, readLiveOfficeActivity({ ...allRoles, accountContext: { mode: 1, accountId: 'fedcba9876543210fedcba9876543210' }, roles: [allRoles.roles[7]] }, now));
-  assert.deepEqual(state.getCharacters().map((character) => character.id), [8]);
+  assert.deepEqual(state.getCharacters().map((character) => character.id).sort((a, b) => a - b), [1, 2, 3, 4, 5, 6, 7, 8]);
   assert.equal(state.characters.get(8)?.seatId, finalSeat);
   assert.equal(state.characters.get(8)?.isActive, false);
 });
@@ -202,10 +224,12 @@ test('the default artwork seats roles at chairs, then benches, then sofas withou
   assert.equal(characters.length, 8);
   assert.equal(new Set(characters.map((character) => character.seatId)).size, 8);
   assert.equal(new Set(characters.map((character) => `${character.tileCol},${character.tileRow}`)).size, 8);
-  const seatTypes = characters.map((character) => state.layout.furniture.find((item) => character.seatId === item.uid || character.seatId?.startsWith(`${item.uid}:`))?.type);
+  const seatFurniture = characters.map((character) => state.layout.furniture.find((item) => character.seatId === item.uid || character.seatId?.startsWith(`${item.uid}:`)));
+  const seatTypes = seatFurniture.map((item) => item?.type);
   assert.ok(seatTypes.slice(0, 4).every((type) => type?.startsWith('WOODEN_CHAIR')));
   assert.ok(seatTypes.slice(4, 6).every((type) => type === 'CUSHIONED_BENCH'));
   assert.ok(seatTypes.slice(6).every((type) => type?.startsWith('SOFA')));
+  assert.equal(new Set(seatFurniture.slice(6).map((item) => item?.uid)).size, 2);
   for (const character of characters) {
     const seat = state.seats.get(character.seatId!);
     assert.ok(seat);

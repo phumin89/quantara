@@ -8,7 +8,7 @@ export type LiveActivity = {
 };
 export type LiveIssue = { code: string; symbol?: string | null };
 export const liveIssueCodes = ["MARKET_HISTORY_UNAVAILABLE", "PUBLIC_RESEARCH_UNAVAILABLE", "LIVE_READ_UNAVAILABLE", "ACCOUNT_STATE_INVALID", "JOURNAL_UNAVAILABLE", "MEETING_FAILED"] as const;
-const roles = ["ceo", "chief-of-staff", "market-research", "security-analysis", "quant-research", "portfolio-initial", "risk-critic", "portfolio-final"];
+export const liveActivityRoles = ["ceo", "chief-of-staff", "market-research", "security-analysis", "quant-research", "portfolio-initial", "risk-critic", "portfolio-final"];
 export const activityLifetime = 45000;
 const object = (v: unknown): v is Record<string, any> => !!v && typeof v === "object" && !Array.isArray(v);
 const timestamp = (v: unknown): v is string => typeof v === "string" && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,7})?(?:Z|[+-]\d{2}:\d{2})$/.test(v) &&
@@ -28,7 +28,7 @@ export function validLiveActivity(v: unknown, accountId: string, now = Date.now(
     (v.issues !== undefined && !validLiveIssues(v.issues)) || (v.nextRetryAt !== undefined && v.nextRetryAt !== null && (!timestamp(v.nextRetryAt) || Math.abs(Date.parse(v.nextRetryAt) - Date.parse(v.observedAt)) > 86400000)) ||
     !(v.meetingId === null && v.roles.length === 0 || typeof v.meetingId === "string" &&
       /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(v.meetingId) && !/^0{8}-0{4}-0{4}-0{4}-0{12}$/.test(v.meetingId))) return false;
-  return v.roles.every((r: unknown) => object(r) && roles.includes(r.role) && ["idle", "working", "completed", "failed"].includes(r.status) &&
+  return v.roles.every((r: unknown) => object(r) && liveActivityRoles.includes(r.role) && ["idle", "working", "completed", "failed"].includes(r.status) &&
     timestamp(r.changedAt) && Date.parse(r.changedAt) <= Date.parse(v.observedAt)) &&
     new Set(v.roles.map((r: any) => r.role)).size === v.roles.length && v.roles.filter((r: any) => r.status === "working").length <= 1;
 }

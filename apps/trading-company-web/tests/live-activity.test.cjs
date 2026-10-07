@@ -76,10 +76,21 @@ test('working activity hides stale saved issues and retry until the role finishe
   const activity = { ...make(now), coordinatorStatus: 'LIVE_BLOCKED', issues: [{ code: 'ACCOUNT_STATE_INVALID' }], nextRetryAt: new Date(now + 3600000).toISOString() };
   const render = value => renderToStaticMarkup(React.createElement(LiveOffice, { activity: value }));
   const working = render(activity);
-  assert.ok(working.includes('CEOกำลังวิเคราะห์'));
+  assert.ok(working.includes('CEO กำลังวิเคราะห์'));
   assert.ok(!working.includes('สถานะบัญชีไม่ถูกต้อง'));
-  assert.ok(!working.includes('ลองอีกครั้ง'));
+  assert.ok(!working.includes('ตรวจอีกครั้ง'));
   const completed = render({ ...activity, roles: [{ ...activity.roles[0], status: 'completed' }] });
   assert.ok(completed.includes('สถานะบัญชีไม่ถูกต้อง'));
-  assert.ok(completed.includes('ลองอีกครั้ง'));
+  assert.ok(completed.includes('ตรวจอีกครั้ง'));
+});
+test('office distinguishes configured staff from actual working roles', () => {
+  const activity = { ...make(Date.parse('2026-10-07T07:00:00Z')), coordinatorStatus: 'READ_ONLY', roles: [{ role: 'market-research', status: 'failed', changedAt: '2026-10-07T07:00:00Z' }] };
+  const render = value => renderToStaticMarkup(React.createElement(LiveOffice, { activity: value }));
+  const idle = render(activity);
+  assert.ok(idle.includes('ทีม 8 บทบาท'));
+  assert.ok(idle.includes('เฝ้าตลาด'));
+  assert.ok(!idle.includes('กำลังทำงาน'));
+  assert.ok(render({ ...activity, roles: [{ ...activity.roles[0], status: 'working' }] }).includes('กำลังทำงาน 1'));
+  assert.ok(render({ ...activity, coordinatorStatus: undefined, researchSymbols: ['BTC-THB'] }).includes('ทีม 8 บทบาท · วิเคราะห์ BTC'));
+  assert.ok(!render(undefined).includes('ทีม 8 บทบาท'));
 });

@@ -91,7 +91,12 @@ export function readLiveOfficeMessage(
 }
 
 export function applyLiveOfficeActivity(state: OfficeState, activity: LiveOfficeActivity | null): void {
-  const roles = activity?.roles ?? [];
+  const reported = new Map(activity?.roles.map(role => [role.role, role]) ?? []);
+  // Staff presence is configuration; work status must come from fresh telemetry.
+  const roles = activity ? LIVE_ACTIVITY_ROLES.map(role => reported.get(role) ?? {
+    role,
+    status: 'idle' as const,
+  }) : [];
   const ids = new Set(roles.map(({ role }) => LIVE_ACTIVITY_ROLES.indexOf(role) + 1));
   for (const id of state.characters.keys()) {
     if (ids.has(id)) continue;
@@ -104,7 +109,10 @@ export function applyLiveOfficeActivity(state: OfficeState, activity: LiveOffice
   const seatPriority = (id: string) => {
     const furniture = state.layout.furniture.find((item) => id === item.uid || id.startsWith(`${item.uid}:`));
     const label = furniture ? getCatalogEntry(furniture.type)?.label.toLowerCase() ?? '' : '';
-    return label.includes('chair') ? 0 : label.includes('bench') ? 1 : 2;
+    if (label.includes('chair')) return 0;
+    if (label.includes('bench')) return 1;
+    // Prefer different sofas before adjacent cells on the same vertical sofa.
+    return furniture && id !== furniture.uid ? 3 : 2;
   };
   const seats = [...state.seats.keys()].sort().sort((left, right) => seatPriority(left) - seatPriority(right));
   for (const role of roles) {

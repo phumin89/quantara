@@ -71,14 +71,15 @@ test('reconciliation and permission are separate from actual team activity', () 
   assert.doesNotMatch(stopped + lost, /<details[^>]*\bopen/);
 });
 
-test('only a real working role adds a headingless team activity label', () => {
+test('headingless team label distinguishes configured staff from actual work', () => {
   const activity = { accountContext: { mode: 1, accountId: '11223344556677889900aabbccddeeff' }, meetingId: '11223344-5566-7788-9900-aabbccddeeff', observedAt: '2026-10-06T05:00:00Z',
     roles: [{ role: 'market-research', status: 'working', changedAt: '2026-10-06T05:00:00Z' }] };
   const working = render(LiveOfficeWorkspaceView, { state: connected('ARMED'), activity });
-  assert.match(working, /<p class="live-office-activity" role="status">ทีมตลาดกำลังวิเคราะห์<\/p>/);
+  assert.match(working, /<p class="live-office-activity" role="status">ทีม 8 บทบาท · กำลังทำงาน 1 · ทีมตลาด กำลังวิเคราะห์<\/p>/);
   assert.doesNotMatch(working, /<h[1-6][^>]*>ทีมตลาด|<h[1-6][^>]*>สำนักงาน Pixel/);
   const idle = render(LiveOfficeWorkspaceView, { state: connected('ARMED'), activity: { ...activity, roles: [{ ...activity.roles[0], status: 'completed' }] } });
-  assert.doesNotMatch(idle, /live-office-activity|กำลังวิเคราะห์/);
+  assert.match(idle, /ทีม 8 บทบาท/);
+  assert.doesNotMatch(idle, /กำลังทำงาน|กำลังวิเคราะห์/);
 });
 
 test('idle chat gives one status, a recovery route, and avoids fabricated meeting absence', () => {

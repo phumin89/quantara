@@ -102,7 +102,7 @@ async function start(): Promise<void> {
       expiry = null;
       if (activity && !isLiveOfficeActivityFresh(activity, Date.now())) activity = null;
       applyLiveOfficeActivity(state, activity);
-      if (activity?.roles.length) {
+      if (activity) {
         expiry = window.setTimeout(() => {
           activity = null;
           refreshActivity();
