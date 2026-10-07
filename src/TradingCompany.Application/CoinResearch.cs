@@ -48,6 +48,6 @@ public static partial class CoinResearchValidation
         return JsonSerializer.SerializeToUtf8Bytes(value).Length <= 24 * 1024;
     }
     private static bool Text(string? value, int maximum) => !string.IsNullOrWhiteSpace(value) && value.Length <= maximum && !value.Any(c => char.IsControl(c) && c is not ('\n' or '\r' or '\t'));
-    [GeneratedRegex("^[A-Z0-9]{2,15}-THB$")]
+    [GeneratedRegex("^[A-Z0-9]{1,15}-THB$")]
     private static partial Regex SymbolPattern();
 }

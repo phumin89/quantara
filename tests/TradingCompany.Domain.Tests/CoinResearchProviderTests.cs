@@ -63,19 +63,28 @@ public sealed class CoinResearchProviderTests
         var handler = new Handler((request, _) =>
         {
             var body = request.RequestUri!.AbsolutePath.EndsWith("symbols", StringComparison.Ordinal)
-                ? "{\"error\":0,\"result\":[{\"symbol\":\"BTC_THB\",\"quote_asset\":\"THB\",\"source\":\"exchange\",\"market_segment\":\"SPOT\",\"status\":\"active\",\"freeze_buy\":false,\"freeze_sell\":false,\"freeze_cancel\":false},{\"symbol\":\"BAD_USD\",\"quote_asset\":\"USD\",\"source\":\"exchange\",\"market_segment\":\"SPOT\",\"status\":\"active\",\"freeze_buy\":false,\"freeze_sell\":false,\"freeze_cancel\":false}]}"
-                : "[{\"symbol\":\"BTC_THB\",\"highest_bid\":\"100\",\"lowest_ask\":\"101\",\"quote_volume\":\"200000\",\"percent_change\":\"2\"}]";
+                ? "{\"error\":0,\"result\":[{\"symbol\":\"BTC_THB\",\"quote_asset\":\"THB\",\"source\":\"exchange\",\"market_segment\":\"SPOT\",\"status\":\"active\",\"freeze_buy\":false,\"freeze_sell\":false,\"freeze_cancel\":false},{\"symbol\":\"G_THB\",\"quote_asset\":\"THB\",\"source\":\"exchange\",\"market_segment\":\"SPOT\",\"status\":\"active\",\"freeze_buy\":false,\"freeze_sell\":false,\"freeze_cancel\":false},{\"symbol\":\"BAD_USD\",\"quote_asset\":\"USD\",\"source\":\"exchange\",\"market_segment\":\"SPOT\",\"status\":\"active\",\"freeze_buy\":false,\"freeze_sell\":false,\"freeze_cancel\":false}]}"
+                : "[{\"symbol\":\"BTC_THB\",\"highest_bid\":\"100\",\"lowest_ask\":\"101\",\"quote_volume\":\"200000\",\"percent_change\":\"2\"},{\"symbol\":\"G_THB\",\"highest_bid\":\"10\",\"lowest_ask\":\"11\",\"quote_volume\":\"300000\",\"percent_change\":\"-1\"}]";
             var response = new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(body, Encoding.UTF8, "application/json") };
             response.RequestMessage = request;
             return Task.FromResult(response);
         });
         var provider = new CoinResearchProvider(new Factory(handler), null!, null!, TimeProvider.System);
         var rows = await provider.ObserveMarketsAsync(default);
-        var row = Assert.Single(rows);
-        Assert.Equal("BTC-THB", row.Symbol);
-        Assert.Equal(200000m, row.QuoteVolume24h);
-        Assert.True(row.Active);
-        Assert.False(row.Frozen);
+        Assert.Equal(2, rows.Count);
+        var btc = Assert.Single(rows, row => row.Symbol == "BTC-THB");
+        Assert.Equal(200000m, btc.QuoteVolume24h);
+        Assert.True(btc.Active);
+        Assert.False(btc.Frozen);
+        var g = Assert.Single(rows, row => row.Symbol == "G-THB");
+        Assert.Equal(300000m, g.QuoteVolume24h);
+        Assert.True(g.Active);
+        Assert.False(g.Frozen);
+        Assert.True(CoinResearchValidation.ValidSymbol("G-THB"));
+        Assert.False(CoinResearchValidation.ValidSymbol("BAD_USD"));
+        Assert.False(CoinResearchValidation.ValidSymbol("ABCDEFGHIJKLMNOP-THB"));
+        Assert.False(CoinResearchValidation.ValidSymbol("-THB"));
+        Assert.False(CoinResearchValidation.ValidSymbol("g-THB"));
     }
 
     private sealed class Factory(HttpMessageHandler handler) : IHttpClientFactory

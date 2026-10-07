@@ -15,13 +15,19 @@ public sealed class LiveMeetingReportTests
             LiveRiskTests.Snapshot, [], [], []) { PerformanceBaseline = new(new(2026, 9, 27), 1000, 1000) };
         var before = account;
         var tx = new LiveAccountTransaction(account, (_, _) => Task.CompletedTask);
-        tx.RecordMeeting(Report(), Now);
+        var report = Report() with { Summary = Report().Summary! with
+        {
+            Research = new(Now, new string('b', 64),
+                [new("G-THB", 10, 11, 300000, -1, 10, 500, false, false)], [], [], [])
+        } };
+        tx.RecordMeeting(report, Now);
 
         var saved = Assert.Single(LiveMeetingReports.Read(tx.Account));
         Assert.Equal(Report().BusinessDate, saved.BusinessDate);
         Assert.Equal(Report().AttemptId, saved.AttemptId);
         Assert.Equal(Report().Status, saved.Status);
         Assert.Equal(Report().Summary!.Reports, saved.Summary!.Reports);
+        Assert.Equal("G-THB", Assert.Single(saved.Summary.Research!.Watchlist).Symbol);
         Assert.Equal(before.Snapshot, tx.Account.Snapshot);
         Assert.Equal(before.Gate, tx.Account.Gate);
         Assert.Equal(before.Mandate, tx.Account.Mandate);

@@ -7,7 +7,7 @@ type Finding = { symbol: string; summary: string; claims: Claim[] };
 export type ResearchBrief = { observedAt: string; changeKey: string; watchlist: Candidate[]; sources: Source[]; findings: Finding[]; gaps: string[] };
 const object = (v: unknown): v is Record<string, unknown> => !!v && typeof v === "object" && !Array.isArray(v);
 const text = (v: unknown, max: number): v is string => typeof v === "string" && v.trim().length > 0 && v.length <= max && !/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/.test(v);
-const symbol = (v: unknown): v is string => typeof v === "string" && /^[A-Z0-9]{2,15}-THB$/.test(v);
+const symbol = (v: unknown): v is string => typeof v === "string" && /^[A-Z0-9]{1,15}-THB$/.test(v);
 const hash = (v: unknown): v is string => typeof v === "string" && /^[0-9a-f]{64}$/i.test(v);
 const number = (v: unknown, max = 1e18): v is number => typeof v === "number" && Number.isFinite(v) && v >= 0 && v <= max;
 const isoTime = (v: unknown): v is string => typeof v === "string" && /^\d{4}-\d{2}-\d{2}T/.test(v) && Number.isFinite(Date.parse(v));
