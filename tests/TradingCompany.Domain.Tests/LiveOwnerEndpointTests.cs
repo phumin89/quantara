@@ -207,6 +207,84 @@ public sealed class LiveOwnerEndpointTests
         }
     }
 
+    [Fact]
+    public async Task Owner_meetings_supports_date_filtering_and_preserves_history_index()
+    {
+        await using var factory = new Factory();
+        await SeedMeetings(factory);
+        using var client = await factory.Owner();
+
+        var before = factory.Store.Account;
+        factory.Source.Fail = true;
+        factory.Evidence.Fail = true;
+
+        var all = await client.GetFromJsonAsync<JsonElement>("/live/meetings");
+        Assert.Equal(31, all.GetProperty("meetings").GetArrayLength());
+        Assert.Equal(new[] { "2026-09-26", "2026-09-25", "2026-09-23" },
+            all.GetProperty("availableDates").EnumerateArray().Select(x => x.GetString()).ToArray());
+        Assert.Null(all.GetProperty("selectedDate").GetString());
+
+        var old = await client.GetFromJsonAsync<JsonElement>("/live/meetings?date=2026-09-23");
+        Assert.Equal(1, old.GetProperty("meetings").GetArrayLength());
+        Assert.Equal("2026-09-23", old.GetProperty("selectedDate").GetString());
+
+        var busy = await client.GetFromJsonAsync<JsonElement>("/live/meetings?date=2026-09-25");
+        Assert.Equal(25, busy.GetProperty("meetings").GetArrayLength());
+        Assert.All(busy.GetProperty("meetings").EnumerateArray(), meeting =>
+            Assert.Equal("2026-09-25", meeting.GetProperty("businessDate").GetString()));
+
+        var empty = await client.GetFromJsonAsync<JsonElement>("/live/meetings?date=2026-09-24");
+        Assert.Empty(empty.GetProperty("meetings").EnumerateArray());
+        Assert.Equal("2026-09-24", empty.GetProperty("selectedDate").GetString());
+        Assert.Equal(before.Snapshot, factory.Store.Account.Snapshot);
+        Assert.Equal(before.Gate, factory.Store.Account.Gate);
+        Assert.Equal(before.Mandate, factory.Store.Account.Mandate);
+        Assert.Equal(0, factory.Evidence.Reads);
+        Assert.Equal(0, factory.Broker.CancelCalls);
+    }
+
+    [Theory]
+    [InlineData("2026-9-27")]
+    [InlineData("2026-02-29")]
+    [InlineData("")]
+    [InlineData("2026-09-23&date=2026-09-25")]
+    [InlineData("2026-09-28")]
+    public async Task Owner_meetings_rejects_invalid_or_future_dates(string date)
+    {
+        await using var factory = new Factory();
+        using var client = await factory.Owner();
+        Assert.Equal(HttpStatusCode.BadRequest, (await client.GetAsync($"/live/meetings?date={date}")).StatusCode);
+    }
+
+    [Fact]
+    public async Task Anonymous_cannot_read_meetings()
+    {
+        await using var factory = new Factory();
+        using var client = factory.Client();
+        Assert.Equal(HttpStatusCode.Unauthorized, (await client.GetAsync("/live/meetings")).StatusCode);
+    }
+
+    private static async Task SeedMeetings(Factory factory)
+    {
+        var tx = new LiveAccountTransaction(factory.Store.Account, (state, _) =>
+        {
+            factory.Store.Account = state;
+            return Task.CompletedTask;
+        });
+        tx.RecordMeeting(Meeting(new(2026, 9, 23), null), LiveRiskTests.Now);
+        tx.RecordMeeting(Meeting(new(2026, 9, 25), null), LiveRiskTests.Now);
+        foreach (var hour in Enumerable.Range(0, 24))
+            tx.RecordMeeting(Meeting(new(2026, 9, 25), hour), LiveRiskTests.Now);
+        foreach (var hour in Enumerable.Range(0, 7))
+            tx.RecordMeeting(Meeting(new(2026, 9, 26), hour), LiveRiskTests.Now);
+        await tx.CommitAsync(CancellationToken.None);
+    }
+
+    private static DailyMeetingAttempt Meeting(DateOnly date, int? hour) => new(date, Guid.NewGuid(), "HOLD", ReviewHour: hour)
+    {
+        AccountContext = new(TradingMode.Live, LiveRiskTests.Account.Value.ToString("N"))
+    };
+
     [Theory]
     [InlineData(false)]
     [InlineData(true)]

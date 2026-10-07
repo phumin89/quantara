@@ -18,7 +18,7 @@ test('meeting parser rejects malformed summaries, duplicate roles and cross-acco
 });
 test('saved view leads with final conclusion, has dates and readable optional role history',()=>{
  const m=readMeetings(fixture()).meetings;const html=renderToStaticMarkup(React.createElement(LiveMeetingView,{meetings:m,selected:'',onSelect(){}}));
- assert.ok(html.includes('คงพอร์ต'));assert.ok(html.includes('<select'));assert.ok(html.indexOf('เก็บเงินสด')<html.indexOf('อ่านเหตุผลจากทีม'));assert.ok(html.includes('ข้อเสนอแรกก่อนตรวจความเสี่ยง'));assert.ok(!html.includes('risk-critic'));
+ assert.ok(html.includes('คงพอร์ต'));assert.ok(html.includes('รอบประชุม · ประชุมประจำวัน'));assert.ok(html.indexOf('เก็บเงินสด')<html.indexOf('อ่านเหตุผลจากทีม'));assert.ok(html.includes('ข้อเสนอแรกก่อนตรวจความเสี่ยง'));assert.ok(!html.includes('risk-critic'));
  m[0].status='ORDER_PENDING';assert.ok(renderToStaticMarkup(React.createElement(LiveMeetingView,{meetings:m,selected:'',onSelect(){}})).includes('ยังรอยืนยันผลจากตลาด'));
 });
 test('report reads require fixed HTTPS and never confuse unauthorized with an empty report',async()=>{
@@ -41,4 +41,28 @@ test('research provenance and meeting date are enforced at feed boundary',()=>{
  const base={observedAt:'2026-10-06T02:00:00Z',changeKey:'a'.repeat(64),watchlist:[],sources:[{id:'doc-'+'b'.repeat(64),symbol:'BTC-THB',title:'Bitcoin project',url:'https://bitcoin.org/',contentHash:'b'.repeat(64),retrievedAt:'2026-10-06T01:00:00Z'}],findings:[],gaps:[]};
  for(const mutate of [v=>{v.sources[0].retrievedAt='2026-10-06T03:00:00Z';return v;},v=>{v.sources[0].retrievedAt='2026-10-03T01:00:00Z';return v;}]) { const candidate=mutate(structuredClone(base)); assert.ok(readResearch(base,Date.parse('2026-10-07T00:00:00Z'))); assert.equal(readResearch(candidate,Date.parse('2026-10-07T00:00:00Z')),undefined); }
  const x=fixture(); x.meetings[0].businessDate='2026-10-07'; x.meetings[0].summary.research=base; assert.equal(readMeetings(x),undefined); const malformed=fixture(); malformed.meetings[0].summary.research={...base,watchlist:[{symbol:'btc-thb'}]}; assert.equal(readMeetings(malformed),undefined);
+});
+test('date filtering validates metadata, encodes the request, and never falls back to another day',async()=>{
+ const calls=[]; const requested='2026-10-06'; const response={...fixture(),availableDates:['2026-10-06','2026-10-05'],selectedDate:requested};
+ const fetcher=async(url)=>{calls.push(url);return Response.json(response);}; const parsed=await readLiveMeetings('https://localhost:3000',fetcher,undefined,requested); assert.equal(parsed.selectedDate,requested); assert.ok(calls[0].includes('?date=2026-10-06'));
+ calls.length=0; assert.equal(await readLiveMeetings('https://localhost:3000',fetcher,undefined,'2026-2-1'),undefined); assert.equal(calls.length,0);
+ const wrong=async()=>Response.json({...response,selectedDate:null}); assert.equal(await readLiveMeetings('https://localhost:3000',wrong,undefined,requested),undefined);
+ const malformed=structuredClone(response); malformed.availableDates=['2026-10-05','2026-10-06']; assert.equal(readMeetings(malformed),undefined);
+ const empty=renderToStaticMarkup(React.createElement(LiveMeetingView,{meetings:[],selected:'',onSelect(){},availableDates:['2026-10-06','2026-10-05'],selectedDate:'2026-10-05',onDateSelect(){}})); assert.ok(empty.includes('ยังไม่มีรายงานในวันที่เลือก'));
+ const many=structuredClone(fixture()); many.availableDates=Array.from({length:32},(_,i)=>new Date(Date.UTC(2026,9,31-i)).toISOString().slice(0,10)); assert.ok(readMeetings(many));
+ const mixed=structuredClone(response); mixed.meetings.push({...mixed.meetings[0],businessDate:'2026-10-05',attemptId:'cccccccc-cccc-4ccc-8ccc-cccccccccccc'}); assert.equal(readMeetings(mixed),undefined);
+ const missingIndex=structuredClone(response); missingIndex.availableDates=['2026-10-05']; assert.equal(readMeetings(missingIndex),undefined);
+ const emptyResponse={...response,availableDates:['2026-10-06','2026-10-04'],selectedDate:'2026-10-05',meetings:[]};
+ assert.ok(readMeetings(emptyResponse)); assert.ok(await readLiveMeetings('https://localhost:3000',async()=>Response.json(emptyResponse),undefined,'2026-10-05'));
+ assert.equal(readMeetings({...emptyResponse,selectedDate:'2026-10-06'}),undefined);
+ for (const invalid of ['2026-02-30','2026-10-06&account=other']) {calls.length=0; assert.equal(await readLiveMeetings('https://localhost:3000',fetcher,undefined,invalid),undefined); assert.equal(calls.length,0);}
+});
+test('date picker is visible and round options contain only the chosen day',()=>{
+ const first=fixture().meetings[0], review={...first,reviewHour:14,attemptId:'cccccccc-cccc-4ccc-8ccc-cccccccccccc'};
+ const old={...first,businessDate:'2026-10-04',attemptId:'dddddddd-dddd-4ddd-8ddd-dddddddddddd',summary:{...first.summary,reports:[{...role('portfolio-final'),summary:'old-day-report',dataCutoff:'2026-10-03'}]}};
+ const render=props=>renderToStaticMarkup(React.createElement(LiveMeetingView,{selected:'',onSelect(){},availableDates:['2026-10-06','2026-10-04'],onDateSelect(){},...props}));
+ const single=render({meetings:[first],selectedDate:'2026-10-06'}); assert.ok(single.includes('type="date"')); assert.ok(!single.includes('<select')); assert.ok(single.indexOf('type="date"')<single.indexOf('<details'));
+ const multiple=render({meetings:[review,first,old],selectedDate:'2026-10-06'}); assert.equal((multiple.match(/<option/g)||[]).length,2); assert.ok(!multiple.includes('old-day-report'));
+ const historic=render({meetings:[review,first,old],selectedDate:'2026-10-04'}); assert.ok(historic.includes('old-day-report')); assert.ok(!historic.includes('เก็บเงินสด'));
+ const empty=render({meetings:[review,first,old],selectedDate:'2026-10-05'}); assert.ok(empty.includes('ยังไม่มีรายงานในวันที่เลือก')); assert.ok(!empty.includes('old-day-report')); assert.ok(!empty.includes('เก็บเงินสด'));
 });

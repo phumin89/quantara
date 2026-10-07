@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { requestJson } from "./requestJson";
 import { CoinResearchView, readResearch } from "./CoinResearchView";
 const roles: Record<string, string> = { ceo: "CEO", "chief-of-staff": "หัวหน้าทีม", "market-research": "วิจัยตลาด", "security-analysis": "วิเคราะห์สินทรัพย์", "quant-research": "วิเคราะห์กลยุทธ์", "portfolio-initial": "ข้อเสนอแรก", "risk-critic": "ตรวจความเสี่ยง", "portfolio-final": "ผู้จัดการพอร์ต" };
@@ -7,7 +7,7 @@ const statuses: Record<string, string> = { HOLD: "คงพอร์ต · ย�
 type Scope = { mode: 1; accountId: string };
 type Report = { role: string; summary: string; providerModel: string; inputTokens: number; outputTokens: number; artifactId: string; evidenceHash: string; dataCutoff: string };
 type Meeting = { businessDate: string; reviewHour?: number | null; attemptId: string; status: string; accountContext: Scope; summary: { modelCalls: number; inputTokens: number; outputTokens: number; reports: Report[]; research?: unknown } | null };
-type Meetings = { accountContext: Scope; meetings: Meeting[] };
+type Meetings = { accountContext: Scope; meetings: Meeting[]; availableDates: string[]; selectedDate: string | null; hasDateIndex: boolean };
 const object = (v: unknown): v is Record<string, unknown> => !!v && typeof v === "object" && !Array.isArray(v);
 const text = (v: unknown, max: number): v is string => typeof v === "string" && v.length > 0 && v.length <= max;
 const count = (v: unknown): v is number => typeof v === "number" && Number.isSafeInteger(v) && v >= 0 && v <= 10_000_000;
@@ -36,38 +36,86 @@ export function readMeetings(value: unknown, now = Date.now()): Meetings | undef
       seen.add(r.role);
     }
   }
-  return { accountContext: scope as Scope, meetings: (value.meetings as Meeting[]).slice().sort((a, b) => b.businessDate.localeCompare(a.businessDate) || (b.reviewHour ?? 9) - (a.reviewHour ?? 9)) };
+  const meetings = (value.meetings as Meeting[]).slice().sort((a, b) => b.businessDate.localeCompare(a.businessDate) || (b.reviewHour ?? 9) - (a.reviewHour ?? 9));
+  const derived = Array.from(new Set(meetings.map(m => m.businessDate))).sort().reverse();
+  if (value.availableDates !== undefined && (!Array.isArray(value.availableDates) || value.availableDates.length > 10000 || value.availableDates.some(d => !date(d)) || new Set(value.availableDates).size !== value.availableDates.length || [...value.availableDates].sort().reverse().join() !== [...value.availableDates].join())) return;
+  const availableDates = (value.availableDates as string[] | undefined) ?? derived;
+  if (meetings.some(m => !availableDates.includes(m.businessDate))) return;
+  if (value.selectedDate !== undefined && value.selectedDate !== null && (!date(value.selectedDate) || meetings.some(m => m.businessDate !== value.selectedDate) ||
+      (meetings.length === 0 && availableDates.includes(value.selectedDate)))) return;
+  if (value.selectedDate == null && availableDates.length > 0 && meetings.length === 0) return;
+  return { accountContext: scope as Scope, meetings, availableDates, selectedDate: value.selectedDate === undefined ? null : value.selectedDate as string | null,
+    hasDateIndex: value.availableDates !== undefined };
 }
-export async function readLiveMeetings(origin: string, fetcher: typeof fetch = fetch, signal?: AbortSignal) {
+export async function readLiveMeetings(origin: string, fetcher: typeof fetch = fetch, signal?: AbortSignal, requestedDate?: string) {
   if (origin !== "https://localhost:3000") return;
-  const response = await requestJson("https://localhost:7443/live/meetings", { credentials: "include", signal }, fetcher);
-  return response.status === 200 ? readMeetings(response.data) : undefined;
+  if (requestedDate !== undefined && !date(requestedDate)) return;
+  const endpoint = requestedDate ? `https://localhost:7443/live/meetings?date=${encodeURIComponent(requestedDate)}` : "https://localhost:7443/live/meetings";
+  const response = await requestJson(endpoint, { credentials: "include", signal }, fetcher);
+  if (response.status !== 200) return;
+  const parsed = readMeetings(response.data);
+  if (!parsed || (requestedDate !== undefined && parsed.selectedDate !== requestedDate)) return;
+  return parsed;
 }
 export function LiveTeamReports({ enabled }: { enabled: boolean }) {
   const [data, setData] = useState<Meetings>();
   const [bad, setBad] = useState(false);
   const [selected, setSelected] = useState("");
+  const [selectedDate, setSelectedDate] = useState<string | undefined>();
+  const [pending, setPending] = useState(false);
+  const current = useRef<Meetings | undefined>(undefined);
+  const initialDate = useRef<string | undefined>(undefined);
   useEffect(() => {
-    setData(undefined); setBad(false); setSelected("");
+    current.current = undefined; initialDate.current = undefined;
+    setData(undefined); setBad(false); setSelected(""); setSelectedDate(undefined);
+  }, [enabled]);
+  useEffect(() => {
     if (!enabled) return;
     const controller = new AbortController(); let timer: ReturnType<typeof setTimeout>;
+    const chosenDate = selectedDate ?? initialDate.current;
+    const emptyDate = current.current?.hasDateIndex && chosenDate && !current.current.availableDates.includes(chosenDate);
+    setPending(!emptyDate); setBad(false);
     async function load() {
-      try { const next = await readLiveMeetings(window.location.origin, fetch, controller.signal); if (!controller.signal.aborted) { setData(next); setBad(!next); } }
-      catch { if (!controller.signal.aborted) { setData(undefined); setBad(true); } }
-      finally { if (!controller.signal.aborted) timer = setTimeout(load, 30000); }
+      const day = selectedDate ?? initialDate.current;
+      const requested = day && current.current?.hasDateIndex && current.current.availableDates.includes(day) ? day : undefined;
+      try {
+        const next = await readLiveMeetings(window.location.origin, fetch, controller.signal, requested);
+        if (!controller.signal.aborted) {
+          if (next) { current.current = next; initialDate.current ??= next.availableDates[0]; setData(next); }
+          setBad(!next);
+        }
+      }
+      catch { if (!controller.signal.aborted) setBad(true); }
+      finally { if (!controller.signal.aborted) { setPending(false); timer = setTimeout(load, 30000); } }
     }
-    void load(); return () => { controller.abort(); clearTimeout(timer); };
-  }, [enabled]);
+    if (emptyDate) timer = setTimeout(load, 30000); else void load();
+    return () => { controller.abort(); clearTimeout(timer); };
+  }, [enabled, selectedDate]);
   if (!enabled) return null;
+  const day = selectedDate ?? initialDate.current;
+  const dayLoaded = data?.selectedDate === day || (data?.selectedDate === null && data.availableDates[0] === day);
   return <section className="team-report-state"><h3>รายงานประชุม Live</h3>
-    {bad ? <p>ยังอ่านรายงานที่บันทึกไว้ไม่ได้ ข้อมูลขาดไม่ได้แปลว่าไม่มีการทำงาน</p> : !data ? <p role="status">กำลังอ่านรายงานที่บันทึกไว้…</p> : !data.meetings.length ? <p>ยังไม่มีรอบ Live ที่บันทึกไว้ การจับคู่หรือบันทึกวงเงินยังไม่เริ่มประชุม</p> :
-      <LiveMeetingView meetings={data.meetings} selected={selected} onSelect={setSelected} />}
+    {!data ? <p role="status">{bad ? "ยังอ่านรายงานไม่ได้ กรุณาลองอีกครั้ง" : "กำลังอ่านรายงาน…"}</p> :
+      <LiveMeetingView meetings={data.meetings} selected={selected} onSelect={setSelected} availableDates={data.availableDates}
+        selectedDate={day} pending={pending || (!!day && data.hasDateIndex && data.availableDates.includes(day) && !dayLoaded)}
+        failed={bad || (!!selectedDate && !data.hasDateIndex && !data.availableDates.includes(selectedDate))}
+        onDateSelect={day => { if (date(day)) { setSelectedDate(day); setSelected(""); } }} />}
   </section>;
 }
-export function LiveMeetingView({ meetings, selected, onSelect }: { meetings: Meeting[]; selected: string; onSelect: (value: string) => void }) {
-  const meeting = meetings.find(m => m.attemptId === selected) ?? meetings.find(m => m.businessDate === selected) ?? meetings[0];
+export function LiveMeetingView({ meetings, selected, onSelect, availableDates, selectedDate, onDateSelect, pending = false, failed = false }: {
+  meetings: Meeting[]; selected: string; onSelect: (value: string) => void; availableDates?: string[]; selectedDate?: string;
+  onDateSelect?: (value: string) => void; pending?: boolean; failed?: boolean;
+}) {
+  availableDates ??= Array.from(new Set(meetings.map(m => m.businessDate))).sort().reverse();
+  const chosenDate = selectedDate ?? availableDates[0] ?? meetings[0]?.businessDate;
+  const dayMeetings = chosenDate ? meetings.filter(m => m.businessDate === chosenDate) : meetings;
+  const meeting = dayMeetings.find(m => m.attemptId === selected) ?? dayMeetings[0];
+  const picker = <DatePicker availableDates={availableDates} selectedDate={chosenDate} onDateSelect={onDateSelect} />;
+  if (failed) return <>{picker}<p role="alert">ยังอ่านรายงานวันที่เลือกไม่ได้ ระบบจะลองใหม่อัตโนมัติ</p></>;
+  if (pending) return <>{picker}<p role="status">กำลังอ่านรายงาน…</p></>;
+  if (!meeting) return <>{picker}<p>{availableDates.length ? "ยังไม่มีรายงานในวันที่เลือก" : "ยังไม่มีรายงานประชุม"}</p></>;
   const reports = meeting.summary?.reports ?? [], final = reports.find(r => r.role === "portfolio-final"), initial = reports.find(r => r.role === "portfolio-initial");
-  return <><label className="team-meeting-date">รอบประชุม<select value={meeting.attemptId} onChange={e => onSelect(e.target.value)}>{meetings.map(m => <option key={m.attemptId} value={m.attemptId}>{new Date(m.businessDate + "T00:00:00Z").toLocaleDateString("th-TH", { timeZone: "Asia/Bangkok", dateStyle: "medium" })} · {m.reviewHour == null ? "ประชุมประจำวัน" : `ทบทวน ${String(m.reviewHour).padStart(2, "0")}:00`}</option>)}</select></label>
+  return <><DatePicker availableDates={availableDates} selectedDate={chosenDate} onDateSelect={onDateSelect} />{dayMeetings.length > 1 ? <label className="team-meeting-date">รอบประชุม<select value={meeting.attemptId} onChange={e => onSelect(e.target.value)}>{dayMeetings.map(m => <option key={m.attemptId} value={m.attemptId}>{m.reviewHour == null ? "ประชุมประจำวัน" : `ทบทวน ${String(m.reviewHour).padStart(2, "0")}:00`}</option>)}</select></label> : <p className="team-meeting-date-label">รอบประชุม · {meeting.reviewHour == null ? "ประชุมประจำวัน" : `ทบทวน ${String(meeting.reviewHour).padStart(2, "0")}:00`}</p>}
     <p className="team-meeting-outcome">{statuses[meeting.status] ?? "รอบสิ้นสุดโดยยังไม่มีข้อเสนอที่นำไปใช้ได้"}</p>
     {final && <p className="team-meeting-conclusion">{final.summary}</p>}
     {meeting.summary?.research != null && <CoinResearchView research={meeting.summary.research} businessDate={meeting.businessDate} />}
@@ -76,4 +124,9 @@ export function LiveMeetingView({ meetings, selected, onSelect }: { meetings: Me
     </details>}
     {!reports.length && <p>รอบนี้ไม่มีรายงานจากทีมที่ผ่านการตรวจและบันทึกไว้</p>}
   </>;
+}
+function DatePicker({ availableDates, selectedDate, onDateSelect }: { availableDates: string[]; selectedDate?: string; onDateSelect?: (value: string) => void }) {
+  const today = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Bangkok" }).format(new Date());
+  const oldest = availableDates[availableDates.length - 1];
+  return <div className="team-report-date-picker"><label>เลือกวันที่<input type="date" min={oldest} max={today} disabled={!availableDates.length} value={selectedDate ?? ""} onChange={e => { if (e.target.value) onDateSelect?.(e.target.value); }} /></label>{availableDates.length > 0 && <details className="team-report-dates"><summary>วันที่มีรายงาน</summary><div className="team-report-date-buttons">{availableDates.map(d => <button type="button" key={d} aria-pressed={d === selectedDate} onClick={() => onDateSelect?.(d)}>{new Date(d + "T00:00:00Z").toLocaleDateString("th-TH", { timeZone: "Asia/Bangkok", dateStyle: "medium" })}</button>)}</div></details>}</div>;
 }
