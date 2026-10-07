@@ -1,0 +1,30 @@
+import React from "react";
+
+type Candidate = { symbol: string; bid: number; ask: number; quoteVolume24h: number; change24hPercent: number; spreadPercent: number; depthQuoteNotional: number; executionAllowed: boolean; held: boolean };
+type Source = { id: string; symbol: string; title: string; url: string; contentHash: string; retrievedAt: string };
+type Claim = { statement: string; assessment: "PROJECT_CLAIM" | "CONTRADICTED" | "UNCERTAIN"; sourceId: string; quote: string };
+type Finding = { symbol: string; summary: string; claims: Claim[] };
+export type ResearchBrief = { observedAt: string; changeKey: string; watchlist: Candidate[]; sources: Source[]; findings: Finding[]; gaps: string[] };
+const object = (v: unknown): v is Record<string, unknown> => !!v && typeof v === "object" && !Array.isArray(v);
+const text = (v: unknown, max: number): v is string => typeof v === "string" && v.trim().length > 0 && v.length <= max && !/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/.test(v);
+const symbol = (v: unknown): v is string => typeof v === "string" && /^[A-Z0-9]{2,15}-THB$/.test(v);
+const hash = (v: unknown): v is string => typeof v === "string" && /^[0-9a-f]{64}$/i.test(v);
+const number = (v: unknown, max = 1e18): v is number => typeof v === "number" && Number.isFinite(v) && v >= 0 && v <= max;
+const isoTime = (v: unknown): v is string => typeof v === "string" && /^\d{4}-\d{2}-\d{2}T/.test(v) && Number.isFinite(Date.parse(v));
+const url = (v: unknown): v is string => { try { const u = new URL(String(v)); return u.protocol === "https:" && u.port === "" && !u.username && !u.password && !u.search && !u.hash && ["bitcoin.org", "raw.githubusercontent.com", "ethereum.org", "solana.com"].includes(u.hostname); } catch { return false; } };
+export function readResearch(value: unknown, now = Date.now()): ResearchBrief | undefined {
+  if (!object(value) || !isoTime(value.observedAt) || Date.parse(value.observedAt) > now || !hash(value.changeKey) || !Array.isArray(value.watchlist) || value.watchlist.length > 8 || !Array.isArray(value.sources) || value.sources.length > 6 || !Array.isArray(value.findings) || value.findings.length > 3 || !Array.isArray(value.gaps) || value.gaps.length > 12) return;
+  const watchlist: Candidate[] = []; const symbols = new Set<string>();
+  for (const c of value.watchlist) { if (!object(c) || !symbol(c.symbol) || symbols.has(c.symbol) || !number(c.bid, 1e15) || c.bid <= 0 || !number(c.ask, 1e15) || c.ask < c.bid || !number(c.quoteVolume24h) || typeof c.change24hPercent !== "number" || !Number.isFinite(c.change24hPercent) || c.change24hPercent < -100 || c.change24hPercent > 1000000 || !number(c.spreadPercent, 100000) || !number(c.depthQuoteNotional) || typeof c.executionAllowed !== "boolean" || typeof c.held !== "boolean") return; symbols.add(c.symbol); watchlist.push(c as Candidate); }
+  const sources: Source[] = []; const sourceIds = new Set<string>();
+  const observed = Date.parse(value.observedAt as string);
+  for (const s of value.sources) { if (!object(s) || !symbol(s.symbol) || !text(s.title, 150) || !url(s.url) || !hash(s.contentHash) || s.id !== `doc-${s.contentHash}` || sourceIds.has(s.id) || !isoTime(s.retrievedAt) || Date.parse(s.retrievedAt) > observed || observed - Date.parse(s.retrievedAt) > 2 * 24 * 60 * 60 * 1000) return; sourceIds.add(s.id); sources.push(s as Source); }
+  const findings: Finding[] = []; const findingSymbols = new Set<string>();
+  for (const f of value.findings) { if (!object(f) || !symbol(f.symbol) || findingSymbols.has(f.symbol) || !text(f.summary, 600) || !Array.isArray(f.claims) || f.claims.length < 1 || f.claims.length > 3) return; const claims: Claim[] = []; for (const c of f.claims) { const sourceId = object(c) ? String(c.sourceId) : ""; if (!object(c) || !text(c.statement, 400) || !text(c.quote, 400) || c.quote.length < 20 || !["PROJECT_CLAIM", "CONTRADICTED", "UNCERTAIN"].includes(String(c.assessment)) || !sourceIds.has(sourceId) || !sources.some(s => s.id === sourceId && s.symbol === f.symbol)) return; claims.push(c as Claim); } findingSymbols.add(f.symbol); findings.push({ symbol: f.symbol, summary: f.summary, claims }); }
+  if (value.gaps.some(g => !text(g, 200)) || JSON.stringify(value).length > 24 * 1024) return;
+  return { observedAt: value.observedAt as string, changeKey: value.changeKey as string, watchlist, sources, findings, gaps: value.gaps as string[] };
+}
+const assessment: Record<string, string> = { PROJECT_CLAIM: "ข้อมูลจากโครงการ", CONTRADICTED: "หลักฐานขัดแย้ง", UNCERTAIN: "ยังยืนยันไม่ได้" };
+const money = new Intl.NumberFormat("th-TH", { style: "currency", currency: "THB", maximumFractionDigits: 2 });
+const percent = new Intl.NumberFormat("th-TH", { maximumFractionDigits: 2 });
+export function CoinResearchView({ research, businessDate }: { research: unknown; businessDate?: string }) { const data = readResearch(research); if (!data || (businessDate && new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Bangkok" }).format(new Date(data.observedAt)) !== businessDate)) return null; return <details className="team-research"><summary>เหรียญและหลักฐานที่ทีมตรวจ</summary><p>สำรวจตลาด ณ <time dateTime={data.observedAt}>{new Date(data.observedAt).toLocaleString("th-TH", { timeZone: "Asia/Bangkok" })}</time></p><ul>{data.watchlist.map(c => <li key={c.symbol}><strong>{c.symbol}</strong> · {c.held ? "ถืออยู่" : "ยังไม่ได้ถือ"} · {c.executionAllowed ? "ในขอบเขตเทรด" : "วิจัยเท่านั้น"} · สเปรด {percent.format(c.spreadPercent)}% · ปริมาณ 24 ชม. {money.format(c.quoteVolume24h)}</li>)}</ul>{data.findings.map(f => <article className="team-role-report" key={f.symbol}><h4>{f.symbol}</h4><p>{f.summary}</p><ul>{f.claims.map((c, i) => { const source = data.sources.find(s => s.id === c.sourceId); return <li key={`${c.sourceId}-${i}`}>{assessment[c.assessment]}: {c.statement} <a href={source?.url} target="_blank" rel="noreferrer">{source?.title}</a><details><summary>ดูข้อความอ้างอิง</summary><p style={{ overflowWrap: "anywhere" }}>{c.quote}</p></details></li>; })}</ul></article>)}{data.gaps.length > 0 && <p>ข้อมูลที่ยังขาด: {data.gaps.join(" · ")}</p>}</details>; }

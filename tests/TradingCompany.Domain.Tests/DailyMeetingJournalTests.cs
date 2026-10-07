@@ -193,5 +193,55 @@ public sealed class DailyMeetingJournalTests : IDisposable
         Assert.Equal("HOLD", upgraded.Read(Day)!.Status);
     }
 
+    [Fact]
+    public void Legacy_live_summary_without_research_survives_hourly_claim_and_restart()
+    {
+        var scope = new TradingAccountContext(TradingMode.Live, "11111111111111111111111111111111");
+        var id = Guid.NewGuid();
+        var report = new
+        {
+            Role = "Analyst",
+            Summary = "legacy summary",
+            ProviderModel = "model",
+            InputTokens = 3,
+            OutputTokens = 5,
+            ArtifactId = "artifact",
+            EvidenceHash = "evidence",
+            DataCutoff = Day
+        };
+        var old = new[]
+        {
+            new
+            {
+                BusinessDate = Day,
+                AttemptId = id,
+                Status = "COMPLETED",
+                Summary = new { ModelCalls = 1, InputTokens = 3, OutputTokens = 5, Reports = new[] { report } },
+                AccountContext = scope
+            }
+        };
+        var json = new System.Text.Json.JsonSerializerOptions(System.Text.Json.JsonSerializerDefaults.Web)
+        {
+            DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull
+        };
+        var oldHash = Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(
+            System.Text.Json.JsonSerializer.SerializeToUtf8Bytes(old, json)));
+        Directory.CreateDirectory(root);
+        File.WriteAllText(StatePath, System.Text.Json.JsonSerializer.Serialize(new { Hash = oldHash, Attempts = old }, json));
+
+        var upgraded = new JsonDailyMeetingJournal(StatePath, scope);
+        var summary = upgraded.Read(Day)!.Summary!;
+        Assert.Equal(1, summary.ModelCalls);
+        Assert.Equal(3, summary.InputTokens);
+        Assert.Equal(5, summary.OutputTokens);
+        Assert.Single(summary.Reports);
+        Assert.Null(summary.Research);
+
+        Assert.True(upgraded.TryBegin(Day, Guid.NewGuid(), 14, null));
+        var restarted = new JsonDailyMeetingJournal(StatePath, scope);
+        var persisted = restarted.Read(Day)!.Summary!;
+        Assert.Equal(System.Text.Json.JsonSerializer.Serialize(summary), System.Text.Json.JsonSerializer.Serialize(persisted));
+    }
+
     public void Dispose() { if (Directory.Exists(root)) Directory.Delete(root, true); }
 }

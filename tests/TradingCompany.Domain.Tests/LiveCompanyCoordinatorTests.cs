@@ -533,13 +533,97 @@ public sealed class LiveCompanyCoordinatorTests : IDisposable
         Assert.Empty(gateway.Inputs);
     }
 
-    private LiveCompanyCoordinator Coordinator(Client client, Gateway gateway, Market? market = null, bool continuous = false)
+    [Fact]
+    public async Task Scout_membership_change_triggers_five_role_review_without_expanding_execution()
+    {
+        var client = new Client(); var gateway = new Gateway { Scenario = "hold" };
+        var research = new Research(clock);
+        var coordinator = Coordinator(client, gateway, continuous: true, research: research);
+        await coordinator.TickAsync();
+        Assert.Equal(8, gateway.Inputs.Count);
+        Assert.Equal("DOT-THB", Assert.Single(gateway.Inputs[0].Research!.Watchlist).Symbol);
+        clock.Now = clock.Now.AddHours(1);
+        client.Packet = client.Packet with { Snapshot = client.Packet.Snapshot with { ObservedAt = clock.Now,
+            Quotes = client.Packet.Snapshot.Quotes.Select(q => q with { ObservedAt = clock.Now }).ToArray() } };
+        await coordinator.TickAsync();
+        Assert.Equal("WATCHING", coordinator.Status); Assert.Equal(8, gateway.Inputs.Count);
+        research.Key = new string('b', 64);
+        await coordinator.TickAsync();
+        Assert.Equal(13, gateway.Inputs.Count);
+        Assert.Equal(new[] { "market-research", "security-analysis", "portfolio-initial", "risk-critic", "portfolio-final" }, gateway.Roles.Skip(8));
+        await coordinator.TickAsync();
+        Assert.Equal(13, gateway.Inputs.Count);
+        Assert.Empty(client.Intents);
+        Assert.Equal(["BTC-THB"], client.Packet.Limits.AllowedSymbols);
+    }
+
+    [Fact]
+    public async Task Scout_symbol_cannot_be_promoted_to_a_financial_proposal()
+    {
+        var client = new Client(); var gateway = new Gateway { ProposalSymbol = "DOT-THB" };
+        var coordinator = Coordinator(client, gateway, continuous: true, research: new Research(clock));
+        await coordinator.TickAsync();
+        Assert.Equal("INVALID_FINAL", coordinator.Status);
+        Assert.Empty(client.Intents);
+    }
+
+    [Fact]
+    public async Task Research_before_first_daily_meeting_cannot_submit_an_order()
+    {
+        clock.Now = clock.Now.AddHours(-2);
+        var client = new Client(); var gateway = new Gateway(); var research = new Research(clock);
+        client.Packet = client.Packet with { Snapshot = client.Packet.Snapshot with { ObservedAt = clock.Now,
+            Quotes = client.Packet.Snapshot.Quotes.Select(q => q with { ObservedAt = clock.Now }).ToArray() } };
+        var coordinator = Coordinator(client, gateway, continuous: true, research: research);
+        await coordinator.TickAsync();
+        Assert.Equal(1, research.Calls);
+        Assert.Equal("BEFORE_MEETING", coordinator.Status);
+        Assert.Empty(gateway.Inputs); Assert.Empty(client.Intents);
+    }
+
+    [Fact]
+    public async Task Slow_research_claims_the_refreshed_hour_and_not_the_hour_when_it_started()
+    {
+        var client = new Client(); var gateway = new Gateway { Scenario = "hold" };
+        var research = new Research(clock);
+        var coordinator = Coordinator(client, gateway, continuous: true, research: research);
+        await coordinator.TickAsync();
+        clock.Now = clock.Now.AddHours(1).AddMinutes(59);
+        void RefreshPacket() => client.Packet = client.Packet with { Snapshot = client.Packet.Snapshot with { ObservedAt = clock.Now,
+            Quotes = client.Packet.Snapshot.Quotes.Select(q => q with { ObservedAt = clock.Now }).ToArray() } };
+        RefreshPacket();
+        research.Key = new string('b', 64);
+        research.BeforeRead = () => { clock.Now = clock.Now.AddMinutes(2); RefreshPacket(); };
+        await coordinator.TickAsync();
+        var journal = new JsonDailyMeetingJournal(Path.Combine(root, "live-meetings.json"), Scope);
+        var day = DateOnly.FromDateTime(clock.Now.ToOffset(TimeSpan.FromHours(7)).DateTime);
+        Assert.NotNull(journal.Read(day, clock.Now.ToOffset(TimeSpan.FromHours(7)).Hour));
+        Assert.Null(journal.Read(day, clock.Now.AddHours(-1).ToOffset(TimeSpan.FromHours(7)).Hour));
+        Assert.Equal(clock.Now, gateway.Inputs[^1].ObservedAt);
+        Assert.Empty(client.Intents);
+    }
+
+    private sealed class Research(Clock clock) : ICoinResearchProvider
+    {
+        public string Key = new string('a', 64);
+        public int Calls;
+        public Action? BeforeRead;
+        public Task<CoinResearchBrief> ReadAsync(LiveResearchPacket packet, CancellationToken token)
+        {
+            Calls++;
+            BeforeRead?.Invoke();
+            return Task.FromResult(new CoinResearchBrief(clock.Now, Key,
+                [new("DOT-THB", 100, 100.1m, 500000, -2, .1m, 10000, false, false)], [], [], ["ข้อมูลทดสอบเท่านั้น"]));
+        }
+    }
+
+    private LiveCompanyCoordinator Coordinator(Client client, Gateway gateway, Market? market = null, bool continuous = false, ICoinResearchProvider? research = null)
     {
         var runner = new AiCompanyMeetingRunner(gateway,
             new JsonAgentDecisionArtifactStore(Path.Combine(root, "artifacts")),
             new(true, "test-model", "medium", "company-v1", "live-v1", 600, 8, 20000, TimeSpan.FromSeconds(30)));
         return new(client, market ?? new Market(), runner,
-            new JsonDailyMeetingJournal(Path.Combine(root, "live-meetings.json"), Scope), clock, LiveRiskTests.Account, continuous);
+            new JsonDailyMeetingJournal(Path.Combine(root, "live-meetings.json"), Scope), clock, LiveRiskTests.Account, continuous, research);
     }
 
     [Fact]

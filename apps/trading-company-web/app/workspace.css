@@ -54,6 +54,12 @@
 .team-meeting-date select { min-height: 44px; width: 100%; padding: 8px 10px; border: 1px solid var(--line); border-radius: 6px; background: var(--white); color: var(--ink); font: inherit; }
 .team-meeting-outcome { font-weight: 500; color: var(--ink) !important; }
 .team-meeting-conclusion, .team-role-report p { white-space: pre-wrap; overflow-wrap: anywhere; }
+.live-team-summary details > summary { min-height: 44px; padding: 8px 0; cursor: pointer; }
+.team-research { margin-top: 16px; padding-top: 8px; border-top: 1px solid var(--line); }
+.team-research li { overflow-wrap: anywhere; }
+.team-research li + li { margin-top: 12px; }
+.team-research a { color: var(--ink); text-underline-offset: 3px; }
+@media (hover: hover) and (pointer: fine) { .live-team-summary details > summary:hover { color: var(--muted); } }
 .team-role-report + .team-role-report { margin-top: 22px; padding-top: 16px; border-top: 1px solid var(--line); }
 .team-role-report h4 { color: var(--ink); margin: 12px 0 6px; }
 .team-meeting-date select:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }

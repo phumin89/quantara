@@ -6,7 +6,8 @@ using System.Text.Json;
 namespace TradingCompany.Api;
 
 public sealed class LiveCompanyCoordinator(ILiveCompanyClient client, IHistoricalMarketEvidenceProvider markets,
-    IAiCompanyMeetingRunner meeting, IDailyMeetingJournal journal, TimeProvider clock, LiveAccountId accountId, bool continuousReviews = false)
+    IAiCompanyMeetingRunner meeting, IDailyMeetingJournal journal, TimeProvider clock, LiveAccountId accountId, bool continuousReviews = false,
+    ICoinResearchProvider? research = null)
 {
     private readonly SemaphoreSlim tick = new(1, 1);
     private readonly TradingAccountContext context = new(TradingMode.Live, accountId.Value.ToString("N"));
@@ -40,24 +41,43 @@ public sealed class LiveCompanyCoordinator(ILiveCompanyClient client, IHistorica
             var latest = journal.ReadAll().Where(a => a.Status != "STARTED")
                 .OrderBy(a => a.BusinessDate).ThenBy(a => a.ReviewSnapshot?.ObservedAt ??
                     new DateTimeOffset(a.BusinessDate.ToDateTime(new TimeOnly(a.ReviewHour ?? 9, 0)), TimeSpan.FromHours(7))).LastOrDefault();
-            if (!dailyDue && (!continuousReviews || latest is null)) { Status = "BEFORE_MEETING"; return; }
+            if (!dailyDue && (!continuousReviews || latest is null) && research is null) { Status = "BEFORE_MEETING"; return; }
             int? reviewHour = continuousReviews && !dailyDue ? now.ToOffset(TimeSpan.FromHours(7)).Hour : null;
-            if (reviewHour is { } hour && journal.Read(day, hour) is not null) { Status = "ALREADY_ATTEMPTED"; return; }
-            if (reviewHour is { } currentHour && saved?.ReviewSnapshot is { } dailySnapshot &&
-                dailySnapshot.ObservedAt.ToOffset(TimeSpan.FromHours(7)).Hour == currentHour)
-            { Status = "ALREADY_ATTEMPTED"; return; }
             if (!meeting.Enabled || string.IsNullOrWhiteSpace(meeting.Model)) { Status = "MODEL_UNAVAILABLE"; return; }
             var packet = await client.ReadAsync(accountId, cancellationToken);
             now = clock.GetUtcNow();
             if (!ValidPacket(packet, now)) { Status = "LIVE_BLOCKED"; return; }
             ResearchUniverse = ResearchSymbols(packet).ToArray();
             TradingUniverse = packet.Limits.AllowedSymbols.ToArray();
+            CoinResearchBrief? brief = null;
+            if (research is not null)
+            {
+                try { brief = await research.ReadAsync(packet, cancellationToken); }
+                catch (OperationCanceledException) { throw; }
+                catch (Exception) { Status = "RESEARCH_UNAVAILABLE"; return; }
+                now = clock.GetUtcNow();
+                if (!CoinResearchValidation.IsValid(brief, now)) { Status = "RESEARCH_UNAVAILABLE"; return; }
+                if (DateOnly.FromDateTime(now.ToOffset(TimeSpan.FromHours(7)).DateTime) != day) { Status = "BEFORE_MEETING"; return; }
+                // Public document retrieval may be slow. Do not advise against an expired financial snapshot.
+                packet = await client.ReadAsync(accountId, cancellationToken);
+                now = clock.GetUtcNow();
+                if (!ValidPacket(packet, now)) { Status = "LIVE_BLOCKED"; return; }
+                if (DateOnly.FromDateTime(now.ToOffset(TimeSpan.FromHours(7)).DateTime) != day) { Status = "BEFORE_MEETING"; return; }
+                dailyDue = saved is null && now.ToOffset(TimeSpan.FromHours(7)).Hour >= 9;
+                reviewHour = continuousReviews && !dailyDue ? now.ToOffset(TimeSpan.FromHours(7)).Hour : null;
+            }
+            if (!dailyDue && (!continuousReviews || latest is null)) { Status = "BEFORE_MEETING"; return; }
+            if (reviewHour is { } hour && journal.Read(day, hour) is not null) { Status = "ALREADY_ATTEMPTED"; return; }
+            if (reviewHour is { } currentHour && saved?.ReviewSnapshot is { } dailySnapshot &&
+                dailySnapshot.ObservedAt.ToOffset(TimeSpan.FromHours(7)).Hour == currentHour)
+            { Status = "ALREADY_ATTEMPTED"; return; }
             journal.EnsureReconciled();
             if (continuousReviews && (packet.Snapshot.CashReserved > 0 || packet.Snapshot.PendingBuyNotional > 0 ||
                 packet.Snapshot.PendingSellNotional > 0 || packet.Snapshot.Positions.Any(p => p.ReservedQuantity > 0)))
             { Status = "ORDER_PENDING"; return; }
             var checkpoint = packet.Snapshot with { Quotes = ResearchQuotes(packet) };
-            if (reviewHour is not null && latest?.ReviewSnapshot is { } previous && !NeedsReview(previous, checkpoint))
+            var researchChanged = brief is not null && brief.ChangeKey != latest?.Summary?.Research?.ChangeKey;
+            if (reviewHour is not null && !researchChanged && latest?.ReviewSnapshot is { } previous && !NeedsReview(previous, checkpoint))
             { Status = "WATCHING"; return; }
             var begun = continuousReviews ? journal.TryBegin(day, decisionId, reviewHour, checkpoint) : journal.TryBegin(day, decisionId);
             if (!begun) { Status = "ALREADY_ATTEMPTED"; return; }
@@ -97,22 +117,22 @@ public sealed class LiveCompanyCoordinator(ILiveCompanyClient client, IHistorica
             catch (OperationCanceledException) { throw; }
             catch (Exception) { Finish("RESEARCH_UNAVAILABLE"); return; }
 
-            var hash = Convert.ToHexStringLower(SHA256.HashData(JsonSerializer.SerializeToUtf8Bytes(new { packet, candidates })));
+            var hash = Convert.ToHexStringLower(SHA256.HashData(JsonSerializer.SerializeToUtf8Bytes(new { packet, candidates, brief })));
             var snapshot = packet.Snapshot;
             var input = new AiCompanyMeetingInput(cutoff, hash,
                 new(Math.Min(snapshot.Equity, packet.Limits.CapitalAllocation), snapshot.CashBalance - snapshot.CashReserved,
                     snapshot.Positions.Sum(p => p.Quantity * p.MarketPrice) + snapshot.PendingBuyNotional,
                     snapshot.DailyLoss, snapshot.Drawdown, snapshot.Positions.Count), candidates,
-                "Live account advisory meeting. Use supplied actual balances and completed bars only. No leverage or borrowing. " +
+                "Live account advisory meeting. Use supplied actual balances, completed bars and separately timestamped public research only. No leverage or borrowing. " +
                 "Unrealized P&L is unavailable; its zero field is a placeholder. All proposals require independent executor risk validation.",
                 packet.Limits.MaximumPositionWeight, packet.Limits.MaximumOpenPositions)
             {
-                AccountContext = context, PortfolioReview = reviewHour is not null, ObservedAt = now,
+                AccountContext = context, PortfolioReview = reviewHour is not null, ObservedAt = now, Research = brief, ResearchChanged = researchChanged,
                 PreviousConclusion = reviewHour is null ? null : latest?.Summary?.Reports
                     .SingleOrDefault(r => r.Role == "portfolio-final")?.Summary
             };
             var result = await meeting.RunAsync(input, cancellationToken);
-            summary = Summarize(result);
+            summary = Summarize(result) with { Research = brief };
             if (result.Status != "COMPLETED") { Finish(result.Status); return; }
             if (result.AccountContext != context || !ValidProposals(result.Proposals, packet.Limits)) { Finish("INVALID_FINAL"); return; }
             foreach (var proposal in result.Proposals.Where(p => p.Action != PortfolioAction.Hold)

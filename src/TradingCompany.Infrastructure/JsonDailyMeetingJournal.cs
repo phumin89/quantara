@@ -161,6 +161,8 @@ public sealed class JsonDailyMeetingJournal : IDailyMeetingJournal
     private static void ValidateSummary(DailyMeetingSummary? summary)
     {
         if (summary is null) return;
+        if (summary.Research is { } research && !CoinResearchValidation.IsValid(research, research.ObservedAt))
+            throw new InvalidDataException("Invalid research evidence.");
         if (summary.ModelCalls < 0 || summary.InputTokens < 0 || summary.OutputTokens < 0 ||
             summary.Reports is null || summary.Reports.Count > 100)
             throw new InvalidDataException("Meeting summary contains invalid counts.");

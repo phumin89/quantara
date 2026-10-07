@@ -57,6 +57,33 @@ public sealed class LiveMeetingReportPersistenceTests(PostgresFixture database)
         Assert.Empty(LiveMeetingReports.Read(await store.ReadAccountAsync(account.AccountId)));
     }
 
+    [Fact]
+    public async Task Research_citations_survive_restart_and_old_report_replay_without_changing_financial_state()
+    {
+        var (store, account) = await Setup();
+        var hash = new string('a', 64);
+        var research = new CoinResearchBrief(Now, new string('b', 64),
+            [new("DOT-THB", 100, 100.1m, 500000, -2, .1m, 10000, false, false)],
+            [new("doc-" + hash, "BTC-THB", "Bitcoin whitepaper", "https://bitcoin.org/bitcoin.pdf", hash, Now)],
+            [new("BTC-THB", "ข้อมูลจากโครงการ ยังไม่มีการยืนยันจากแหล่งอิสระ",
+                [new("ข้อเสนอเครือข่าย", "PROJECT_CLAIM", "doc-" + hash, "A purely peer-to-peer version of electronic cash")])],
+            ["ข้อมูลทดสอบเท่านั้น"]);
+        var report = Report(account.AccountId) with { Summary = new(0, 0, 0, []) { Research = research } };
+        await store.WithAccountLockAsync(account.AccountId, async (tx, ct) => { tx.RecordMeeting(report, Now); await tx.CommitAsync(ct); return 0; });
+        var restarted = new LiveTradingStore(database.ConnectionString);
+        await restarted.WithAccountLockAsync(account.AccountId, async (tx, ct) => { tx.RecordMeeting(report, Now.AddDays(10)); await tx.CommitAsync(ct); return 0; });
+        var restored = await restarted.ReadAccountAsync(account.AccountId);
+        var saved = Assert.Single(LiveMeetingReports.Read(restored)).Summary!.Research!;
+        Assert.Equal(System.Text.Json.JsonSerializer.Serialize(research), System.Text.Json.JsonSerializer.Serialize(saved));
+        Assert.Equal(account.Gate, restored.Gate);
+        Assert.Equal(account.Mandate.Version, restored.Mandate.Version);
+        Assert.Empty(restored.Orders); Assert.Empty(restored.Fills);
+        var malicious = report with { AttemptId = Guid.NewGuid(), Summary = report.Summary! with
+        { Research = research with { Sources = [research.Sources[0] with { Url = "https://localhost:7443/private" }] } } };
+        await Assert.ThrowsAsync<InvalidDataException>(() => restarted.WithAccountLockAsync(account.AccountId,
+            async (tx, ct) => { tx.RecordMeeting(malicious, Now); await tx.CommitAsync(ct); return 0; }));
+    }
+
     private async Task<(LiveTradingStore Store, LiveAccountState Account)> Setup()
     {
         var store = new LiveTradingStore(database.ConnectionString);

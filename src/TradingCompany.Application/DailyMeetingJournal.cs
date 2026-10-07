@@ -16,7 +16,11 @@ public sealed record DailyMeetingSummary(
     int ModelCalls,
     int InputTokens,
     int OutputTokens,
-    IReadOnlyList<SavedAiReport> Reports);
+    IReadOnlyList<SavedAiReport> Reports)
+{
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public CoinResearchBrief? Research { get; init; }
+}
 
 public sealed record DailyMeetingAttempt(
     DateOnly BusinessDate,

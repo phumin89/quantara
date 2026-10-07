@@ -53,6 +53,13 @@ public static class LiveCompanyHost
         services.AddSingleton<IHistoricalMarketEvidenceProvider, RealHistoricalMarketDataProvider>();
         services.AddSingleton<ITradingAgentGateway>(_ => new CodexCliTradingAgentGateway("codex"));
         services.AddSingleton<IAgentDecisionArtifactStore>(_ => new JsonAgentDecisionArtifactStore(Path.Combine(dataPath!, "artifacts")));
+        services.AddHttpClient("public-research", client => client.Timeout = TimeSpan.FromSeconds(20))
+            .ConfigurePrimaryHttpMessageHandler(() => new SocketsHttpHandler { AllowAutoRedirect = false, UseCookies = false });
+        services.AddSingleton(sp => new CoinSourceReader(sp.GetRequiredService<IHttpClientFactory>().CreateClient("public-research"),
+            Path.Combine(dataPath!, "research-sources"), sp.GetRequiredService<TimeProvider>()));
+        services.AddSingleton(sp => new CoinCredibilityResearcher(sp.GetRequiredService<ITradingAgentGateway>(),
+            sp.GetRequiredService<IAgentDecisionArtifactStore>(), model, sp.GetRequiredService<TimeProvider>(), sp.GetRequiredService<IRealtimeEventPublisher>()));
+        services.AddSingleton<ICoinResearchProvider, CoinResearchProvider>();
         services.AddSingleton<IAiCompanyMeetingRunner>(sp => new AiCompanyMeetingRunner(
             sp.GetRequiredService<ITradingAgentGateway>(), sp.GetRequiredService<IAgentDecisionArtifactStore>(),
             new(true, model, "medium", "company-v1", "owner-live-v1", 600, 8, 250_000, TimeSpan.FromSeconds(120)),
@@ -62,7 +69,8 @@ public static class LiveCompanyHost
             new(TradingMode.Live, id.ToString("N"))));
         services.AddSingleton(sp => new LiveCompanyCoordinator(sp.GetRequiredService<ILiveCompanyClient>(),
             sp.GetRequiredService<IHistoricalMarketEvidenceProvider>(), sp.GetRequiredService<IAiCompanyMeetingRunner>(),
-            sp.GetRequiredService<IDailyMeetingJournal>(), sp.GetRequiredService<TimeProvider>(), account, continuousReviews: true));
+            sp.GetRequiredService<IDailyMeetingJournal>(), sp.GetRequiredService<TimeProvider>(), account, continuousReviews: true,
+            research: sp.GetRequiredService<ICoinResearchProvider>()));
         services.AddHostedService<LiveCompanyWorker>();
     }
 

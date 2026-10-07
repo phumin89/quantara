@@ -1,5 +1,6 @@
 const test=require('node:test'), assert=require('node:assert/strict'), path=require('node:path');
 const {readMeetings,readLiveMeetings,LiveMeetingView}=require('./load-component.cjs')(path.join(__dirname,'../app/LiveTeamReports.tsx'));
+const {readResearch}=require('./load-component.cjs')(path.join(__dirname,'../app/CoinResearchView.tsx'));
 const React=require('react'),{renderToStaticMarkup}=require('react-dom/server');
 const scope={mode:1,accountId:'1'.repeat(32)};
 const role=(name)=>({role:name,summary:name==='portfolio-final'?'เก็บเงินสดไว้รอข้อมูลครบ':'เหตุผลจากข้อมูลที่ตรวจแล้ว',providerModel:'fixture',inputTokens:2,outputTokens:2,artifactId:'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',evidenceHash:'a'.repeat(64),dataCutoff:'2026-10-05'});
@@ -25,4 +26,19 @@ test('report reads require fixed HTTPS and never confuse unauthorized with an em
  assert.equal(await readLiveMeetings('http://localhost:3000',fetcher),undefined);assert.equal(calls.length,0);
  assert.ok(await readLiveMeetings('https://localhost:3000',fetcher));assert.equal(calls[0].url,'https://localhost:7443/live/meetings');assert.equal(calls[0].options.credentials,'include');
  assert.equal(await readLiveMeetings('https://localhost:3000',async()=>new Response('',{status:401})),undefined);
+});
+test('research is optional, strict, and rendered after the conclusion',()=>{
+ const now='2026-10-07T00:00:00Z'; const brief={observedAt:'2026-10-06T02:00:00Z',changeKey:'a'.repeat(64),watchlist:[{symbol:'BTC-THB',bid:100,ask:101,quoteVolume24h:1000,change24hPercent:1,spreadPercent:1,depthQuoteNotional:500,executionAllowed:false,held:false}],sources:[{id:'doc-'+'b'.repeat(64),symbol:'BTC-THB',title:'Bitcoin project',url:'https://bitcoin.org/',contentHash:'b'.repeat(64),retrievedAt:'2026-10-06T01:00:00Z'}],findings:[{symbol:'BTC-THB',summary:'ตรวจหลักฐานโครงการ',claims:[{statement:'โครงการเผยแพร่ข้อมูลสาธารณะที่ตรวจสอบได้',assessment:'PROJECT_CLAIM',sourceId:'doc-'+'b'.repeat(64),quote:'ข้อมูลสาธารณะจากเอกสารโครงการที่เผยแพร่'}]}],gaps:['ยังไม่มีข้อมูลสภาพคล่อง']};
+ const x=fixture(); x.meetings[0].businessDate='2026-10-06'; x.meetings[0].summary.research=brief; const parsed=readMeetings(x,Date.parse(now)); assert.ok(parsed); const html=renderToStaticMarkup(React.createElement(LiveMeetingView,{meetings:parsed.meetings,selected:'',onSelect(){}})); assert.ok(html.indexOf('เก็บเงินสด')<html.indexOf('เหรียญและหลักฐานที่ทีมตรวจ')); assert.ok(html.includes('ข้อมูลจากโครงการ')); assert.ok(html.includes('bitcoin.org'));
+ for(const mutate of [v=>v.sources[0].url='https://evil.example/x',v=>v.findings[0].claims[0].sourceId='doc-'+'c'.repeat(64),v=>v.watchlist[0].symbol='btc-thb',v=>v.gaps=Array(13).fill('gap')]) { const bad=structuredClone(brief); mutate(bad); assert.equal(readResearch(bad),undefined); }
+ assert.equal(readResearch(null),undefined); assert.deepEqual(readResearch(brief,Date.parse(now)),brief);
+});
+test('research keeps historical saved reports and accepts negative changes',()=>{
+ const old={observedAt:'2026-09-10T02:00:00Z',changeKey:'a'.repeat(64),watchlist:[{symbol:'BTC-THB',bid:100,ask:101,quoteVolume24h:1000,change24hPercent:-2,spreadPercent:1,depthQuoteNotional:500,executionAllowed:false,held:false}],sources:[{id:'doc-'+'b'.repeat(64),symbol:'BTC-THB',title:'Bitcoin project',url:'https://bitcoin.org/',contentHash:'b'.repeat(64),retrievedAt:'2026-09-09T02:00:00Z'}],findings:[{symbol:'BTC-THB',summary:'หลักฐานย้อนหลัง',claims:[{statement:'เอกสารอ้างอิงโครงการ',assessment:'PROJECT_CLAIM',sourceId:'doc-'+'b'.repeat(64),quote:'ข้อความอ้างอิงย้อนหลังจากเอกสารโครงการ'}]}],gaps:[]};
+ assert.ok(readResearch(old,Date.parse('2026-10-07T00:00:00Z'))); const x=fixture(); x.meetings[0].businessDate='2026-09-10'; x.meetings[0].summary.research=old; x.meetings[0].summary.reports.forEach(r=>r.dataCutoff='2026-09-09'); const parsed=readMeetings(x,Date.parse('2026-10-07T00:00:00Z')); assert.ok(parsed); const html=renderToStaticMarkup(React.createElement(LiveMeetingView,{meetings:parsed.meetings,selected:'',onSelect(){}})); assert.ok(html.includes('หลักฐานย้อนหลัง'));
+});
+test('research provenance and meeting date are enforced at feed boundary',()=>{
+ const base={observedAt:'2026-10-06T02:00:00Z',changeKey:'a'.repeat(64),watchlist:[],sources:[{id:'doc-'+'b'.repeat(64),symbol:'BTC-THB',title:'Bitcoin project',url:'https://bitcoin.org/',contentHash:'b'.repeat(64),retrievedAt:'2026-10-06T01:00:00Z'}],findings:[],gaps:[]};
+ for(const mutate of [v=>{v.sources[0].retrievedAt='2026-10-06T03:00:00Z';return v;},v=>{v.sources[0].retrievedAt='2026-10-03T01:00:00Z';return v;}]) { const candidate=mutate(structuredClone(base)); assert.ok(readResearch(base,Date.parse('2026-10-07T00:00:00Z'))); assert.equal(readResearch(candidate,Date.parse('2026-10-07T00:00:00Z')),undefined); }
+ const x=fixture(); x.meetings[0].businessDate='2026-10-07'; x.meetings[0].summary.research=base; assert.equal(readMeetings(x),undefined); const malformed=fixture(); malformed.meetings[0].summary.research={...base,watchlist:[{symbol:'btc-thb'}]}; assert.equal(readMeetings(malformed),undefined);
 });

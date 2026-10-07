@@ -50,6 +50,10 @@ public sealed record AiCompanyMeetingInput(
     public DateTimeOffset? ObservedAt { get; init; }
     [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
     public string? PreviousConclusion { get; init; }
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public CoinResearchBrief? Research { get; init; }
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingDefault)]
+    public bool ResearchChanged { get; init; }
 }
 
 public sealed record AiCompanyProposal(
@@ -162,6 +166,11 @@ public static class AiCompanyContract
             if (cutoff != input.DataCutoff) violations.Add("CUTOFF_MISMATCH");
             if (!string.Equals(evidenceHash, input.EvidenceHash, StringComparison.Ordinal)) violations.Add("EVIDENCE_HASH_MISMATCH");
             var allowedIds = input.Candidates.Select(item => item.EvidenceId).ToHashSet(StringComparer.Ordinal);
+            if (input.Research is { } research)
+            {
+                foreach (var source in research.Sources) allowedIds.Add(source.Id);
+                foreach (var candidate in research.Watchlist) allowedIds.Add(candidate.EvidenceId);
+            }
             if (evidenceIds.Any(id => !allowedIds.Contains(id))) violations.Add("UNKNOWN_EVIDENCE_ID");
             if (!allowProposals && proposals.Length > 0) violations.Add("UNAUTHORIZED_PROPOSAL");
             var symbols = input.Candidates.Select(item => item.Symbol).ToHashSet();
