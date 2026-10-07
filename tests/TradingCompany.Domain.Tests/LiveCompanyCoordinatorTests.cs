@@ -100,7 +100,7 @@ public sealed class LiveCompanyCoordinatorTests : IDisposable
             Assert.Equal(interrupted.AttemptId, Assert.Single(client.Intents).DecisionId);
             Assert.NotNull(interrupted.Summary);
         }
-        else Assert.Null(interrupted.Summary);
+        else Assert.Empty(Assert.IsType<DailyMeetingSummary>(interrupted.Summary).Reports);
         Assert.Empty(client.Meetings);
         var modelCalls = gateway.Inputs.Count;
 
@@ -127,7 +127,7 @@ public sealed class LiveCompanyCoordinatorTests : IDisposable
                 Quotes = [.. originalPacket.Snapshot.Quotes.Select(quote => quote with { ObservedAt = clock.Now })]
             }
         };
-        foreach (var invalid in new[] { originalPacket, fresh with { Armed = false },
+        foreach (var invalid in new[] { originalPacket,
             fresh with { Snapshot = fresh.Snapshot with { Reconciled = false } } })
         {
             client.Packet = invalid;
@@ -138,7 +138,9 @@ public sealed class LiveCompanyCoordinatorTests : IDisposable
             Assert.Single(journal.ReadAll());
         }
 
-        client.Packet = fresh;
+        clock.Now = clock.Now.AddMinutes(5);
+        client.Packet = fresh with { Snapshot = fresh.Snapshot with { ObservedAt = clock.Now,
+            Quotes = fresh.Snapshot.Quotes.Select(q => q with { ObservedAt = clock.Now }).ToArray() } };
         await restarted.TickAsync();
 
         Assert.Equal("ORDER_PENDING", restarted.Status);
@@ -390,8 +392,6 @@ public sealed class LiveCompanyCoordinatorTests : IDisposable
     }
 
     [Theory]
-    [InlineData("disarmed")]
-    [InlineData("stopped")]
     [InlineData("unreconciled")]
     [InlineData("wrong-account")]
     [InlineData("stale")]
@@ -406,8 +406,6 @@ public sealed class LiveCompanyCoordinatorTests : IDisposable
         var client = new Client();
         client.Packet = scenario switch
         {
-            "disarmed" => client.Packet with { Armed = false },
-            "stopped" => client.Packet with { Stopped = true },
             "unreconciled" => client.Packet with { Snapshot = client.Packet.Snapshot with { Reconciled = false } },
             "wrong-account" => client.Packet with { AccountContext = Scope with { AccountId = Guid.NewGuid().ToString("N") } },
             "zero-budget" => client.Packet with { Limits = client.Packet.Limits with { CapitalAllocation = 0 } },
@@ -426,6 +424,141 @@ public sealed class LiveCompanyCoordinatorTests : IDisposable
         Assert.Equal("LIVE_BLOCKED", coordinator.Status);
         Assert.Empty(gateway.Inputs);
         Assert.Empty(client.Intents);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Paused_execution_still_meets_and_saves_advice_without_dispatching(bool stopped)
+    {
+        var client = new Client { Packet = new Client().Packet with { Armed = false, Stopped = stopped } };
+        var gateway = new Gateway();
+        var coordinator = Coordinator(client, gateway);
+        await coordinator.TickAsync();
+        Assert.Equal("READ_ONLY", coordinator.Status);
+        Assert.Equal(8, gateway.Inputs.Count);
+        Assert.All(gateway.Inputs, input => Assert.Contains("advisory only", input.Mandate));
+        Assert.Empty(client.Intents);
+        Assert.Empty(coordinator.TradingUniverse);
+        await coordinator.TickAsync();
+        var saved = Assert.Single(client.Meetings);
+        Assert.True(saved.Summary!.AdvisoryOnly);
+        Assert.Equal(8, saved.Summary.Reports.Count);
+        Assert.Empty(client.Intents);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task One_bad_symbol_is_excluded_while_verified_symbols_keep_their_existing_authority(bool paused)
+    {
+        var client = new Client { Packet = new Client().Packet with
+        {
+            Armed = !paused, Limits = new Client().Packet.Limits with { ResearchSymbols = ["BTC-THB", "SOL-THB"] },
+            ResearchQuotes = [new("BTC-THB", 100000, 100000, clock.Now), new("SOL-THB", 3000, 3000, clock.Now)]
+        }};
+        var gateway = new Gateway();
+        var coordinator = Coordinator(client, gateway, new Market { FailedSymbol = "SOL-THB" });
+        await coordinator.TickAsync();
+        Assert.Equal(paused ? "READ_ONLY" : "ORDER_PENDING", coordinator.Status);
+        Assert.Equal(8, gateway.Inputs.Count);
+        Assert.All(gateway.CandidateSymbols, symbols => Assert.Equal("BTC-THB", Assert.Single(symbols)));
+        Assert.Equal(new LiveMeetingIssue("MARKET_HISTORY_UNAVAILABLE", "SOL-THB"), Assert.Single(coordinator.Issues));
+        Assert.Equal(paused ? 0 : 1, client.Intents.Count);
+        Assert.All(client.Intents, i => Assert.Equal("BTC-THB", i.Symbol));
+        await coordinator.TickAsync();
+        var saved = Assert.Single(client.Meetings);
+        Assert.Equal(paused, saved.Summary!.AdvisoryOnly);
+        Assert.Equal(coordinator.Issues, saved.Summary.Issues);
+    }
+
+    [Fact]
+    public async Task Missing_history_for_an_owned_position_keeps_the_entire_round_advisory_only()
+    {
+        var basis = new Client().Packet;
+        var quotes = new[] { new LiveQuote("BTC-THB", 100000, 100000, clock.Now), new LiveQuote("SOL-THB", 3000, 3000, clock.Now) };
+        var client = new Client { Packet = basis with
+        {
+            Limits = basis.Limits with { AllowedSymbols = ["BTC-THB", "SOL-THB"], ResearchSymbols = ["BTC-THB", "SOL-THB"],
+                OrderSizing = [.. basis.Limits.OrderSizing, new("SOL-THB", .01m, .00000001m, 1m, 10m)] },
+            Snapshot = basis.Snapshot with { Positions = [new("SOL-THB", .1m, 0, 3000)], Equity = 1300, Quotes = quotes },
+            ResearchQuotes = quotes
+        }};
+        var gateway = new Gateway(); var coordinator = Coordinator(client, gateway, new Market { FailedSymbol = "SOL-THB" });
+        await coordinator.TickAsync();
+        Assert.Equal("READ_ONLY", coordinator.Status);
+        Assert.Equal(8, gateway.Inputs.Count);
+        Assert.Empty(client.Intents);
+    }
+
+    [Fact]
+    public async Task Missing_history_retries_after_backoff_without_consuming_a_meeting_slot()
+    {
+        var client = new Client(); var gateway = new Gateway(); var market = new Market { Scenario = "missing" };
+        var coordinator = Coordinator(client, gateway, market, continuous: true);
+        await coordinator.TickAsync();
+        Assert.Equal("RESEARCH_UNAVAILABLE", coordinator.Status);
+        Assert.Equal(clock.Now.AddMinutes(5), coordinator.NextRetryAt);
+        Assert.Empty(new JsonDailyMeetingJournal(Path.Combine(root, "live-meetings.json"), Scope).ReadAll());
+        market.Scenario = "normal";
+        await coordinator.TickAsync();
+        Assert.Empty(gateway.Inputs);
+        clock.Now = clock.Now.AddMinutes(5);
+        Freshen(client);
+        await coordinator.TickAsync();
+        Assert.Equal(8, gateway.Inputs.Count);
+        Assert.Single(client.Intents);
+    }
+
+    [Fact]
+    public async Task Failed_account_read_is_visible_and_research_recovers_without_arming()
+    {
+        var client = new Client { ReadFailures = 1, Packet = new Client().Packet with { Armed = false } };
+        var gateway = new Gateway(); var coordinator = Coordinator(client, gateway, continuous: true);
+        await coordinator.TickAsync();
+        Assert.Equal("LIVE_UNAVAILABLE", coordinator.Status);
+        Assert.Equal(new LiveMeetingIssue("LIVE_READ_UNAVAILABLE"), Assert.Single(coordinator.Issues));
+        Assert.Equal(clock.Now.AddMinutes(5), coordinator.NextRetryAt);
+        clock.Now = clock.Now.AddMinutes(5); Freshen(client);
+        await coordinator.TickAsync();
+        Assert.Equal("READ_ONLY", coordinator.Status);
+        Assert.Equal(8, gateway.Inputs.Count);
+        Assert.False(client.Packet.Armed);
+        Assert.Empty(client.Intents);
+    }
+
+    private void Freshen(Client client) => client.Packet = client.Packet with { Snapshot = client.Packet.Snapshot with
+    { ObservedAt = clock.Now, Quotes = client.Packet.Snapshot.Quotes.Select(q => q with { ObservedAt = clock.Now }).ToArray() } };
+
+    [Fact]
+    public async Task A_paused_round_cannot_gain_dispatch_authority_while_the_agents_are_running()
+    {
+        var client = new Client { Packet = new Client().Packet with { Armed = false } };
+        var gateway = new Gateway { AfterFinal = () => client.Packet = client.Packet with { Armed = true } };
+        var coordinator = Coordinator(client, gateway);
+        await coordinator.TickAsync();
+        Assert.True(client.Packet.Armed);
+        Assert.Equal("READ_ONLY", coordinator.Status);
+        Assert.Empty(client.Intents);
+    }
+
+    [Fact]
+    public async Task A_model_cannot_propose_an_authorized_symbol_whose_evidence_was_quarantined()
+    {
+        var basis = new Client().Packet;
+        var quotes = new[] { new LiveQuote("BTC-THB", 100000, 100000, clock.Now), new LiveQuote("SOL-THB", 3000, 3000, clock.Now) };
+        var client = new Client { Packet = basis with
+        {
+            Limits = basis.Limits with { AllowedSymbols = ["BTC-THB", "SOL-THB"], ResearchSymbols = ["BTC-THB", "SOL-THB"],
+                OrderSizing = [.. basis.Limits.OrderSizing, new("SOL-THB", .01m, .00000001m, 1m, 10m)] },
+            Snapshot = basis.Snapshot with { Quotes = quotes }, ResearchQuotes = quotes
+        }};
+        var gateway = new Gateway { ProposalSymbol = "SOL-THB" };
+        var coordinator = Coordinator(client, gateway, new Market { FailedSymbol = "SOL-THB" });
+        await coordinator.TickAsync();
+        Assert.NotEmpty(gateway.Inputs);
+        Assert.Empty(client.Intents);
+        Assert.DoesNotContain(gateway.CandidateSymbols.SelectMany(s => s), s => s == "SOL-THB");
     }
 
     [Theory]
@@ -529,8 +662,8 @@ public sealed class LiveCompanyCoordinatorTests : IDisposable
         var gateway = new Gateway();
         var coordinator = Coordinator(client, gateway, continuous: true);
         await coordinator.TickAsync();
-        Assert.Equal("ORDER_PENDING", coordinator.Status);
-        Assert.Empty(gateway.Inputs);
+        Assert.Equal("READ_ONLY", coordinator.Status);
+        Assert.Equal(8, gateway.Inputs.Count);
     }
 
     [Fact]
@@ -677,9 +810,11 @@ public sealed class LiveCompanyCoordinatorTests : IDisposable
         public List<LiveIntent> Intents { get; } = [];
         public List<DailyMeetingAttempt> Meetings { get; } = [];
         public Action? AfterSubmit { get; set; }
+        public int ReadFailures { get; set; }
         public Task SaveMeetingAsync(DailyMeetingAttempt attempt, CancellationToken cancellationToken)
         { Meetings.Add(attempt); return Task.CompletedTask; }
-        public Task<LiveResearchPacket> ReadAsync(LiveAccountId accountId, CancellationToken cancellationToken) => Task.FromResult(Packet);
+        public Task<LiveResearchPacket> ReadAsync(LiveAccountId accountId, CancellationToken cancellationToken) => ReadFailures-- > 0
+            ? Task.FromException<LiveResearchPacket>(new IOException("fixture unavailable")) : Task.FromResult(Packet);
         public Task<LiveIntentReceipt> SubmitAsync(LiveIntent intent, CancellationToken cancellationToken)
         {
             Intents.Add(intent);
@@ -696,11 +831,14 @@ public sealed class LiveCompanyCoordinatorTests : IDisposable
         public Action? AfterFinal { get; set; }
         public List<AiCompanyMeetingInput> Inputs { get; } = [];
         public List<string> Roles { get; } = [];
+        public List<string[]> CandidateSymbols { get; } = [];
         public Task<AgentModelResponse> CompleteStructuredAsync(AgentModelRequest request, CancellationToken cancellationToken)
         {
             if (Scenario == "model-down") throw new AgentModelUnavailableException("fixture");
             using var document = JsonDocument.Parse(request.InputJson);
             var input = document.RootElement.GetProperty("meeting").Deserialize<AiCompanyMeetingInput>(new JsonSerializerOptions(JsonSerializerDefaults.Web))!;
+            CandidateSymbols.Add(document.RootElement.GetProperty("meeting").GetProperty("candidates").EnumerateArray()
+                .Select(c => c.GetProperty("symbol").GetProperty("value").GetString()!).ToArray());
             Inputs.Add(input);
             Roles.Add(request.Role);
             if (request.Role == "portfolio-final") AfterFinal?.Invoke();
@@ -720,11 +858,13 @@ public sealed class LiveCompanyCoordinatorTests : IDisposable
     }
     internal sealed class Market : IHistoricalMarketEvidenceProvider
     {
-        public string Scenario { get; init; } = "normal";
+        public string Scenario { get; set; } = "normal";
+        public string? FailedSymbol { get; init; }
         public Task<IReadOnlyList<HistoricalBar>> GetAsync(Symbol symbol, DateOnly start, DateOnly end, CancellationToken cancellationToken)
             => throw new NotSupportedException();
         public Task<HistoricalMarketEvidence> GetEvidenceAsync(Symbol symbol, DateOnly start, DateOnly end, CancellationToken cancellationToken)
         {
+            if (symbol.Value == FailedSymbol) throw new InvalidDataException("fixture conflicting history");
             var count = Scenario == "missing" ? 10 : 250;
             var bars = Enumerable.Range(0, count).Select(i => new HistoricalBar(end.AddDays(i - count + 1), symbol,
                 75000m + i, 76000m + i, 74000m + i, 75500m + i, 1000)).ToArray();

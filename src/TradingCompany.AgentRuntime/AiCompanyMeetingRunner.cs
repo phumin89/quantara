@@ -1,4 +1,6 @@
 using System.Text.Json;
+using System.Text.Encodings.Web;
+using System.Text.Unicode;
 using System.Security.Cryptography;
 using TradingCompany.Application;
 
@@ -59,7 +61,11 @@ public sealed class AiCompanyMeetingRunner : IAiCompanyMeetingRunner
         new("portfolio-final", "Read all artifacts and create final non-binding portfolio proposals for deterministic validation.", true)
     ];
 
-    private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
+    private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web)
+    {
+        // Keep Thai prompt text compact while retaining HTML-sensitive JSON escaping.
+        Encoder = JavaScriptEncoder.Create(UnicodeRanges.All)
+    };
     private readonly ITradingAgentGateway gateway;
     private readonly IAgentDecisionArtifactStore artifactStore;
     private readonly AiCompanyRuntimeOptions options;

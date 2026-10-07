@@ -24,7 +24,7 @@ public static class LiveMeetingReports
         if (summary.Research is { } research && (!CoinResearchValidation.IsValid(research, research.ObservedAt) ||
             research.ObservedAt > now || DateOnly.FromDateTime(research.ObservedAt.ToOffset(TimeSpan.FromHours(7)).DateTime) != attempt.BusinessDate))
             throw new InvalidDataException("Invalid saved research evidence.");
-        if (summary.ModelCalls is < 0 or > 8 || summary.InputTokens < 0 || summary.OutputTokens < 0 ||
+        if (!LiveMeetingIssues.IsValid(summary.Issues) || summary.ModelCalls is < 0 or > 8 || summary.InputTokens < 0 || summary.OutputTokens < 0 ||
             summary.Reports is null || summary.Reports.Count > 8 || summary.Reports.Any(r => r is null) ||
             summary.Reports.Select(r => r.Role).Distinct().Count() != summary.Reports.Count)
             throw new InvalidDataException("Invalid meeting report.");

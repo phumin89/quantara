@@ -2,11 +2,12 @@
 import { useEffect, useRef, useState } from "react";
 import { requestJson } from "./requestJson";
 import { CoinResearchView, readResearch } from "./CoinResearchView";
+import { validLiveIssues } from "./liveActivity";
 const roles: Record<string, string> = { ceo: "CEO", "chief-of-staff": "หัวหน้าทีม", "market-research": "วิจัยตลาด", "security-analysis": "วิเคราะห์สินทรัพย์", "quant-research": "วิเคราะห์กลยุทธ์", "portfolio-initial": "ข้อเสนอแรก", "risk-critic": "ตรวจความเสี่ยง", "portfolio-final": "ผู้จัดการพอร์ต" };
-const statuses: Record<string, string> = { HOLD: "คงพอร์ต · ยังไม่ส่งคำสั่ง", ORDER_PENDING: "ส่งคำสั่งแล้ว · ยังรอยืนยันผลจากตลาด", RISK_REJECTED: "ระบบไม่อนุมัติคำสั่ง", RESEARCH_UNAVAILABLE: "ข้อมูลตลาดไม่ครบ จึงไม่มีคำสั่ง", SNAPSHOT_CHANGED: "บัญชีหรือสิทธิ์เปลี่ยนระหว่างประชุม จึงไม่มีคำสั่ง", PRICE_CHANGED: "ราคาเปลี่ยนเกินขอบเขต จึงไม่มีคำสั่ง", LIVE_UNAVAILABLE: "ยังยืนยันผลรอบนี้ไม่ได้ ตรวจรายการคำสั่งก่อนดำเนินการต่อ" };
+const statuses: Record<string, string> = { READ_ONLY: "ประชุมและวิจัย · พักส่งคำสั่ง", HOLD: "คงพอร์ต · ยังไม่ส่งคำสั่ง", ORDER_PENDING: "ส่งคำสั่งแล้ว · ยังรอยืนยันผลจากตลาด", RISK_REJECTED: "ระบบไม่อนุมัติคำสั่ง", RESEARCH_UNAVAILABLE: "ข้อมูลตลาดไม่ครบ จึงไม่มีคำสั่ง", SNAPSHOT_CHANGED: "บัญชีหรือสิทธิ์เปลี่ยนระหว่างประชุม จึงไม่มีคำสั่ง", PRICE_CHANGED: "ราคาเปลี่ยนเกินขอบเขต จึงไม่มีคำสั่ง", LIVE_UNAVAILABLE: "ยังยืนยันผลรอบนี้ไม่ได้ ตรวจรายการคำสั่งก่อนดำเนินการต่อ" };
 type Scope = { mode: 1; accountId: string };
 type Report = { role: string; summary: string; providerModel: string; inputTokens: number; outputTokens: number; artifactId: string; evidenceHash: string; dataCutoff: string };
-type Meeting = { businessDate: string; reviewHour?: number | null; attemptId: string; status: string; accountContext: Scope; summary: { modelCalls: number; inputTokens: number; outputTokens: number; reports: Report[]; research?: unknown } | null };
+type Meeting = { businessDate: string; reviewHour?: number | null; attemptId: string; status: string; accountContext: Scope; summary: { modelCalls: number; inputTokens: number; outputTokens: number; reports: Report[]; research?: unknown; issues?: { code: string; symbol?: string | null }[] | null; advisoryOnly?: boolean } | null };
 type Meetings = { accountContext: Scope; meetings: Meeting[]; availableDates: string[]; selectedDate: string | null; hasDateIndex: boolean };
 const object = (v: unknown): v is Record<string, unknown> => !!v && typeof v === "object" && !Array.isArray(v);
 const text = (v: unknown, max: number): v is string => typeof v === "string" && v.length > 0 && v.length <= max;
@@ -26,7 +27,7 @@ export function readMeetings(value: unknown, now = Date.now()): Meetings | undef
     slots.add(`${m.businessDate}:${hour ?? "daily"}`); ids.add(m.attemptId);
     if (m.summary == null) continue;
     const s = m.summary;
-    if (!object(s) || !count(s.modelCalls) || s.modelCalls > 8 || !count(s.inputTokens) || !count(s.outputTokens) || !Array.isArray(s.reports) || s.reports.length > 8) return;
+    if (!object(s) || !count(s.modelCalls) || s.modelCalls > 8 || !count(s.inputTokens) || !count(s.outputTokens) || !Array.isArray(s.reports) || s.reports.length > 8 || (s.issues !== undefined && s.issues !== null && !validLiveIssues(s.issues)) || (s.advisoryOnly !== undefined && typeof s.advisoryOnly !== "boolean")) return;
     if (s.research != null && (!readResearch(s.research, now) || new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Bangkok" }).format(new Date((s.research as Record<string, unknown>).observedAt as string)) !== m.businessDate)) return;
     const seen = new Set();
     for (const r of s.reports) {
@@ -114,8 +115,11 @@ export function LiveMeetingView({ meetings, selected, onSelect, availableDates, 
   if (pending) return <>{picker}<p role="status">กำลังอ่านรายงาน…</p></>;
   if (!meeting) return <>{picker}<p>{availableDates.length ? "ยังไม่มีรายงานในวันที่เลือก" : "ยังไม่มีรายงานประชุม"}</p></>;
   const reports = meeting.summary?.reports ?? [], final = reports.find(r => r.role === "portfolio-final"), initial = reports.find(r => r.role === "portfolio-initial");
+  const issueText: Record<string, string> = { MARKET_HISTORY_UNAVAILABLE: "ข้อมูลประวัติตลาดไม่พร้อม", PUBLIC_RESEARCH_UNAVAILABLE: "ข้อมูลวิจัยสาธารณะไม่พร้อม", LIVE_READ_UNAVAILABLE: "อ่านสถานะ Live ไม่ได้", ACCOUNT_STATE_INVALID: "สถานะบัญชีไม่ถูกต้อง", JOURNAL_UNAVAILABLE: "บันทึกการประชุมไม่พร้อม", MEETING_FAILED: "การประชุมรอบนี้ไม่สำเร็จ" };
+  const issues = meeting.summary?.issues?.map(i => `${issueText[i.code]}${i.symbol ? ` (${i.symbol})` : ""}`);
   return <><DatePicker availableDates={availableDates} selectedDate={chosenDate} onDateSelect={onDateSelect} />{dayMeetings.length > 1 ? <label className="team-meeting-date">รอบประชุม<select value={meeting.attemptId} onChange={e => onSelect(e.target.value)}>{dayMeetings.map(m => <option key={m.attemptId} value={m.attemptId}>{m.reviewHour == null ? "ประชุมประจำวัน" : `ทบทวน ${String(m.reviewHour).padStart(2, "0")}:00`}</option>)}</select></label> : <p className="team-meeting-date-label">รอบประชุม · {meeting.reviewHour == null ? "ประชุมประจำวัน" : `ทบทวน ${String(meeting.reviewHour).padStart(2, "0")}:00`}</p>}
-    <p className="team-meeting-outcome">{statuses[meeting.status] ?? "รอบสิ้นสุดโดยยังไม่มีข้อเสนอที่นำไปใช้ได้"}</p>
+    <p className="team-meeting-outcome">{meeting.summary?.advisoryOnly ? "รายงานเพื่อวิเคราะห์ · ยังไม่ส่งคำสั่ง" : statuses[meeting.status] ?? "รอบสิ้นสุดโดยยังไม่มีข้อเสนอที่นำไปใช้ได้"}</p>
+    {!!issues?.length && <p className="team-meeting-issues">{issues.join(" · ")}</p>}
     {final && <p className="team-meeting-conclusion">{final.summary}</p>}
     {meeting.summary?.research != null && <CoinResearchView research={meeting.summary.research} businessDate={meeting.businessDate} />}
     {!!reports.length && <details><summary>อ่านเหตุผลจากทีม</summary>{reports.filter(r => !["portfolio-final", "portfolio-initial"].includes(r.role)).map(r => <article className="team-role-report" key={r.role}><h4>{roles[r.role]}</h4><p>{r.summary}</p></article>)}

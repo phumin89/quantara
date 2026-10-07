@@ -2,6 +2,18 @@ using TradingCompany.Domain;
 
 namespace TradingCompany.Application;
 
+public sealed record LiveMeetingIssue(string Code, string? Symbol = null);
+
+public static class LiveMeetingIssues
+{
+    public static bool IsValid(IReadOnlyList<LiveMeetingIssue>? issues) => issues is null ||
+        issues.Count <= 5 && issues.All(i => i is not null && (i.Code == "MARKET_HISTORY_UNAVAILABLE"
+            ? i.Symbol is "BTC-THB" or "ETH-THB" or "SOL-THB"
+            : i.Symbol is null && i.Code is "PUBLIC_RESEARCH_UNAVAILABLE" or "LIVE_READ_UNAVAILABLE" or
+                "ACCOUNT_STATE_INVALID" or "JOURNAL_UNAVAILABLE" or "MEETING_FAILED")) &&
+        issues.Distinct().Count() == issues.Count;
+}
+
 public sealed record SavedAiReport(
     string Role,
     string Summary,
@@ -20,6 +32,10 @@ public sealed record DailyMeetingSummary(
 {
     [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
     public CoinResearchBrief? Research { get; init; }
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public IReadOnlyList<LiveMeetingIssue>? Issues { get; init; }
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingDefault)]
+    public bool AdvisoryOnly { get; init; }
 }
 
 public sealed record DailyMeetingAttempt(

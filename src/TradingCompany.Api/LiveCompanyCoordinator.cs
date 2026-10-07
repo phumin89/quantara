@@ -15,12 +15,18 @@ public sealed class LiveCompanyCoordinator(ILiveCompanyClient client, IHistorica
     public string Status { get; private set; } = "DISABLED";
     public IReadOnlyList<string> ResearchUniverse { get; private set; } = [];
     public IReadOnlyList<string> TradingUniverse { get; private set; } = [];
+    public IReadOnlyList<LiveMeetingIssue> Issues { get; private set; } = [];
+    public DateTimeOffset? NextRetryAt { get; private set; }
+    private DateTimeOffset? retryAfter;
+
+    public void ReportWorkerFailure() => Retry("LIVE_UNAVAILABLE", [new("MEETING_FAILED")]);
 
     public async Task TickAsync(CancellationToken cancellationToken = default)
     {
         if (!await tick.WaitAsync(0, cancellationToken)) return;
         DateOnly? claimedDay = null;
         DailyMeetingSummary? summary = null;
+        var unavailableCode = "JOURNAL_UNAVAILABLE";
         var decisionId = Guid.NewGuid();
         try
         {
@@ -32,6 +38,9 @@ public sealed class LiveCompanyCoordinator(ILiveCompanyClient client, IHistorica
                 if (!published.Contains(completed.AttemptId))
                 { await client.SaveMeetingAsync(completed, cancellationToken); published.Add(completed.AttemptId); }
             journal.EnsureReconciled();
+            if (retryAfter > now) return;
+            retryAfter = null;
+            NextRetryAt = null;
             var saved = journal.Read(day);
             if (!continuousReviews && saved is not null && saved.Status != "STARTED")
             {
@@ -41,52 +50,55 @@ public sealed class LiveCompanyCoordinator(ILiveCompanyClient client, IHistorica
             var latest = journal.ReadAll().Where(a => a.Status != "STARTED")
                 .OrderBy(a => a.BusinessDate).ThenBy(a => a.ReviewSnapshot?.ObservedAt ??
                     new DateTimeOffset(a.BusinessDate.ToDateTime(new TimeOnly(a.ReviewHour ?? 9, 0)), TimeSpan.FromHours(7))).LastOrDefault();
+            Issues = latest?.Summary?.Issues ?? [];
             if (!dailyDue && (!continuousReviews || latest is null) && research is null) { Status = "BEFORE_MEETING"; return; }
             int? reviewHour = continuousReviews && !dailyDue ? now.ToOffset(TimeSpan.FromHours(7)).Hour : null;
             if (!meeting.Enabled || string.IsNullOrWhiteSpace(meeting.Model)) { Status = "MODEL_UNAVAILABLE"; return; }
+            unavailableCode = "LIVE_READ_UNAVAILABLE";
             var packet = await client.ReadAsync(accountId, cancellationToken);
             now = clock.GetUtcNow();
-            if (!ValidPacket(packet, now)) { Status = "LIVE_BLOCKED"; return; }
-            ResearchUniverse = ResearchSymbols(packet).ToArray();
-            TradingUniverse = packet.Limits.AllowedSymbols.ToArray();
+            if (!ValidPacket(packet, now)) { Retry("LIVE_BLOCKED", [new("ACCOUNT_STATE_INVALID")]); return; }
+            var executionPaused = !packet.Armed || packet.Stopped;
+            ResearchUniverse = ResearchSymbols(packet).Where(s => Issues.All(i => i.Symbol != s)).ToArray();
+            TradingUniverse = packet.Armed && !packet.Stopped ? packet.Limits.AllowedSymbols.Where(ResearchUniverse.Contains).ToArray() : [];
+            var problems = new List<LiveMeetingIssue>();
             CoinResearchBrief? brief = null;
             if (research is not null)
             {
-                try { brief = await research.ReadAsync(packet, cancellationToken); }
-                catch (OperationCanceledException) { throw; }
-                catch (Exception) { Status = "RESEARCH_UNAVAILABLE"; return; }
+                try
+                {
+                    brief = await research.ReadAsync(packet, cancellationToken);
+                    if (!CoinResearchValidation.IsValid(brief, clock.GetUtcNow())) throw new InvalidDataException();
+                }
+                catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
+                catch (Exception) { brief = null; problems.Add(new("PUBLIC_RESEARCH_UNAVAILABLE")); }
                 now = clock.GetUtcNow();
-                if (!CoinResearchValidation.IsValid(brief, now)) { Status = "RESEARCH_UNAVAILABLE"; return; }
                 if (DateOnly.FromDateTime(now.ToOffset(TimeSpan.FromHours(7)).DateTime) != day) { Status = "BEFORE_MEETING"; return; }
                 // Public document retrieval may be slow. Do not advise against an expired financial snapshot.
                 packet = await client.ReadAsync(accountId, cancellationToken);
                 now = clock.GetUtcNow();
-                if (!ValidPacket(packet, now)) { Status = "LIVE_BLOCKED"; return; }
+                if (!ValidPacket(packet, now)) { Retry("LIVE_BLOCKED", [new("ACCOUNT_STATE_INVALID")]); return; }
+                executionPaused |= !packet.Armed || packet.Stopped;
                 if (DateOnly.FromDateTime(now.ToOffset(TimeSpan.FromHours(7)).DateTime) != day) { Status = "BEFORE_MEETING"; return; }
                 dailyDue = saved is null && now.ToOffset(TimeSpan.FromHours(7)).Hour >= 9;
                 reviewHour = continuousReviews && !dailyDue ? now.ToOffset(TimeSpan.FromHours(7)).Hour : null;
             }
             if (!dailyDue && (!continuousReviews || latest is null)) { Status = "BEFORE_MEETING"; return; }
-            if (reviewHour is { } hour && journal.Read(day, hour) is not null) { Status = "ALREADY_ATTEMPTED"; return; }
+            unavailableCode = "JOURNAL_UNAVAILABLE";
+            if (reviewHour is { } hour && journal.Read(day, hour) is not null)
+            { Status = "ALREADY_ATTEMPTED"; NextRetryAt = NextHour(now); return; }
             if (reviewHour is { } currentHour && saved?.ReviewSnapshot is { } dailySnapshot &&
                 dailySnapshot.ObservedAt.ToOffset(TimeSpan.FromHours(7)).Hour == currentHour)
-            { Status = "ALREADY_ATTEMPTED"; return; }
+            { Status = "ALREADY_ATTEMPTED"; NextRetryAt = NextHour(now); return; }
             journal.EnsureReconciled();
-            if (continuousReviews && (packet.Snapshot.CashReserved > 0 || packet.Snapshot.PendingBuyNotional > 0 ||
-                packet.Snapshot.PendingSellNotional > 0 || packet.Snapshot.Positions.Any(p => p.ReservedQuantity > 0)))
-            { Status = "ORDER_PENDING"; return; }
+            unavailableCode = "LIVE_READ_UNAVAILABLE";
             var checkpoint = packet.Snapshot with { Quotes = ResearchQuotes(packet) };
             var researchChanged = brief is not null && brief.ChangeKey != latest?.Summary?.Research?.ChangeKey;
-            if (reviewHour is not null && !researchChanged && latest?.ReviewSnapshot is { } previous && !NeedsReview(previous, checkpoint))
-            { Status = "WATCHING"; return; }
-            var begun = continuousReviews ? journal.TryBegin(day, decisionId, reviewHour, checkpoint) : journal.TryBegin(day, decisionId);
-            if (!begun) { Status = "ALREADY_ATTEMPTED"; return; }
-            claimedDay = day;
             var cutoff = DateOnly.FromDateTime(now.UtcDateTime).AddDays(-1);
             var candidates = new List<AiCompanyCandidateEvidence>();
-            try
+            foreach (var text in ResearchSymbols(packet))
             {
-                foreach (var text in ResearchSymbols(packet))
+                try
                 {
                     var symbol = new Symbol(text);
                     var evidence = await markets.GetEvidenceAsync(symbol, cutoff.AddDays(-399), cutoff, cancellationToken);
@@ -113,9 +125,42 @@ public sealed class LiveCompanyCoordinator(ILiveCompanyClient client, IHistorica
                         CurrentQuote = checkpoint.Quotes.Single(q => q.Symbol == text)
                     });
                 }
+                catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
+                catch (Exception) { problems.Add(new("MARKET_HISTORY_UNAVAILABLE", text)); }
             }
-            catch (OperationCanceledException) { throw; }
-            catch (Exception) { Finish("RESEARCH_UNAVAILABLE"); return; }
+            Issues = problems.ToArray();
+            if (candidates.Count == 0) { Retry("RESEARCH_UNAVAILABLE", Issues); return; }
+            // Slow evidence retrieval cannot make old balances or quotes current.
+            var refreshed = await client.ReadAsync(accountId, cancellationToken);
+            now = clock.GetUtcNow();
+            if (!ValidPacket(refreshed, now) || refreshed.MandateVersion != packet.MandateVersion ||
+                JsonSerializer.Serialize(refreshed.Limits) != JsonSerializer.Serialize(packet.Limits) ||
+                !SameOwnedMoney(packet.Snapshot, refreshed.Snapshot))
+            { Retry("LIVE_BLOCKED", [new("ACCOUNT_STATE_INVALID")]); return; }
+            if (DateOnly.FromDateTime(now.ToOffset(TimeSpan.FromHours(7)).DateTime) != day)
+            { Status = "BEFORE_MEETING"; return; }
+            packet = refreshed;
+            executionPaused |= !packet.Armed || packet.Stopped;
+            checkpoint = packet.Snapshot with { Quotes = ResearchQuotes(packet) };
+            candidates = candidates.Select(c => c with { CurrentQuote = checkpoint.Quotes.Single(q => q.Symbol == c.Symbol.Value) }).ToList();
+            var missingHeldEvidence = problems.Any(i => i.Code == "MARKET_HISTORY_UNAVAILABLE" &&
+                packet.Snapshot.Positions.Any(p => p.Symbol == i.Symbol));
+            var advisoryOnly = executionPaused || missingHeldEvidence || problems.Any(i => i.Code == "PUBLIC_RESEARCH_UNAVAILABLE") || continuousReviews &&
+                (packet.Snapshot.CashReserved > 0 || packet.Snapshot.PendingBuyNotional > 0 ||
+                 packet.Snapshot.PendingSellNotional > 0 || packet.Snapshot.Positions.Any(p => p.ReservedQuantity > 0));
+            ResearchUniverse = candidates.Select(c => c.Symbol.Value).ToArray();
+            TradingUniverse = advisoryOnly ? [] : candidates.Where(c => c.ExecutionAllowed).Select(c => c.Symbol.Value).ToArray();
+            var problemsChanged = !(latest?.Summary?.Issues ?? []).SequenceEqual(Issues) ||
+                (latest?.Summary?.AdvisoryOnly ?? false) != advisoryOnly;
+            if (reviewHour is not null && !researchChanged && !problemsChanged && latest?.Summary?.Reports.Count > 0 &&
+                latest.ReviewSnapshot is { } previous && !NeedsReview(previous, checkpoint))
+            { Status = advisoryOnly ? "READ_ONLY" : "WATCHING"; NextRetryAt = clock.GetUtcNow().AddSeconds(30); return; }
+            unavailableCode = "JOURNAL_UNAVAILABLE";
+            var begun = continuousReviews ? journal.TryBegin(day, decisionId, reviewHour, checkpoint) : journal.TryBegin(day, decisionId);
+            if (!begun) { Status = "ALREADY_ATTEMPTED"; NextRetryAt = NextHour(clock.GetUtcNow()); return; }
+            claimedDay = day;
+            unavailableCode = "MEETING_FAILED";
+            summary = new(0, 0, 0, []) { Issues = problems.Count == 0 ? null : Issues, AdvisoryOnly = advisoryOnly, Research = brief };
 
             var hash = Convert.ToHexStringLower(SHA256.HashData(JsonSerializer.SerializeToUtf8Bytes(new { packet, candidates, brief })));
             var snapshot = packet.Snapshot;
@@ -124,17 +169,23 @@ public sealed class LiveCompanyCoordinator(ILiveCompanyClient client, IHistorica
                     snapshot.Positions.Sum(p => p.Quantity * p.MarketPrice) + snapshot.PendingBuyNotional,
                     snapshot.DailyLoss, snapshot.Drawdown, snapshot.Positions.Count), candidates,
                 "Live account advisory meeting. Use supplied actual balances, completed bars and separately timestamped public research only. No leverage or borrowing. " +
-                "Unrealized P&L is unavailable; its zero field is a placeholder. All proposals require independent executor risk validation.",
+                "Unrealized P&L is unavailable; its zero field is a placeholder. All proposals require independent executor risk validation. " +
+                (advisoryOnly ? "This meeting is advisory only. Execution is paused; no proposal from this round will be submitted. " : "") +
+                (problems.Count == 0 ? "" : "Evidence gaps: " + JsonSerializer.Serialize(problems) + ". Discuss these gaps; do not invent missing data. "),
                 packet.Limits.MaximumPositionWeight, packet.Limits.MaximumOpenPositions)
             {
-                AccountContext = context, PortfolioReview = reviewHour is not null, ObservedAt = now, Research = brief, ResearchChanged = researchChanged,
+                AccountContext = context, PortfolioReview = reviewHour is not null && latest?.Summary?.Reports.Count > 0,
+                ObservedAt = now, Research = brief, ResearchChanged = researchChanged,
                 PreviousConclusion = reviewHour is null ? null : latest?.Summary?.Reports
                     .SingleOrDefault(r => r.Role == "portfolio-final")?.Summary
             };
             var result = await meeting.RunAsync(input, cancellationToken);
-            summary = Summarize(result) with { Research = brief };
+            summary = Summarize(result) with { Research = brief, Issues = problems.Count == 0 ? null : Issues, AdvisoryOnly = advisoryOnly };
             if (result.Status != "COMPLETED") { Finish(result.Status); return; }
-            if (result.AccountContext != context || !ValidProposals(result.Proposals, packet.Limits)) { Finish("INVALID_FINAL"); return; }
+            if (result.AccountContext != context || !ValidProposals(result.Proposals, packet.Limits) ||
+                result.Proposals.Any(p => candidates.All(c => c.Symbol != p.Symbol))) { Finish("INVALID_FINAL"); return; }
+            // A round started without execution authority can never gain it during the meeting.
+            if (advisoryOnly) { Finish("READ_ONLY"); return; }
             foreach (var proposal in result.Proposals.Where(p => p.Action != PortfolioAction.Hold)
                 .OrderBy(p => p.Action == PortfolioAction.Buy ? 1 : 0))
             {
@@ -142,7 +193,7 @@ public sealed class LiveCompanyCoordinator(ILiveCompanyClient client, IHistorica
                 // unchanged owned money/quantities and bounded prices can use that advice.
                 var current = await client.ReadAsync(accountId, cancellationToken);
                 if (DateOnly.FromDateTime(clock.GetUtcNow().ToOffset(TimeSpan.FromHours(7)).DateTime) != day ||
-                    !ValidPacket(current, clock.GetUtcNow()) || current.MandateVersion != packet.MandateVersion ||
+                    !ValidPacket(current, clock.GetUtcNow()) || !current.Armed || current.Stopped || current.MandateVersion != packet.MandateVersion ||
                     JsonSerializer.Serialize(current.Limits) != JsonSerializer.Serialize(packet.Limits) ||
                     !SameOwnedMoney(snapshot, current.Snapshot)) { Finish("SNAPSHOT_CHANGED"); return; }
                 var quote = current.Snapshot.Quotes.Single(q => q.Symbol == proposal.Symbol.Value);
@@ -192,12 +243,22 @@ public sealed class LiveCompanyCoordinator(ILiveCompanyClient client, IHistorica
             Finish("INTERRUPTED");
             throw;
         }
-        catch (Exception) { if (claimedDay is not null) Finish("LIVE_UNAVAILABLE"); else Status = "LIVE_UNAVAILABLE"; }
+        catch (Exception)
+        {
+            if (claimedDay is not null) Finish("LIVE_UNAVAILABLE");
+            else Retry("LIVE_UNAVAILABLE", [new(unavailableCode)]);
+        }
         finally { tick.Release(); }
 
         void Finish(string status)
         {
             Status = status;
+            NextRetryAt = NextHour(clock.GetUtcNow());
+            if (status is not ("READ_ONLY" or "HOLD" or "ORDER_PENDING" or "RISK_REJECTED"))
+            {
+                Issues = [.. Issues, new("MEETING_FAILED")];
+                if (summary is not null) summary = summary with { Issues = Issues };
+            }
             if (claimedDay is { } day) journal.Complete(day, decisionId, status, summary);
             claimedDay = null;
         }
@@ -221,7 +282,7 @@ public sealed class LiveCompanyCoordinator(ILiveCompanyClient client, IHistorica
     private bool ValidPacket(LiveResearchPacket? packet, DateTimeOffset now)
     {
         if (packet is null || packet.AccountContext != context || !TradingAccountContext.IsValid(context) ||
-            !packet.Armed || packet.Stopped || packet.MandateVersion <= 0 || packet.Snapshot is not { } s || packet.Limits is not { } m ||
+            packet.MandateVersion <= 0 || packet.Snapshot is not { } s || packet.Limits is not { } m ||
             s.AccountId != accountId || s.Version <= 0 || !s.Reconciled || s.ObservedAt > now || now - s.ObservedAt > TimeSpan.FromSeconds(30) ||
             s.Equity <= 0 || s.CashBalance < 0 || s.CashReserved < 0 || s.CashReserved > s.CashBalance ||
             m.CapitalAllocation <= 0 || m.MaximumPositionWeight is <= 0 or > 1m || m.MaximumOpenPositions <= 0 ||
@@ -252,6 +313,18 @@ public sealed class LiveCompanyCoordinator(ILiveCompanyClient client, IHistorica
             quotes.All(q => q is not null && research.Contains(q.Symbol) && q.Bid > 0 && q.Ask >= q.Bid &&
                 q.ObservedAt <= now && now - q.ObservedAt <= TimeSpan.FromSeconds(30)) &&
             quotes.Select(q => q.Symbol).Distinct().Count() == quotes.Count;
+    }
+
+    private void Retry(string status, IReadOnlyList<LiveMeetingIssue> problems)
+    {
+        Status = status; Issues = problems.ToArray(); TradingUniverse = [];
+        retryAfter = clock.GetUtcNow().AddMinutes(5); NextRetryAt = retryAfter;
+    }
+
+    private static DateTimeOffset NextHour(DateTimeOffset now)
+    {
+        var local = now.ToOffset(TimeSpan.FromHours(7));
+        return new DateTimeOffset(local.Year, local.Month, local.Day, local.Hour, 0, 0, local.Offset).AddHours(1);
     }
 
     private static IReadOnlyList<string> ResearchSymbols(LiveResearchPacket packet) =>

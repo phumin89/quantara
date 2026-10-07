@@ -21,6 +21,14 @@ test('saved view leads with final conclusion, has dates and readable optional ro
  assert.ok(html.includes('คงพอร์ต'));assert.ok(html.includes('รอบประชุม · ประชุมประจำวัน'));assert.ok(html.indexOf('เก็บเงินสด')<html.indexOf('อ่านเหตุผลจากทีม'));assert.ok(html.includes('ข้อเสนอแรกก่อนตรวจความเสี่ยง'));assert.ok(!html.includes('risk-critic'));
  m[0].status='ORDER_PENDING';assert.ok(renderToStaticMarkup(React.createElement(LiveMeetingView,{meetings:m,selected:'',onSelect(){}})).includes('ยังรอยืนยันผลจากตลาด'));
 });
+test('saved advisory reports validate issues and render one truthful status before the conclusion',()=>{
+ const x=fixture(); x.meetings[0].status='READ_ONLY'; x.meetings[0].summary={...x.meetings[0].summary,advisoryOnly:true,issues:[{code:'PUBLIC_RESEARCH_UNAVAILABLE'}]};
+ const parsed=readMeetings(x); assert.ok(parsed);
+ const html=renderToStaticMarkup(React.createElement(LiveMeetingView,{meetings:parsed.meetings,selected:'',onSelect(){}}));
+ assert.ok(html.includes('ข้อมูลวิจัยสาธารณะไม่พร้อม')); assert.ok(html.includes('รายงานเพื่อวิเคราะห์ · ยังไม่ส่งคำสั่ง'));
+ assert.equal((html.match(/ยังไม่ส่งคำสั่ง/g)||[]).length,1); assert.ok(html.indexOf('ข้อมูลวิจัยสาธารณะไม่พร้อม')<html.indexOf('เก็บเงินสด'));
+ for(const issues of [[{code:'UNKNOWN'}],[{code:'MARKET_HISTORY_UNAVAILABLE'}]]) { const bad=fixture(); bad.meetings[0].summary.issues=issues; assert.equal(readMeetings(bad),undefined); }
+});
 test('report reads require fixed HTTPS and never confuse unauthorized with an empty report',async()=>{
  const calls=[];const fetcher=async(url,options)=>{calls.push({url,options});return Response.json(fixture());};
  assert.equal(await readLiveMeetings('http://localhost:3000',fetcher),undefined);assert.equal(calls.length,0);

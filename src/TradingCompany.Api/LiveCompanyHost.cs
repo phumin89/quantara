@@ -111,11 +111,38 @@ public sealed class LiveCompanyWorker(LiveCompanyCoordinator company, TimeProvid
         {
             do
             {
-                try { await company.TickAsync(stoppingToken); }
+                try
+                {
+                    await company.TickAsync(stoppingToken);
+                }
+                catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
+                {
+                    return;
+                }
+                catch (Exception)
+                {
+                    try { company.ReportWorkerFailure(); }
+                    catch (Exception) { }
+                }
                 finally
                 {
-                    activity.UpdateCoordinatorStatus(company.Status, company.ResearchUniverse, company.TradingUniverse);
-                    await activity.EndMeetingAsync(stoppingToken);
+                    try
+                    {
+                        activity.UpdateCoordinatorStatus(company.Status, company.ResearchUniverse, company.TradingUniverse,
+                            company.Issues, company.NextRetryAt);
+                    }
+                    catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
+                    {
+                        throw;
+                    }
+                    catch (Exception) { }
+
+                    try { await activity.EndMeetingAsync(stoppingToken); }
+                    catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
+                    {
+                        throw;
+                    }
+                    catch (Exception) { }
                 }
             } while (await timer.WaitForNextTickAsync(stoppingToken));
         }

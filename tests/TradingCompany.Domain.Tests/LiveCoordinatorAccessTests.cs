@@ -41,6 +41,13 @@ public sealed class LiveCoordinatorAccessTests
         await publisher.PublishAsync(Event("AgentCompletedTask", "completed"), default);
         Assert.Equal("completed", Assert.Single(display.Read(LiveRiskTests.Account)!.Roles).Status);
         using var coordinator = factory.Client();
+        var status = await coordinator.GetAsync($"/internal/live/activity/{LiveRiskTests.Account.Value:N}");
+        Assert.Equal(HttpStatusCode.OK, status.StatusCode);
+        var statusJson = await status.Content.ReadAsStringAsync();
+        Assert.DoesNotContain("private text", statusJson);
+        Assert.DoesNotContain(Token, statusJson);
+        using var projection = JsonDocument.Parse(statusJson);
+        Assert.Equal("completed", projection.RootElement.GetProperty("activity").GetProperty("roles")[0].GetProperty("status").GetString());
         var foreign = new LiveCompanyActivity(new(TradingMode.Live, Guid.NewGuid().ToString("N")), meeting, clock.Now, []);
         Assert.Equal(HttpStatusCode.Forbidden, (await coordinator.PostAsJsonAsync("/internal/live/activity", foreign)).StatusCode);
         Assert.Equal(before, factory.Store.Account);
@@ -179,6 +186,7 @@ public sealed class LiveCoordinatorAccessTests
         if (scenario == "browser-origin") client.DefaultRequestHeaders.Add("Origin", "https://localhost:3000");
         var id = scenario == "other-account" ? Guid.NewGuid() : LiveRiskTests.Account.Value;
         Assert.Equal(status, (await client.GetAsync($"/internal/live/research/{id:N}")).StatusCode);
+        Assert.Equal(status, (await client.GetAsync($"/internal/live/activity/{id:N}")).StatusCode);
         Assert.Empty(factory.Store.Account.Orders);
     }
 

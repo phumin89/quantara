@@ -16,7 +16,7 @@ public sealed class LiveActivityStore(TimeProvider clock)
         {
             if (current is not null && (current.AccountContext != activity.AccountContext || current.ObservedAt >= activity.ObservedAt)) return false;
             current = activity with { Roles = activity.Roles.ToArray(), ResearchSymbols = activity.ResearchSymbols.ToArray(),
-                TradingSymbols = activity.TradingSymbols.ToArray() };
+                TradingSymbols = activity.TradingSymbols.ToArray(), Issues = activity.Issues?.ToArray() };
             return true;
         }
     }
@@ -26,6 +26,6 @@ public sealed class LiveActivityStore(TimeProvider clock)
         lock (gate)
             return current is not null && LiveActivityValidation.IsValid(current, account, clock.GetUtcNow())
                 ? current with { Roles = current.Roles.ToArray(), ResearchSymbols = current.ResearchSymbols.ToArray(),
-                    TradingSymbols = current.TradingSymbols.ToArray() } : null;
+                    TradingSymbols = current.TradingSymbols.ToArray(), Issues = current.Issues?.ToArray() } : null;
     }
 }

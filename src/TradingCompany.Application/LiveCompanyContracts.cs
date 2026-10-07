@@ -28,6 +28,10 @@ public sealed record LiveCompanyActivity(TradingAccountContext AccountContext, G
     public string? CoordinatorStatus { get; init; }
     public IReadOnlyList<string> ResearchSymbols { get; init; } = [];
     public IReadOnlyList<string> TradingSymbols { get; init; } = [];
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public IReadOnlyList<LiveMeetingIssue>? Issues { get; init; }
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public DateTimeOffset? NextRetryAt { get; init; }
 }
 public static class LiveActivityValidation
 {
@@ -42,7 +46,9 @@ public static class LiveActivityValidation
         (activity.CoordinatorStatus is null || activity.CoordinatorStatus.Length is > 0 and <= 100 &&
             activity.CoordinatorStatus.All(c => char.IsAsciiLetterUpper(c) || c == '_')) &&
         ValidSymbols(activity.ResearchSymbols) && ValidSymbols(activity.TradingSymbols) &&
-        activity.TradingSymbols.All(activity.ResearchSymbols.Contains);
+        activity.TradingSymbols.All(activity.ResearchSymbols.Contains) && LiveMeetingIssues.IsValid(activity.Issues) &&
+        (activity.NextRetryAt is null || activity.NextRetryAt >= activity.ObservedAt.AddDays(-1) &&
+            activity.NextRetryAt <= activity.ObservedAt.AddDays(1));
 
     private static bool ValidSymbols(IReadOnlyList<string>? symbols) => symbols is { Count: <= 3 } &&
         symbols.All(s => s is "BTC-THB" or "ETH-THB" or "SOL-THB") && symbols.Distinct().Count() == symbols.Count;

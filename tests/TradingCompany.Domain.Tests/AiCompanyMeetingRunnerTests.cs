@@ -1,3 +1,4 @@
+using System.Text.Json;
 using TradingCompany.AgentRuntime;
 using TradingCompany.Application;
 using TradingCompany.Domain;
@@ -186,6 +187,27 @@ public sealed class AiCompanyMeetingRunnerTests
             events.Items.FindIndex(e => e.Type == "AgentStartedTask" && ((AgentRuntimeEventPayload)e.Payload).AgentId == "chief-of-staff"));
     }
 
+    [Fact]
+    public async Task Prompt_json_preserves_thai_while_escaping_html_quotes_and_controls()
+    {
+        var input = Input() with { Mandate = "ทดสอบ <tag> \"quote\" และบรรทัด\nใหม่" };
+        var thai = "สรุปก่อนหน้า";
+        var gateway = new QueueGateway(Roles.Select(role => Output(input, role, summary: thai)));
+
+        var result = await Runner(gateway).RunAsync(input, default);
+
+        Assert.Equal("COMPLETED", result.Status);
+        Assert.Contains("ทดสอบ", gateway.Requests[0].InputJson);
+        Assert.Contains("สรุปก่อนหน้า", gateway.Requests[1].InputJson);
+        Assert.Contains("\\u003Ctag\\u003E", gateway.Requests[0].InputJson);
+        Assert.Contains("\\u0022quote\\u0022", gateway.Requests[0].InputJson);
+        Assert.Contains("\\n", gateway.Requests[0].InputJson);
+        using var first = JsonDocument.Parse(gateway.Requests[0].InputJson);
+        using var second = JsonDocument.Parse(gateway.Requests[1].InputJson);
+        Assert.Equal(input.Mandate, first.RootElement.GetProperty("meeting").GetProperty("mandate").GetString());
+        Assert.Equal(thai, second.RootElement.GetProperty("priorArtifacts")[0].GetProperty("summary").GetString());
+    }
+
     private sealed class CapturedEvents : IRealtimeEventPublisher
     {
         public List<RealtimeEvent> Items { get; } = [];
@@ -236,13 +258,15 @@ public sealed class AiCompanyMeetingRunnerTests
         AiCompanyMeetingInput input,
         string role,
         string? action = null,
-        string symbol = "NVDA")
+        string symbol = "NVDA",
+        string summary = "")
     {
+        summary = string.IsNullOrEmpty(summary) ? (role == "market-research" ? "Market view" : "Role view") : summary;
         var proposals = action is null
             ? "[]"
             : $$"""[{"action":"{{action}}","symbol":"{{symbol}}","targetWeight":0.19,"confidence":0.82,"thesis":"Trend and evidence support entry.","invalidation":"Trend breaks."}]""";
         return $$"""
-            {"role":"{{role}}","summary":"{{(role == "market-research" ? "Market view" : "Role view")}}","recommendations":["Review supplied evidence"],"risks":["Volatility"],"evidenceIds":["NVDA:2026-08-29"],"proposals":{{proposals}},"dataCutoff":"{{input.DataCutoff:yyyy-MM-dd}}","evidenceHash":"{{input.EvidenceHash}}"}
+            {"role":"{{role}}","summary":"{{summary}}","recommendations":["Review supplied evidence"],"risks":["Volatility"],"evidenceIds":["NVDA:2026-08-29"],"proposals":{{proposals}},"dataCutoff":"{{input.DataCutoff:yyyy-MM-dd}}","evidenceHash":"{{input.EvidenceHash}}"}
             """;
     }
 

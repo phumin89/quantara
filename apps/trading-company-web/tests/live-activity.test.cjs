@@ -2,7 +2,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const path = require('node:path');
 const load = require('./load-component.cjs');
-const { validLiveActivity, readLiveActivity } = load(path.join(__dirname, '../app/liveActivity.ts'));
+const { validLiveActivity, validLiveIssues, readLiveActivity } = load(path.join(__dirname, '../app/liveActivity.ts'));
 const { LiveOffice } = load(path.join(__dirname, '../app/LiveOffice.tsx'));
 const React = require('react');
 const { renderToStaticMarkup } = require('react-dom/server');
@@ -55,4 +55,31 @@ test('optional coordinator status and symbols are validated and rendered', () =>
   assert.equal(validLiveActivity(make(now), account, now), true);
   const html = renderToStaticMarkup(React.createElement(LiveOffice, { activity: { ...valid, roles: [{ ...valid.roles[0], status: 'completed' }] } }));
   assert.ok(html.includes('เฝ้าตลาด')); assert.ok(html.includes('วิเคราะห์ BTC · ETH')); assert.ok(html.includes('เทรดได้ BTC'));
+});
+test('activity issue metadata fails closed and preserves legacy records', () => {
+  const now = Date.parse('2026-10-06T06:00:00Z');
+  const valid = { ...make(now), issues: [{ code: 'MARKET_HISTORY_UNAVAILABLE', symbol: 'BTC-THB' }, { code: 'MEETING_FAILED' }], nextRetryAt: new Date(now + 86400000).toISOString() };
+  assert.equal(validLiveIssues(valid.issues), true);
+  assert.equal(validLiveActivity(valid, account, now), true);
+  assert.equal(validLiveActivity(make(now), account, now), true);
+  for (const issues of [
+    [{ code: 'UNKNOWN' }], [{ code: 'MARKET_HISTORY_UNAVAILABLE' }],
+    [{ code: 'MEETING_FAILED', symbol: 'BTC-THB' }],
+    [{ code: 'MEETING_FAILED' }, { code: 'MEETING_FAILED' }],
+    Array.from({ length: 6 }, () => ({ code: 'MEETING_FAILED' })),
+  ]) assert.equal(validLiveActivity({ ...make(now), issues }, account, now), false);
+  assert.equal(validLiveActivity({ ...valid, nextRetryAt: new Date(now + 86400001).toISOString() }, account, now), false);
+  assert.equal(validLiveActivity({ ...valid, nextRetryAt: new Date(now - 86400001).toISOString() }, account, now), false);
+});
+test('working activity hides stale saved issues and retry until the role finishes', () => {
+  const now = Date.parse('2026-10-06T06:00:00Z');
+  const activity = { ...make(now), coordinatorStatus: 'LIVE_BLOCKED', issues: [{ code: 'ACCOUNT_STATE_INVALID' }], nextRetryAt: new Date(now + 3600000).toISOString() };
+  const render = value => renderToStaticMarkup(React.createElement(LiveOffice, { activity: value }));
+  const working = render(activity);
+  assert.ok(working.includes('CEOกำลังวิเคราะห์'));
+  assert.ok(!working.includes('สถานะบัญชีไม่ถูกต้อง'));
+  assert.ok(!working.includes('ลองอีกครั้ง'));
+  const completed = render({ ...activity, roles: [{ ...activity.roles[0], status: 'completed' }] });
+  assert.ok(completed.includes('สถานะบัญชีไม่ถูกต้อง'));
+  assert.ok(completed.includes('ลองอีกครั้ง'));
 });

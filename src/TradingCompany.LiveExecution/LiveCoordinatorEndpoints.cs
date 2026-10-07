@@ -14,6 +14,10 @@ public static class LiveCoordinatorEndpoints
             try { return await next(context); }
             catch (Exception) { return Results.Json(new { code = "LIVE_UNAVAILABLE" }, statusCode: 503); }
         });
+        // Read back the bounded display projection for operational diagnosis only.
+        routes.MapGet("/activity/{accountId:guid}", (Guid accountId, HttpContext context, LiveActivityStore store) =>
+            !Bound(context, accountId) ? Results.StatusCode(403) :
+                Results.Ok(new { activity = store.Read(new(accountId)) }));
         routes.MapGet("/research/{accountId:guid}", async (Guid accountId, HttpContext context, TimeProvider clock) =>
         {
             if (!Bound(context, accountId)) return Results.StatusCode(403);

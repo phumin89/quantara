@@ -17,6 +17,8 @@ public sealed class LiveCompanyActivityPublisher : BackgroundService, IRealtimeE
     private string? coordinatorStatus;
     private IReadOnlyList<string> researchSymbols = [];
     private IReadOnlyList<string> tradingSymbols = [];
+    private IReadOnlyList<LiveMeetingIssue> issues = [];
+    private DateTimeOffset? nextRetryAt;
 
     public LiveCompanyActivityPublisher(ILiveCompanyClient client, TimeProvider clock, LiveAccountId account)
     {
@@ -87,13 +89,16 @@ public sealed class LiveCompanyActivityPublisher : BackgroundService, IRealtimeE
         finally { sends.Release(); }
     }
 
-    public void UpdateCoordinatorStatus(string status, IReadOnlyList<string> research, IReadOnlyList<string> trading)
+    public void UpdateCoordinatorStatus(string status, IReadOnlyList<string> research, IReadOnlyList<string> trading,
+        IReadOnlyList<LiveMeetingIssue>? problems = null, DateTimeOffset? retryAt = null)
     {
         lock (stateLock)
         {
             coordinatorStatus = status;
             researchSymbols = research.ToArray();
             tradingSymbols = trading.ToArray();
+            issues = problems?.ToArray() ?? [];
+            nextRetryAt = retryAt;
         }
     }
 
@@ -112,7 +117,8 @@ public sealed class LiveCompanyActivityPublisher : BackgroundService, IRealtimeE
     {
         LiveCompanyActivity snapshot;
         lock (stateLock) snapshot = new(scope, meetingId, clock.GetUtcNow(), roles.Values.ToArray())
-        { CoordinatorStatus = coordinatorStatus, ResearchSymbols = researchSymbols, TradingSymbols = tradingSymbols };
+        { CoordinatorStatus = coordinatorStatus, ResearchSymbols = researchSymbols, TradingSymbols = tradingSymbols,
+            Issues = issues.Count == 0 ? null : issues, NextRetryAt = nextRetryAt };
         try { await client.SaveActivityAsync(snapshot, cancellationToken); }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
         catch (Exception) { } // Telemetry transport cannot interrupt meeting or order validation.

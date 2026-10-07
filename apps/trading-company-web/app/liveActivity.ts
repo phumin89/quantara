@@ -4,7 +4,10 @@ export type LiveActivity = {
   accountContext: { mode: 1; accountId: string }; meetingId: string | null; observedAt: string;
   roles: { role: string; status: "idle" | "working" | "completed" | "failed"; changedAt: string }[];
   coordinatorStatus?: string; researchSymbols?: string[]; tradingSymbols?: string[];
+  issues?: LiveIssue[]; nextRetryAt?: string | null;
 };
+export type LiveIssue = { code: string; symbol?: string | null };
+export const liveIssueCodes = ["MARKET_HISTORY_UNAVAILABLE", "PUBLIC_RESEARCH_UNAVAILABLE", "LIVE_READ_UNAVAILABLE", "ACCOUNT_STATE_INVALID", "JOURNAL_UNAVAILABLE", "MEETING_FAILED"] as const;
 const roles = ["ceo", "chief-of-staff", "market-research", "security-analysis", "quant-research", "portfolio-initial", "risk-critic", "portfolio-final"];
 export const activityLifetime = 45000;
 const object = (v: unknown): v is Record<string, any> => !!v && typeof v === "object" && !Array.isArray(v);
@@ -12,6 +15,7 @@ const timestamp = (v: unknown): v is string => typeof v === "string" && /^\d{4}-
   Number.isFinite(Date.parse(v)) && new Date(`${v.slice(0, 19)}Z`).toISOString().slice(0, 19) === v.slice(0, 19);
 const symbols = ["BTC-THB", "ETH-THB", "SOL-THB"];
 const validSymbols = (v: unknown) => Array.isArray(v) && v.length <= 3 && v.every(s => typeof s === "string" && symbols.includes(s)) && new Set(v).size === v.length;
+export function validLiveIssues(v: unknown): v is LiveIssue[] { if (!Array.isArray(v) || v.length > 5) return false; const seen = new Set<string>(); return v.every(i => object(i) && typeof i.code === "string" && liveIssueCodes.includes(i.code as any) && (i.code === "MARKET_HISTORY_UNAVAILABLE" ? typeof i.symbol === "string" && symbols.includes(i.symbol) : i.symbol === undefined || i.symbol === null) && !seen.has(`${i.code}:${i.symbol ?? ""}`) && seen.add(`${i.code}:${i.symbol ?? ""}`)); }
 export function validLiveActivity(v: unknown, accountId: string, now = Date.now()): v is LiveActivity {
   const bound = accountId.replaceAll("-", "").toLowerCase();
   if (!/^[0-9a-f]{32}$/.test(bound) || /^0{32}$/.test(bound) || !object(v) || !object(v.accountContext) ||
@@ -21,6 +25,7 @@ export function validLiveActivity(v: unknown, accountId: string, now = Date.now(
     (v.coordinatorStatus !== undefined && (typeof v.coordinatorStatus !== "string" || !/^[A-Z_]{1,100}$/.test(v.coordinatorStatus))) ||
     (v.researchSymbols !== undefined && !validSymbols(v.researchSymbols)) ||
     (v.tradingSymbols !== undefined && (!validSymbols(v.tradingSymbols) || v.tradingSymbols.some((s: unknown) => !Array.isArray(v.researchSymbols) || !v.researchSymbols.includes(s as string)))) ||
+    (v.issues !== undefined && !validLiveIssues(v.issues)) || (v.nextRetryAt !== undefined && v.nextRetryAt !== null && (!timestamp(v.nextRetryAt) || Math.abs(Date.parse(v.nextRetryAt) - Date.parse(v.observedAt)) > 86400000)) ||
     !(v.meetingId === null && v.roles.length === 0 || typeof v.meetingId === "string" &&
       /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(v.meetingId) && !/^0{8}-0{4}-0{4}-0{4}-0{12}$/.test(v.meetingId))) return false;
   return v.roles.every((r: unknown) => object(r) && roles.includes(r.role) && ["idle", "working", "completed", "failed"].includes(r.status) &&
