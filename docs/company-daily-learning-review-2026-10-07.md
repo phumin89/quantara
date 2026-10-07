@@ -59,3 +59,11 @@ Project documentation is a source of project claims, not independent confirmatio
 This research and memory change does not activate trading or demonstrate autonomous real-money execution. Existing live activation, reconciliation, current-market evidence and RiskEngine checks remain required. Existing real positions and the initial 30 THB test purchase remain in accounting; that purchase is not presented as a company performance result.
 
 Rollback requires reverting the matching reader/writer code together and retaining the existing data volumes. Once learning or expanded research has been saved, an old reader may reject those records. Do not delete history, reset pairing or restore old contract readers over new records as a shortcut.
+
+## Follow-up: Caveman reports
+
+Owner requested concise Caveman reporting for every agent. One shared instruction now covers all eight meeting roles, the coin researcher and the daily learning reviewer: clear Thai, conclusion first, one to three short lines, targeting at most 280 summary characters. Numbers, negation, limits, uncertainty, important conditions and exact citations remain intact; reasoning, schemas, token ceilings and financial authority are unchanged. This is a generation instruction, not a hard rejection of a longer safety-critical report.
+
+The actual worker diff was independently reviewed and its proposal-field wording clarified. Meeting instruction changes invalidate verbose decision caches naturally. Validated document analysis remains cached, and today's completed learning profile is preserved rather than regenerated solely for formatting. Historical reports remain unchanged. The daily oversight automation and repository instructions also carry the style requirement.
+
+Checks: **824 deterministic tests passed**, runtime and company image builds passed. An independent read-only check restored all eight coin findings and all eight learned role profiles with **zero model attempts**. The company service was updated using its existing mounts; no frontend layout or financial controls changed. Evidence: ignored `work/caveman-reports-tests.log`, `work/caveman-reports-build.log` and `work/caveman-reports-cache-proof.log`.

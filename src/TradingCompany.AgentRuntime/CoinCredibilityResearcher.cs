@@ -50,7 +50,7 @@ public sealed class CoinCredibilityResearcher(ITradingAgentGateway gateway, IAge
         try
         {
             var response = await gateway.CompleteStructuredAsync(new("security-analysis", model, "medium", "coin-documents-v1",
-                Instructions, JsonSerializer.Serialize(new { symbol, documents }, Json), Schema, 1200, TimeSpan.FromSeconds(120)), token);
+                Instructions + " " + AgentReportStyle.Instructions, JsonSerializer.Serialize(new { symbol, documents }, Json), Schema, 1200, TimeSpan.FromSeconds(120)), token);
             // Store a rejection marker for malformed JSON too: unchanged sources must not burn quota retrying it.
             var storedOutput = response.OutputJson;
             try { using var parsed = JsonDocument.Parse(storedOutput); }

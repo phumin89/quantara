@@ -65,7 +65,7 @@ public sealed class CompanyLearningService(ITradingAgentGateway gateway, IAgentD
             try
             {
                 response = await gateway.CompleteStructuredAsync(new("company-learning", model, "medium", PromptVersion,
-                    Instructions + " Aim for 120 characters per lesson/practice and short exact quotations.",
+                    Instructions + " " + AgentReportStyle.Instructions + " Aim for 120 characters per lesson/practice and short exact quotations.",
                     JsonSerializer.Serialize(new { date = day,
                         history = history.Select(h => new { h.Role, h.Own, h.Status, h.PreviousPractice }),
                         sharedCritic = history.FirstOrDefault()?.Critic }, Json), Schema, 4096, TimeSpan.FromSeconds(120)), token);

@@ -2,6 +2,12 @@
 
 This repository follows the engineering rules in the source instructions: clean, simple, testable code; Clean Architecture; SOLID; meaningful names; guard clauses; and deterministic tests.
 
+## Agent communication
+
+- Owner requested on 2026-10-07: all company agents, research/learning agents, supporting workers and scheduled follow-ups use Caveman full in clear Thai. Lead with the conclusion; keep reports to one to three short lines where feasible, aiming for at most 280 characters in summaries. Remove filler, repeated explanations and process disclaimers.
+- Preserve negation, numbers, units, limits, uncertainty, critical risks and decision conditions. Keep citations, exact source quotations, JSON keys, enums, IDs and numeric proposal fields intact. Concise reporting must not reduce analysis or validation.
+- Preserve historical reports as recorded. Apply the style to new work; do not spend model quota re-reading unchanged documents or repeating a completed daily learning job solely to restyle it.
+
 ## Execution safety rules
 
 - Product direction approved on 2026-09-27: support separate Sandbox and Live modes. Existing V1 remains paper-only until the live implementation is verified; do not describe design work as working live execution.
