@@ -29,11 +29,11 @@ public static partial class CoinResearchValidation
     public static bool Hash(string? value) => value is { Length: 64 } && value.All(char.IsAsciiHexDigit);
     public static bool PublicSourceUrl(string? value) => Uri.TryCreate(value, UriKind.Absolute, out var u) &&
         u.Scheme == "https" && u.IsDefaultPort && u.UserInfo.Length == 0 && u.Query.Length == 0 && u.Fragment.Length == 0 &&
-        u.Host is "bitcoin.org" or "raw.githubusercontent.com" or "ethereum.org" or "solana.com";
+        u.Host is "bitcoin.org" or "raw.githubusercontent.com" or "ethereum.org" or "solana.com" or "xrpl.org" or "tether.to";
     public static bool IsValid(CoinResearchBrief? value, DateTimeOffset now)
     {
         if (value is null || value.ObservedAt > now || now - value.ObservedAt > TimeSpan.FromMinutes(16) || !Hash(value.ChangeKey) ||
-            value.Watchlist is not { Count: <= 8 } || value.Sources is not { Count: <= 6 } || value.Findings is not { Count: <= 3 } ||
+            value.Watchlist is not { Count: <= 8 } || value.Sources is not { Count: <= 16 } || value.Findings is not { Count: <= 8 } ||
             value.Gaps is not { Count: <= 12 } || value.Gaps.Any(g => !Text(g, 200)) ||
             value.Watchlist.Any(c => c is null || !ValidSymbol(c.Symbol) || c.Bid <= 0 || c.Ask < c.Bid || c.QuoteVolume24h < 0 ||
                 c.Change24hPercent is < -100 or > 1_000_000 || c.SpreadPercent < 0 || c.DepthQuoteNotional < 0) || value.Watchlist.Select(c => c.Symbol).Distinct().Count() != value.Watchlist.Count ||

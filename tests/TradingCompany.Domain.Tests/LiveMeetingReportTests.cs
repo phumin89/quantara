@@ -18,7 +18,9 @@ public sealed class LiveMeetingReportTests
         var report = Report() with { Summary = Report().Summary! with
         {
             Research = new(Now, new string('b', 64),
-                [new("G-THB", 10, 11, 300000, -1, 10, 500, false, false)], [], [], [])
+                [new("G-THB", 10, 11, 300000, -1, 10, 500, false, false)], [], [], []),
+            Learning = new(Report().BusinessDate, Report().AccountContext!, CompanyLearningValidation.Roles.Select(role =>
+                new CompanyRoleLearning(role, "NO_HISTORY", 0, null)).ToArray(), 0)
         } };
         tx.RecordMeeting(report, Now);
 
@@ -28,6 +30,8 @@ public sealed class LiveMeetingReportTests
         Assert.Equal(Report().Status, saved.Status);
         Assert.Equal(Report().Summary!.Reports, saved.Summary!.Reports);
         Assert.Equal("G-THB", Assert.Single(saved.Summary.Research!.Watchlist).Symbol);
+        Assert.Equal(8, saved.Summary.Learning!.Roles.Count);
+        Assert.Equal(report.Summary!.Learning!.AccountContext, saved.Summary.Learning.AccountContext);
         Assert.Equal(before.Snapshot, tx.Account.Snapshot);
         Assert.Equal(before.Gate, tx.Account.Gate);
         Assert.Equal(before.Mandate, tx.Account.Mandate);

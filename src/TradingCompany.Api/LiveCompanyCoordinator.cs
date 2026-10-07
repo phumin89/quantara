@@ -2,12 +2,13 @@ using TradingCompany.Application;
 using TradingCompany.Domain;
 using System.Security.Cryptography;
 using System.Text.Json;
+using TradingCompany.AgentRuntime;
 
 namespace TradingCompany.Api;
 
 public sealed class LiveCompanyCoordinator(ILiveCompanyClient client, IHistoricalMarketEvidenceProvider markets,
     IAiCompanyMeetingRunner meeting, IDailyMeetingJournal journal, TimeProvider clock, LiveAccountId accountId, bool continuousReviews = false,
-    ICoinResearchProvider? research = null)
+    ICoinResearchProvider? research = null, CompanyLearningService? learning = null)
 {
     private readonly SemaphoreSlim tick = new(1, 1);
     private readonly TradingAccountContext context = new(TradingMode.Live, accountId.Value.ToString("N"));
@@ -94,6 +95,14 @@ public sealed class LiveCompanyCoordinator(ILiveCompanyClient client, IHistorica
             unavailableCode = "LIVE_READ_UNAVAILABLE";
             var checkpoint = packet.Snapshot with { Quotes = ResearchQuotes(packet) };
             var researchChanged = brief is not null && brief.ChangeKey != latest?.Summary?.Research?.ChangeKey;
+            CompanyLearningReport? learningReport = null;
+            if (learning is not null)
+            {
+                try { learningReport = await learning.ReadAsync(cancellationToken); }
+                catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
+                catch (Exception) { } // Missing memory never authorizes or blocks an otherwise valid risk decision.
+            }
+            var learningChanged = learningReport is not null && learningReport.BusinessDate != latest?.Summary?.Learning?.BusinessDate;
             var cutoff = DateOnly.FromDateTime(now.UtcDateTime).AddDays(-1);
             var candidates = new List<AiCompanyCandidateEvidence>();
             foreach (var text in ResearchSymbols(packet))
@@ -152,7 +161,7 @@ public sealed class LiveCompanyCoordinator(ILiveCompanyClient client, IHistorica
             TradingUniverse = advisoryOnly ? [] : candidates.Where(c => c.ExecutionAllowed).Select(c => c.Symbol.Value).ToArray();
             var problemsChanged = !(latest?.Summary?.Issues ?? []).SequenceEqual(Issues) ||
                 (latest?.Summary?.AdvisoryOnly ?? false) != advisoryOnly;
-            if (reviewHour is not null && !researchChanged && !problemsChanged && latest?.Summary?.Reports.Count > 0 &&
+            if (reviewHour is not null && !researchChanged && !learningChanged && !problemsChanged && latest?.Summary?.Reports.Count > 0 &&
                 latest.ReviewSnapshot is { } previous && !NeedsReview(previous, checkpoint))
             { Status = advisoryOnly ? "READ_ONLY" : "WATCHING"; NextRetryAt = clock.GetUtcNow().AddSeconds(30); return; }
             unavailableCode = "JOURNAL_UNAVAILABLE";
@@ -176,11 +185,13 @@ public sealed class LiveCompanyCoordinator(ILiveCompanyClient client, IHistorica
             {
                 AccountContext = context, PortfolioReview = reviewHour is not null && latest?.Summary?.Reports.Count > 0,
                 ObservedAt = now, Research = brief, ResearchChanged = researchChanged,
+                Learning = learningReport, LearningChanged = learningChanged,
                 PreviousConclusion = reviewHour is null ? null : latest?.Summary?.Reports
                     .SingleOrDefault(r => r.Role == "portfolio-final")?.Summary
             };
             var result = await meeting.RunAsync(input, cancellationToken);
-            summary = Summarize(result) with { Research = brief, Issues = problems.Count == 0 ? null : Issues, AdvisoryOnly = advisoryOnly };
+            summary = Summarize(result) with { Research = brief, Issues = problems.Count == 0 ? null : Issues,
+                AdvisoryOnly = advisoryOnly, Learning = learningReport };
             if (result.Status != "COMPLETED") { Finish(result.Status); return; }
             if (result.AccountContext != context || !ValidProposals(result.Proposals, packet.Limits) ||
                 result.Proposals.Any(p => candidates.All(c => c.Symbol != p.Symbol))) { Finish("INVALID_FINAL"); return; }

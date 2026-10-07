@@ -21,6 +21,8 @@ public static class LiveMeetingReports
             JsonSerializer.SerializeToUtf8Bytes(attempt).Length > 60 * 1024)
             throw new InvalidDataException("Invalid meeting report.");
         if (attempt.Summary is not { } summary) return;
+        if (summary.Learning is not null && !CompanyLearningValidation.IsValid(summary.Learning, attempt.AccountContext, attempt.BusinessDate))
+            throw new InvalidDataException("Invalid saved learning evidence.");
         if (summary.Research is { } research && (!CoinResearchValidation.IsValid(research, research.ObservedAt) ||
             research.ObservedAt > now || DateOnly.FromDateTime(research.ObservedAt.ToOffset(TimeSpan.FromHours(7)).DateTime) != attempt.BusinessDate))
             throw new InvalidDataException("Invalid saved research evidence.");

@@ -2,12 +2,13 @@
 import { useEffect, useRef, useState } from "react";
 import { requestJson } from "./requestJson";
 import { CoinResearchView, readResearch } from "./CoinResearchView";
+import { CompanyLearningView, readLearning } from "./CompanyLearningView";
 import { validLiveIssues } from "./liveActivity";
 const roles: Record<string, string> = { ceo: "CEO", "chief-of-staff": "หัวหน้าทีม", "market-research": "วิจัยตลาด", "security-analysis": "วิเคราะห์สินทรัพย์", "quant-research": "วิเคราะห์กลยุทธ์", "portfolio-initial": "ข้อเสนอแรก", "risk-critic": "ตรวจความเสี่ยง", "portfolio-final": "ผู้จัดการพอร์ต" };
 const statuses: Record<string, string> = { READ_ONLY: "ประชุมและวิจัย · พักส่งคำสั่ง", HOLD: "คงพอร์ต · ยังไม่ส่งคำสั่ง", ORDER_PENDING: "ส่งคำสั่งแล้ว · ยังรอยืนยันผลจากตลาด", RISK_REJECTED: "ระบบไม่อนุมัติคำสั่ง", RESEARCH_UNAVAILABLE: "ข้อมูลตลาดไม่ครบ จึงไม่มีคำสั่ง", SNAPSHOT_CHANGED: "บัญชีหรือสิทธิ์เปลี่ยนระหว่างประชุม จึงไม่มีคำสั่ง", PRICE_CHANGED: "ราคาเปลี่ยนเกินขอบเขต จึงไม่มีคำสั่ง", LIVE_UNAVAILABLE: "ยังยืนยันผลรอบนี้ไม่ได้ ตรวจรายการคำสั่งก่อนดำเนินการต่อ" };
 type Scope = { mode: 1; accountId: string };
 type Report = { role: string; summary: string; providerModel: string; inputTokens: number; outputTokens: number; artifactId: string; evidenceHash: string; dataCutoff: string };
-type Meeting = { businessDate: string; reviewHour?: number | null; attemptId: string; status: string; accountContext: Scope; summary: { modelCalls: number; inputTokens: number; outputTokens: number; reports: Report[]; research?: unknown; issues?: { code: string; symbol?: string | null }[] | null; advisoryOnly?: boolean } | null };
+type Meeting = { businessDate: string; reviewHour?: number | null; attemptId: string; status: string; accountContext: Scope; summary: { modelCalls: number; inputTokens: number; outputTokens: number; reports: Report[]; research?: unknown; learning?: unknown; issues?: { code: string; symbol?: string | null }[] | null; advisoryOnly?: boolean } | null };
 type Meetings = { accountContext: Scope; meetings: Meeting[]; availableDates: string[]; selectedDate: string | null; hasDateIndex: boolean };
 const object = (v: unknown): v is Record<string, unknown> => !!v && typeof v === "object" && !Array.isArray(v);
 const text = (v: unknown, max: number): v is string => typeof v === "string" && v.length > 0 && v.length <= max;
@@ -29,6 +30,7 @@ export function readMeetings(value: unknown, now = Date.now()): Meetings | undef
     const s = m.summary;
     if (!object(s) || !count(s.modelCalls) || s.modelCalls > 8 || !count(s.inputTokens) || !count(s.outputTokens) || !Array.isArray(s.reports) || s.reports.length > 8 || (s.issues !== undefined && s.issues !== null && !validLiveIssues(s.issues)) || (s.advisoryOnly !== undefined && typeof s.advisoryOnly !== "boolean")) return;
     if (s.research != null && (!readResearch(s.research, now) || new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Bangkok" }).format(new Date((s.research as Record<string, unknown>).observedAt as string)) !== m.businessDate)) return;
+    if (s.learning != null && !readLearning(s.learning, scope as Scope, m.businessDate)) return;
     const seen = new Set();
     for (const r of s.reports) {
       if (!object(r) || !text(r.role, 100) || !Object.hasOwn(roles, r.role) || seen.has(r.role) || !text(r.summary, 6000) ||
@@ -122,6 +124,7 @@ export function LiveMeetingView({ meetings, selected, onSelect, availableDates, 
     {!!issues?.length && <p className="team-meeting-issues">{issues.join(" · ")}</p>}
     {final && <p className="team-meeting-conclusion">{final.summary}</p>}
     {meeting.summary?.research != null && <CoinResearchView research={meeting.summary.research} businessDate={meeting.businessDate} />}
+    {meeting.summary?.learning != null && <CompanyLearningView learning={meeting.summary.learning} scope={meeting.accountContext} meetingDate={meeting.businessDate} labels={roles} />}
     {!!reports.length && <details><summary>อ่านเหตุผลจากทีม</summary>{reports.filter(r => !["portfolio-final", "portfolio-initial"].includes(r.role)).map(r => <article className="team-role-report" key={r.role}><h4>{roles[r.role]}</h4><p>{r.summary}</p></article>)}
       {initial && <details><summary>ข้อเสนอแรกก่อนตรวจความเสี่ยง</summary><p>{initial.summary}</p></details>}
     </details>}

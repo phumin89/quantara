@@ -18,7 +18,12 @@ public sealed partial class CoinSourceReader(HttpClient client, string directory
         ("ETH-THB", "Ethereum original whitepaper (2014)", "https://ethereum.org/whitepaper/"),
         ("ETH-THB", "Ethereum current proof-of-stake documentation", "https://ethereum.org/developers/docs/consensus-mechanisms/pos/"),
         ("SOL-THB", "Solana original whitepaper", "https://solana.com/solana-whitepaper.pdf"),
-        ("SOL-THB", "Solana current core concepts", "https://solana.com/docs/core")
+        ("SOL-THB", "Solana current core concepts", "https://solana.com/docs/core"),
+        ("DOGE-THB", "Dogecoin Core FAQ", "https://raw.githubusercontent.com/dogecoin/dogecoin/master/doc/FAQ.md"),
+        ("XRP-THB", "XRP Ledger consensus", "https://xrpl.org/docs/concepts/consensus-protocol"),
+        ("ADA-THB", "Cardano Foundation consensus/staking", "https://raw.githubusercontent.com/cardano-foundation/developer-portal/main/docs/operators/basics/consensus-staking.md"),
+        ("USDT-THB", "Tether historical whitepaper notice", "https://tether.to/en/whitepaper/"),
+        ("NEAR-THB", "NEAR Nightshade paper (documentation archive)", "https://raw.githubusercontent.com/near/docs/master/papers/Nightshade.pdf")
     ]);
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
     private const int ByteLimit = 4 * 1024 * 1024;
@@ -64,7 +69,8 @@ public sealed partial class CoinSourceReader(HttpClient client, string directory
         else
         {
             text = Encoding.UTF8.GetString(bytes);
-            if (url.Contains("ethereum.org", StringComparison.Ordinal) || url.Contains("solana.com", StringComparison.Ordinal))
+            // The exact catalog specifies HTML pages except raw Markdown and PDFs.
+            if (new Uri(url).Host != "raw.githubusercontent.com")
             {
                 var main = Main().Match(text);
                 if (!main.Success) throw new InvalidDataException("Public document has no main content.");

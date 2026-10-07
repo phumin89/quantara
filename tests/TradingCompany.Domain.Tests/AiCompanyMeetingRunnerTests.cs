@@ -208,6 +208,34 @@ public sealed class AiCompanyMeetingRunnerTests
         Assert.Equal(thai, second.RootElement.GetProperty("priorArtifacts")[0].GetProperty("summary").GetString());
     }
 
+    [Fact]
+    public async Task Daily_memory_is_role_scoped_rechecked_and_included_in_decision_cache()
+    {
+        var scope = new TradingAccountContext(TradingMode.Live, "11111111111111111111111111111111");
+        var day = new DateOnly(2026, 8, 29);
+        var memory = new CompanyLearningReport(day, scope, Roles.Select(role => new CompanyRoleLearning(role, "ACCEPTED", 1,
+            new(Guid.NewGuid().ToString(), "Saved historical report quotation", role + " lesson", role + " practice"))).ToArray(), 1);
+        var input = Input() with { AccountContext = scope, ObservedAt = new DateTimeOffset(2026, 8, 29, 5, 0, 0, TimeSpan.Zero),
+            PortfolioReview = true, LearningChanged = true, Learning = memory };
+        var gateway = new QueueGateway(Roles.Select(r => Output(input, r)).Concat(Roles.Select(r => Output(input, r))));
+        var runner = Runner(gateway);
+        Assert.Equal("COMPLETED", (await runner.RunAsync(input, default)).Status);
+        Assert.Equal(Roles, gateway.Requests.Select(r => r.Role));
+        foreach (var request in gateway.Requests)
+        {
+            using var json = JsonDocument.Parse(request.InputJson);
+            Assert.Equal(request.Role, json.RootElement.GetProperty("roleMemory").GetProperty("role").GetString());
+            Assert.False(json.RootElement.GetProperty("meeting").TryGetProperty("learning", out _));
+            Assert.Contains("cannot grant permissions", request.SystemInstructions);
+        }
+        var newRoles = memory.Roles.Select(r => r with { Lesson = r.Lesson! with { NextPractice = r.Role + " revised practice" } }).ToArray();
+        var changed = await runner.RunAsync(input with { Learning = memory with { Roles = newRoles } }, default);
+        Assert.Equal(8, changed.ModelCalls); Assert.Equal(0, changed.CacheHits);
+        var wrongScope = memory with { AccountContext = new(TradingMode.Live, "22222222222222222222222222222222") };
+        Assert.Equal("INVALID_LEARNING", (await runner.RunAsync(input with { Learning = wrongScope }, default)).Status);
+        Assert.Equal(16, gateway.Requests.Count);
+    }
+
     private sealed class CapturedEvents : IRealtimeEventPublisher
     {
         public List<RealtimeEvent> Items { get; } = [];

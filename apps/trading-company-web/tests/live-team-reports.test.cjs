@@ -71,6 +71,15 @@ test('date filtering validates metadata, encodes the request, and never falls ba
  assert.equal(readMeetings({...emptyResponse,selectedDate:'2026-10-06'}),undefined);
  for (const invalid of ['2026-02-30','2026-10-06&account=other']) {calls.length=0; assert.equal(await readLiveMeetings('https://localhost:3000',fetcher,undefined,invalid),undefined); assert.equal(calls.length,0);}
 });
+
+test('expanded research reader accepts eight cited coins and only verified public hosts',()=>{
+ const symbols=['BTC','ETH','SOL','DOGE','XRP','ADA','USDT','NEAR'].map(s=>s+'-THB');
+ const urls=['https://bitcoin.org/bitcoin.pdf','https://ethereum.org/whitepaper/','https://solana.com/docs/core','https://raw.githubusercontent.com/dogecoin/dogecoin/master/doc/FAQ.md','https://xrpl.org/docs/concepts/consensus-protocol','https://raw.githubusercontent.com/cardano-foundation/developer-portal/main/docs/operators/basics/consensus-staking.md','https://tether.to/en/whitepaper/','https://raw.githubusercontent.com/near/docs/master/papers/Nightshade.pdf'];
+ const brief={observedAt:'2026-10-07T00:00:00Z',changeKey:'a'.repeat(64),watchlist:[],gaps:[],sources:symbols.map((symbol,i)=>({id:'doc-'+String(i+1).repeat(64),symbol,title:'Official source',url:urls[i],contentHash:String(i+1).repeat(64),retrievedAt:'2026-10-06T23:00:00Z'})),findings:symbols.map((symbol,i)=>({symbol,summary:'รายงานอ้างอิง',claims:[{statement:'ข้อมูลจากโครงการ',assessment:'PROJECT_CLAIM',sourceId:'doc-'+String(i+1).repeat(64),quote:'Exact source quotation of sufficient length'}]}))};
+ assert.equal(readResearch(brief,Date.parse(brief.observedAt)).findings.length,8);
+ const ninth=structuredClone(brief);ninth.findings.push({...ninth.findings[0],symbol:'DOT-THB'});assert.equal(readResearch(ninth,Date.parse(brief.observedAt)),undefined);
+ brief.sources[4].url='https://evil.example/docs';assert.equal(readResearch(brief,Date.parse(brief.observedAt)),undefined);
+});
 test('date picker is visible and round options contain only the chosen day',()=>{
  const first=fixture().meetings[0], review={...first,reviewHour:14,attemptId:'cccccccc-cccc-4ccc-8ccc-cccccccccccc'};
  const old={...first,businessDate:'2026-10-04',attemptId:'dddddddd-dddd-4ddd-8ddd-dddddddddddd',summary:{...first.summary,reports:[{...role('portfolio-final'),summary:'old-day-report',dataCutoff:'2026-10-03'}]}};

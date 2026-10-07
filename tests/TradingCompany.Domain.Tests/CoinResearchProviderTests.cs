@@ -16,20 +16,20 @@ public sealed class CoinResearchProviderTests
     {
         using var fixture = new Fixture();
         var first = await fixture.Provider.ReadAsync(fixture.Packet, default);
-        Assert.Equal(3, first.Findings.Count); Assert.Equal(6, first.Sources.Count);
-        Assert.Equal(3, fixture.Model.Calls);
+        Assert.Equal(2, first.Findings.Count); Assert.Equal(4, first.Sources.Count);
+        Assert.Equal(2, fixture.Model.Calls);
         Assert.Contains(first.Watchlist, c => c.Symbol == "DOT-THB" && !c.ExecutionAllowed);
         var requests = fixture.HttpCalls;
         Assert.Equal(first, await fixture.Provider.ReadAsync(fixture.Packet, default));
         Assert.Equal(requests, fixture.HttpCalls);
         fixture.Clock.Now += TimeSpan.FromMinutes(16);
         var stable = await fixture.Provider.ReadAsync(fixture.Packet, default);
-        Assert.Equal(first.ChangeKey, stable.ChangeKey); Assert.Equal(3, fixture.Model.Calls);
+        Assert.Equal(first.ChangeKey, stable.ChangeKey); Assert.Equal(2, fixture.Model.Calls);
         fixture.ThinDot = true; fixture.Clock.Now += TimeSpan.FromMinutes(16);
         var changed = await fixture.Provider.ReadAsync(fixture.Packet, default);
         Assert.DoesNotContain(changed.Watchlist, c => c.Symbol == "DOT-THB");
         Assert.NotEqual(first.ChangeKey, changed.ChangeKey);
-        Assert.Equal(3, fixture.Model.Calls);
+        Assert.Equal(2, fixture.Model.Calls);
         Assert.Equal(["BTC-THB"], fixture.Packet.Limits.AllowedSymbols);
     }
 
@@ -40,7 +40,9 @@ public sealed class CoinResearchProviderTests
         var brief = await fixture.Provider.ReadAsync(fixture.Packet, default);
         Assert.Empty(brief.Watchlist);
         Assert.Contains(brief.Gaps, g => g.Contains("Bitkub"));
-        Assert.Equal(3, brief.Findings.Count);
+        Assert.Single(brief.Findings);
+        Assert.Equal(2, brief.Sources.Count);
+        Assert.Equal(1, fixture.Model.Calls);
         Assert.True(CoinResearchValidation.IsValid(brief, fixture.Clock.Now));
     }
 
@@ -51,10 +53,36 @@ public sealed class CoinResearchProviderTests
         var original = await fixture.Provider.ReadAsync(fixture.Packet, default);
         fixture.Clock.Now += TimeSpan.FromHours(25);
         var refreshed = await fixture.Provider.ReadAsync(fixture.Packet, default);
-        Assert.Equal(original.ChangeKey, refreshed.ChangeKey); Assert.Equal(3, fixture.Model.Calls);
+        Assert.Equal(original.ChangeKey, refreshed.ChangeKey); Assert.Equal(2, fixture.Model.Calls);
         fixture.Revision = 1; fixture.Clock.Now += TimeSpan.FromHours(25);
         var revised = await fixture.Provider.ReadAsync(fixture.Packet, default);
-        Assert.NotEqual(original.ChangeKey, revised.ChangeKey); Assert.Equal(6, fixture.Model.Calls);
+        Assert.NotEqual(original.ChangeKey, revised.ChangeKey); Assert.Equal(4, fixture.Model.Calls);
+    }
+
+    [Fact]
+    public async Task Configurable_market_symbols_cover_all_eight_supported_coins_with_source_and_payload_bounds()
+    {
+        using var fixture = new Fixture { Symbols = ["BTC", "ETH", "SOL", "USDT", "NEAR", "XRP", "DOGE", "ADA"], AllowedSymbols = ["BTC-THB", "ETH-THB", "SOL-THB", "USDT-THB", "NEAR-THB", "XRP-THB", "DOGE-THB", "ADA-THB"] };
+        fixture.Model.LongThai = true;
+        var brief = await fixture.Provider.ReadAsync(fixture.Packet, default);
+        Assert.Equal(8, brief.Findings.Count);
+        Assert.Equal(11, brief.Sources.Count);
+        Assert.True(fixture.Model.Calls <= 8);
+        Assert.True(JsonSerializer.SerializeToUtf8Bytes(brief).Length <= 24 * 1024);
+        Assert.True(CoinResearchValidation.IsValid(brief, fixture.Clock.Now));
+        Assert.All(brief.Findings, f => Assert.True(f.Summary.Length <= 140));
+        Assert.Equal(8, fixture.Model.Calls);
+        fixture.Clock.Now += TimeSpan.FromMinutes(16);
+        Assert.Equal(8, (await fixture.Provider.ReadAsync(fixture.Packet, default)).Findings.Count);
+        Assert.Equal(8, fixture.Model.Calls);
+    }
+
+    [Fact]
+    public async Task Unsupported_market_symbol_is_reported_as_an_explicit_gap()
+    {
+        using var fixture = new Fixture { Symbols = ["BTC", "UNSUPPORTED"], AllowedSymbols = ["BTC-THB", "UNSUPPORTED-THB"] };
+        var brief = await fixture.Provider.ReadAsync(fixture.Packet, default);
+        Assert.Contains(brief.Gaps, gap => gap.Contains("UNSUPPORTED-THB", StringComparison.Ordinal));
     }
 
     [Fact]
@@ -105,12 +133,13 @@ public sealed class CoinResearchProviderTests
     private sealed class Model : ITradingAgentGateway
     {
         public int Calls;
+        public bool LongThai;
         public Task<AgentModelResponse> CompleteStructuredAsync(AgentModelRequest request, CancellationToken token)
         {
             Calls++;
             using var json = JsonDocument.Parse(request.InputJson);
             var doc = json.RootElement.GetProperty("documents")[0];
-            var output = JsonSerializer.Serialize(new { symbol = json.RootElement.GetProperty("symbol").GetString(), summary = "ข้อมูลจากโครงการ ยังขาดแหล่งยืนยันอิสระ",
+            var output = JsonSerializer.Serialize(new { symbol = json.RootElement.GetProperty("symbol").GetString(), summary = LongThai ? new string('ก', 600) : "ข้อมูลจากโครงการ ยังขาดแหล่งยืนยันอิสระ",
                 claims = new[] { new { statement = "สมมติฐานความปลอดภัยจากต้นฉบับ", assessment = "PROJECT_CLAIM",
                     sourceId = doc.GetProperty("source").GetProperty("id").GetString(), quote = doc.GetProperty("text").GetString()![..40] } } });
             return Task.FromResult(new AgentModelResponse(output, "synthetic-research", "fixture", 5, 5, TimeSpan.Zero));
@@ -124,9 +153,11 @@ public sealed class CoinResearchProviderTests
         public readonly Model Model = new();
         public readonly CoinResearchProvider Provider;
         public bool ThinDot, MarketTimeout;
+        public IReadOnlyList<string> Symbols { get; set; } = ["BTC", "ETH", "DOT"];
+        public IReadOnlyList<string> AllowedSymbols { get; set; } = ["BTC-THB"];
         public int Revision, HttpCalls;
         public LiveResearchPacket Packet => new(new(TradingCompany.Domain.TradingMode.Live, LiveRiskTests.Account.Value.ToString("N")), 1,
-            LiveRiskTests.Snapshot with { ObservedAt = Clock.Now }, new(1000, .2m, 3, .003m, .01m, ["BTC-THB"]), true, false);
+            LiveRiskTests.Snapshot with { ObservedAt = Clock.Now }, new(1000, .2m, 3, .003m, .01m, AllowedSymbols), true, false);
         public Fixture()
         {
             artifacts = new(Path.Combine(directory, "artifacts"));
@@ -137,9 +168,9 @@ public sealed class CoinResearchProviderTests
                 if (uri.Host == "api.bitkub.com")
                 {
                     if (MarketTimeout) throw new TaskCanceledException("Synthetic HTTP timeout, caller not cancelled");
-                    body = uri.AbsolutePath.EndsWith("symbols") ? JsonSerializer.Serialize(new { error = 0, result = new[] { "BTC", "ETH", "DOT" }.Select(s => new
+                    body = uri.AbsolutePath.EndsWith("symbols") ? JsonSerializer.Serialize(new { error = 0, result = Symbols.Select(s => new
                         { symbol = s + "_THB", quote_asset = "THB", source = "exchange", market_segment = "SPOT", status = "active", freeze_buy = false, freeze_sell = false, freeze_cancel = false }) }) :
-                        uri.AbsolutePath.EndsWith("ticker") ? JsonSerializer.Serialize(new[] { "BTC", "ETH", "DOT" }.Select(s => new
+                        uri.AbsolutePath.EndsWith("ticker") ? JsonSerializer.Serialize(Symbols.Select(s => new
                         { symbol = s + "_THB", highest_bid = "100", lowest_ask = "100.1", quote_volume = "500000", percent_change = "-2" })) :
                         JsonSerializer.Serialize(new { error = 0, result = new { asks = new[] { new[] { 100.1m, ThinDot && uri.Query.Contains("dot_thb") ? 1m : 200m } },
                             bids = new[] { new[] { 100m, ThinDot && uri.Query.Contains("dot_thb") ? 1m : 200m } } } });
@@ -149,7 +180,8 @@ public sealed class CoinResearchProviderTests
                     var text = "Synthetic public document with security assumptions and original protocol design. " + uri.AbsolutePath + " version " + Revision + new string('x', 140);
                     body = uri.AbsolutePath.EndsWith(".pdf") ? "%PDF-" + text : uri.Host == "raw.githubusercontent.com" ? text : "<main>" + text + "</main>";
                 }
-                return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK) { RequestMessage = request, Content = new StringContent(body) });
+                var content = uri.AbsolutePath.EndsWith(".pdf") || uri.Host == "raw.githubusercontent.com" ? new StringContent(body) : new StringContent(body, Encoding.UTF8, "text/html");
+                return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK) { RequestMessage = request, Content = content });
             });
             var factory = new Factory(handler);
             var reader = new CoinSourceReader(factory.CreateClient("public-research"), Path.Combine(directory, "sources"), Clock,

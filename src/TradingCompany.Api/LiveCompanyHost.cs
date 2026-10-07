@@ -67,10 +67,14 @@ public static class LiveCompanyHost
             events: sp.GetRequiredService<IRealtimeEventPublisher>()));
         services.AddSingleton<IDailyMeetingJournal>(_ => new JsonDailyMeetingJournal(Path.Combine(dataPath!, "meetings.json"),
             new(TradingMode.Live, id.ToString("N"))));
+        services.AddSingleton(sp => new CompanyLearningService(sp.GetRequiredService<ITradingAgentGateway>(),
+            sp.GetRequiredService<IAgentDecisionArtifactStore>(), sp.GetRequiredService<IDailyMeetingJournal>(), model,
+            sp.GetRequiredService<TimeProvider>()));
         services.AddSingleton(sp => new LiveCompanyCoordinator(sp.GetRequiredService<ILiveCompanyClient>(),
             sp.GetRequiredService<IHistoricalMarketEvidenceProvider>(), sp.GetRequiredService<IAiCompanyMeetingRunner>(),
             sp.GetRequiredService<IDailyMeetingJournal>(), sp.GetRequiredService<TimeProvider>(), account, continuousReviews: true,
-            research: sp.GetRequiredService<ICoinResearchProvider>()));
+            research: sp.GetRequiredService<ICoinResearchProvider>(), learning: sp.GetRequiredService<CompanyLearningService>()));
+        services.AddHostedService<CompanyLearningWorker>();
         services.AddHostedService<LiveCompanyWorker>();
     }
 

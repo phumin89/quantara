@@ -72,7 +72,7 @@ public sealed class JsonDailyMeetingJournal : IDailyMeetingJournal
     {
         if (string.IsNullOrWhiteSpace(status) || status.Length > 100 || status == "STARTED")
             throw new ArgumentException("Terminal meeting status required.");
-        ValidateSummary(summary);
+        ValidateSummary(summary, businessDate);
         Directory.CreateDirectory(Path.GetDirectoryName(path)!);
         using var lease = Acquire(out _);
         var attempts = Load(false);
@@ -105,7 +105,7 @@ public sealed class JsonDailyMeetingJournal : IDailyMeetingJournal
             {
                 if (attempt.AccountContext != AccountContext) throw new InvalidDataException("Meeting journal belongs to a different account.");
                 ValidateReview(attempt.ReviewHour, attempt.ReviewSnapshot);
-                ValidateSummary(attempt.Summary);
+                ValidateSummary(attempt.Summary, attempt.BusinessDate);
             }
             return attempts;
         }
@@ -158,9 +158,11 @@ public sealed class JsonDailyMeetingJournal : IDailyMeetingJournal
             throw new ArgumentException("Review snapshot belongs to a different account.");
     }
 
-    private static void ValidateSummary(DailyMeetingSummary? summary)
+    private void ValidateSummary(DailyMeetingSummary? summary, DateOnly day)
     {
         if (summary is null) return;
+        if (summary.Learning is not null && !CompanyLearningValidation.IsValid(summary.Learning, AccountContext, day))
+            throw new InvalidDataException("Invalid company learning profile.");
         if (!LiveMeetingIssues.IsValid(summary.Issues)) throw new InvalidDataException("Invalid meeting issues.");
         if (summary.Research is { } research && !CoinResearchValidation.IsValid(research, research.ObservedAt))
             throw new InvalidDataException("Invalid research evidence.");

@@ -36,6 +36,8 @@ public sealed record DailyMeetingSummary(
     public IReadOnlyList<LiveMeetingIssue>? Issues { get; init; }
     [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingDefault)]
     public bool AdvisoryOnly { get; init; }
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public CompanyLearningReport? Learning { get; init; }
 }
 
 public sealed record DailyMeetingAttempt(

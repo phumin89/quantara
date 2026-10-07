@@ -57,7 +57,9 @@ public sealed class CoinResearchProvider(IHttpClientFactory clients, CoinSourceR
             await Publish(shortlist.Count == 0 ? "AgentFailed" : "AgentCompletedTask", shortlist.Count == 0 ? "failed" : "completed");
             var documents = new List<CoinSourceDocument>();
             var findings = new List<CoinCredibilityFinding>();
-            foreach (var symbol in new[] { "BTC-THB", "ETH-THB", "SOL-THB" })
+            var requested = shortlist.Count > 0 ? shortlist.Select(c => c.Symbol) : packet.Limits.AllowedSymbols;
+            var covered = requested.Distinct().Where(symbol => CoinSourceReader.Catalog.Any(s => s.Symbol == symbol)).Take(8).ToArray();
+            foreach (var symbol in covered)
             {
                 foreach (var spec in CoinSourceReader.Catalog.Where(s => s.Symbol == symbol))
                 {
@@ -72,10 +74,11 @@ public sealed class CoinResearchProvider(IHttpClientFactory clients, CoinSourceR
                 var dossier = documents.Where(d => d.Source.Symbol == symbol).ToArray();
                 if (dossier.Length == 0) continue;
                 var result = await researcher.ReadAsync(symbol, dossier, packet.AccountContext, token);
-                if (result.Finding is { } finding) findings.Add(finding);
+                // Meeting packets show one sourced claim per coin; full findings remain in the content-addressed archive.
+                if (result.Finding is { } finding) findings.Add(finding with { Claims = finding.Claims.Take(1).ToArray() });
                 else gaps.Add($"{symbol}: รายงานหลักฐานยังไม่ผ่านการตรวจ");
             }
-            var unsupported = shortlist.Where(c => c.Symbol is not ("BTC-THB" or "ETH-THB" or "SOL-THB")).Select(c => c.Symbol);
+            var unsupported = shortlist.Where(c => !covered.Contains(c.Symbol)).Select(c => c.Symbol);
             if (unsupported.Any()) gaps.Add($"ยังไม่มีเอกสารที่ตรวจที่มาสำหรับ {string.Join(", ", unsupported)}");
             // Stable shortlist membership and document conclusions trigger research meetings; price changes use portfolio checkpoints.
             var changeKey = Convert.ToHexStringLower(SHA256.HashData(JsonSerializer.SerializeToUtf8Bytes(new
@@ -85,6 +88,10 @@ public sealed class CoinResearchProvider(IHttpClientFactory clients, CoinSourceR
             })));
             cached = new(clock.GetUtcNow(), changeKey, shortlist, documents.Select(d => d.Source).ToArray(), findings,
                 gaps.Distinct().Take(12).ToArray());
+            if (JsonSerializer.SerializeToUtf8Bytes(cached).Length > 24 * 1024)
+                cached = cached with { Findings = findings.Select(f => f with { Summary = Clip(f.Summary, 140),
+                    Claims = f.Claims.Select(c => c with { Statement = Clip(c.Statement, 100),
+                        Quote = c.Quote[..Math.Min(c.Quote.Length, 80)] }).ToArray() }).ToArray() };
             if (!CoinResearchValidation.IsValid(cached, clock.GetUtcNow())) throw new InvalidDataException("Invalid public research brief.");
             return cached;
 
@@ -95,6 +102,8 @@ public sealed class CoinResearchProvider(IHttpClientFactory clients, CoinSourceR
         }
         finally { gate.Release(); }
     }
+
+    private static string Clip(string value, int length) => value.Length <= length ? value : value[..(length - 1)] + "…";
 
     public async Task<IReadOnlyList<CoinMarketObservation>> ObserveMarketsAsync(CancellationToken token)
     {
