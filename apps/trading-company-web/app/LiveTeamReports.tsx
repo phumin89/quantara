@@ -64,24 +64,23 @@ export function LiveTeamReports({ enabled }: { enabled: boolean }) {
   const [selectedDate, setSelectedDate] = useState<string | undefined>();
   const [pending, setPending] = useState(false);
   const current = useRef<Meetings | undefined>(undefined);
-  const initialDate = useRef<string | undefined>(undefined);
   useEffect(() => {
-    current.current = undefined; initialDate.current = undefined;
+    current.current = undefined;
     setData(undefined); setBad(false); setSelected(""); setSelectedDate(undefined);
   }, [enabled]);
   useEffect(() => {
     if (!enabled) return;
     const controller = new AbortController(); let timer: ReturnType<typeof setTimeout>;
-    const chosenDate = selectedDate ?? initialDate.current;
+    const chosenDate = selectedDate;
     const emptyDate = current.current?.hasDateIndex && chosenDate && !current.current.availableDates.includes(chosenDate);
     setPending(!emptyDate); setBad(false);
     async function load() {
-      const day = selectedDate ?? initialDate.current;
+      const day = selectedDate;
       const requested = day && current.current?.hasDateIndex && current.current.availableDates.includes(day) ? day : undefined;
       try {
         const next = await readLiveMeetings(window.location.origin, fetch, controller.signal, requested);
         if (!controller.signal.aborted) {
-          if (next) { current.current = next; initialDate.current ??= next.availableDates[0]; setData(next); }
+          if (next) { current.current = next; setData(next); }
           setBad(!next);
         }
       }
@@ -92,7 +91,7 @@ export function LiveTeamReports({ enabled }: { enabled: boolean }) {
     return () => { controller.abort(); clearTimeout(timer); };
   }, [enabled, selectedDate]);
   if (!enabled) return null;
-  const day = selectedDate ?? initialDate.current;
+  const day = selectedDate ?? data?.availableDates[0];
   const dayLoaded = data?.selectedDate === day || (data?.selectedDate === null && data.availableDates[0] === day);
   return <section className="team-report-state"><h3>รายงานประชุม Live</h3>
     {!data ? <p role="status">{bad ? "ยังอ่านรายงานไม่ได้ กรุณาลองอีกครั้ง" : "กำลังอ่านรายงาน…"}</p> :

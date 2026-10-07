@@ -9,6 +9,7 @@ test('history preserves selection, avoids empty-day queries, and cancels stale r
   // No DOM package, wall-clock wait, owner session or actual network is needed.
   const state=[], refs=[], effects=[], jobs=new Map(), calls=[], replies=[];
   let s=0, r=0, e=0, dirty=true, tree, renders=0, enabled=true, id=0;
+  let availableDates=['2026-10-06','2026-10-04'];
   t.mock.method(React, 'useState', initial => {
     const i=s++; if (!(i in state)) state[i]=initial;
     return [state[i], value => { const next=typeof value === 'function' ? value(state[i]) : value; if (!Object.is(next,state[i])) {state[i]=next; dirty=true;} }];
@@ -24,14 +25,14 @@ test('history preserves selection, avoids empty-day queries, and cancels stale r
   global.window={location:{origin:'https://localhost:3000'}};
   t.after(()=>{ for (const effect of effects) effect.cleanup?.(); global.window=previousWindow; });
   t.mock.method(global, 'fetch', url => {
+    const day=url.includes('?date=') ? url.split('=')[1] : null, dates=availableDates.slice();
     calls.push(url); return new Promise(resolve=>replies.push(()=>resolve(Response.json({accountContext:scope,
-      availableDates:['2026-10-06','2026-10-04'], selectedDate:url.includes('?date=') ? url.split('=')[1] : null,
-      meetings:[meeting(url.includes('2026-10-04') ? '2026-10-04' : '2026-10-06')]}))));
+      availableDates:dates, selectedDate:day, meetings:[meeting(day ?? dates[0])]}))));
   });
   async function flush() {
     for (let pass=0; pass<8; pass++) {
       if (dirty) {
-        dirty=false; s=r=e=0; assert.ok(++renders<25,'component must not loop'); tree=LiveTeamReports({enabled});
+        dirty=false; s=r=e=0; assert.ok(++renders<30,'component must not loop'); tree=LiveTeamReports({enabled});
         for (const effect of effects) if (effect.pending) {effect.pending=false; effect.cleanup=effect.run();}
       }
       await new Promise(setImmediate);
@@ -45,8 +46,12 @@ test('history preserves selection, avoids empty-day queries, and cancels stale r
   await flush(); assert.equal(calls.length,1);
   replies.shift()(); await flush(); assert.equal(calls.length,1,'initial date must not issue a duplicate fetch');
   assert.equal(view().props.selectedDate,'2026-10-06');
+  availableDates=['2026-10-07',...availableDates];
+  poll(); await flush(); assert.ok(!calls.at(-1).includes('?date='),'automatic latest view must poll the latest feed');
+  replies.shift()(); await flush(); assert.equal(view().props.selectedDate,'2026-10-07','default view must follow a newly saved day');
+  const callsBeforeEmpty=calls.length;
   view().props.onDateSelect('2026-10-05'); await flush();
-  assert.equal(calls.length,1,'known empty date must not be queried');
+  assert.equal(calls.length,callsBeforeEmpty,'known empty date must not be queried');
   assert.ok(renderToStaticMarkup(tree).includes('ยังไม่มีรายงานในวันที่เลือก'));
   poll(); await flush(); assert.ok(!calls.at(-1).includes('?date='),'empty-date poll refreshes only the index/default feed');
   replies.shift()(); await flush(); assert.equal(view().props.selectedDate,'2026-10-05');
