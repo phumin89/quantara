@@ -75,11 +75,20 @@ test('headingless team label distinguishes configured staff from actual work', (
   const activity = { accountContext: { mode: 1, accountId: '11223344556677889900aabbccddeeff' }, meetingId: '11223344-5566-7788-9900-aabbccddeeff', observedAt: '2026-10-06T05:00:00Z',
     roles: [{ role: 'market-research', status: 'working', changedAt: '2026-10-06T05:00:00Z' }] };
   const working = render(LiveOfficeWorkspaceView, { state: connected('ARMED'), activity });
-  assert.match(working, /<p class="live-office-activity" role="status">ทีม 8 บทบาท · กำลังทำงาน 1 · ทีมตลาด กำลังวิเคราะห์<\/p>/);
+  assert.match(working, /<p class="live-office-activity" role="status">ทีมตลาด กำลังวิเคราะห์<\/p>/);
+  assert.match(working, /<details class="live-office-details"><summary>รายละเอียดการทำงาน<\/summary>/);
+  assert.match(working, /ทีม 8 บทบาท · กำลังทำงาน 1/);
   assert.doesNotMatch(working, /<h[1-6][^>]*>ทีมตลาด|<h[1-6][^>]*>สำนักงาน Pixel/);
   const idle = render(LiveOfficeWorkspaceView, { state: connected('ARMED'), activity: { ...activity, roles: [{ ...activity.roles[0], status: 'completed' }] } });
   assert.match(idle, /ทีม 8 บทบาท/);
   assert.doesNotMatch(idle, /กำลังทำงาน|กำลังวิเคราะห์/);
+});
+
+test('office retains its status and disclosure slots without an activity observation', () => {
+  const html = render(LiveOfficeWorkspaceView, {state: connected('DISARMED')});
+  assert.match(html, /<div class="live-office-status"><p class="live-office-activity" role="status">ยังยืนยันสถานะทีมล่าสุดไม่ได้<\/p>/);
+  assert.match(html, /<details class="live-office-details"><summary>รายละเอียดการทำงาน<\/summary>/);
+  assert.match(html, /การขาดข้อมูลไม่ได้ยืนยันว่าทีมหยุดทำงาน/);
 });
 
 test('idle chat gives one status, a recovery route, and avoids fabricated meeting absence', () => {

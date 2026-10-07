@@ -9,7 +9,7 @@ test('history preserves selection, avoids empty-day queries, and cancels stale r
   // No DOM package, wall-clock wait, owner session or actual network is needed.
   const state=[], refs=[], effects=[], jobs=new Map(), calls=[], replies=[];
   let s=0, r=0, e=0, dirty=true, tree, renders=0, enabled=true, id=0;
-  let availableDates=['2026-10-06','2026-10-04'];
+  let availableDates=['2026-10-06','2026-10-04'], fetchFailure=false;
   t.mock.method(React, 'useState', initial => {
     const i=s++; if (!(i in state)) state[i]=initial;
     return [state[i], value => { const next=typeof value === 'function' ? value(state[i]) : value; if (!Object.is(next,state[i])) {state[i]=next; dirty=true;} }];
@@ -26,7 +26,7 @@ test('history preserves selection, avoids empty-day queries, and cancels stale r
   t.after(()=>{ for (const effect of effects) effect.cleanup?.(); global.window=previousWindow; });
   t.mock.method(global, 'fetch', url => {
     const day=url.includes('?date=') ? url.split('=')[1] : null, dates=availableDates.slice();
-    calls.push(url); return new Promise(resolve=>replies.push(()=>resolve(Response.json({accountContext:scope,
+    calls.push(url); if (fetchFailure) return Promise.resolve(new Response('',{status:503})); return new Promise(resolve=>replies.push(()=>resolve(Response.json({accountContext:scope,
       availableDates:dates, selectedDate:day, meetings:[meeting(day ?? dates[0])]}))));
   });
   async function flush() {
@@ -61,5 +61,7 @@ test('history preserves selection, avoids empty-day queries, and cancels stale r
   view().props.onDateSelect('2026-10-06'); await flush();
   replies.shift()(); await flush(); assert.equal(view().props.selectedDate,'2026-10-06'); assert.equal(view().props.pending,true);
   replies.shift()(); await flush(); assert.equal(view().props.pending,false); assert.equal(view().props.meetings[0].businessDate,'2026-10-06');
+  fetchFailure=true; poll(); await flush(); assert.equal(view().props.failed,true); assert.ok(renderToStaticMarkup(tree).includes('กำลังใช้รายงานที่บันทึกไว้'));
+  fetchFailure=false; poll(); await flush(); replies.shift()(); await flush(); assert.equal(view().props.failed,false); assert.equal(view().props.meetings[0].businessDate,'2026-10-06');
   enabled=false; dirty=true; await flush(); assert.equal(tree,null); assert.equal(jobs.size,0);
 });

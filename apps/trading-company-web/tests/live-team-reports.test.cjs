@@ -88,4 +88,7 @@ test('date picker is visible and round options contain only the chosen day',()=>
  const multiple=render({meetings:[review,first,old],selectedDate:'2026-10-06'}); assert.equal((multiple.match(/<option/g)||[]).length,2); assert.ok(!multiple.includes('old-day-report'));
  const historic=render({meetings:[review,first,old],selectedDate:'2026-10-04'}); assert.ok(historic.includes('old-day-report')); assert.ok(!historic.includes('เก็บเงินสด'));
  const empty=render({meetings:[review,first,old],selectedDate:'2026-10-05'}); assert.ok(empty.includes('ยังไม่มีรายงานในวันที่เลือก')); assert.ok(!empty.includes('old-day-report')); assert.ok(!empty.includes('เก็บเงินสด'));
+ const pending=render({meetings:[first],selectedDate:'2026-10-06',pending:true}); assert.ok(pending.includes('เก็บเงินสด')); assert.ok(pending.includes('กำลังอัปเดตรายงาน'));
+ const failed=render({meetings:[first],selectedDate:'2026-10-06',failed:true}); assert.ok(failed.includes('เก็บเงินสด')); assert.ok(failed.includes('อัปเดตรายงานไม่สำเร็จ'));
+ const otherDay=render({meetings:[first],selectedDate:'2026-10-04',pending:true}); assert.ok(!otherDay.includes('เก็บเงินสด')); assert.ok(otherDay.includes('กำลังอ่านรายงาน'));
 });

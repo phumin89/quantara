@@ -26,6 +26,8 @@ The persistent floating team room is separate from the page. It has one minimize
 
 Refresh verified observations in the background without clearing a fresh balance while a request is pending. Commit matching status/account data together. Account values expire after 30 seconds; failed/unauthorized observations and owner actions clear them. An expired observation is unavailable, not zero. Server observation time identifies the source, not a claimed execution or market refresh.
 
+Keep the Office activity header mounted with a stable two-line status slot and an always-present closed work-details disclosure. Background updates change its content without moving the Pixel frame. Reserve the connection indicator's space even while hidden. Account and report first reads use static neutral skeletons; never animate shimmer or invent balances. Saved same-date meeting reports stay mounted during pending reads and failed polls, with a reserved update notice. Selecting another date shows its loading/error state without displaying the previous date's conclusion.
+
 Pairing appears in Account or Trading only when owner verification is needed. A remembered browser retains viewing for 30 absolute days across normal starts and route changes. Remembering does not extend financial control authority, approve a mandate or activate execution. The current production application remains wallet viewing with execution disabled; the design must state that plainly.
 
 Review evidence: `work/live-account-connect/spa-workspace-review.md`.

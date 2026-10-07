@@ -6,8 +6,15 @@ const ts = require('typescript');
 const React = require('react');
 const { renderToStaticMarkup } = require('react-dom/server');
 const loaded = { exports: require('./load-component.cjs')(path.join(__dirname, '../app/LiveAccountPanel.tsx')) };
-const { readLiveStatus, readLiveObservation, postOwnerAction, LiveReadinessView } = loaded.exports;
+const { readLiveStatus, readLiveObservation, postOwnerAction, LiveReadinessView, LiveAccountSkeleton } = loaded.exports;
 const render = props => renderToStaticMarkup(React.createElement(LiveReadinessView, props));
+
+test('initial account placeholder announces loading without fabricated amounts or controls', () => {
+  const html = renderToStaticMarkup(React.createElement(LiveAccountSkeleton));
+  assert.match(html, /aria-busy="true" role="status" aria-label="กำลังอ่านบัญชี"/);
+  assert.equal((html.match(/skeleton-value/g) || []).length, 3);
+  assert.doesNotMatch(html, /฿|<button|<input/);
+});
 
 test('HTTP sandbox origin never contacts owner executor', async () => {
   let calls = 0;

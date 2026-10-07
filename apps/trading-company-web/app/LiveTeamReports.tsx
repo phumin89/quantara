@@ -15,6 +15,9 @@ const text = (v: unknown, max: number): v is string => typeof v === "string" && 
 const count = (v: unknown): v is number => typeof v === "number" && Number.isSafeInteger(v) && v >= 0 && v <= 10_000_000;
 const uuid = (v: unknown) => typeof v === "string" && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(v) && !/^0{8}-0{4}-0{4}-0{4}-0{12}$/.test(v);
 const date = (v: unknown): v is string => typeof v === "string" && /^\d{4}-\d{2}-\d{2}$/.test(v) && Number.isFinite(Date.parse(v)) && new Date(v).toISOString().startsWith(v);
+function ReportPlaceholder({ message, failed = false }: { message: string; failed?: boolean }) {
+  return <div className="report-skeleton" role={failed ? "alert" : "status"} aria-label={message}><p>{message}</p><span className="skeleton-line" /><span className="skeleton-line" /><span className="skeleton-line" /></div>;
+}
 export function readMeetings(value: unknown, now = Date.now()): Meetings | undefined {
   if (!object(value) || !object(value.accountContext)) return;
   const scope = value.accountContext;
@@ -97,7 +100,7 @@ export function LiveTeamReports({ enabled }: { enabled: boolean }) {
   const day = selectedDate ?? data?.availableDates[0];
   const dayLoaded = data?.selectedDate === day || (data?.selectedDate === null && data.availableDates[0] === day);
   return <section className="team-report-state"><h3>รายงานประชุม Live</h3>
-    {!data ? <p role="status">{bad ? "ยังอ่านรายงานไม่ได้ กรุณาลองอีกครั้ง" : "กำลังอ่านรายงาน…"}</p> :
+    {!data ? <ReportPlaceholder message={bad ? "ยังอ่านรายงานไม่ได้ กรุณาลองอีกครั้ง" : "กำลังอ่านรายงาน…"} failed={bad} /> :
       <LiveMeetingView meetings={data.meetings} selected={selected} onSelect={setSelected} availableDates={data.availableDates}
         selectedDate={day} pending={pending || (!!day && data.hasDateIndex && data.availableDates.includes(day) && !dayLoaded)}
         failed={bad || (!!selectedDate && !data.hasDateIndex && !data.availableDates.includes(selectedDate))}
@@ -113,13 +116,13 @@ export function LiveMeetingView({ meetings, selected, onSelect, availableDates, 
   const dayMeetings = chosenDate ? meetings.filter(m => m.businessDate === chosenDate) : meetings;
   const meeting = dayMeetings.find(m => m.attemptId === selected) ?? dayMeetings[0];
   const picker = <DatePicker availableDates={availableDates} selectedDate={chosenDate} onDateSelect={onDateSelect} />;
-  if (failed) return <>{picker}<p role="alert">ยังอ่านรายงานวันที่เลือกไม่ได้ ระบบจะลองใหม่อัตโนมัติ</p></>;
-  if (pending) return <>{picker}<p role="status">กำลังอ่านรายงาน…</p></>;
+  if (failed && !meeting) return <>{picker}<ReportPlaceholder message="ยังอ่านรายงานวันที่เลือกไม่ได้ ระบบจะลองใหม่อัตโนมัติ" failed /> </>;
+  if (pending && !meeting) return <>{picker}<ReportPlaceholder message="กำลังอ่านรายงาน…" /></>;
   if (!meeting) return <>{picker}<p>{availableDates.length ? "ยังไม่มีรายงานในวันที่เลือก" : "ยังไม่มีรายงานประชุม"}</p></>;
   const reports = meeting.summary?.reports ?? [], final = reports.find(r => r.role === "portfolio-final"), initial = reports.find(r => r.role === "portfolio-initial");
   const issueText: Record<string, string> = { MARKET_HISTORY_UNAVAILABLE: "ข้อมูลประวัติตลาดไม่พร้อม", PUBLIC_RESEARCH_UNAVAILABLE: "ข้อมูลวิจัยสาธารณะไม่พร้อม", LIVE_READ_UNAVAILABLE: "อ่านสถานะ Live ไม่ได้", ACCOUNT_STATE_INVALID: "สถานะบัญชีไม่ถูกต้อง", JOURNAL_UNAVAILABLE: "บันทึกการประชุมไม่พร้อม", MEETING_FAILED: "การประชุมรอบนี้ไม่สำเร็จ" };
   const issues = meeting.summary?.issues?.map(i => `${issueText[i.code]}${i.symbol ? ` (${i.symbol})` : ""}`);
-  return <><DatePicker availableDates={availableDates} selectedDate={chosenDate} onDateSelect={onDateSelect} />{dayMeetings.length > 1 ? <label className="team-meeting-date">รอบประชุม<select value={meeting.attemptId} onChange={e => onSelect(e.target.value)}>{dayMeetings.map(m => <option key={m.attemptId} value={m.attemptId}>{m.reviewHour == null ? "ประชุมประจำวัน" : `ทบทวน ${String(m.reviewHour).padStart(2, "0")}:00`}</option>)}</select></label> : <p className="team-meeting-date-label">รอบประชุม · {meeting.reviewHour == null ? "ประชุมประจำวัน" : `ทบทวน ${String(meeting.reviewHour).padStart(2, "0")}:00`}</p>}
+  return <><DatePicker availableDates={availableDates} selectedDate={chosenDate} onDateSelect={onDateSelect} /><p className="report-update-state" role={failed ? "alert" : "status"}>{failed ? "อัปเดตรายงานไม่สำเร็จ กำลังใช้รายงานที่บันทึกไว้" : pending ? "กำลังอัปเดตรายงาน · แสดงรายงานที่บันทึกไว้" : ""}</p>{dayMeetings.length > 1 ? <label className="team-meeting-date">รอบประชุม<select value={meeting.attemptId} onChange={e => onSelect(e.target.value)}>{dayMeetings.map(m => <option key={m.attemptId} value={m.attemptId}>{m.reviewHour == null ? "ประชุมประจำวัน" : `ทบทวน ${String(m.reviewHour).padStart(2, "0")}:00`}</option>)}</select></label> : <p className="team-meeting-date-label">รอบประชุม · {meeting.reviewHour == null ? "ประชุมประจำวัน" : `ทบทวน ${String(meeting.reviewHour).padStart(2, "0")}:00`}</p>}
     <p className="team-meeting-outcome">{meeting.summary?.advisoryOnly ? "รายงานเพื่อวิเคราะห์ · ยังไม่ส่งคำสั่ง" : statuses[meeting.status] ?? "รอบสิ้นสุดโดยยังไม่มีข้อเสนอที่นำไปใช้ได้"}</p>
     {!!issues?.length && <p className="team-meeting-issues">{issues.join(" · ")}</p>}
     {final && <p className="team-meeting-conclusion">{final.summary}</p>}

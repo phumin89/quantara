@@ -11,9 +11,10 @@
 .app-header { min-height: 72px; display: flex; align-items: center; justify-content: space-between; gap: 20px; padding: 16px clamp(20px, 4vw, 56px); border-bottom: 1px solid var(--line); background: var(--paper); }
 .app-header h1 { flex: 1; min-width: 0; margin: 0; font-size: 22px; font-weight: 500; }
 .app-main { width: 100%; max-width: none; margin: 0; padding: 32px clamp(20px, 4vw, 56px) 88px; }
-.live-connection { display: inline-flex; align-items: center; gap: 8px; color: var(--muted); font-size: 14px; }
+.live-connection { display: inline-flex; align-items: center; justify-content: flex-end; min-width: 190px; gap: 8px; color: var(--muted); font-size: 14px; }
 .connection-dot { width: 7px; height: 7px; border-radius: 50%; background: currentColor; flex-shrink: 0; }
-.refresh-indicator { width: 12px; height: 12px; border: 1px solid var(--muted); border-top-width: 3px; border-radius: 50%; }
+.refresh-indicator { width: 12px; height: 12px; flex-shrink: 0; border: 1px solid var(--muted); border-top-width: 3px; border-radius: 50%; visibility: hidden; }
+.refresh-indicator[data-active="true"] { visibility: visible; }
 .office-workspace { display: grid; gap: 32px; }
 .office-summary { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 0 24px; }
 .office-status { min-width: 0; margin: 0; color: var(--muted); font-size: 16px; }
@@ -23,7 +24,11 @@
 .office-status-details summary:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
 .office-grid { display: grid; grid-template-columns: minmax(0, 1fr) 280px; gap: 32px; align-items: start; }
 .live-office { min-width: 0; border: 1px solid var(--line); border-radius: 14px; overflow: hidden; background: var(--white); }
-.live-office-activity { margin: 0; padding: 12px 16px; color: var(--muted); font-size: 14px; }
+.live-office-status { padding: 12px 16px 0; color: var(--muted); font-size: 14px; }
+.live-office-activity { min-height: 3.4em; margin: 0; font-size: inherit; }
+.live-office-details summary { min-height: 44px; padding: 8px 0; cursor: pointer; }
+.live-office-details p { margin: 0 0 12px; overflow-wrap: anywhere; }
+.live-office-details summary:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
 .live-office-frame { display: block; width: 100%; height: clamp(380px, 32vw, 520px); border: 0; background: #171522; }
 .office-overview { min-width: 0; display: grid; gap: 32px; padding: 20px 0 0; }
 .office-overview section { min-width: 0; }
@@ -48,6 +53,13 @@
 .team-conclusion-text { font-size: 22px; line-height: 1.5; font-weight: 500; margin: 0; }
 .live-team-summary ul { padding-left: 22px; margin-top: 8px; }
 .team-report-state { padding-top: 24px; margin-top: 24px; border-top: 1px solid var(--line); }
+.report-update-state { min-height: 3.4em; margin: 0; font-size: 14px; }
+.report-skeleton { display: grid; align-content: start; gap: 18px; min-height: 260px; padding: 12px 0; }
+.skeleton-line { display: block; height: 16px; width: min(100%, 36rem); border-radius: 4px; background: var(--line); }
+.skeleton-heading { width: 45%; height: 24px; }
+.skeleton-value { width: 70%; height: 32px; }
+.account-skeleton { display: grid; gap: 20px; min-height: 360px; }
+.account-skeleton .cfo-metrics { margin: 0; }
 .team-report-state p { color: var(--muted); }
 .team-report-state summary { min-height: 44px; padding: 8px 0; cursor: pointer; }
 .team-meeting-date { display: grid; gap: 6px; color: var(--muted); font-size: 14px; }
@@ -73,7 +85,7 @@
 .team-report-date-picker input:focus-visible, .team-report-date-buttons button:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
 @media (hover: hover) and (pointer: fine) { .team-report-date-buttons button:not([aria-pressed="true"]):hover { background: var(--soft); } }
 a:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
-@media (min-width: 1921px) { .office-grid { gap: 40px; } .live-office-frame { height: 528px; } .office-overview h2 { font-size: 20px; } .live-office-activity, .office-overview p { font-size: 16px; } }
+@media (min-width: 1921px) { .office-grid { gap: 40px; } .live-office-frame { height: 528px; } .office-overview h2 { font-size: 20px; } .live-office-status, .office-overview p { font-size: 16px; } }
 @media (max-width: 1200px) { .office-workspace { gap: 28px; } .office-summary { align-items: flex-start; } .office-grid { grid-template-columns: 1fr; gap: 24px; } .live-office-frame { height: clamp(360px, 42vw, 480px); } .office-overview { padding-top: 0; } }
 @media (min-width: 701px) and (max-width: 1000px) { .live-office-frame { height: 300px; } }
 @media (max-width: 700px) { .app-header { align-items: flex-start; flex-wrap: wrap; gap: 4px 20px; } .app-header h1 { font-size: 20px; } .live-connection { font-size: 13px; } .office-workspace { gap: 24px; } .live-office-frame { height: clamp(240px, 42vw, 280px); } .office-overview { grid-template-columns: 1fr; gap: 24px; } .app-nav-icon { display: none; } .app-nav a { font-size: 14px; } }

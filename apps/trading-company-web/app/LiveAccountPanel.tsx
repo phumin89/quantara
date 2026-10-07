@@ -213,7 +213,8 @@ export function LiveConnectionBadge() {
   const text = state.kind === "connected" ? "เชื่อมบริการบัญชีแล้ว" : state.kind === "pair-required" ? "รอยืนยันเจ้าของ" :
     state.kind === "loading" ? "กำลังเชื่อมต่อ" : "ขาดการเชื่อมต่อ";
   return <span className="live-connection"><span className="connection-dot" aria-hidden="true" />{text}
-    {refreshing && state.kind === "connected" && <span className="refresh-indicator" aria-label="กำลังตรวจข้อมูลล่าสุด" />}</span>;
+    <span className="refresh-indicator" data-active={refreshing && state.kind === "connected"}
+      aria-label={refreshing && state.kind === "connected" ? "กำลังตรวจข้อมูลล่าสุด" : undefined} aria-hidden={!refreshing || state.kind !== "connected"} /></span>;
 }
 
 function LiveActions({ logout = false }: { logout?: boolean }) {
@@ -233,13 +234,25 @@ function LiveActions({ logout = false }: { logout?: boolean }) {
 export function LiveAccountPanel() {
   const { state, wallet, account, refreshing, busy } = useLiveAccount();
   return <div className="account-workspace">
-    {state.kind === "connected" && !busy ? <>
+    {state.kind === "loading" && !busy ? <LiveAccountSkeleton /> : state.kind === "connected" && !busy ? <>
       {wallet ? <BitkubWalletView wallet={wallet} /> : account ? <LiveAccountView account={account} /> :
-        <div className="workspace-empty"><h2>{refreshing ? "กำลังอ่านบัญชี" : "ยังยืนยันยอดล่าสุดไม่ได้"}</h2>
-          <p>{refreshing ? "กำลังตรวจยอดจาก Bitkub ข้อมูลที่เกิน 30 วินาทีจะไม่แสดงเป็นยอดปัจจุบัน" : "ตรวจการเชื่อมต่อกับ Bitkub แล้วลองตรวจข้อมูลอีกครั้ง"}</p></div>}
+        refreshing ? <LiveAccountSkeleton /> : <div className="workspace-empty"><h2>ยังยืนยันยอดล่าสุดไม่ได้</h2>
+          <p>ตรวจการเชื่อมต่อกับ Bitkub แล้วลองตรวจข้อมูลอีกครั้ง</p></div>}
     </> : <OwnerAccess accountOnly />}
     <LiveActions logout />
   </div>;
+}
+
+export function LiveAccountSkeleton() {
+  return <section className="money-section account-skeleton" aria-busy="true" role="status" aria-label="กำลังอ่านบัญชี">
+    <span className="skeleton-line skeleton-heading" aria-hidden="true" />
+    <span className="skeleton-line" aria-hidden="true" />
+    <div className="cfo-metrics portfolio-metrics" aria-hidden="true">{[0, 1, 2].map(i => <div key={i}>
+      <span className="skeleton-line" /><span className="skeleton-line skeleton-value" />
+    </div>)}</div>
+    <span className="skeleton-line skeleton-heading" aria-hidden="true" />
+    <span className="skeleton-line" aria-hidden="true" /><span className="skeleton-line" aria-hidden="true" />
+  </section>;
 }
 
 export function LiveTradingPanel() {

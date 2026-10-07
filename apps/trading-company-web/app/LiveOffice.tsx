@@ -20,9 +20,17 @@ export function LiveOffice({ activity }: { activity?: LiveActivity }) {
   const retry = activity?.nextRetryAt ? new Intl.DateTimeFormat("th-TH", { timeZone: "Asia/Bangkok", dateStyle: "medium", timeStyle: "short" }).format(new Date(activity.nextRetryAt)) : "";
   const savedIssues = working ? "" : issues;
   const savedRetry = working ? "" : retry;
-  const summary = [team, status, coins].filter(Boolean).join(" · ");
+  const detail = [team, coins].filter(Boolean).join(" · ");
   return <section className="live-office" aria-label="สำนักงาน Pixel ของ Quantara">
-    {(summary || savedIssues || savedRetry) && <p className="live-office-activity" role="status">{summary}{trading}{savedIssues && <><br />{savedIssues}</>}{savedRetry && <><br />ตรวจอีกครั้ง {savedRetry}</>}</p>}
+    <div className="live-office-status">
+      <p className="live-office-activity" role="status">{status || "ยังยืนยันสถานะทีมล่าสุดไม่ได้"}</p>
+      <details className="live-office-details"><summary>รายละเอียดการทำงาน</summary>
+        {detail && <p>{detail}{trading}</p>}
+        {savedIssues && <p>{savedIssues}</p>}
+        {savedRetry && <p>ตรวจอีกครั้ง {savedRetry}</p>}
+        {!activity && <p>ยังอ่านสถานะทีมไม่ได้ การขาดข้อมูลไม่ได้ยืนยันว่าทีมหยุดทำงาน</p>}
+      </details>
+    </div>
     <iframe ref={frame} onLoad={publish} className="live-office-frame" title="สำนักงาน Pixel ของ Quantara" src="/office/live.html" sandbox="allow-scripts allow-same-origin" />
   </section>;
 }
