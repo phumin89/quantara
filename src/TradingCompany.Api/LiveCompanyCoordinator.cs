@@ -132,6 +132,7 @@ public sealed class LiveCompanyCoordinator(ILiveCompanyClient client, IHistorica
                     {
                         ExecutionAllowed = packet.Limits.AllowedSymbols.Contains(text),
                         OpportunityComparison = AiCompanyOpportunityEvidence.From(selection),
+                        PriceLevels = AiCompanyPriceLevels.From(bars),
                         CurrentQuote = checkpoint.Quotes.Single(q => q.Symbol == text)
                     });
                 }
@@ -160,7 +161,7 @@ public sealed class LiveCompanyCoordinator(ILiveCompanyClient client, IHistorica
                  packet.Snapshot.PendingSellNotional > 0 || packet.Snapshot.Positions.Any(p => p.ReservedQuantity > 0));
             ResearchUniverse = candidates.Select(c => c.Symbol.Value).ToArray();
             TradingUniverse = advisoryOnly ? [] : candidates.Where(c => c.ExecutionAllowed).Select(c => c.Symbol.Value).ToArray();
-            var problemsChanged = !(latest?.Summary?.Issues ?? []).SequenceEqual(Issues) ||
+            var problemsChanged = latest?.Summary?.TradePlanPolicy != "entry-exit-v1" || !(latest?.Summary?.Issues ?? []).SequenceEqual(Issues) ||
                 (latest?.Summary?.AdvisoryOnly ?? false) != advisoryOnly;
             if (reviewHour is not null && !researchChanged && !learningChanged && !problemsChanged && latest?.Summary?.Reports.Count > 0 &&
                 latest.ReviewSnapshot is { } previous && !NeedsReview(previous, checkpoint))
@@ -187,41 +188,56 @@ public sealed class LiveCompanyCoordinator(ILiveCompanyClient client, IHistorica
                 AccountContext = context, PortfolioReview = reviewHour is not null && latest?.Summary?.Reports.Count > 0,
                 ObservedAt = now, Research = brief, ResearchChanged = researchChanged,
                 Learning = learningReport, LearningChanged = learningChanged, ExecutionLimits = packet.Limits,
+                ActiveTradePlans = packet.TradePlans.Where(LiveTradePlans.Active).ToArray(),
                 PreviousConclusion = reviewHour is null ? null : latest?.Summary?.Reports
                     .SingleOrDefault(r => r.Role == "portfolio-final")?.Summary
             };
             var result = await meeting.RunAsync(input, cancellationToken);
-            summary = Summarize(result) with { Research = brief, Issues = problems.Count == 0 ? null : Issues,
+            summary = Summarize(result) with { TradePlanPolicy = "entry-exit-v1", Research = brief, Issues = problems.Count == 0 ? null : Issues,
                 AdvisoryOnly = advisoryOnly, Learning = learningReport };
             if (result.Status != "COMPLETED") { Finish(result.Status); return; }
             if (result.AccountContext != context || !ValidProposals(result.Proposals, packet.Limits) ||
                 result.Proposals.Any(p => candidates.All(c => c.Symbol != p.Symbol))) { Finish("INVALID_FINAL"); return; }
             // A round started without execution authority can never gain it during the meeting.
             if (advisoryOnly) { Finish("READ_ONLY"); return; }
+            var registeredPlans = 0;
+            var planErrors = new List<string>();
             foreach (var proposal in result.Proposals.Where(p => p.Action != PortfolioAction.Hold)
                 .OrderBy(p => p.Action == PortfolioAction.Buy ? 1 : 0))
             {
+                // An existing plan owns its entry/exit lot until execution or review.
+                if (packet.TradePlans.Any(p => p.Symbol == proposal.Symbol.Value && LiveTradePlans.Active(p))) continue;
                 // Polling may refresh the version and quote while advice is produced. Only
                 // unchanged owned money/quantities and bounded prices can use that advice.
                 var current = await client.ReadAsync(accountId, cancellationToken);
                 if (DateOnly.FromDateTime(clock.GetUtcNow().ToOffset(TimeSpan.FromHours(7)).DateTime) != day ||
                     !ValidPacket(current, clock.GetUtcNow()) || !current.Armed || current.Stopped || current.MandateVersion != packet.MandateVersion ||
                     JsonSerializer.Serialize(current.Limits) != JsonSerializer.Serialize(packet.Limits) ||
-                    !SameOwnedMoney(snapshot, current.Snapshot)) { Finish("SNAPSHOT_CHANGED"); return; }
+                    !SameOwnedMoney(snapshot, current.Snapshot)) { Finish(registeredPlans > 0 ? "PLAN_REGISTERED" : "SNAPSHOT_CHANGED"); return; }
                 var quote = current.Snapshot.Quotes.Single(q => q.Symbol == proposal.Symbol.Value);
                 var originalQuote = snapshot.Quotes.Single(q => q.Symbol == proposal.Symbol.Value);
                 if (Math.Abs(quote.Ask - originalQuote.Ask) > originalQuote.Ask * packet.Limits.MaximumSlippage ||
                     Math.Abs(quote.Bid - originalQuote.Bid) > originalQuote.Bid * packet.Limits.MaximumSlippage)
                 { Finish("PRICE_CHANGED"); return; }
                 var sizing = current.Limits.OrderSizing.Single(s => s.Symbol == proposal.Symbol.Value);
+                if (proposal.Action == PortfolioAction.Buy)
+                {
+                    if (proposal.TradePlan is not { } plan) { Finish("INVALID_FINAL"); return; }
+                    var request = new LiveTradePlanRequest(accountId, LiveTradePlans.PlanId(decisionId, proposal.Symbol.Value), decisionId,
+                        current.MandateVersion, current.Snapshot.Version, proposal.Symbol.Value, hash, plan);
+                    var registered = await client.RegisterPlanAsync(request, cancellationToken);
+                    if (registered.Id != request.Id || registered.Violations is null || registered.Accepted == (registered.Violations.Count > 0))
+                    { Finish("EXECUTOR_REPLY_INVALID"); return; }
+                    if (registered.Accepted) registeredPlans++;
+                    else planErrors.AddRange(registered.Violations);
+                    if (planErrors.Count > 0) summary = summary with { PlanRejectionReasons = planErrors.Distinct().ToArray() };
+                    continue;
+                }
                 var held = current.Snapshot.Positions.SingleOrDefault(p => p.Symbol == proposal.Symbol.Value);
                 var equity = Math.Min(current.Snapshot.Equity, packet.Limits.CapitalAllocation);
-                var side = proposal.Action == PortfolioAction.Buy ? OrderSide.Buy : OrderSide.Sell;
-                var price = decimal.Floor((side == OrderSide.Buy ? quote.Ask : quote.Bid) / sizing.PriceStep) * sizing.PriceStep;
+                var price = decimal.Floor(quote.Bid / sizing.PriceStep) * sizing.PriceStep;
                 if (price <= 0) continue;
-                var quantity = side == OrderSide.Buy ? Math.Min(Math.Max(0, proposal.TargetWeight * equity - (held?.Quantity ?? 0) * price),
-                    (current.Snapshot.CashBalance - current.Snapshot.CashReserved) / (1 + current.Limits.FeeReserveRate)) / price
-                    : proposal.Action == PortfolioAction.Sell ? held?.Quantity ?? 0
+                var quantity = proposal.Action == PortfolioAction.Sell ? held?.Quantity ?? 0
                     : (held?.Quantity ?? 0) - proposal.TargetWeight * equity / price;
                 var fees = 1 + current.Limits.FeeReserveRate;
                 var turnoverLeft = (current.Limits.MaximumDailyTurnover ?? current.Limits.CapitalAllocation) -
@@ -229,16 +245,14 @@ public sealed class LiveCompanyCoordinator(ILiveCompanyClient client, IHistorica
                 var orderCeiling = Math.Max(0, Math.Min(current.Limits.MaximumOrderNotional ?? current.Limits.CapitalAllocation,
                     turnoverLeft)) / fees;
                 quantity = Math.Min(quantity, orderCeiling / price);
-                if (side == OrderSide.Sell) quantity = Math.Min(quantity, (held?.Quantity ?? 0) - (held?.ReservedQuantity ?? 0));
+                quantity = Math.Min(quantity, (held?.Quantity ?? 0) - (held?.ReservedQuantity ?? 0));
                 quantity = decimal.Floor(quantity / sizing.BaseStep) * sizing.BaseStep;
-                if (quantity <= 0 || (side == OrderSide.Sell && (held is null || quantity > held.Quantity - held.ReservedQuantity))) continue;
+                if (quantity <= 0 || held is null || quantity > held.Quantity - held.ReservedQuantity) continue;
                 var budget = quantity * price;
-                if ((side == OrderSide.Buy ? decimal.Floor(budget / (1 + current.Limits.FeeReserveRate) / sizing.QuoteStep) * sizing.QuoteStep
-                    : budget) < sizing.MinimumQuoteSize) continue;
+                if (budget < sizing.MinimumQuoteSize) continue;
                 var executionHash = Convert.ToHexStringLower(SHA256.HashData(JsonSerializer.SerializeToUtf8Bytes(new { advice = hash, current, proposal })));
                 var intent = new LiveIntent(accountId, decisionId, Guid.NewGuid(), TradingMode.Live, proposal.Symbol.Value,
-                    side, quantity, price, packet.MandateVersion, current.Snapshot.Version, executionHash)
-                    { BuyBudget = side == OrderSide.Buy ? budget : null };
+                    OrderSide.Sell, quantity, price, packet.MandateVersion, current.Snapshot.Version, executionHash);
                 var order = await client.SubmitAsync(intent, cancellationToken);
                 if (order.Intent != intent) { Finish("EXECUTOR_REPLY_INVALID"); return; }
                 // Execution changes the snapshot version. Refresh/research is required for
@@ -246,7 +260,7 @@ public sealed class LiveCompanyCoordinator(ILiveCompanyClient client, IHistorica
                 Finish(order.State == LiveOrderState.Rejected ? "RISK_REJECTED" : "ORDER_PENDING");
                 return;
             }
-            Finish("HOLD");
+            Finish(registeredPlans > 0 ? "PLAN_REGISTERED" : planErrors.Count > 0 ? "PLAN_REJECTED" : "HOLD");
         }
         catch (OperationCanceledException)
         {
@@ -266,7 +280,7 @@ public sealed class LiveCompanyCoordinator(ILiveCompanyClient client, IHistorica
         {
             Status = status;
             NextRetryAt = NextHour(clock.GetUtcNow());
-            if (status is not ("READ_ONLY" or "HOLD" or "ORDER_PENDING" or "RISK_REJECTED"))
+            if (status is not ("READ_ONLY" or "HOLD" or "ORDER_PENDING" or "RISK_REJECTED" or "PLAN_REGISTERED" or "PLAN_REJECTED"))
             {
                 Issues = [.. Issues, new("MEETING_FAILED")];
                 if (summary is not null) summary = summary with { Issues = Issues };

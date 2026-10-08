@@ -125,6 +125,14 @@ a:focus-visible, button:focus-visible, input:focus-visible, summary:focus-visibl
 .money-breakdown { max-width: 640px; }
 .money-breakdown > div { display: flex; justify-content: space-between; gap: 20px; padding: 10px 0; border-bottom: 1px solid var(--line); }
 .money-breakdown dd { margin: 0; text-align: right; }
+.live-trade-plans { margin: 0 0 24px; }
+.live-trade-plans h2 { margin-top: 0; }
+.live-trade-plan { padding: 14px 0; border-bottom: 1px solid var(--line); }
+.live-trade-plan-heading { display: flex; justify-content: space-between; gap: 16px; }
+.live-trade-plan-heading span, .live-trade-plan dd { color: var(--muted); }
+.live-trade-plan dl { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 180px), 1fr)); gap: 10px 18px; margin: 12px 0 0; }
+.live-trade-plan dt { color: var(--muted); font-size: 13px; }
+.live-trade-plan dd { margin: 2px 0 0; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
 .table-hint { color: var(--muted); font-size: 14px; margin: 18px 0 0; }
 .cfo-table-wrap { margin-top: 8px; }
 .cfo-table td:first-child, .cfo-table th:first-child { position: sticky; left: 0; background: var(--paper); }

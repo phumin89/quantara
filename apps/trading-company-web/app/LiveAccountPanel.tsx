@@ -258,12 +258,24 @@ export function LiveAccountSkeleton() {
 export function LiveTradingPanel() {
   const { state, account, refresh } = useLiveAccount();
   return <div className="trading-workspace"><OwnerAccess />
-    {state.kind === "connected" && <LiveOwnerSetup onChanged={refresh} />}
+    {state.kind === "connected" && <details className="transaction-details"><summary>ตั้งค่าการเทรด</summary><LiveOwnerSetup onChanged={refresh} /></details>}
+    {state.kind === "connected" && account && <LiveTradePlansView account={account} />}
     {state.kind === "connected" && <section className="trading-orders"><h2>รายการคำสั่ง</h2>
       {account ? <LiveOrdersView account={account} /> : <p>ยังไม่มีบัญชีสำหรับส่งคำสั่งที่ตรวจยอดแล้ว จึงยังแสดงรายการคำสั่ง Live ไม่ได้</p>}
     </section>}
     <LiveActions />
   </div>;
+}
+
+const planStatusLabels: Record<string, string> = { WAITING_ENTRY: "รอราคาเข้า", ENTRY_PENDING: "กำลังส่งคำสั่งเข้า", WATCHING_EXIT: "กำลังติดตามทางออก", EXIT_PENDING: "กำลังส่งคำสั่งออก", EXPIRED: "หมดอายุ", INVALIDATED: "ยกเลิกตามเงื่อนไข", ENTRY_REJECTED: "คำสั่งเข้าไม่ผ่าน", CLOSED: "ปิดแผนแล้ว", REVIEW_REQUIRED: "ต้องตรวจสอบ" };
+export function LiveTradePlansView({ account }: { account: LiveAccount }) {
+  const cash = (n: number) => new Intl.NumberFormat("th-TH", { style: "currency", currency: "THB", maximumFractionDigits: 8 }).format(n);
+  const number = (n: number) => new Intl.NumberFormat("th-TH", { maximumFractionDigits: 8 }).format(n);
+  const plans = (account.tradePlans ?? []).slice().sort((a, b) => Number(["EXPIRED", "INVALIDATED", "ENTRY_REJECTED", "CLOSED"].includes(a.status)) - Number(["EXPIRED", "INVALIDATED", "ENTRY_REJECTED", "CLOSED"].includes(b.status)));
+  return <section className="live-trade-plans" aria-label="แผนซื้อขาย"><h2>แผนซื้อขาย</h2>{plans.length ? plans.map(p =>
+    <article className="live-trade-plan" key={p.id}><div className="live-trade-plan-heading"><strong>{p.symbol}</strong><span>{planStatusLabels[p.status]}</span></div>
+      <dl><div><dt>ซื้อไม่เกิน</dt><dd>{cash(p.plan.entryPrice)}</dd></div><div><dt>จำนวนแผน</dt><dd>{number(p.plan.quantity)} {p.symbol.split("-")[0]}</dd></div><div><dt>เป้าขาย</dt><dd>{cash(p.plan.takeProfitPrice)}</dd></div><div><dt>จุดออก</dt><dd>{cash(p.plan.stopLossPrice)}</dd></div><div><dt>ซื้อได้จริง</dt><dd>{number(p.acquiredQuantity)} {p.symbol.split("-")[0]}</dd></div><div><dt>ขายแล้ว</dt><dd>{number(p.soldQuantity)} {p.symbol.split("-")[0]}</dd></div><div><dt>ครบกำหนด</dt><dd>{new Date(p.plan.expiresAt).toLocaleString("th-TH", { timeZone: "Asia/Bangkok" })}</dd></div></dl>
+    </article>) : <p>ยังไม่มีแผนซื้อขาย</p>}</section>;
 }
 
 export function LiveOfficeWorkspace() {

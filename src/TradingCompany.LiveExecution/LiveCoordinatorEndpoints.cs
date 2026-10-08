@@ -54,7 +54,19 @@ public static class LiveCoordinatorEndpoints
                     ResearchSymbols = researchSymbols,
                     OrderSizing = context.RequestServices.GetService<BitkubConfiguredAccount>()?.Verification.Rules.Pairs
                         .Select(p => new LiveOrderSizing(p.Symbol, p.PriceStep, p.SellBaseStep, p.BuyQuoteStep, p.MinimumQuoteSize)).ToArray() ?? []
-                }, ready, account.Gate.Stopped) { ResearchQuotes = researchQuotes });
+                }, ready, account.Gate.Stopped) { ResearchQuotes = researchQuotes,
+                    TradePlans = LiveTradePlans.Views(account, now, context.RequestServices.GetService<BitkubConfiguredAccount>()?.Verification.Rules.Pairs
+                        .Select(p => new LiveOrderSizing(p.Symbol, p.PriceStep, p.SellBaseStep, p.BuyQuoteStep, p.MinimumQuoteSize)).ToArray())
+                        .Where(LiveTradePlans.Active).ToArray() });
+        });
+        routes.MapPost("/plans", async (LiveTradePlanRequest plan, HttpContext context) =>
+        {
+            if (!Bound(context, plan.AccountId.Value)) return Results.StatusCode(403);
+            var configured = context.RequestServices.GetService<BitkubConfiguredAccount>();
+            var plans = context.RequestServices.GetService<LiveTradePlanService>();
+            if (configured is null || plans is null) return Results.StatusCode(503);
+            if (configured.AccountId != plan.AccountId) return Results.StatusCode(403);
+            return Results.Ok(await plans.RegisterAsync(plan, context.RequestAborted));
         });
         routes.MapPost("/intents", async (LiveIntent intent, HttpContext context) =>
         {

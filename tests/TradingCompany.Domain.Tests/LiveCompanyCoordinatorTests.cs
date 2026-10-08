@@ -15,6 +15,26 @@ public sealed class LiveCompanyCoordinatorTests : IDisposable
     private readonly Clock clock = new();
 
     [Fact]
+    public async Task One_meeting_can_register_three_distinct_plans_without_sending_broker_orders()
+    {
+        var client = new Client();
+        string[] symbols = ["BTC-THB", "ETH-THB", "SOL-THB"];
+        client.Packet = client.Packet with { Limits = client.Packet.Limits with { AllowedSymbols = symbols,
+            OrderSizing = symbols.Select(s => new LiveOrderSizing(s, .01m, .00000001m, 1, 10)).ToArray() },
+            Snapshot = client.Packet.Snapshot with { Quotes = symbols.Select(s => new LiveQuote(s, 100000, 100000, clock.Now)).ToArray() } };
+        var gateway = new Gateway { ProposalSymbols = symbols };
+        var coordinator = Coordinator(client, gateway);
+        await coordinator.TickAsync();
+        Assert.Equal("PLAN_REGISTERED", coordinator.Status);
+        Assert.Equal(symbols, client.Plans.Select(p => p.Symbol));
+        Assert.Equal(3, client.Plans.Select(p => p.Id).Distinct().Count());
+        Assert.Single(client.Plans.Select(p => p.DecisionId).Distinct());
+        Assert.Empty(client.Intents);
+        await coordinator.TickAsync();
+        Assert.Equal(3, client.Plans.Count);
+    }
+
+    [Fact]
     public async Task Live_candidates_include_rejected_alternatives_and_actual_costs_instead_of_only_cash_fallback()
     {
         var client = new Client(); var gateway = new Gateway { Scenario = "hold" };
@@ -53,17 +73,17 @@ public sealed class LiveCompanyCoordinatorTests : IDisposable
         clock.Now = LiveRiskTests.Now.AddMinutes(-1); // 08:59 Bangkok
         await coordinator.TickAsync();
         Assert.Empty(gateway.Inputs);
-        Assert.Empty(client.Intents);
+        Assert.Empty(client.Plans);
         clock.Now = LiveRiskTests.Now;
         await coordinator.TickAsync();
-        var intent = Assert.Single(client.Intents);
-        Assert.Equal(TradingMode.Live, intent.Mode);
+        var intent = Assert.Single(client.Plans);
+        Assert.Empty(client.Intents);
         Assert.Equal(LiveRiskTests.Account, intent.AccountId);
         Assert.Equal(1, intent.MandateVersion);
         Assert.Equal(1, intent.SnapshotVersion);
         Assert.Equal("BTC-THB", intent.Symbol);
-        Assert.Equal(.0015m, intent.Quantity); // 15% of actual 1000 THB, ask 100000
-        Assert.Equal(150m, intent.BuyBudget);
+        Assert.Equal(.00149551m, intent.Plan.Quantity); // 15% includes the fee reserve
+        Assert.Empty(client.Intents);
         Assert.Equal(8, gateway.Inputs.Count);
         Assert.All(gateway.Inputs, input =>
         {
@@ -74,7 +94,7 @@ public sealed class LiveCompanyCoordinatorTests : IDisposable
         });
         var restarted = Coordinator(client, gateway);
         await restarted.TickAsync();
-        Assert.Single(client.Intents);
+        Assert.Single(client.Plans);
         Assert.Equal(8, gateway.Inputs.Count);
         Assert.Equal("ALREADY_ATTEMPTED", restarted.Status);
     }
@@ -86,15 +106,15 @@ public sealed class LiveCompanyCoordinatorTests : IDisposable
         var gateway = new Gateway();
         var coordinator = Coordinator(client, gateway);
         await coordinator.TickAsync();
-        Assert.Single(client.Intents);
+        Assert.Single(client.Plans);
         Assert.Empty(client.Meetings);
 
         await coordinator.TickAsync();
         var saved = Assert.Single(client.Meetings);
-        Assert.Equal("ORDER_PENDING", saved.Status);
+        Assert.Equal("PLAN_REGISTERED", saved.Status);
         Assert.NotNull(saved.Summary);
         Assert.Contains(saved.Summary!.Reports, report => report.Role == "ceo" && report.Summary == "Review completed market bars");
-        Assert.Single(client.Intents);
+        Assert.Single(client.Plans);
     }
 
     [Theory]
@@ -124,10 +144,10 @@ public sealed class LiveCompanyCoordinatorTests : IDisposable
         Assert.Equal(Scope, interrupted.AccountContext);
         Assert.Equal(originalPacket, client.Packet);
         var acceptedCount = acceptedBeforeCancellation ? 1 : 0;
-        Assert.Equal(acceptedCount, client.Intents.Count);
+        Assert.Equal(acceptedCount, client.Plans.Count);
         if (acceptedBeforeCancellation)
         {
-            Assert.Equal(interrupted.AttemptId, Assert.Single(client.Intents).DecisionId);
+            Assert.Equal(interrupted.AttemptId, Assert.Single(client.Plans).DecisionId);
             Assert.NotNull(interrupted.Summary);
         }
         else Assert.Empty(Assert.IsType<DailyMeetingSummary>(interrupted.Summary).Reports);
@@ -145,7 +165,7 @@ public sealed class LiveCompanyCoordinatorTests : IDisposable
         if (acceptedBeforeCancellation)
             Assert.Contains(published.Summary!.Reports, report => report.Role == "ceo" && report.Summary == "Review completed market bars");
         Assert.Equal("ALREADY_ATTEMPTED", restarted.Status);
-        Assert.Equal(acceptedCount, client.Intents.Count);
+        Assert.Equal(acceptedCount, client.Plans.Count);
         Assert.Equal(modelCalls, gateway.Inputs.Count);
 
         clock.Now = clock.Now.AddDays(1);
@@ -163,7 +183,7 @@ public sealed class LiveCompanyCoordinatorTests : IDisposable
             client.Packet = invalid;
             await restarted.TickAsync();
             Assert.Equal("LIVE_BLOCKED", restarted.Status);
-            Assert.Equal(acceptedCount, client.Intents.Count);
+            Assert.Equal(acceptedCount, client.Plans.Count);
             Assert.Equal(modelCalls, gateway.Inputs.Count);
             Assert.Single(journal.ReadAll());
         }
@@ -173,12 +193,12 @@ public sealed class LiveCompanyCoordinatorTests : IDisposable
             Quotes = fresh.Snapshot.Quotes.Select(q => q with { ObservedAt = clock.Now }).ToArray() } };
         await restarted.TickAsync();
 
-        Assert.Equal("ORDER_PENDING", restarted.Status);
-        Assert.Equal(acceptedCount + 1, client.Intents.Count);
+        Assert.Equal("PLAN_REGISTERED", restarted.Status);
+        Assert.Equal(acceptedCount + 1, client.Plans.Count);
         var nextDay = journal.Read(interrupted.BusinessDate.AddDays(1));
         Assert.NotNull(nextDay);
-        Assert.Equal("ORDER_PENDING", nextDay.Status);
-        Assert.Equal(nextDay.AttemptId, client.Intents[^1].DecisionId);
+        Assert.Equal("PLAN_REGISTERED", nextDay.Status);
+        Assert.Equal(nextDay.AttemptId, client.Plans[^1].DecisionId);
         Assert.NotEqual(interrupted.AttemptId, nextDay.AttemptId);
         Assert.Single(client.Meetings);
     }
@@ -198,11 +218,11 @@ public sealed class LiveCompanyCoordinatorTests : IDisposable
             }
         };
         await Coordinator(client, gateway).TickAsync();
-        var intent = Assert.Single(client.Intents);
+        var intent = Assert.Single(client.Plans);
         Assert.Equal(2, intent.SnapshotVersion);
-        Assert.Equal(100010m, intent.LimitPrice);
-        Assert.Equal(.00149985m, intent.Quantity);
-        Assert.Equal(intent.Quantity * intent.LimitPrice, intent.BuyBudget);
+        Assert.Equal(100000m, intent.Plan.EntryPrice); // advice retains its original entry ceiling
+        Assert.Equal(.00149551m, intent.Plan.Quantity);
+        Assert.Empty(client.Intents);
     }
 
     [Theory]
@@ -250,8 +270,8 @@ public sealed class LiveCompanyCoordinatorTests : IDisposable
         { Limits = new(1000, 1m, 3, .003m, .01m, ["BTC-THB"]) { OrderSizing = [new("BTC-THB", .01m, .00000001m, 1m, 10m)] } } };
         var gateway = new Gateway { TargetWeight = 1m };
         await Coordinator(client, gateway).TickAsync();
-        var intent = Assert.Single(client.Intents);
-        Assert.True(intent.BuyBudget!.Value * (1 + client.Packet.Limits.FeeReserveRate) <= 1000m);
+        var intent = Assert.Single(client.Plans);
+        Assert.True((intent.Plan.Quantity * intent.Plan.EntryPrice) * (1 + client.Packet.Limits.FeeReserveRate) <= 1000m);
     }
 
     [Fact]
@@ -317,6 +337,13 @@ public sealed class LiveCompanyCoordinatorTests : IDisposable
         var gateway = new Gateway { Action = action };
         await Coordinator(client, gateway).TickAsync();
 
+        if (action == "BUY")
+        {
+            var plan = Assert.Single(client.Plans);
+            Assert.Empty(client.Intents);
+            Assert.True(plan.Plan.Quantity * plan.Plan.EntryPrice * (1 + client.Packet.Limits.FeeReserveRate) <= 100m);
+            return;
+        }
         var intent = Assert.Single(client.Intents);
         Assert.Equal(action == "BUY" ? OrderSide.Buy : OrderSide.Sell, intent.Side);
         Assert.Equal(.000997m, intent.Quantity);
@@ -490,12 +517,12 @@ public sealed class LiveCompanyCoordinatorTests : IDisposable
         var gateway = new Gateway();
         var coordinator = Coordinator(client, gateway, new Market { FailedSymbol = "SOL-THB" });
         await coordinator.TickAsync();
-        Assert.Equal(paused ? "READ_ONLY" : "ORDER_PENDING", coordinator.Status);
+        Assert.Equal(paused ? "READ_ONLY" : "PLAN_REGISTERED", coordinator.Status);
         Assert.Equal(8, gateway.Inputs.Count);
         Assert.All(gateway.CandidateSymbols, symbols => Assert.Equal("BTC-THB", Assert.Single(symbols)));
         Assert.Equal(new LiveMeetingIssue("MARKET_HISTORY_UNAVAILABLE", "SOL-THB"), Assert.Single(coordinator.Issues));
-        Assert.Equal(paused ? 0 : 1, client.Intents.Count);
-        Assert.All(client.Intents, i => Assert.Equal("BTC-THB", i.Symbol));
+        Assert.Equal(paused ? 0 : 1, client.Plans.Count);
+        Assert.All(client.Plans, i => Assert.Equal("BTC-THB", i.Symbol));
         await coordinator.TickAsync();
         var saved = Assert.Single(client.Meetings);
         Assert.Equal(paused, saved.Summary!.AdvisoryOnly);
@@ -537,7 +564,8 @@ public sealed class LiveCompanyCoordinatorTests : IDisposable
         Freshen(client);
         await coordinator.TickAsync();
         Assert.Equal(8, gateway.Inputs.Count);
-        Assert.Single(client.Intents);
+        Assert.Single(client.Plans);
+        Assert.Empty(client.Intents);
     }
 
     [Fact]
@@ -656,9 +684,9 @@ public sealed class LiveCompanyCoordinatorTests : IDisposable
         }};
         var gateway = new Gateway { ProposalSymbol = "ETH-THB" };
         await Coordinator(client, gateway).TickAsync();
-        var intent = Assert.Single(client.Intents);
+        var intent = Assert.Single(client.Plans);
         Assert.Equal("ETH-THB", intent.Symbol);
-        Assert.Equal(3000m, intent.LimitPrice);
+        Assert.Equal(3000m, intent.Plan.EntryPrice);
     }
 
     [Fact]
@@ -838,6 +866,7 @@ public sealed class LiveCompanyCoordinatorTests : IDisposable
             new(1000m, .2m, 3, .003m, .01m, ["BTC-THB"]) { OrderSizing =
                 [new("BTC-THB", .01m, .00000001m, 1m, 10m)] }, true, false);
         public List<LiveIntent> Intents { get; } = [];
+        public List<LiveTradePlanRequest> Plans { get; } = [];
         public List<DailyMeetingAttempt> Meetings { get; } = [];
         public Action? AfterSubmit { get; set; }
         public int ReadFailures { get; set; }
@@ -851,6 +880,12 @@ public sealed class LiveCompanyCoordinatorTests : IDisposable
             AfterSubmit?.Invoke();
             return Task.FromResult(new LiveIntentReceipt(intent, LiveOrderState.Acknowledged, []));
         }
+        public Task<LiveTradePlanReceipt> RegisterPlanAsync(LiveTradePlanRequest plan, CancellationToken cancellationToken)
+        {
+            Plans.Add(plan);
+            AfterSubmit?.Invoke();
+            return Task.FromResult(new LiveTradePlanReceipt(plan.Id, true, []));
+        }
     }
     internal sealed class Gateway : ITradingAgentGateway
     {
@@ -858,6 +893,7 @@ public sealed class LiveCompanyCoordinatorTests : IDisposable
         public string Action { get; init; } = "BUY";
         public decimal TargetWeight { get; init; } = .15m;
         public string ProposalSymbol { get; init; } = "BTC-THB";
+        public string[]? ProposalSymbols { get; init; }
         public Action? AfterFinal { get; set; }
         public List<AiCompanyMeetingInput> Inputs { get; } = [];
         public List<string> Roles { get; } = [];
@@ -872,17 +908,24 @@ public sealed class LiveCompanyCoordinatorTests : IDisposable
             Inputs.Add(input);
             Roles.Add(request.Role);
             if (request.Role == "portfolio-final") AfterFinal?.Invoke();
+            var candidate = input.Candidates.FirstOrDefault(c => c.Symbol.Value == ProposalSymbol) ?? input.Candidates[0];
+            var quote = candidate.CurrentQuote!;
+            var sizing = input.ExecutionLimits!.OrderSizing.FirstOrDefault(s => s.Symbol == ProposalSymbol) ?? input.ExecutionLimits.OrderSizing[0];
+            var amount = Math.Min(TargetWeight * input.Portfolio.Equity, Math.Min(input.Portfolio.Cash,
+                input.ExecutionLimits.MaximumOrderNotional ?? input.Portfolio.Equity)) / (1 + input.ExecutionLimits.FeeReserveRate);
+            var quantity = decimal.Floor(amount / quote.Ask / sizing.BaseStep) * sizing.BaseStep;
+            var tradePlan = Action == "BUY" ? new AiCompanyTradePlan(quote.Ask, quantity,
+                quote.Ask * 1.10m, quote.Ask * .95m, input.ObservedAt!.Value.AddHours(4)) : null;
             var output = JsonSerializer.Serialize(new
             {
                 role = request.Role, summary = "Review completed market bars", recommendations = new[] { "Review evidence" },
                 risks = new[] { "Price changes" }, evidenceIds = input.Candidates.Select(c => c.EvidenceId),
                 dataCutoff = input.DataCutoff.ToString("yyyy-MM-dd"), evidenceHash = input.EvidenceHash,
-                proposals = request.Role != "portfolio-final" || Scenario == "hold" ? [] : new[]
-                {
-                    new { action = Action, symbol = Scenario == "invalid-output" ? "INVENTED" : ProposalSymbol, targetWeight = TargetWeight,
-                        confidence = .8m, thesis = "Supplied evidence supports entry", invalidation = "Trend deteriorates" }
-                }
-            });
+                proposals = request.Role != "portfolio-final" || Scenario == "hold" ? [] : (ProposalSymbols ?? [ProposalSymbol])
+                    .Select(symbol => new { action = Action, symbol = Scenario == "invalid-output" ? "INVENTED" : symbol, targetWeight = TargetWeight,
+                        confidence = .8m, thesis = "Supplied evidence supports entry", invalidation = "Trend deteriorates", tradePlan }
+                    ).ToArray()
+            }, new JsonSerializerOptions(JsonSerializerDefaults.Web));
             return Task.FromResult(new AgentModelResponse(output, "test-response", request.Model, 100, 50, TimeSpan.Zero));
         }
     }

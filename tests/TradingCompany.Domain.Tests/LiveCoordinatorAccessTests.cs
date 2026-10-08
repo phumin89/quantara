@@ -119,11 +119,16 @@ public sealed class LiveCoordinatorAccessTests
             var coordinator = new LiveCompanyCoordinator(client, new LiveCompanyCoordinatorTests.Market(), runner,
                 new JsonDailyMeetingJournal(path, scope), new Clock(), LiveRiskTests.Account);
             await coordinator.TickAsync();
-            Assert.Equal("ORDER_PENDING", coordinator.Status);
+            Assert.Equal("PLAN_REGISTERED", coordinator.Status);
+            Assert.Empty(factory.Store.Account.Orders);
+            Assert.Equal(0, factory.Broker.PlaceCalls);
+            var plan = Assert.Single(LiveTradePlans.Read(factory.Store.Account));
+            Assert.Equal(.00149551m, plan.Plan.Quantity);
+            await factory.Services.GetRequiredService<LiveTradePlanService>().TickAsync(LiveRiskTests.Account);
             var order = Assert.Single(factory.Store.Account.Orders);
             Assert.Equal(LiveOrderState.Acknowledged, order.State);
-            Assert.Equal(150m, order.Intent.BuyBudget);
-            Assert.Equal(150.45m, factory.Store.Account.Snapshot.CashReserved);
+            Assert.Equal(149.551m, order.Intent.BuyBudget);
+            Assert.Equal(149.999653m, factory.Store.Account.Snapshot.CashReserved);
             Assert.Equal(1000m, factory.Store.Account.Snapshot.CashBalance);
             Assert.Empty(factory.Store.Account.Fills);
             Assert.Equal(1, factory.Broker.PlaceCalls);
@@ -187,6 +192,8 @@ public sealed class LiveCoordinatorAccessTests
         var id = scenario == "other-account" ? Guid.NewGuid() : LiveRiskTests.Account.Value;
         Assert.Equal(status, (await client.GetAsync($"/internal/live/research/{id:N}")).StatusCode);
         Assert.Equal(status, (await client.GetAsync($"/internal/live/activity/{id:N}")).StatusCode);
+        Assert.Equal(status, (await client.PostAsJsonAsync("/internal/live/plans", new LiveTradePlanRequest(new(id), Guid.NewGuid(),
+            Guid.NewGuid(), 1, 1, "BTC-THB", new string('a', 64), new(100000, .0014m, 110000, 95000, LiveRiskTests.Now.AddHours(4))))).StatusCode);
         Assert.Empty(factory.Store.Account.Orders);
     }
 
@@ -237,6 +244,8 @@ public sealed class LiveCoordinatorAccessTests
                 services.AddSingleton<ILiveTradingStore>(Store);
                 services.AddSingleton(new LiveOwnerControls(Store, new NoPreflight(), new Clock(), LiveRiskTests.Account));
                 services.AddSingleton(new LiveExecutionService(Store, Broker, new Clock()));
+                services.AddSingleton(new LiveTradePlanService(Store, new(Store, Broker, new Clock()),
+                    new Clock(), [new("BTC-THB", .01m, .00000001m, 1, 10)]));
                 services.AddSingleton(new BitkubConfiguredAccount(LiveRiskTests.Account,
                     new("test-account", "key-fingerprint", "synthetic-fixture", new string('a', 64), true, true,
                         new("synthetic-fixture", new string('b', 64), .003m,

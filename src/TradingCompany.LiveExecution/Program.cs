@@ -101,6 +101,9 @@ public class LiveProgram
             sp.GetService<TradingCompany.Application.LiveReconciliation>(),
             sp.GetService<BitkubConfiguredAccount>()?.AccountId ?? default,
             sp.GetRequiredService<TimeProvider>(), sp.GetService<TradingCompany.Infrastructure.LiveTradingStore>()));
+        // Recovery suspension commits before the price monitor is allowed to start.
+        if (builder.Configuration.GetValue<bool>("LiveExecution:Enabled"))
+            builder.Services.AddHostedService<LiveTradePlanWorker>();
         var ownerStateDirectory = builder.Configuration["OwnerSession:StateDirectory"];
         if (!string.IsNullOrWhiteSpace(ownerStateDirectory))
         {

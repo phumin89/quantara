@@ -29,15 +29,20 @@ public sealed class LiveOwnerActivation(BitkubConfiguredAccount configured, Live
             return new(false, ["MARKET_REMOVAL_REQUIRES_MANDATE_UPDATE"]);
         var orderCeiling = useFundedOrderCeiling ? account.Mandate.CapitalAllocation : maximumOrderNotional is { } requestedCeiling
             ? Math.Min(account.Mandate.MaximumOrderNotional, requestedCeiling) : account.Mandate.MaximumOrderNotional;
+        var openPositions = useFundedOrderCeiling
+            ? Math.Max(account.Mandate.MaximumOpenPositions, symbols.Length)
+            : account.Mandate.MaximumOpenPositions;
         if (!account.Mandate.AllowedSymbols.Order(StringComparer.Ordinal).SequenceEqual(symbols) ||
-            account.Mandate.MaximumOrderNotional != orderCeiling)
+            account.Mandate.MaximumOrderNotional != orderCeiling ||
+            account.Mandate.MaximumOpenPositions != openPositions)
         {
             if (account.Orders.Any(o => o.State is not (TradingCompany.Domain.LiveOrderState.Filled or
                 TradingCompany.Domain.LiveOrderState.Cancelled or TradingCompany.Domain.LiveOrderState.Rejected)))
                 return new(false, ["UNRESOLVED_ORDER"]);
             var expanded = await controls.SaveMandateAsync(account.Mandate with
             {
-                Version = checked(account.Mandate.Version + 1), AllowedSymbols = symbols, MaximumOrderNotional = orderCeiling
+                Version = checked(account.Mandate.Version + 1), AllowedSymbols = symbols,
+                MaximumOrderNotional = orderCeiling, MaximumOpenPositions = openPositions
             }, token);
             if (!expanded.Allowed) return new(false, expanded.Violations);
             account = await controls.ReadAsync(token);

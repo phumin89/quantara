@@ -69,6 +69,10 @@ public static class BitkubLiveRuntime
         services.AddSingleton(sp => new LiveOwnerControls(sp.GetRequiredService<ILiveTradingStore>(),
             sp.GetRequiredService<ILiveActivationSource>(), sp.GetRequiredService<TimeProvider>(), account));
         services.AddSingleton<LiveExecutionService>();
+        services.AddSingleton(sp => new LiveTradePlanService(sp.GetRequiredService<ILiveTradingStore>(),
+            sp.GetRequiredService<LiveExecutionService>(), sp.GetRequiredService<TimeProvider>(),
+            verification.Rules.Pairs.Select(p => new LiveOrderSizing(p.Symbol, p.PriceStep,
+                p.SellBaseStep, p.BuyQuoteStep, p.MinimumQuoteSize)).ToArray()));
         services.AddSingleton<LiveReconciliation>();
         services.AddSingleton<BitkubAccountProvisioner>();
         services.AddHostedService<LiveSchemaService>();

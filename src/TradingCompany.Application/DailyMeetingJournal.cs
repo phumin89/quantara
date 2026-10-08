@@ -38,6 +38,10 @@ public sealed record DailyMeetingSummary(
     public bool AdvisoryOnly { get; init; }
     [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
     public CompanyLearningReport? Learning { get; init; }
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public string? TradePlanPolicy { get; init; }
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public IReadOnlyList<string>? PlanRejectionReasons { get; init; }
 }
 
 public sealed record DailyMeetingAttempt(

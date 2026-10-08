@@ -8,7 +8,10 @@ export type LiveAccount = {
   mandate: { version: number; capitalAllocation: number; maximumOrderNotional: number; maximumDailyLoss: number };
   orders: { intentId: string; symbol: string; side: "Buy" | "Sell"; state: string;
     quantity: number; filledQuantity: number; reservedCash: number; reservedQuantity: number; updatedAt: string }[];
+  tradePlans?: TradePlan[];
 };
+export type TradePlanStatus = "WAITING_ENTRY" | "ENTRY_PENDING" | "WATCHING_EXIT" | "EXIT_PENDING" | "EXPIRED" | "INVALIDATED" | "ENTRY_REJECTED" | "CLOSED" | "REVIEW_REQUIRED";
+export type TradePlan = { id: string; symbol: "BTC-THB" | "ETH-THB" | "SOL-THB"; plan: { entryPrice: number; quantity: number; takeProfitPrice: number; stopLossPrice: number; expiresAt: string }; status: TradePlanStatus; acquiredQuantity: number; soldQuantity: number };
 type AccountAuthority = { accountId?: { value: string }; snapshotVersion?: number; mandateVersion?: number };
 const object = (v: unknown): v is Record<string, any> => !!v && typeof v === "object" && !Array.isArray(v);
 const positive = (v: unknown): v is number => typeof v === "number" && Number.isFinite(v) && v > 0;
@@ -18,6 +21,11 @@ const uuid = (v: unknown) => typeof v === "string" && /^[0-9a-f]{8}-[0-9a-f]{4}-
 const supported = (v: unknown) => ["BTC-THB", "ETH-THB", "SOL-THB"].includes(String(v));
 const timestamp = (v: unknown) => typeof v === "string" && /^\d{4}-\d{2}-\d{2}T.*(?:Z|[+-]\d{2}:\d{2})$/.test(v) &&
   Number.isFinite(Date.parse(v)) && new Date(`${v.slice(0, 10)}T00:00:00Z`).toISOString().slice(0, 10) === v.slice(0, 10);
+const planStatuses: TradePlanStatus[] = ["WAITING_ENTRY", "ENTRY_PENDING", "WATCHING_EXIT", "EXIT_PENDING", "EXPIRED", "INVALIDATED", "ENTRY_REJECTED", "CLOSED", "REVIEW_REQUIRED"];
+const validTradePlan = (p: unknown): p is TradePlan => object(p) && uuid(p.id) && supported(p.symbol) && object(p.plan) &&
+  positive(p.plan.entryPrice) && positive(p.plan.quantity) && positive(p.plan.takeProfitPrice) && p.plan.takeProfitPrice > p.plan.entryPrice &&
+  positive(p.plan.stopLossPrice) && p.plan.stopLossPrice < p.plan.entryPrice && timestamp(p.plan.expiresAt) &&
+  planStatuses.includes(p.status) && amount(p.acquiredQuantity) && amount(p.soldQuantity) && p.soldQuantity <= p.acquiredQuantity;
 export const orderLabels: Record<string, string> = {
   Proposed: "ข้อเสนอ", Rejected: "ไม่ผ่านการอนุมัติ", Reserved: "กันวงเงินแล้ว", Dispatching: "กำลังส่ง",
   Unknown: "ยังยืนยันผลไม่ได้", Acknowledged: "ตลาดรับคำสั่งแล้ว", Open: "รอจับคู่",
@@ -38,6 +46,8 @@ export function validLiveAccount(v: unknown, authority: AccountAuthority, now = 
     new Set(s.positions.map((p: any) => p.symbol)).size !== s.positions.length) return false;
   const computed = s.cashBalance + s.positions.reduce((sum: number, p: any) => sum + p.quantity * p.marketPrice, 0);
   if (!Number.isFinite(computed) || Math.abs(computed - s.equity) > 1e-8) return false;
+  const plans = v.tradePlans === undefined ? [] : v.tradePlans;
+  if (!Array.isArray(plans) || plans.length > 10000 || !plans.every(validTradePlan) || new Set(plans.map(p => p.id)).size !== plans.length) return false;
   return Array.isArray(v.orders) && v.orders.every((o: unknown) => object(o) && uuid(o.intentId) && supported(o.symbol) &&
     ["Buy", "Sell"].includes(o.side) && Object.hasOwn(orderLabels, o.state) && positive(o.quantity) &&
     [o.filledQuantity, o.reservedCash, o.reservedQuantity].every(amount) && timestamp(o.updatedAt) &&

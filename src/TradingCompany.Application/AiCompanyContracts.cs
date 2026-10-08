@@ -34,6 +34,8 @@ public sealed record AiCompanyCandidateEvidence(
     public bool ExecutionAllowed { get; init; } = true;
     public LiveQuote? CurrentQuote { get; init; }
     [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public AiCompanyPriceLevels? PriceLevels { get; init; }
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
     public AiCompanyOpportunityEvidence? OpportunityComparison { get; init; }
 }
 
@@ -64,6 +66,7 @@ public sealed record AiCompanyMeetingInput(
     public bool LearningChanged { get; init; }
     [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
     public LiveResearchLimits? ExecutionLimits { get; init; }
+    public IReadOnlyList<LiveTradePlanView> ActiveTradePlans { get; init; } = [];
 }
 
 public sealed record AiCompanyProposal(
@@ -72,7 +75,11 @@ public sealed record AiCompanyProposal(
     decimal TargetWeight,
     decimal Confidence,
     string Thesis,
-    string Invalidation);
+    string Invalidation)
+{
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public AiCompanyTradePlan? TradePlan { get; init; }
+}
 
 public sealed record AiCompanyAgentOutput(
     string Role,
@@ -112,7 +119,7 @@ public static class AiCompanyContract
 
     private static readonly HashSet<string> ProposalFields = new(StringComparer.Ordinal)
     {
-        "action", "symbol", "targetWeight", "confidence", "thesis", "invalidation"
+        "action", "symbol", "targetWeight", "confidence", "thesis", "invalidation", "tradePlan"
     };
 
     public const string OutputJsonSchema = """
@@ -131,14 +138,25 @@ public static class AiCompanyContract
               "items": {
                 "type": "object",
                 "additionalProperties": false,
-                "required": ["action", "symbol", "targetWeight", "confidence", "thesis", "invalidation"],
+                "required": ["action", "symbol", "targetWeight", "confidence", "thesis", "invalidation", "tradePlan"],
                 "properties": {
                   "action": { "type": "string", "enum": ["HOLD", "BUY", "TRIM", "SELL"] },
                   "symbol": { "type": "string", "minLength": 1 },
                   "targetWeight": { "type": "number", "minimum": 0, "maximum": 1 },
                   "confidence": { "type": "number", "minimum": 0, "maximum": 1 },
                   "thesis": { "type": "string", "minLength": 1 },
-                  "invalidation": { "type": "string", "minLength": 1 }
+                  "invalidation": { "type": "string", "minLength": 1 },
+                  "tradePlan": { "anyOf": [
+                    { "type": "null" },
+                    { "type": "object", "additionalProperties": false,
+                      "required": ["entryPrice", "quantity", "takeProfitPrice", "stopLossPrice", "expiresAt"],
+                      "properties": {
+                        "entryPrice": { "type": "number" }, "quantity": { "type": "number" },
+                        "takeProfitPrice": { "type": "number" }, "stopLossPrice": { "type": "number" },
+                        "expiresAt": { "type": "string", "format": "date-time" }
+                      }
+                    }
+                  ] }
                 }
               }
             },
@@ -168,7 +186,7 @@ public static class AiCompanyContract
             var recommendations = RequiredStrings(root, "recommendations");
             var risks = RequiredStrings(root, "risks");
             var evidenceIds = RequiredStrings(root, "evidenceIds");
-            var proposals = ParseProposals(root, violations);
+            var proposals = ParseProposals(input, root, violations);
             var cutoff = RequiredDate(root, "dataCutoff");
             var evidenceHash = RequiredString(root, "evidenceHash");
 
@@ -198,6 +216,7 @@ public static class AiCompanyContract
         {
             return Failure("MALFORMED_JSON");
         }
+        catch (OverflowException) { return Failure("INVALID_TRADE_PLAN_NUMBER"); }
         catch (ContractException exception)
         {
             return Failure(exception.Code);
@@ -207,6 +226,7 @@ public static class AiCompanyContract
     }
 
     private static ImmutableArray<AiCompanyProposal> ParseProposals(
+        AiCompanyMeetingInput input,
         JsonElement root,
         ImmutableArray<string>.Builder violations)
     {
@@ -230,10 +250,71 @@ public static class AiCompanyContract
             var confidence = RequiredDecimal(item, "confidence");
             if (targetWeight is < 0m or > 1m) violations.Add("INVALID_TARGET_WEIGHT");
             if (confidence is < 0m or > 1m) violations.Add("INVALID_CONFIDENCE");
-            result.Add(new(action, symbol, targetWeight, confidence,
-                RequiredString(item, "thesis"), RequiredString(item, "invalidation")));
+            var proposal = new AiCompanyProposal(action, symbol, targetWeight, confidence,
+                RequiredString(item, "thesis"), RequiredString(item, "invalidation"));
+            if (item.TryGetProperty("tradePlan", out var plan))
+            {
+                if (plan.ValueKind != JsonValueKind.Null) proposal = proposal with { TradePlan = ParseTradePlan(plan) };
+                if (plan.ValueKind != JsonValueKind.Null && (action != PortfolioAction.Buy || input.AccountContext?.Mode != TradingMode.Live)) violations.Add("TRADE_PLAN_ACTION_MISMATCH");
+            }
+            if (input.AccountContext?.Mode == TradingMode.Live && action == PortfolioAction.Buy && proposal.TradePlan is null)
+                violations.Add("MISSING_TRADE_PLAN");
+            if (proposal.TradePlan is { } tradePlan && input.AccountContext?.Mode == TradingMode.Live && action == PortfolioAction.Buy)
+                ValidateLiveTradePlan(input, proposal, tradePlan, violations);
+            result.Add(proposal);
         }
         return result.ToImmutable();
+    }
+
+    private static void ValidateLiveTradePlan(AiCompanyMeetingInput input, AiCompanyProposal proposal, AiCompanyTradePlan plan, ImmutableArray<string>.Builder violations)
+    {
+        if (input.ObservedAt is not { } observed || plan.ExpiresAt <= observed.AddMinutes(1) || plan.ExpiresAt > observed.AddDays(7)) { violations.Add("INVALID_TRADE_PLAN_EXPIRY"); return; }
+        var limits = input.ExecutionLimits;
+        if (limits is null) { violations.Add("MISSING_EXECUTION_LIMITS"); return; }
+        if (limits.FeeReserveRate is <= 0 or > .1m) { violations.Add("INVALID_EXECUTION_LIMITS"); return; }
+        var feeBudget = plan.EntryPrice * plan.Quantity * (1m + limits.FeeReserveRate);
+        var held = input.Candidates.SingleOrDefault(c => c.Symbol == proposal.Symbol);
+        var heldValue = (held?.HeldQuantity ?? 0) * (held?.CurrentQuote?.Bid ?? plan.EntryPrice);
+        if (feeBudget + heldValue > proposal.TargetWeight * input.Portfolio.Equity || feeBudget > input.Portfolio.Cash || limits.MaximumOrderNotional is { } max && feeBudget > max) violations.Add("TRADE_PLAN_BUDGET_EXCEEDED");
+        var sizing = limits.OrderSizing.FirstOrDefault(x => string.Equals(x.Symbol, proposal.Symbol.Value, StringComparison.Ordinal));
+        if (sizing is null || !IsStep(plan.EntryPrice, sizing.PriceStep) || !IsStep(plan.TakeProfitPrice, sizing.PriceStep) ||
+            !IsStep(plan.StopLossPrice, sizing.PriceStep) || !IsStep(plan.Quantity, sizing.BaseStep) || sizing.QuoteStep <= 0 ||
+            decimal.Floor(plan.EntryPrice * plan.Quantity / (1 + limits.FeeReserveRate) / sizing.QuoteStep) * sizing.QuoteStep < sizing.MinimumQuoteSize)
+            violations.Add("TRADE_PLAN_ORDER_SIZING_INVALID");
+        if (plan.TakeProfitPrice * (1 - limits.FeeReserveRate) <= plan.EntryPrice * (1 + limits.FeeReserveRate))
+            violations.Add("TRADE_PLAN_TARGET_BELOW_COSTS");
+        if (sizing is { BaseStep: > 0, MinimumQuoteSize: > 0 } &&
+            sizing.QuoteStep > 0 && decimal.Floor(decimal.Floor(plan.Quantity * plan.EntryPrice / (1 + limits.FeeReserveRate) /
+                sizing.QuoteStep) * sizing.QuoteStep / plan.EntryPrice / sizing.BaseStep) * sizing.BaseStep * plan.StopLossPrice *
+                (1 - limits.MaximumSlippage) < sizing.MinimumQuoteSize)
+            violations.Add("TRADE_PLAN_EXIT_BELOW_MINIMUM");
+    }
+
+    private static bool IsStep(decimal value, decimal step) => step > 0m && decimal.Round(value / step, 0) * step == value;
+
+    private static AiCompanyTradePlan ParseTradePlan(JsonElement root)
+    {
+        if (root.ValueKind != JsonValueKind.Object) throw new ContractException("INVALID_TRADE_PLAN");
+        var allowed = new HashSet<string>(StringComparer.Ordinal) { "entryPrice", "quantity", "takeProfitPrice", "stopLossPrice", "expiresAt" };
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var property in root.EnumerateObject())
+        {
+            if (!allowed.Contains(property.Name)) throw new ContractException("UNKNOWN_TRADE_PLAN_FIELD");
+            if (!seen.Add(property.Name)) throw new ContractException("DUPLICATE_TRADE_PLAN_FIELD");
+        }
+        var entry = RequiredDecimal(root, "entryPrice");
+        var quantity = RequiredDecimal(root, "quantity");
+        var take = RequiredDecimal(root, "takeProfitPrice");
+        var stop = RequiredDecimal(root, "stopLossPrice");
+        var expiryText = RequiredString(root, "expiresAt");
+        if (entry <= 0m || quantity <= 0m || stop <= 0m || stop >= entry || take <= entry)
+            throw new ContractException("INVALID_TRADE_PLAN");
+        var hasZone = expiryText.EndsWith("Z", StringComparison.OrdinalIgnoreCase) ||
+            (expiryText.Length >= 6 && (expiryText[^6] == '+' || expiryText[^6] == '-') && expiryText[^3] == ':');
+        if (!hasZone || !DateTimeOffset.TryParseExact(expiryText,
+            ["yyyy-MM-dd'T'HH:mm:ssK", "yyyy-MM-dd'T'HH:mm:ss.FFFFFFFK"], CultureInfo.InvariantCulture, DateTimeStyles.None, out var expiry))
+            throw new ContractException("INVALID_TRADE_PLAN_EXPIRY");
+        return new(entry, quantity, take, stop, expiry);
     }
 
     private static void ValidateFields(JsonElement element, HashSet<string> allowed, ImmutableArray<string>.Builder violations)

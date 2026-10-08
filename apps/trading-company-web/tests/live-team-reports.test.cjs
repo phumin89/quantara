@@ -5,6 +5,17 @@ const React=require('react'),{renderToStaticMarkup}=require('react-dom/server');
 const scope={mode:1,accountId:'1'.repeat(32)};
 const role=(name)=>({role:name,summary:name==='portfolio-final'?'เก็บเงินสดไว้รอข้อมูลครบ':'เหตุผลจากข้อมูลที่ตรวจแล้ว',providerModel:'fixture',inputTokens:2,outputTokens:2,artifactId:'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',evidenceHash:'a'.repeat(64),dataCutoff:'2026-10-05'});
 const fixture=()=>({accountContext:scope,meetings:[{businessDate:'2026-10-06',attemptId:'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',status:'HOLD',accountContext:scope,summary:{modelCalls:8,inputTokens:16,outputTokens:16,reports:[role('portfolio-final'),role('risk-critic'),role('portfolio-initial')]}}]});
+
+test('registered plans are reported as waiting, rejected plans explain the actual constraint',()=>{
+ const x=fixture(); x.meetings[0].status='PLAN_REGISTERED';
+ const html=()=>renderToStaticMarkup(React.createElement(LiveMeetingView,{meetings:readMeetings(x).meetings,selected:'',onSelect(){}}));
+ assert.match(html(),/บันทึกแผนแล้ว/); assert.doesNotMatch(html(),/ส่งคำสั่งแล้ว/);
+ x.meetings[0].status='PLAN_REJECTED'; x.meetings[0].summary.planRejectionReasons=['PLAN_ROUND_TRIP_TURNOVER_EXCEEDED'];
+ assert.match(html(),/วงเงินวันนี้ไม่พอทั้งซื้อและขาย/); assert.doesNotMatch(html(),/PLAN_ROUND_TRIP/);
+ for(const reasons of [[],['secret=private'],['STOPPED','STOPPED'],Array(21).fill('STOPPED')]){
+  x.meetings[0].summary.planRejectionReasons=reasons; assert.equal(readMeetings(x),undefined);
+ }
+});
 test('meeting parser accepts legacy and same-day review slots, sorts latest hour first, and selects by attempt id',()=>{
  const x=fixture(); x.meetings.push({...x.meetings[0],reviewHour:14,attemptId:'cccccccc-cccc-4ccc-8ccc-cccccccccccc'}); x.meetings.push({...x.meetings[0],businessDate:'2026-10-05',reviewHour:null,attemptId:'dddddddd-dddd-4ddd-8ddd-dddddddddddd'});
  const parsed=readMeetings(x); assert.deepEqual(parsed.meetings.map(m=>m.attemptId),['cccccccc-cccc-4ccc-8ccc-cccccccccccc','bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb','dddddddd-dddd-4ddd-8ddd-dddddddddddd']);

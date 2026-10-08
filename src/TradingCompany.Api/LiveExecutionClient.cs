@@ -48,6 +48,14 @@ public sealed class LiveExecutionClient : ILiveCompanyClient
         return receipt;
     }
 
+    public async Task<LiveTradePlanReceipt> RegisterPlanAsync(LiveTradePlanRequest plan, CancellationToken cancellationToken)
+    {
+        EnsureBinding(plan.AccountId);
+        var receipt = await Send<LiveTradePlanReceipt>(HttpMethod.Post, "plans", plan, cancellationToken);
+        if (receipt.Id != plan.Id || receipt.Violations is null || receipt.Accepted == (receipt.Violations.Count > 0)) throw Unavailable();
+        return receipt;
+    }
+
     private void EnsureBinding(LiveAccountId accountId)
     {
         if (boundAccount.Value == Guid.Empty || accountId != boundAccount || coordinatorToken is null ||
@@ -76,7 +84,7 @@ public sealed class LiveExecutionClient : ILiveCompanyClient
         if (response.StatusCode != HttpStatusCode.OK) throw Unavailable();
     }
 
-    private async Task<T> Send<T>(HttpMethod method, string path, LiveIntent? intent, CancellationToken cancellationToken)
+    private async Task<T> Send<T>(HttpMethod method, string path, object? intent, CancellationToken cancellationToken)
     {
         try
         {

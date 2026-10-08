@@ -23,6 +23,16 @@ public sealed class LiveRiskTests
         Assert.Equal(1000m, snapshot.CashBalance);
     }
 
+    [Fact] public void Three_verified_positions_fit_three_slots_while_two_slots_reject_the_third()
+    {
+        var snapshot = Snapshot with { CashBalance = 980, Positions = [new("BTC-THB", .0001m, 0, 100000), new("ETH-THB", .01m, 0, 1000)],
+            Quotes = [new("SOL-THB", 9999, 10000, Now)] };
+        var intent = Intent with { Symbol = "SOL-THB", Quantity = .01m, LimitPrice = 10000 };
+        Assert.True(LiveRiskPolicy.Evaluate(intent, snapshot, Mandate with { MaximumOpenPositions = 3 }, Gate, Now).Allowed);
+        Assert.Contains("MAX_OPEN_POSITIONS_REACHED", LiveRiskPolicy.Evaluate(intent, snapshot,
+            Mandate with { MaximumOpenPositions = 2 }, Gate, Now).Violations);
+    }
+
     [Theory]
     [InlineData(TradingMode.Sandbox)] [InlineData((TradingMode)99)]
     public void Non_live_intent_is_never_authorized(TradingMode mode)

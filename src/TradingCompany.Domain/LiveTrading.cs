@@ -19,6 +19,8 @@ public sealed record LiveIntent(LiveAccountId AccountId, Guid DecisionId, Guid I
     // Opt-in maximum cash debit INCLUDING cash fees. Null preserves exact-quantity orders.
     [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
     public decimal? BuyBudget { get; init; }
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public Guid? TradePlanId { get; init; }
 }
 public sealed record LivePosition(string Symbol, decimal Quantity, decimal ReservedQuantity, decimal MarketPrice);
 public sealed record LiveQuote(string Symbol, decimal Bid, decimal Ask, DateTimeOffset ObservedAt);

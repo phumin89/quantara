@@ -17,6 +17,7 @@ public sealed record LiveResearchPacket(TradingAccountContext AccountContext, lo
 {
     // Public quotes for comparison do not enlarge the owner's execution mandate.
     public IReadOnlyList<LiveQuote> ResearchQuotes { get; init; } = [];
+    public IReadOnlyList<LiveTradePlanView> TradePlans { get; init; } = [];
 }
 public sealed record LiveIntentReceipt(LiveIntent Intent, LiveOrderState State, IReadOnlyList<string> Violations);
 // Display-only telemetry. It carries no proposal, authority, prompt or broker credential.
@@ -61,6 +62,8 @@ public interface ILiveCompanyClient
 {
     Task<LiveResearchPacket> ReadAsync(LiveAccountId accountId, CancellationToken cancellationToken);
     Task<LiveIntentReceipt> SubmitAsync(LiveIntent intent, CancellationToken cancellationToken);
+    Task<LiveTradePlanReceipt> RegisterPlanAsync(LiveTradePlanRequest plan, CancellationToken cancellationToken)
+        => throw new NotSupportedException("Trade plan registration is unavailable.");
     Task SaveMeetingAsync(DailyMeetingAttempt attempt, CancellationToken cancellationToken);
     Task SaveActivityAsync(LiveCompanyActivity activity, CancellationToken cancellationToken) => Task.CompletedTask;
 }

@@ -77,6 +77,10 @@ public interface ILiveAccountTransaction
     void ApplyFill(BrokerFill fill, DateTimeOffset now);
     void SetStopped(bool stopped);
     void RecordMeeting(DailyMeetingAttempt attempt, DateTimeOffset now);
+    LiveTradePlanReceipt RecordTradePlan(LiveTradePlanRequest plan, LiveOrderSizing sizing, DateTimeOffset now)
+        => throw new NotSupportedException("Trade plans require a durable account transaction.");
+    void InvalidateTradePlan(Guid id, DateTimeOffset now)
+        => throw new NotSupportedException("Trade plans require a durable account transaction.");
     Task CommitAsync(CancellationToken cancellationToken);
     Task VerifyLeaseAsync(CancellationToken cancellationToken);
 }

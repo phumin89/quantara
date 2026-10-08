@@ -70,18 +70,20 @@ public sealed class BitkubOnboardingFlowTests(PostgresFixture database)
     }
 
     [Fact]
-    public async Task Explicit_funded_activation_restores_only_order_ceiling_without_resetting_account()
+    public async Task Explicit_funded_activation_restores_order_ceiling_and_verified_position_slots_without_resetting_account()
     {
-        using var fixture = await Setup();
+        using var fixture = await Setup(multiMarkets: true);
         Assert.True((await fixture.Activation.ActivateFullSpotAsync(default, 100m)).Activated);
         var before = await fixture.Store.ReadAccountAsync(fixture.Id);
         var result = await fixture.Activation.ActivateFullSpotAsync(default, useFundedOrderCeiling: true);
         Assert.True(result.Activated, string.Join(",", result.Reasons));
         var after = await fixture.Store.ReadAccountAsync(fixture.Id);
         Assert.Equal(before.Mandate.CapitalAllocation, after.Mandate.MaximumOrderNotional);
+        Assert.Equal(3, after.Mandate.MaximumOpenPositions);
         Assert.Equal(before.Mandate.Version + 1, after.Mandate.Version);
         Assert.Equal(JsonSerializer.Serialize(before.Mandate), JsonSerializer.Serialize(after.Mandate with
-        { Version = before.Mandate.Version, MaximumOrderNotional = before.Mandate.MaximumOrderNotional }));
+        { Version = before.Mandate.Version, MaximumOrderNotional = before.Mandate.MaximumOrderNotional,
+            MaximumOpenPositions = before.Mandate.MaximumOpenPositions }));
         Assert.Equal(before.PerformanceBaseline, after.PerformanceBaseline);
         Assert.Equal(before.FirstActivatedAt, after.FirstActivatedAt);
         Assert.Equal(before.Snapshot.CashBalance, after.Snapshot.CashBalance);
@@ -89,6 +91,29 @@ public sealed class BitkubOnboardingFlowTests(PostgresFixture database)
         Assert.True(after.Gate.Armed);
         Assert.Empty(after.Orders);
         Assert.Equal(0, fixture.Handler.OrderWrites);
+        Assert.True((await fixture.Activation.ActivateFullSpotAsync(default, useFundedOrderCeiling: true)).Activated);
+        Assert.Equal(after.Mandate.Version, (await fixture.Store.ReadAccountAsync(fixture.Id)).Mandate.Version);
+    }
+
+    [Fact]
+    public async Task Funded_activation_upgrades_position_slots_when_order_ceiling_is_already_full()
+    {
+        using var fixture = await Setup(multiMarkets: true);
+        Assert.True((await fixture.Provisioner.ProvisionAsync(fixture.Request, default)).Allowed);
+        var before = await fixture.Store.ReadAccountAsync(fixture.Id);
+        Assert.Equal(1, before.Mandate.MaximumOpenPositions);
+        Assert.True((await fixture.Services.GetRequiredService<LiveOwnerControls>().SaveMandateAsync(
+            before.Mandate with { Version = before.Mandate.Version + 1,
+                MaximumOrderNotional = before.Mandate.CapitalAllocation }, default)).Allowed);
+        before = await fixture.Store.ReadAccountAsync(fixture.Id);
+
+        var result = await fixture.Activation.ActivateFullSpotAsync(default, useFundedOrderCeiling: true);
+
+        Assert.True(result.Activated, string.Join(",", result.Reasons));
+        var after = await fixture.Store.ReadAccountAsync(fixture.Id);
+        Assert.Equal(before.Mandate.MaximumOrderNotional, after.Mandate.MaximumOrderNotional);
+        Assert.Equal(3, after.Mandate.MaximumOpenPositions);
+        Assert.Equal(before.Mandate.Version + 1, after.Mandate.Version);
         Assert.True((await fixture.Activation.ActivateFullSpotAsync(default, useFundedOrderCeiling: true)).Activated);
         Assert.Equal(after.Mandate.Version, (await fixture.Store.ReadAccountAsync(fixture.Id)).Mandate.Version);
     }

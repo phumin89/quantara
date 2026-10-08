@@ -21,6 +21,10 @@ public static class LiveMeetingReports
             JsonSerializer.SerializeToUtf8Bytes(attempt).Length > 60 * 1024)
             throw new InvalidDataException("Invalid meeting report.");
         if (attempt.Summary is not { } summary) return;
+        if (summary.TradePlanPolicy is not (null or "entry-exit-v1") || summary.PlanRejectionReasons is { } reasons &&
+            (reasons.Count is 0 or > 20 || reasons.Any(r => string.IsNullOrEmpty(r) || r.Length > 100 ||
+                r.Any(c => !char.IsAsciiLetterUpper(c) && c != '_')) || reasons.Distinct().Count() != reasons.Count))
+            throw new InvalidDataException("Invalid trade plan report.");
         if (summary.Learning is not null && !CompanyLearningValidation.IsValid(summary.Learning, attempt.AccountContext, attempt.BusinessDate))
             throw new InvalidDataException("Invalid saved learning evidence.");
         if (summary.Research is { } research && (!CoinResearchValidation.IsValid(research, research.ObservedAt) ||

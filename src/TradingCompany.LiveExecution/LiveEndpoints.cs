@@ -86,12 +86,15 @@ public static class LiveEndpoints
                 mandateVersion = account.Mandate.Version, snapshotVersion = account.Snapshot.Version,
                 observedAt = account.Snapshot.ObservedAt, reasons });
         });
-        live.MapGet("/account", async (HttpContext context) =>
+        live.MapGet("/account", async (HttpContext context, TimeProvider clock) =>
         {
             var controls = Controls(context);
             if (controls is null) return Unconfigured();
             var account = await controls.ReadAsync(context.RequestAborted);
             var m = account.Mandate;
+            var sizing = context.RequestServices.GetService<BitkubConfiguredAccount>()?.Verification.Rules.Pairs
+                .Select(p => new LiveOrderSizing(p.Symbol, p.PriceStep, p.SellBaseStep, p.BuyQuoteStep, p.MinimumQuoteSize)).ToArray();
+            var plans = LiveTradePlans.Views(account, clock.GetUtcNow(), sizing);
             return Results.Ok(new
             {
                 accountId = account.AccountId, brokerAccountReference = account.BrokerAccountReference,
@@ -99,6 +102,7 @@ public static class LiveEndpoints
                 mandate = new { m.Version, m.CapitalAllocation, m.MaximumOrderNotional, m.MaximumDailyTurnover,
                     m.MaximumDailyLoss, m.MaximumDrawdown, m.MaximumPortfolioExposure, m.MaximumOpenPositions,
                     m.MaximumSlippage, m.FeeReserveRate, m.AllowedSymbols, m.ExpiresAt },
+                tradePlans = plans.Where(LiveTradePlans.Active).Concat(plans.Where(p => !LiveTradePlans.Active(p)).TakeLast(100)),
                 orders = account.Orders.Select(o => new { intentId = o.Intent.Id, symbol = o.Intent.Symbol,
                     side = o.Intent.Side.ToString(), state = o.State.ToString(), o.Intent.Quantity, o.FilledQuantity,
                     o.ReservedCash, o.ReservedQuantity, o.CancellationRequestedAt,

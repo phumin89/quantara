@@ -25,6 +25,8 @@ public sealed partial class LiveAccountTransaction(LiveAccountState initial, Fun
             return existing;
         }
         var decision = LiveRiskPolicy.Evaluate(intent, Account.Snapshot, Account.Mandate, Account.Gate, now);
+        var planErrors = LiveTradePlans.IntentViolations(Account, intent, now);
+        if (planErrors.Count > 0) decision = new(false, [.. decision.Violations, .. planErrors]);
         if (!CurrentDailyBaseline(now)) decision = new(false, [.. decision.Violations, "DAILY_BASELINE_REQUIRED"]);
         if (Account.Orders.Any(o => o.State is LiveOrderState.Dispatching or LiveOrderState.Unknown))
             decision = new(false, [.. decision.Violations, "UNKNOWN_ORDER_OUTCOME"]);
@@ -89,6 +91,7 @@ public sealed partial class LiveAccountTransaction(LiveAccountState initial, Fun
         var view = ReservationSnapshot(Account.Snapshot with { Version = order.Intent.SnapshotVersion },
             Account.Orders.Where(o => o.Intent.Id != order.Intent.Id).ToArray());
         var violations = LiveRiskPolicy.Evaluate(order.Intent, view, Account.Mandate, Account.Gate, now).Violations.ToList();
+        violations.AddRange(LiveTradePlans.IntentViolations(Account, order.Intent, now));
         if (!CurrentDailyBaseline(now)) violations.Add("DAILY_BASELINE_REQUIRED");
         if (Account.Snapshot.Version != expectedVersion) violations.Add("STALE_APPROVAL");
         if (Account.Orders.Any(o => o.Intent.Id != order.Intent.Id && o.State is LiveOrderState.Dispatching or LiveOrderState.Unknown))
