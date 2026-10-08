@@ -216,7 +216,12 @@ public sealed class WalkForwardStrategySelector
             var lastDate = fold.ValidationEnd;
             var first = bars.Single(x => x.Date == firstDate).Close;
             var last = bars.Single(x => x.Date == lastDate).Close;
-            return growth * (last / first);
+            // Reference comparison only: fractional full-capital notional ignores lot rounding and is not executable order simulation.
+            var entryPrice = first * (1m + costs.SlippageRate);
+            var exitPrice = last * (1m - costs.SlippageRate);
+            var quantity = 1m / (entryPrice * (1m + costs.FeeRate));
+            var finalCapital = quantity * exitPrice * (1m - costs.FeeRate);
+            return growth * finalCapital;
         }) - 1m;
         var candidates = strategies.Select(strategy => Aggregate(strategy.Kind, folds, initialCapital)).ToArray();
         var selected = candidates.Where(x => x.Promoted)

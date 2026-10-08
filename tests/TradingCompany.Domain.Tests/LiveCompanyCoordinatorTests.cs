@@ -15,6 +15,36 @@ public sealed class LiveCompanyCoordinatorTests : IDisposable
     private readonly Clock clock = new();
 
     [Fact]
+    public async Task Live_candidates_include_rejected_alternatives_and_actual_costs_instead_of_only_cash_fallback()
+    {
+        var client = new Client(); var gateway = new Gateway { Scenario = "hold" };
+        await Coordinator(client, gateway).TickAsync();
+        Assert.Equal("HOLD", new JsonDailyMeetingJournal(Path.Combine(root, "live-meetings.json"), Scope).ReadAll().Single().Status);
+        Assert.Empty(client.Intents);
+        Assert.All(gateway.Inputs, input =>
+        {
+            Assert.Equal(JsonSerializer.Serialize(client.Packet.Limits), JsonSerializer.Serialize(input.ExecutionLimits));
+            var candidate = Assert.Single(input.Candidates);
+            var comparison = Assert.IsType<AiCompanyOpportunityEvidence>(candidate.OpportunityComparison);
+            Assert.Equal(StrategyKind.Cash, candidate.Strategy);
+            Assert.Equal(0m, candidate.OutOfSampleReturn);
+            Assert.Equal(0m, comparison.CashBenchmarkReturn);
+            Assert.Equal(0m, comparison.HistoricalCashOpportunityCost);
+            Assert.Equal(client.Packet.Limits.FeeReserveRate, comparison.Costs.FeeRate);
+            Assert.Equal(client.Packet.Limits.MaximumSlippage, comparison.Costs.SlippageRate);
+            Assert.Equal(4, comparison.Strategies.Count);
+            Assert.All(comparison.Strategies, strategy =>
+            {
+                Assert.False(strategy.Promoted);
+                Assert.NotNull(strategy.RejectionReason);
+                Assert.Equal(comparison.FoldCount, strategy.FoldNetReturns.Count);
+            });
+            Assert.Contains(comparison.Strategies, strategy => strategy.NetReturn < 0m);
+            Assert.True(comparison.ValidationStart < comparison.ValidationEnd);
+        });
+    }
+
+    [Fact]
     public async Task Expert_meeting_uses_owned_live_money_and_dispatches_once_after_nine()
     {
         var client = new Client();

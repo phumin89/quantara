@@ -108,6 +108,51 @@ public sealed class StrategyValidationTests
     }
 
     [Fact]
+    public void Buy_and_hold_benchmark_has_gross_return_without_costs()
+    {
+        var result = new WalkForwardStrategySelector([new FixedStrategy(.10m, 0m, 2)])
+            .Select(RisingBars(240), new("TEST"), 100_000m, new(0m, 0m));
+
+        var expected = ((279m / 220m) * (339m / 280m)) - 1m;
+        Assert.InRange(result.BuyAndHoldBenchmarkReturn, expected - .0000000000000000000001m, expected + .0000000000000000000001m);
+    }
+
+    [Fact]
+    public void Buy_and_hold_benchmark_compounds_net_costs_per_fold()
+    {
+        var costs = new StrategyCostModel(.01m, .02m);
+        var result = new WalkForwardStrategySelector([new FixedStrategy(.10m, 0m, 2)])
+            .Select(RisingBars(240), new("TEST"), 100_000m, costs);
+
+        static decimal Fold(decimal first, decimal last) =>
+            (last * (1m - .02m) / (first * (1m + .02m))) * (1m - .01m) / (1m + .01m);
+        var expected = Fold(220m, 279m) * Fold(280m, 339m) - 1m;
+        Assert.InRange(result.BuyAndHoldBenchmarkReturn, expected - .0000000000000000000001m, expected + .0000000000000000000001m);
+    }
+
+    [Fact]
+    public void Flat_market_benchmark_is_negative_while_cash_benchmark_is_zero()
+    {
+        var result = new WalkForwardStrategySelector([new FixedStrategy(.10m, 0m, 2)])
+            .Select(FlatBars(240), new("TEST"), 100_000m, new(.001m, .001m));
+
+        Assert.Equal(0m, result.CashBenchmarkReturn);
+        Assert.True(result.BuyAndHoldBenchmarkReturn < 0m);
+    }
+
+    [Fact]
+    public void Benchmark_does_not_change_strategy_outcomes_or_selection()
+    {
+        var result = new WalkForwardStrategySelector([new FixedStrategy(.10m, 0m, 2)])
+            .Select(RisingBars(240), new("TEST"), 100_000m, new(.001m, .001m));
+
+        var evidence = Assert.Single(result.Candidates);
+        Assert.Equal(StrategyKind.SmaTrend, result.SelectedStrategy);
+        Assert.Equal(.21m, evidence.OutOfSampleReturn);
+        Assert.True(result.Promoted);
+    }
+
+    [Fact]
     public void Walk_forward_defaults_to_cash_when_no_strategy_passes()
     {
         var result = new WalkForwardStrategySelector().Select(FlatBars(240), new("TEST"), 100_000m, new(.001m, .001m));

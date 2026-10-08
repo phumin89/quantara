@@ -23,7 +23,9 @@ public sealed record AiCompanyCandidateEvidence(
     decimal HeldQuantity,
     decimal UnrealizedPnl,
     decimal ForecastScore,
+    [property: System.Text.Json.Serialization.JsonConverter(typeof(System.Text.Json.Serialization.JsonStringEnumConverter<ForecastDirection>))]
     ForecastDirection ForecastDirection,
+    [property: System.Text.Json.Serialization.JsonConverter(typeof(System.Text.Json.Serialization.JsonStringEnumConverter<StrategyKind>))]
     StrategyKind Strategy,
     bool StrategyPromoted,
     decimal OutOfSampleReturn,
@@ -31,6 +33,8 @@ public sealed record AiCompanyCandidateEvidence(
 {
     public bool ExecutionAllowed { get; init; } = true;
     public LiveQuote? CurrentQuote { get; init; }
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public AiCompanyOpportunityEvidence? OpportunityComparison { get; init; }
 }
 
 public sealed record AiCompanyMeetingInput(
@@ -58,6 +62,8 @@ public sealed record AiCompanyMeetingInput(
     public CompanyLearningReport? Learning { get; init; }
     [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingDefault)]
     public bool LearningChanged { get; init; }
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public LiveResearchLimits? ExecutionLimits { get; init; }
 }
 
 public sealed record AiCompanyProposal(

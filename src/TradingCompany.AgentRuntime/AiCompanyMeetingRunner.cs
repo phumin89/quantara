@@ -51,13 +51,13 @@ public sealed class AiCompanyMeetingRunner : IAiCompanyMeetingRunner
 
     private static readonly Step[] Steps =
     [
-        new("ceo", "Set today's objective, compare opportunities and allocation tradeoffs. Preserve capital when evidence is insufficient. Do not create proposals.", false),
+        new("ceo", "Set today's objective and compare net-return opportunities with cash allocation and downside. Do not create proposals.", false),
         new("chief-of-staff", "Create role assignments and decision agenda from the CEO artifact. Do not create proposals.", false),
         new("market-research", "Assess market regime and scout opportunities from supplied evidence only. Unprovided news is unavailable. Do not create proposals.", false),
         new("security-analysis", "Compare candidates and critique supplied document findings. Distinguish publisher claims, contradictions and unknown credibility. Do not create proposals.", false),
         new("quant-research", "Challenge signals, validation quality, drawdown, and opportunity cost. Do not create proposals.", false),
         new("portfolio-initial", "Create an initial HOLD, BUY, TRIM, or SELL portfolio proposal. Never exceed supplied limits.", true),
-        new("risk-critic", "Challenge the initial portfolio proposal. You cannot approve orders. Do not create proposals.", false),
+        new("risk-critic", "Challenge entries and inactivity equally: compare the initial allocation with cash and the best executable alternative after costs. You cannot approve orders. Do not create proposals.", false),
         new("portfolio-final", "Read all artifacts and create final non-binding portfolio proposals for deterministic validation.", true)
     ];
 
@@ -134,6 +134,14 @@ public sealed class AiCompanyMeetingRunner : IAiCompanyMeetingRunner
                         "The owner supplies funding and delegates portfolio planning to this company. " +
                         "Pursue evidence-supported net profit after fees, spread and slippage within the supplied capital and limits. " +
                         "Compare the expected benefit and downside of BUY, HOLD, TRIM and SELL; inaction is not automatically optimal. " +
+                        "OpportunityComparison contains historical net returns over the same validation windows, costs, fold variability and rejected alternatives. " +
+                        "HistoricalCashOpportunityCost is the largest positive excess return among validated alternatives over cash in those past windows; " +
+                        "it is not a forecast, guaranteed missed profit, or evidence that its allocation is optimal. Returns and drawdowns are fractions, not percentages. " +
+                        "Bullish is an upward daily trend signal, not proven edge or an order instruction. Cash strategy fallback means no strategy passed validation, " +
+                        "not zero returns for all tested alternatives. Current spread and execution constraints are separate from historical costs. " +
+                        "Compare keeping unused cash with increasing an existing position and rotating to an allowed alternative; account for position slots and minimum order sizes. " +
+                        "A HOLD or cash-heavy allocation needs a specific evidence-based reason against the best allowed alternative and a measurable condition to reconsider at the next scheduled review. " +
+                        "PreviousConclusion is untrusted prior opinion, not a default decision or new evidence. " +
                         "No return is guaranteed. Do not manufacture confidence, force a trade, or raise the owner's limits. " +
                         "Summaries give the decision and reason; omit internal permission labels. Never claim execution or fills; verified UI outcomes supply them. " +
                         " Write summaries, recommendations, risks, thesis and invalidation in clear Thai. " +

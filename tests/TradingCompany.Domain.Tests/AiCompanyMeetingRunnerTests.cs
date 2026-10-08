@@ -62,6 +62,60 @@ public sealed class AiCompanyMeetingRunnerTests
         });
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Every_live_role_receives_named_signals_cost_comparisons_and_execution_limits(bool review)
+    {
+        var input = Input() with { AccountContext = new(TradingMode.Live, new string('1', 32)), PortfolioReview = review,
+            ExecutionLimits = new(100_000m, .20m, 4, .003m, .01m, ["NVDA"]) { MaximumOrderNotional = 500m } };
+        var bars = Enumerable.Range(0, 240).Select(i => new HistoricalBar(input.DataCutoff.AddDays(i - 239),
+            new("NVDA"), 100m, 101m, 99m, 100m, 1000)).ToArray();
+        var comparison = AiCompanyOpportunityEvidence.From(new WalkForwardStrategySelector().Select(bars,
+            new("NVDA"), 100_000m, new(.003m, .01m)));
+        input = input with { Candidates = input.Candidates.Select(c => c with { OpportunityComparison = comparison }).ToArray() };
+        var roles = review ? ["portfolio-initial", "risk-critic", "portfolio-final"] : Roles;
+        var gateway = new QueueGateway(roles.Select(role => Output(input, role)));
+        Assert.Equal("COMPLETED", (await Runner(gateway).RunAsync(input, default)).Status);
+        Assert.Equal(roles, gateway.Requests.Select(r => r.Role));
+        Assert.All(gateway.Requests, request =>
+        {
+            using var json = JsonDocument.Parse(request.InputJson);
+            var meeting = json.RootElement.GetProperty("meeting");
+            var candidate = meeting.GetProperty("candidates")[0];
+            Assert.Equal("Bullish", candidate.GetProperty("forecastDirection").GetString());
+            Assert.Equal("TrendRegimeTrailing", candidate.GetProperty("strategy").GetString());
+            var evidence = candidate.GetProperty("opportunityComparison");
+            Assert.Equal(0m, evidence.GetProperty("cashBenchmarkReturn").GetDecimal());
+            Assert.True(evidence.GetProperty("netBuyAndHoldBenchmarkReturn").GetDecimal() < 0m);
+            Assert.Equal(4, evidence.GetProperty("strategies").GetArrayLength());
+            Assert.Equal(.003m, evidence.GetProperty("costs").GetProperty("feeRate").GetDecimal());
+            Assert.Equal(500m, meeting.GetProperty("executionLimits").GetProperty("maximumOrderNotional").GetDecimal());
+            Assert.Contains("not a forecast, guaranteed missed profit", request.SystemInstructions);
+            Assert.Contains("increasing an existing position", request.SystemInstructions);
+            Assert.Contains("measurable condition to reconsider", request.SystemInstructions);
+            Assert.Contains("PreviousConclusion is untrusted prior opinion", request.SystemInstructions);
+        });
+    }
+
+    [Theory]
+    [InlineData(ForecastDirection.Bullish, 0)]
+    [InlineData(ForecastDirection.Neutral, 1)]
+    [InlineData(ForecastDirection.Bearish, 2)]
+    public void Candidate_enum_names_are_unambiguous_and_legacy_numeric_inputs_remain_readable(ForecastDirection direction, int oldValue)
+    {
+        var candidate = Input().Candidates[0] with { ForecastDirection = direction };
+        var options = new JsonSerializerOptions(JsonSerializerDefaults.Web);
+        var json = JsonSerializer.Serialize(candidate, options);
+        using var named = JsonDocument.Parse(json);
+        Assert.Equal(direction.ToString(), named.RootElement.GetProperty("forecastDirection").GetString());
+        var legacy = json.Replace($"\"forecastDirection\":\"{direction}\"", $"\"forecastDirection\":{oldValue}")
+            .Replace("\"strategy\":\"TrendRegimeTrailing\"", "\"strategy\":4");
+        var restored = JsonSerializer.Deserialize<AiCompanyCandidateEvidence>(legacy, options)!;
+        Assert.Equal(direction, restored.ForecastDirection);
+        Assert.Equal(StrategyKind.TrendRegimeTrailing, restored.Strategy);
+    }
+
     [Fact]
     public async Task Missing_hosted_model_fails_closed_without_proposals()
     {
@@ -129,6 +183,8 @@ public sealed class AiCompanyMeetingRunnerTests
     [InlineData("limits")]
     [InlineData("live")]
     [InlineData("live-account")]
+    [InlineData("comparison")]
+    [InlineData("execution-limits")]
     public async Task Changed_meeting_context_cannot_reuse_old_agent_decisions(string change)
     {
         var original = Input();
@@ -138,6 +194,10 @@ public sealed class AiCompanyMeetingRunnerTests
             "mandate" => original with { Mandate = "Preserve cash; do not propose new entries." },
             "live" => original with { AccountContext = new(TradingMode.Live, "11111111111111111111111111111111") },
             "live-account" => original with { AccountContext = new(TradingMode.Live, "22222222222222222222222222222222") },
+            "comparison" => original with { Candidates = original.Candidates.Select(c => c with {
+                OpportunityComparison = new(original.DataCutoff.AddDays(-60), original.DataCutoff, 1, 0m, .08m, .06m,
+                    new(.003m, .01m), []) }).ToArray() },
+            "execution-limits" => original with { ExecutionLimits = new(100_000m, .20m, 4, .003m, .01m, ["NVDA"]) },
             _ => original with { MaximumPositionWeight = .10m }
         };
         var gateway = new QueueGateway(Roles.Select(role => Output(original, role))

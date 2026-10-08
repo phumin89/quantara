@@ -131,6 +131,7 @@ public sealed class LiveCompanyCoordinator(ILiveCompanyClient client, IHistorica
                         selection.SelectedEvidence?.MaxDrawdownPercent ?? 0)
                     {
                         ExecutionAllowed = packet.Limits.AllowedSymbols.Contains(text),
+                        OpportunityComparison = AiCompanyOpportunityEvidence.From(selection),
                         CurrentQuote = checkpoint.Quotes.Single(q => q.Symbol == text)
                     });
                 }
@@ -185,7 +186,7 @@ public sealed class LiveCompanyCoordinator(ILiveCompanyClient client, IHistorica
             {
                 AccountContext = context, PortfolioReview = reviewHour is not null && latest?.Summary?.Reports.Count > 0,
                 ObservedAt = now, Research = brief, ResearchChanged = researchChanged,
-                Learning = learningReport, LearningChanged = learningChanged,
+                Learning = learningReport, LearningChanged = learningChanged, ExecutionLimits = packet.Limits,
                 PreviousConclusion = reviewHour is null ? null : latest?.Summary?.Reports
                     .SingleOrDefault(r => r.Role == "portfolio-final")?.Summary
             };
