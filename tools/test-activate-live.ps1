@@ -14,6 +14,7 @@ $testCases = @(
     @{ Name='executor-fails'; Failure='owner'; Activation=$false; Changed=$false },
     @{ Name='activation-fails'; Failure='activate'; Activation=$true; Changed=$true },
     @{ Name='company-fails'; Failure='company'; Activation=$true; Changed=$true },
+    @{ Name='small-orders'; Failure=''; Activation=$true; Changed=$true; SmallOrders=$true },
     @{ Name='rollback-stderr-and-failure'; Failure='ledger'; RollbackFailure=$true; Activation=$false; Changed=$false }
     @{ Name='launch-fails-without-exit'; Failure='build'; NoNativeExit=$true; Activation=$false; Changed=$false }
     @{ Name='log-write-fails'; Failure='log'; InvalidLogPath=$true; Activation=$false; Changed=$false }
@@ -28,6 +29,7 @@ function global:docker {
     $stage = if ($arguments -contains 'build') { 'build' }
         elseif ($arguments -contains '--verify-live-configuration') { 'verify' }
         elseif ($arguments -contains '--prepare-multi-asset-profile') { 'markets' }
+        elseif ($arguments -contains '--activate-100-spot-live') { 'activate-100' }
         elseif ($arguments -contains '--activate-full-spot-live') { 'activate' }
         elseif ($arguments -contains 'stop') { 'stop' }
         elseif ($arguments[-1] -eq 'ledger') { 'ledger' }
@@ -88,7 +90,10 @@ try {
             New-Item -ItemType Directory -Force -Path (Join-Path $caseRoot 'work/live-account-connect/activation-build.log') | Out-Null
         }
         $failure = $null
-        try { & $scriptCopy -NoBrowser | Out-Null }
+        try {
+            if ($case.SmallOrders) { & $scriptCopy -NoBrowser -SmallOrders | Out-Null }
+            else { & $scriptCopy -NoBrowser | Out-Null }
+        }
         catch { $failure = $_ }
         Assert-ActivationTest (($null -eq $failure) -eq ($case.Failure -eq '')) ($case.Name + ': incorrect failure handling. ' + $failure.Exception.Message)
         if ($failure) {
@@ -100,7 +105,14 @@ try {
             }
         }
         $activationCount = @($global:activationTestCalls | Where-Object { $_ -eq 'activate' }).Count
-        Assert-ActivationTest ($activationCount -eq [int]$case.Activation) ($case.Name + ': wrong activation count.')
+        $activation100Count = @($global:activationTestCalls | Where-Object { $_ -eq 'activate-100' }).Count
+        Assert-ActivationTest (($activationCount + $activation100Count) -eq [int]$case.Activation) ($case.Name + ': wrong activation count.')
+        if ($case.SmallOrders) {
+            Assert-ActivationTest ($activation100Count -eq 1 -and $activationCount -eq 0) ($case.Name + ': did not use exactly one 100 ceiling activation.')
+            $activationIndex = [array]::IndexOf(@($global:activationTestCalls), 'activate-100')
+            $companyIndex = [array]::IndexOf(@($global:activationTestCalls), 'company')
+            Assert-ActivationTest ($activationIndex -ge 0 -and $companyIndex -gt $activationIndex) ($case.Name + ': company started before activation passed.')
+        }
         $settingsAfter = [IO.File]::ReadAllText($settingsPath)
         $companyAfter = [IO.File]::ReadAllText($companyPath)
         if (!$case.Changed) {

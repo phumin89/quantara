@@ -67,6 +67,20 @@ public class TradingTests
         var provider = new RealHistoricalMarketDataProvider(new FakeHttpClientFactory(new HttpClient(new StubHttpHandler(_ => "{\"s\":\"ok\",\"t\":[]}"))));
         await Assert.ThrowsAsync<InvalidDataException>(() => provider.GetAsync(new("BTC-THB"), new(2024, 1, 1), new(2024, 7, 18), default));
     }
+    [Theory]
+    [InlineData("BTC-THB")]
+    [InlineData("ETH-THB")]
+    [InlineData("SOL-THB")]
+    public async Task Conflicting_same_day_market_bars_are_never_guessed_or_merged(string symbol)
+    {
+        var payload = JsonSerializer.SerializeToNode(JsonSerializer.Deserialize<JsonElement>(BitkubRows(new(2024, 1, 1), 200)))!;
+        foreach (var key in new[] { "t", "o", "h", "l", "c", "v" })
+            payload[key]!.AsArray().Insert(101, payload[key]![100]!.DeepClone());
+        payload["c"]![101] = 2m;
+        var provider = new RealHistoricalMarketDataProvider(new FakeHttpClientFactory(new HttpClient(
+            new StubHttpHandler(_ => payload.ToJsonString()))));
+        await Assert.ThrowsAsync<InvalidDataException>(() => provider.GetAsync(new(symbol), new(2024, 1, 1), new(2024, 7, 18), default));
+    }
     [Fact]
     public async Task Real_equity_provider_rejects_ohlc_bar_outside_high_low_envelope()
     {

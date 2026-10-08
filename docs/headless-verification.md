@@ -4,6 +4,8 @@ Owner direction on 2026-10-05: the shipped application is Live only. Sandbox/bac
 
 `tools/test-trading.ps1` runs the existing deterministic checks in a disposable .NET SDK container. It copies source/test files into its temporary filesystem and removes only copied build/output/data directories there. It never mounts root `.env`, `.runtime`, Codex auth or the Docker socket. Dependencies restore from the standard NuGet registry; no model call or live trading request is made by the selected tests.
 
+`tools/test-live-integration.ps1` runs the PostgreSQL-backed checks in the existing `quantara-live-test-sdk:latest` image. It mounts only source/tests and Docker's socket, creates a unique `quantara-live-tests-<guid>` network and disposable test database, and removes that network in `finally`. It never mounts production data, credentials or AI auth. Both runners set `RunConfiguration.TreatNoTestsAsError=true`; an empty selection cannot report successful verification. Docker Desktop must be running, and the database test image must already be available.
+
 - `StrategyValidationTests`: deterministic strategy simulation, costs, sizing, signal decisions and chronological walk-forward validation with frozen bars. This already tests the backtest machinery without a UI or AI call.
 - `TradingTests`: market-history parsing/validation with fake HTTP responses and deterministic risk tests.
 - `ForwardCryptoCostsTests`: spread, fee, quote freshness/depth and paper fill accounting.

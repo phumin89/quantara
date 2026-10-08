@@ -1,6 +1,6 @@
 # Explicit owner activation. Uses the approved full Spot policy and verified broker profile.
 # No placement/cancellation is performed here. AI starts only after successful activation.
-param([switch]$NoBrowser)
+param([switch]$NoBrowser, [switch]$SmallOrders)
 $ErrorActionPreference = 'Stop'
 $activationRoot = Split-Path -Parent $PSScriptRoot
 $composePath = Join-Path $activationRoot 'docker-compose.owner-readonly.yml'
@@ -86,7 +86,8 @@ try {
     }
     if (!$executorReady) { throw 'Executor did not become ready. AI was not started.' }
     $activationAttempted = $true
-    $dockerExitCode = Invoke-ActivationDocker @('compose', '--env-file', 'NUL', '-p', 'quantara-owner-readonly', '-f', $composePath, 'run', '--rm', '--no-deps', '-T', 'owner', '--activate-full-spot-live')
+    $activationCommand = if ($SmallOrders) { '--activate-100-spot-live' } else { '--activate-full-spot-live' }
+    $dockerExitCode = Invoke-ActivationDocker @('compose', '--env-file', 'NUL', '-p', 'quantara-owner-readonly', '-f', $composePath, 'run', '--rm', '--no-deps', '-T', 'owner', $activationCommand)
     if ($dockerExitCode -ne 0) { throw 'Owner activation did not pass. AI remains disabled; review the reported reason.' }
     $advisory.LiveCompany.Enabled = $true
     [IO.File]::WriteAllText($advisoryPath, ($advisory | ConvertTo-Json -Depth 12))
@@ -94,6 +95,7 @@ try {
     if ($dockerExitCode -ne 0) { throw 'CEO startup failed. Inspect owner activation in the app before retrying.' }
     if (!$NoBrowser) { Start-Process 'https://localhost:3000/trading' }
     Write-Output 'Live owner activation completed. The separate CEO process may submit Spot proposals within the saved mandate.'
+    if ($SmallOrders) { Write-Output 'Each new order is capped at 100 THB including the saved fee reserve; any smaller saved ceiling is preserved.' }
 } catch {
     if ($configurationChanged) {
         $advisory.LiveCompany.Enabled = $false

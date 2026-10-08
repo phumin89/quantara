@@ -16,6 +16,59 @@ public sealed class BitkubOnboardingFlowTests(PostgresFixture database)
 {
     private static readonly DateTimeOffset Now = new(2026, 10, 5, 5, 0, 0, TimeSpan.Zero);
 
+    [Theory]
+    [InlineData(0)]
+    [InlineData(-1)]
+    public async Task Non_positive_small_order_ceiling_is_rejected_before_private_calls(decimal ceiling)
+    {
+        using var fixture = await Setup();
+
+        var result = await fixture.Activation.ActivateFullSpotAsync(default, ceiling);
+
+        Assert.False(result.Activated);
+        Assert.Contains("MAXIMUM_ORDER_NOTIONAL_REQUIRED", result.Reasons);
+        Assert.False(await fixture.Store.ExistsAsync(fixture.Id));
+        Assert.Empty(fixture.Handler.Paths);
+    }
+
+    [Fact]
+    public async Task Small_order_activation_caps_new_account_and_is_idempotent()
+    {
+        using var fixture = await Setup(multiMarkets: true);
+
+        var first = await fixture.Activation.ActivateFullSpotAsync(default, 100m);
+        Assert.True(first.Activated, string.Join(",", first.Reasons));
+        var account = await fixture.Store.ReadAccountAsync(fixture.Id);
+        Assert.Equal(100m, account.Mandate.MaximumOrderNotional);
+        Assert.Equal(1000m, account.Mandate.CapitalAllocation);
+        Assert.Equal(["BTC-THB", "ETH-THB", "SOL-THB"], account.Mandate.AllowedSymbols);
+        Assert.Empty(account.Orders);
+        var version = account.Mandate.Version;
+
+        var second = await fixture.Activation.ActivateFullSpotAsync(default, 100m);
+
+        Assert.True(second.Activated, string.Join(",", second.Reasons));
+        Assert.Equal(version, (await fixture.Store.ReadAccountAsync(fixture.Id)).Mandate.Version);
+        Assert.Equal(0, fixture.Handler.OrderWrites);
+    }
+
+    [Fact]
+    public async Task Existing_lower_ceiling_cannot_be_increased_by_small_order_request()
+    {
+        using var fixture = await Setup();
+        Assert.True((await fixture.Activation.ActivateFullSpotAsync(default, 20m)).Activated);
+        var before = await fixture.Store.ReadAccountAsync(fixture.Id);
+
+        var result = await fixture.Activation.ActivateFullSpotAsync(default, 100m);
+
+        Assert.True(result.Activated, string.Join(",", result.Reasons));
+        var after = await fixture.Store.ReadAccountAsync(fixture.Id);
+        Assert.Equal(20m, after.Mandate.MaximumOrderNotional);
+        Assert.Equal(before.Mandate.Version, after.Mandate.Version);
+        Assert.Equal(before.Gate, after.Gate);
+        Assert.Empty(after.Orders);
+    }
+
     [Fact]
     public async Task Owner_activation_provisions_and_arms_funded_empty_account_without_orders()
     {
@@ -86,22 +139,30 @@ public sealed class BitkubOnboardingFlowTests(PostgresFixture database)
         Assert.Equal(0, fixture.Handler.OrderWrites);
     }
 
-    [Fact]
-    public async Task Stopped_BTC_account_cannot_expand_verified_spot_markets()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Stopped_BTC_account_cannot_expand_verified_spot_markets(bool smallOrders)
     {
         using var fixture = await Setup(multiMarkets: true);
         Assert.True((await fixture.Provisioner.ProvisionAsync(fixture.Request, default)).Allowed);
         await fixture.Services.GetRequiredService<LiveOwnerControls>().StopAsync();
-        var result = await fixture.Activation.ActivateFullSpotAsync(default);
+        var before = await fixture.Store.ReadAccountAsync(fixture.Id);
+        var result = await fixture.Activation.ActivateFullSpotAsync(default, smallOrders ? 100m : null);
         Assert.False(result.Activated);
         Assert.Contains("OWNER_STOP_ACTIVE", result.Reasons);
-        Assert.Equal(["BTC-THB"], (await fixture.Store.ReadAccountAsync(fixture.Id)).Mandate.AllowedSymbols);
+        var after = await fixture.Store.ReadAccountAsync(fixture.Id);
+        Assert.Equal(JsonSerializer.Serialize(before.Mandate), JsonSerializer.Serialize(after.Mandate));
+        Assert.True(after.Gate.Stopped);
+        Assert.False(after.Gate.Armed);
     }
 
-    [Fact]
-    public async Task Pending_owned_order_blocks_market_expansion_without_changing_mandate()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Pending_owned_order_blocks_market_expansion_without_changing_mandate(bool smallOrders)
     {
-        using var fixture = await Setup(multiMarkets: true);
+        using var fixture = await Setup(multiMarkets: !smallOrders);
         Assert.True((await fixture.Provisioner.ProvisionAsync(fixture.Request, default)).Allowed);
         var account = await fixture.Store.ReadAccountAsync(fixture.Id);
         Assert.True((await fixture.Services.GetRequiredService<LiveReconciliation>().InitializeBaselineAsync(
@@ -116,7 +177,7 @@ public sealed class BitkubOnboardingFlowTests(PostgresFixture database)
             Assert.Equal(LiveOrderState.Reserved, tx.Reserve(intent, Now).State);
             await tx.CommitAsync(ct); return 0;
         });
-        var result = await fixture.Activation.ActivateFullSpotAsync(default);
+        var result = await fixture.Activation.ActivateFullSpotAsync(default, smallOrders ? 100m : null);
         Assert.False(result.Activated);
         Assert.Contains("UNRESOLVED_ORDER", result.Reasons);
         Assert.Equal(account.Mandate.Version, (await fixture.Store.ReadAccountAsync(fixture.Id)).Mandate.Version);

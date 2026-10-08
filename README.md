@@ -24,18 +24,21 @@ The owner-entered Bitkub key and secret stay in the ignored project `.env`, moun
 
 ```powershell
 .\tools\test-trading.ps1
+.\tools\test-live-integration.ps1
 cd apps/trading-company-web
 node --test tests/*.test.cjs
 npm run build
 ```
 
-The Docker verification runner mounts source/test files only, not broker credentials, Codex sign-in or runtime secrets. It runs deterministic strategy, historical-data parsing, costs, risk, execution/reconciliation and owner-access unit/integration tests using fixtures and fake transports. It does not start the application, consume AI allowance or submit orders. See [verification scope](docs/headless-verification.md).
+The Docker verification runners mount source/test files, not broker credentials, Codex sign-in or runtime secrets. The database runner additionally uses Docker's socket to create disposable test PostgreSQL containers on a unique test network. Both fail if no tests run. They run deterministic strategy, historical-data parsing, costs, risk, execution/reconciliation and owner-access checks using fixtures and fake transports. They do not start the application, consume AI allowance or submit orders. See [verification scope](docs/headless-verification.md).
 
 ## Remaining Live gates
 
 The execution, opening inventory, daily baseline, isolated company and reconciliation paths are implemented and tested. The receipt profile supports BTC/THB, ETH/THB and SOL/THB using authenticated private order receipts containing explicit executed amounts, received coins and wallet fees. A manual sell or fee-credit exhaustion is not required. Actual supported opening assets are imported once without inventing application trades or profits. See [the operator steps](docs/bitkub-small-capital-proof.md).
 
 The owner intentionally opens `Enable Auto Trading.cmd`. It verifies the three current market rules, retains a backup of a BTC-only receipt profile, and approves the verified market universe through the existing owner activation controls. Existing capital, per-order/daily limits, maximum open positions, opening balance, losses and owner Stop remain unchanged. After reconciliation it starts the isolated company: full eight-role research after 09:00 Bangkok, and three-role portfolio reviews when owned money/quantities change or bid/ask moves at least 1%, at most once per Bangkok hour. A changed Scout shortlist or document finding adds the market and asset specialists to that review. Pending orders block new portfolio meetings; every new order still passes RiskEngine. Saved conclusions are shown by review round. Missing or contradictory receipts fail closed. A real app order and durable real-broker recovery proof remain outstanding; synthetic tests are not completed Live trading. `Quantara.cmd` opens the app without changing financial authority.
+
+For the owner's requested small-order trial, `Enable 100 Baht Auto Trading.cmd` runs both isolated verification suites before the existing owner activation path, then lowers the saved per-order ceiling to **at most 100 THB including fee reserve**. A failed check stops before financial activation. A smaller existing ceiling stays smaller; all other limits and Stop remain intact. CEO still decides whether to buy, sell owned coins or HOLD. This supports the verified BTC/ETH/SOL universe, not automatic test purchases across all listed coins. On 2026-10-08, 836 headless and 108 database checks passed, and read-only current Bitkub binding/Trade verification passed. Owner activation and real application order evidence remain separate. See [the 100-THB review](docs/hundred-baht-auto-trade-review-2026-10-08.md).
 
 The Scout reads public THB Spot markets every 15 minutes while the isolated company has a valid activated account. It retains monitored holdings and execution markets, then inspects up to five additional liquid markets for spread, volume and order-book depth. These additional symbols are research-only. The source Researcher reads a fixed six-document catalog for BTC, ETH and SOL, saves original bytes and extracted text, and accepts only source-matching quoted claims. Reports reuse unchanged document versions instead of calling AI every poll. The team room keeps the conclusion first and puts the shortlist, citations and missing evidence in one optional section. See [the research review and verified limits](docs/coin-research-review-2026-10-07.md).
 

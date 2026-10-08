@@ -24,6 +24,11 @@ public class LiveProgram
             Environment.ExitCode = LiveOwnerActivation.RunCommandAsync().GetAwaiter().GetResult();
             return;
         }
+        if (args.SequenceEqual(["--activate-100-spot-live"]))
+        {
+            Environment.ExitCode = LiveOwnerActivation.RunCommandAsync(maximumOrderNotional: 100m).GetAwaiter().GetResult();
+            return;
+        }
         if (args.SequenceEqual(["--verify-live-configuration"]))
         {
             Environment.ExitCode = LiveOwnerActivation.RunCommandAsync(activate: false).GetAwaiter().GetResult();

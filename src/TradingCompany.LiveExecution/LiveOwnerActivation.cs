@@ -11,8 +11,9 @@ public sealed class LiveOwnerActivation(BitkubConfiguredAccount configured, Live
     BitkubLiveBroker broker, BitkubAccountProvisioner provisioner, LiveReconciliation reconciliation,
     LiveOwnerControls controls)
 {
-    public async Task<LiveOwnerActivationResult> ActivateFullSpotAsync(CancellationToken token)
+    public async Task<LiveOwnerActivationResult> ActivateFullSpotAsync(CancellationToken token, decimal? maximumOrderNotional = null)
     {
+        if (maximumOrderNotional is <= 0) return new(false, ["MAXIMUM_ORDER_NOTIONAL_REQUIRED"]);
         if (!await broker.CheckTradePermissionAsync(token)) return new(false, ["TRADE_PERMISSION_REQUIRED"]);
         if (!await store.ExistsAsync(configured.AccountId, token))
         {
@@ -24,14 +25,17 @@ public sealed class LiveOwnerActivation(BitkubConfiguredAccount configured, Live
         var symbols = configured.Verification.Rules.Pairs.Select(p => p.Symbol).Order(StringComparer.Ordinal).ToArray();
         if (account.Mandate.AllowedSymbols.Any(s => !symbols.Contains(s)))
             return new(false, ["MARKET_REMOVAL_REQUIRES_MANDATE_UPDATE"]);
-        if (!account.Mandate.AllowedSymbols.Order(StringComparer.Ordinal).SequenceEqual(symbols))
+        var orderCeiling = maximumOrderNotional is { } requestedCeiling
+            ? Math.Min(account.Mandate.MaximumOrderNotional, requestedCeiling) : account.Mandate.MaximumOrderNotional;
+        if (!account.Mandate.AllowedSymbols.Order(StringComparer.Ordinal).SequenceEqual(symbols) ||
+            account.Mandate.MaximumOrderNotional != orderCeiling)
         {
             if (account.Orders.Any(o => o.State is not (TradingCompany.Domain.LiveOrderState.Filled or
                 TradingCompany.Domain.LiveOrderState.Cancelled or TradingCompany.Domain.LiveOrderState.Rejected)))
                 return new(false, ["UNRESOLVED_ORDER"]);
             var expanded = await controls.SaveMandateAsync(account.Mandate with
             {
-                Version = checked(account.Mandate.Version + 1), AllowedSymbols = symbols
+                Version = checked(account.Mandate.Version + 1), AllowedSymbols = symbols, MaximumOrderNotional = orderCeiling
             }, token);
             if (!expanded.Allowed) return new(false, expanded.Violations);
             account = await controls.ReadAsync(token);
@@ -114,7 +118,7 @@ public sealed class LiveOwnerActivation(BitkubConfiguredAccount configured, Live
         catch { Console.WriteLine("Market expansion did not verify. No activation or order was sent."); return 1; }
     }
 
-    public static async Task<int> RunCommandAsync(bool activate = true)
+    public static async Task<int> RunCommandAsync(bool activate = true, decimal? maximumOrderNotional = null)
     {
         try
         {
@@ -143,7 +147,7 @@ public sealed class LiveOwnerActivation(BitkubConfiguredAccount configured, Live
                 await observer.StartAsync(deadline.Token);
                 while (!observer.Ready) await Task.Delay(100, deadline.Token);
             }
-            var result = await host.Services.GetRequiredService<LiveOwnerActivation>().ActivateFullSpotAsync(deadline.Token);
+            var result = await host.Services.GetRequiredService<LiveOwnerActivation>().ActivateFullSpotAsync(deadline.Token, maximumOrderNotional);
             Console.WriteLine(result.Activated ? "LIVE_ACTIVATED: owner Spot mandate and broker reconciliation passed. No order was sent by this command." :
                 "LIVE_NOT_ACTIVATED: " + string.Join(",", result.Reasons));
             return result.Activated ? 0 : 1;
