@@ -131,6 +131,11 @@ public sealed class AiCompanyMeetingRunner : IAiCompanyMeetingRunner
                         "Missing independent audits, tokenomics or incident records are unknown, not proof of safety. " +
                         "Source retrieval times are separate from the completed-bar DataCutoff; these documents are not historical backtest evidence. ") +
                     (input.AccountContext?.Mode == TradingCompany.Domain.TradingMode.Live ?
+                        "The owner supplies funding and delegates portfolio planning to this company. " +
+                        "Pursue evidence-supported net profit after fees, spread and slippage within the supplied capital and limits. " +
+                        "Compare the expected benefit and downside of BUY, HOLD, TRIM and SELL; inaction is not automatically optimal. " +
+                        "No return is guaranteed. Do not manufacture confidence, force a trade, or raise the owner's limits. " +
+                        "Summaries give the decision and reason; omit internal permission labels. Never claim execution or fills; verified UI outcomes supply them. " +
                         " Write summaries, recommendations, risks, thesis and invalidation in clear Thai. " +
                         "Compare all supplied candidates. Only ExecutionAllowed=true symbols may appear in proposals, including HOLD. " +
                         "Discuss research-only candidates in summaries. " +

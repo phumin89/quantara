@@ -10,6 +10,10 @@ web
 
 The owner-operator of an autonomous AI trading company.
 
+## Funding direction — approved 2026-10-08
+
+The owner supplies funding and delegates portfolio planning to CEO and the specialist team. Aim for evidence-supported net profit after fees, spread and slippage; compare buying, holding, reducing and selling rather than assuming inactivity is best. No model may create financial permissions, expand the execution allowlist or bypass RiskEngine. The regular owner activation restores the per-order ceiling to the already authorized capital allocation, preserving other limits, history and Stop. The separate 100-THB trial remains available. Startup and frontend updates do not change actual financial authority. Persisted round reports describe that round's outcome, separately from current account and company status.
+
 ## Current operating surface — approved 2026-10-05
 
 This direction supersedes the older Sandbox-default UI descriptions below. Ship a Live-only app with persistent left navigation and real routes for Office, Account/assets and Trading. Navigation keeps one owner session and one account reader; it does not reload the document or generate a pairing code. The colored Pixel Office remains the primary homepage view, with current account/trading state beside it on wide screens. A floating team room belongs to a separate layer and opens with the conclusion and reasons before team detail.

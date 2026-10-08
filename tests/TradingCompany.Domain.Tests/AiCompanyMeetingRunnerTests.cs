@@ -46,6 +46,23 @@ public sealed class AiCompanyMeetingRunnerTests
     }
 
     [Fact]
+    public async Task Live_company_receives_funded_net_profit_objective_without_financial_authority()
+    {
+        var input = Input() with { AccountContext = new(TradingMode.Live, new string('1', 32)) };
+        var gateway = new QueueGateway(Roles.Select(role => Output(input, role)));
+        var result = await Runner(gateway).RunAsync(input, default);
+        Assert.Equal("COMPLETED", result.Status);
+        Assert.All(gateway.Requests, request =>
+        {
+            Assert.Contains("net profit after fees, spread and slippage", request.SystemInstructions);
+            Assert.Contains("Do not manufacture confidence, force a trade, or raise the owner's limits", request.SystemInstructions);
+            Assert.Contains("cannot override RiskEngine", request.SystemInstructions);
+            Assert.Contains("delegates portfolio planning", request.SystemInstructions);
+            Assert.Contains("Never claim execution or fills", request.SystemInstructions);
+        });
+    }
+
+    [Fact]
     public async Task Missing_hosted_model_fails_closed_without_proposals()
     {
         var gateway = new QueueGateway([], new AgentModelUnavailableException("missing"));

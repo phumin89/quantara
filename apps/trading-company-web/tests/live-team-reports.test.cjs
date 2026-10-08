@@ -25,9 +25,17 @@ test('saved advisory reports validate issues and render one truthful status befo
  const x=fixture(); x.meetings[0].status='READ_ONLY'; x.meetings[0].summary={...x.meetings[0].summary,advisoryOnly:true,issues:[{code:'PUBLIC_RESEARCH_UNAVAILABLE'}]};
  const parsed=readMeetings(x); assert.ok(parsed);
  const html=renderToStaticMarkup(React.createElement(LiveMeetingView,{meetings:parsed.meetings,selected:'',onSelect(){}}));
- assert.ok(html.includes('ข้อมูลวิจัยสาธารณะไม่พร้อม')); assert.ok(html.includes('รายงานเพื่อวิเคราะห์ · ยังไม่ส่งคำสั่ง'));
- assert.equal((html.match(/ยังไม่ส่งคำสั่ง/g)||[]).length,1); assert.ok(html.indexOf('ข้อมูลวิจัยสาธารณะไม่พร้อม')<html.indexOf('เก็บเงินสด'));
+ assert.ok(html.includes('ข้อมูลวิจัยสาธารณะไม่พร้อม')); assert.ok(html.includes('รอบนี้วิเคราะห์เท่านั้น · ไม่ได้ส่งคำสั่ง'));
+ assert.equal((html.match(/ไม่ได้ส่งคำสั่ง/g)||[]).length,1); assert.ok(html.indexOf('ข้อมูลวิจัยสาธารณะไม่พร้อม')<html.indexOf('เก็บเงินสด'));
+ delete x.meetings[0].summary.advisoryOnly;
+ const legacy=renderToStaticMarkup(React.createElement(LiveMeetingView,{meetings:readMeetings(x).meetings,selected:'',onSelect(){}}));
+ assert.ok(legacy.includes('รอบนี้วิเคราะห์เท่านั้น · ไม่ได้ส่งคำสั่ง'));
  for(const issues of [[{code:'UNKNOWN'}],[{code:'MARKET_HISTORY_UNAVAILABLE'}]]) { const bad=fixture(); bad.meetings[0].summary.issues=issues; assert.equal(readMeetings(bad),undefined); }
+});
+test('saved market history issue stays symbol-specific and historical',()=>{
+ const x=fixture(); x.meetings[0].status='READ_ONLY'; x.meetings[0].summary={...x.meetings[0].summary,advisoryOnly:true,issues:[{code:'MARKET_HISTORY_UNAVAILABLE',symbol:'SOL-THB'}]};
+ const html=renderToStaticMarkup(React.createElement(LiveMeetingView,{meetings:readMeetings(x).meetings,selected:'',onSelect(){}}));
+ assert.ok(html.includes('กราฟประวัติตลาดของรอบนี้ไม่ครบ (SOL-THB)')); assert.ok(html.includes('รอบนี้วิเคราะห์เท่านั้น · ไม่ได้ส่งคำสั่ง')); assert.ok(!html.includes('ตลาดทั้งหมดไม่พร้อม')); assert.ok(!html.includes('ส่งคำสั่งแล้ว'));
 });
 test('report reads require fixed HTTPS and never confuse unauthorized with an empty report',async()=>{
  const calls=[];const fetcher=async(url,options)=>{calls.push({url,options});return Response.json(fixture());};

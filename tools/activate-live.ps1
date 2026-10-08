@@ -96,6 +96,7 @@ try {
     if (!$NoBrowser) { Start-Process 'https://localhost:3000/trading' }
     Write-Output 'Live owner activation completed. The separate CEO process may submit Spot proposals within the saved mandate.'
     if ($SmallOrders) { Write-Output 'Each new order is capped at 100 THB including the saved fee reserve; any smaller saved ceiling is preserved.' }
+    else { Write-Output 'CEO may size orders within the existing funded capital including fee reserve. Other limits, balances, losses and owner Stop are preserved.' }
 } catch {
     if ($configurationChanged) {
         $advisory.LiveCompany.Enabled = $false

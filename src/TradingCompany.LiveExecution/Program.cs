@@ -21,7 +21,7 @@ public class LiveProgram
         }
         if (args.SequenceEqual(["--activate-full-spot-live"]))
         {
-            Environment.ExitCode = LiveOwnerActivation.RunCommandAsync().GetAwaiter().GetResult();
+            Environment.ExitCode = LiveOwnerActivation.RunCommandAsync(useFundedOrderCeiling: true).GetAwaiter().GetResult();
             return;
         }
         if (args.SequenceEqual(["--activate-100-spot-live"]))
