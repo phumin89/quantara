@@ -76,14 +76,9 @@
 .team-role-report h4 { color: var(--ink); margin: 12px 0 6px; }
 .team-meeting-date select:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
 .team-report-date-picker { margin: 8px 0 12px; }
-.team-report-dates { margin-top: 8px; }
 .team-report-date-picker label { display: grid; gap: 6px; color: var(--muted); font-size: 14px; }
 .team-report-date-picker input { min-height: 44px; min-width: 0; width: 100%; padding: 8px 10px; border: 1px solid var(--line); border-radius: 6px; background: var(--white); color: var(--ink); font: inherit; }
-.team-report-date-buttons { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; max-height: 200px; overflow-y: auto; overscroll-behavior-y: contain; }
-.team-report-date-buttons button { min-height: 44px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 6px; background: var(--white); color: var(--ink); font: inherit; cursor: pointer; }
-.team-report-date-buttons button[aria-pressed="true"] { background: var(--ink); color: var(--white); }
-.team-report-date-picker input:focus-visible, .team-report-date-buttons button:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
-@media (hover: hover) and (pointer: fine) { .team-report-date-buttons button:not([aria-pressed="true"]):hover { background: var(--soft); } }
+.team-report-date-picker input:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
 a:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
 @media (min-width: 1921px) { .office-grid { gap: 40px; } .live-office-frame { height: 528px; } .office-overview h2 { font-size: 20px; } .live-office-status, .office-overview p { font-size: 16px; } }
 @media (max-width: 1200px) { .office-workspace { gap: 28px; } .office-summary { align-items: flex-start; } .office-grid { grid-template-columns: 1fr; gap: 24px; } .live-office-frame { height: clamp(360px, 42vw, 480px); } .office-overview { padding-top: 0; } }

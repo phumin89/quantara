@@ -24,3 +24,9 @@ Temporary preview screenshots and logs live under ignored `work/stable-ui-review
 ## Remaining Live work
 
 This change does not activate trading or change risk checks, account reconciliation, limits, execution symbols, broker credentials, AI prompts or stored reports. Financial execution remains separately gated. Missing SOL history and unverified trading proposals shown in a saved meeting are research/execution issues, not solved by skeletons or client navigation.
+
+## 2026-10-08: remove duplicate date tabs
+
+Removed the owner's unwanted "วันที่มีรายงาน" disclosure and date-button row, including unused CSS. The native labelled calendar, selected date, range, disabled state, focus ring and per-day round selector remain. The existing date index and history-fetch behavior are unchanged. The local coding bridge was unavailable; its direct fallback was independently reviewed by the lead.
+
+The 14 focused report/history tests, TypeScript check and production frontend image build passed. The deployed owner-web was inspected at 1440, 768 and 390 CSS pixels: zero date-button rows, 44-pixel calendar controls and no horizontal overflow. Evidence is saved in ignored `work/date-picker-1440.png`, `work/date-picker-768.png`, `work/date-picker-390.png` and `work/date-picker-proof.png`. Only the frontend container was replaced. Financial services, permissions, owner limits and stored reports were not changed; this UI cleanup does not resolve the existing SOL history gap or demonstrate a trade.

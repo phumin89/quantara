@@ -88,11 +88,12 @@ test('expanded research reader accepts eight cited coins and only verified publi
  const ninth=structuredClone(brief);ninth.findings.push({...ninth.findings[0],symbol:'DOT-THB'});assert.equal(readResearch(ninth,Date.parse(brief.observedAt)),undefined);
  brief.sources[4].url='https://evil.example/docs';assert.equal(readResearch(brief,Date.parse(brief.observedAt)),undefined);
 });
-test('date picker is visible and round options contain only the chosen day',()=>{
+test('native date picker replaces date tabs and round options contain only the chosen day',()=>{
  const first=fixture().meetings[0], review={...first,reviewHour:14,attemptId:'cccccccc-cccc-4ccc-8ccc-cccccccccccc'};
  const old={...first,businessDate:'2026-10-04',attemptId:'dddddddd-dddd-4ddd-8ddd-dddddddddddd',summary:{...first.summary,reports:[{...role('portfolio-final'),summary:'old-day-report',dataCutoff:'2026-10-03'}]}};
  const render=props=>renderToStaticMarkup(React.createElement(LiveMeetingView,{selected:'',onSelect(){},availableDates:['2026-10-06','2026-10-04'],onDateSelect(){},...props}));
  const single=render({meetings:[first],selectedDate:'2026-10-06'}); assert.ok(single.includes('type="date"')); assert.ok(!single.includes('<select')); assert.ok(single.indexOf('type="date"')<single.indexOf('<details'));
+ assert.ok(single.includes('min="2026-10-04"')); assert.ok(single.includes('value="2026-10-06"')); assert.doesNotMatch(single,/วันที่มีรายงาน|team-report-dates|team-report-date-buttons/);
  const multiple=render({meetings:[review,first,old],selectedDate:'2026-10-06'}); assert.equal((multiple.match(/<option/g)||[]).length,2); assert.ok(!multiple.includes('old-day-report'));
  const historic=render({meetings:[review,first,old],selectedDate:'2026-10-04'}); assert.ok(historic.includes('old-day-report')); assert.ok(!historic.includes('เก็บเงินสด'));
  const empty=render({meetings:[review,first,old],selectedDate:'2026-10-05'}); assert.ok(empty.includes('ยังไม่มีรายงานในวันที่เลือก')); assert.ok(!empty.includes('old-day-report')); assert.ok(!empty.includes('เก็บเงินสด'));

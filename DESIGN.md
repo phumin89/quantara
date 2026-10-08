@@ -22,6 +22,8 @@ The original Pixel renderer and artwork are bundled with the frontend. Existing 
 
 The persistent floating team room is separate from the page. It has one minimize button, Escape and focus return; phones use a full viewport reader. Use a content-sized window for disabled/unavailable access, with one status and recovery route. System status is labelled separately from recorded meeting conclusions. The account-bound report reader puts decisions first and team reasoning behind disclosures. When the feed cannot be read, say reports are unavailable rather than claiming none exist. Never invent a team conversation.
 
+Use one native date field to select report history. Do not add a duplicate row of date tabs or a "dates with reports" disclosure. Keep the separate meeting-round selector for the chosen day.
+
 ## Current data and access
 
 Refresh verified observations in the background without clearing a fresh balance while a request is pending. Commit matching status/account data together. Account values expire after 30 seconds; failed/unauthorized observations and owner actions clear them. An expired observation is unavailable, not zero. Server observation time identifies the source, not a claimed execution or market refresh.

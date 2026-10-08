@@ -137,5 +137,5 @@ export function LiveMeetingView({ meetings, selected, onSelect, availableDates, 
 function DatePicker({ availableDates, selectedDate, onDateSelect }: { availableDates: string[]; selectedDate?: string; onDateSelect?: (value: string) => void }) {
   const today = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Bangkok" }).format(new Date());
   const oldest = availableDates[availableDates.length - 1];
-  return <div className="team-report-date-picker"><label>เลือกวันที่<input type="date" min={oldest} max={today} disabled={!availableDates.length} value={selectedDate ?? ""} onChange={e => { if (e.target.value) onDateSelect?.(e.target.value); }} /></label>{availableDates.length > 0 && <details className="team-report-dates"><summary>วันที่มีรายงาน</summary><div className="team-report-date-buttons">{availableDates.map(d => <button type="button" key={d} aria-pressed={d === selectedDate} onClick={() => onDateSelect?.(d)}>{new Date(d + "T00:00:00Z").toLocaleDateString("th-TH", { timeZone: "Asia/Bangkok", dateStyle: "medium" })}</button>)}</div></details>}</div>;
+  return <div className="team-report-date-picker"><label>เลือกวันที่<input type="date" min={oldest} max={today} disabled={!availableDates.length} value={selectedDate ?? ""} onChange={e => { if (e.target.value) onDateSelect?.(e.target.value); }} /></label></div>;
 }
