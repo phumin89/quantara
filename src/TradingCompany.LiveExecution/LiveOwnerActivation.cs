@@ -9,7 +9,7 @@ public sealed record LiveOwnerActivationResult(bool Activated, IReadOnlyList<str
 // Uses the existing owner controls and account lock; never places or cancels an order.
 public sealed class LiveOwnerActivation(BitkubConfiguredAccount configured, LiveTradingStore store,
     BitkubLiveBroker broker, BitkubAccountProvisioner provisioner, LiveReconciliation reconciliation,
-    LiveOwnerControls controls)
+    LiveOwnerControls controls, TimeProvider clock)
 {
     public async Task<LiveOwnerActivationResult> ActivateFullSpotAsync(CancellationToken token, decimal? maximumOrderNotional = null,
         bool useFundedOrderCeiling = false)
@@ -36,6 +36,18 @@ public sealed class LiveOwnerActivation(BitkubConfiguredAccount configured, Live
             account.Mandate.MaximumOrderNotional != orderCeiling ||
             account.Mandate.MaximumOpenPositions != openPositions)
         {
+            // Recover broker-confirmed results before evaluating unresolved local orders.
+            // A receipt/wallet failure still blocks; this never retries a placement or cancel.
+            if (account.PerformanceBaseline is not null && account.Orders.Any(o => o.State is not
+                (TradingCompany.Domain.LiveOrderState.Filled or TradingCompany.Domain.LiveOrderState.Cancelled or
+                TradingCompany.Domain.LiveOrderState.Rejected)))
+            {
+                var recovered = await reconciliation.ReconcileAsync(configured.AccountId, token);
+                if (!recovered.Complete && !recovered.Violations.SequenceEqual(new[] { "DAILY_BASELINE_REQUIRED" }))
+                    return new(false, ["UNRESOLVED_ORDER", .. recovered.Violations]);
+                account = await controls.ReadAsync(token);
+                if (account.Gate.Stopped) return new(false, ["OWNER_STOP_ACTIVE"]);
+            }
             if (account.Orders.Any(o => o.State is not (TradingCompany.Domain.LiveOrderState.Filled or
                 TradingCompany.Domain.LiveOrderState.Cancelled or TradingCompany.Domain.LiveOrderState.Rejected)))
                 return new(false, ["UNRESOLVED_ORDER"]);
@@ -57,6 +69,20 @@ public sealed class LiveOwnerActivation(BitkubConfiguredAccount configured, Live
         else
         {
             var refreshed = await reconciliation.ReconcileAsync(configured.AccountId, token);
+            if (!refreshed.Complete && refreshed.Violations.SequenceEqual(new[] { "DAILY_BASELINE_REQUIRED" }))
+            {
+                account = await controls.ReadAsync(token);
+                var today = DateOnly.FromDateTime(clock.GetUtcNow().ToOffset(TimeSpan.FromHours(7)).DateTime);
+                if (account.Gate.Stopped) return new(false, ["OWNER_STOP_ACTIVE"]);
+                // This explicit owner command may establish today's risk frame after downtime.
+                // Only verified, settled money qualifies; high-water equity is never reset.
+                if (account.Snapshot.Reconciled && account.PerformanceBaseline is { } baseline &&
+                    baseline.BangkokDate < today && account.Orders.All(o => o.State is
+                        TradingCompany.Domain.LiveOrderState.Filled or TradingCompany.Domain.LiveOrderState.Cancelled or
+                        TradingCompany.Domain.LiveOrderState.Rejected))
+                    refreshed = await reconciliation.RollDailyBaselineAsync(new(configured.AccountId,
+                        account.Mandate.Version, account.Snapshot.Version), token);
+            }
             if (!refreshed.Complete) return new(false, refreshed.Violations);
         }
         account = await controls.ReadAsync(token);
@@ -138,7 +164,9 @@ public sealed class LiveOwnerActivation(BitkubConfiguredAccount configured, Live
             using var host = builder.Build();
             if (host.Services.GetService<BitkubConfiguredAccount>() is null)
             { Console.WriteLine("LIVE_NOT_ACTIVATED: verified execution configuration is required."); return 1; }
-            using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(90));
+            // A recovered order, mandate refresh and explicit new-day baseline each require
+            // two complete bounded observations over the verified native market catalog.
+            using var deadline = new CancellationTokenSource(TimeSpan.FromMinutes(3));
             if (!activate)
             {
                 var broker = host.Services.GetRequiredService<BitkubLiveBroker>();

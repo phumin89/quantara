@@ -93,6 +93,42 @@ public sealed class LiveReconciliationTests
     }
 
     [Fact]
+    public void Bounded_market_scans_keep_original_collection_time_and_fresh_wallet_observations()
+    {
+        var tx = Seed();
+        var first = Evidence() with { ObservedAt = LiveRiskTests.Now.AddSeconds(-16),
+            CollectionStartedAt = LiveRiskTests.Now.AddSeconds(-33) };
+        var second = Evidence() with { CollectionStartedAt = LiveRiskTests.Now.AddSeconds(-16) };
+
+        Assert.True(tx.Reconcile(first, second, LiveRiskTests.Now).Complete);
+        Assert.Equal(899.75m, tx.Account.Snapshot.CashBalance);
+        Assert.Contains(tx.Account.Audit, a => a.Kind == "ReconciliationEvidence" && a.Detail.Contains("CollectionStartedAt"));
+    }
+
+    [Theory]
+    [InlineData("long-scan")]
+    [InlineData("future-start")]
+    [InlineData("stale-wallet")]
+    [InlineData("stale-quote")]
+    public void Wallet_timestamp_cannot_hide_unbounded_scan_or_stale_prices(string defect)
+    {
+        var tx = Seed();
+        var evidence = Evidence() with { CollectionStartedAt = LiveRiskTests.Now.AddSeconds(-16) };
+        evidence = defect switch
+        {
+            "long-scan" => evidence with { CollectionStartedAt = LiveRiskTests.Now.AddSeconds(-26) },
+            "future-start" => evidence with { CollectionStartedAt = LiveRiskTests.Now.AddSeconds(1) },
+            "stale-wallet" => evidence with { ObservedAt = LiveRiskTests.Now.AddSeconds(-31),
+                CollectionStartedAt = LiveRiskTests.Now.AddSeconds(-47) },
+            _ => evidence with { Quotes = [LiveRiskTests.Snapshot.Quotes[0] with { ObservedAt = LiveRiskTests.Now.AddSeconds(-31) }] }
+        };
+
+        Assert.False(tx.Reconcile(evidence, evidence, LiveRiskTests.Now).Complete);
+        Assert.Empty(tx.Account.Fills);
+        Assert.Equal(1000m, tx.Account.Snapshot.CashBalance);
+    }
+
+    [Fact]
     public void Unknown_dispatch_is_linked_only_by_exact_unique_client_reference()
     {
         var original = Seed().Account;

@@ -105,6 +105,7 @@ public sealed partial class LiveAccountTransaction
                 var order = candidate.Account.Orders.Single(o => o.Intent.Id.ToString("N") == observed.ClientId);
                 if (order.FilledQuantity != observed.FilledQuantity || observed.ReservedCash > order.ReservedCash ||
                     observed.ReservedQuantity > order.ReservedQuantity) throw new InvalidDataException();
+                candidate.ApplySellSettlement(order, observed);
                 candidate.RecordTransition(order.Intent.Id, observed.State, observed.BrokerId, now);
             }
 
@@ -215,11 +216,39 @@ public sealed partial class LiveAccountTransaction
 
     private static DateOnly BangkokDate(DateTimeOffset time) => DateOnly.FromDateTime(time.ToOffset(TimeSpan.FromHours(7)).DateTime);
 
+    private void ApplySellSettlement(LiveOrderRecord order, LiveBrokerOrder observed)
+    {
+        if (observed.SettledSellQuoteAmount is not { } settled)
+        {
+            if (order.SellQuoteAdjustment != 0) throw new InvalidDataException();
+            return;
+        }
+        if (order.Intent.Side != OrderSide.Sell || !LiveMarketSymbol.IsValid(order.Intent.Symbol) || settled < 0)
+            throw new InvalidDataException();
+        var fills = Account.Fills.Where(f => f.OrderId == observed.BrokerId && f.Symbol == observed.Symbol &&
+            f.Side == OrderSide.Sell).ToArray();
+        var quote = fills.Sum(f => f.GrossQuoteAmount);
+        var fees = fills.Sum(f => f.CashFee);
+        var adjustment = settled - quote;
+        // THB has two cash decimals. Do not assume floor/nearest rounding or allocate an
+        // order receipt among fills. Bound precision loss, then require exact wallet equality.
+        if (fills.Length == 0 || settled - fees < 0 || (settled - fees) % .01m != 0 ||
+            Math.Abs(adjustment) >= fills.Length * .01m) throw new InvalidDataException();
+        var delta = adjustment - order.SellQuoteAdjustment;
+        var snapshot = Account.Snapshot;
+        if (snapshot.CashBalance + delta < 0 || snapshot.DailyTurnover + delta < 0) throw new InvalidDataException();
+        Replace(order with { SellQuoteAdjustment = adjustment });
+        Account = Account with { Snapshot = snapshot with { CashBalance = snapshot.CashBalance + delta,
+            DailyTurnover = snapshot.DailyTurnover + delta } };
+    }
+
     private static bool ValidEvidence(LiveBrokerEvidence? evidence, DateTimeOffset now)
     {
         if (evidence is null || !evidence.Complete || evidence.AccountId.Value == Guid.Empty ||
             string.IsNullOrWhiteSpace(evidence.CredentialFingerprint) || evidence.ObservedAt > now ||
             now - evidence.ObservedAt > TimeSpan.FromSeconds(30) || evidence.CashBalance < 0 ||
+            (evidence.CollectionStartedAt is { } started &&
+                (started > evidence.ObservedAt || evidence.ObservedAt - started > TimeSpan.FromSeconds(25))) ||
             evidence.CashReserved < 0 || evidence.CashReserved > evidence.CashBalance ||
             evidence.Positions is null || evidence.Orders is null || evidence.Fills is null || evidence.Quotes is null)
             return false;

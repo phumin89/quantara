@@ -60,7 +60,8 @@ public static class BitkubOrderReceipts
             receipt.Side != intent.Side || receipt.LimitPrice != intent.LimitPrice || receipt.OrderAmount != order.RawAmount ||
             !statusMatches || receipt.TotalFee != order.History.Sum(f => f.ReportedFee) ||
             receipt.CreditUsed != order.History.Sum(f => f.FeeCredit) || receipt.CashFee != receipt.TotalFee - receipt.CreditUsed ||
-            order.History.Any(f => f.Timestamp > receipt.UpdatedAt)) throw Invalid();
+            order.History.Any(f => f.Timestamp > receipt.UpdatedAt || f.OrderId != order.OrderId) ||
+            order.History.Select(f => f.TransactionId).Distinct(StringComparer.Ordinal).Count() != order.History.Count) throw Invalid();
         var matches = new List<BrokerFill[]>();
         // No global REST fee assumption. Each order is proven against explicit broker
         // cash debit/proceeds and received units, including orders paid entirely by credits.
@@ -75,9 +76,11 @@ public static class BitkubOrderReceipts
                 var fees = fills.Sum(f => f.CashFee);
                 if (fees == receipt.CashFee && (intent.Side == OrderSide.Buy
                     ? quote + fees == receipt.ExecutedAmount && units == receipt.ReceivedAmount
-                    : units == receipt.ExecutedAmount && quote - fees == receipt.ReceivedAmount)) matches.Add(fills);
+                    : units == receipt.ExecutedAmount && receipt.ReceivedAmount >= 0 &&
+                        receipt.ReceivedAmount % .01m == 0 &&
+                        Math.Abs(quote - fees - receipt.ReceivedAmount) < fills.Length * .01m)) matches.Add(fills);
             }
-            catch (InvalidDataException) { /* Only a complete exact match can be used. */ }
+            catch (InvalidDataException) { /* Identity, fees, units and authenticated settlement must all verify. */ }
         }
         if (matches.Count == 0 || matches.Any(m => !m.SequenceEqual(matches[0]))) throw Invalid();
         return matches[0];

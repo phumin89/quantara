@@ -187,7 +187,8 @@ public sealed class BitkubOnboardingFlowTests(PostgresFixture database)
         { Rules = configured.Verification.Rules with { Pairs = configured.Verification.Rules.Pairs.Where(p => p.Symbol == "BTC-THB").ToArray() } } };
         var activation = new LiveOwnerActivation(narrower, fixture.Store,
             fixture.Services.GetRequiredService<BitkubLiveBroker>(), fixture.Provisioner,
-            fixture.Services.GetRequiredService<LiveReconciliation>(), fixture.Services.GetRequiredService<LiveOwnerControls>());
+            fixture.Services.GetRequiredService<LiveReconciliation>(), fixture.Services.GetRequiredService<LiveOwnerControls>(),
+            fixture.Services.GetRequiredService<TimeProvider>());
 
         var result = await activation.ActivateFullSpotAsync(default);
 

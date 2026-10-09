@@ -61,6 +61,77 @@ public sealed class BitkubOrderReceiptTests
         Assert.Equal(99.75m, fill.GrossQuoteAmount - fill.CashFee);
     }
 
+    [Theory]
+    [InlineData("29.12", "0.08", "0.08")]
+    [InlineData("29.05", "0.08", "0")]
+    [InlineData("29.13", "0", "0")]
+    public void Sell_receipt_proves_cent_settlement_without_guessing_rounding_or_allocating_fill_cash(
+        string receivedText, string feeText, string creditText)
+    {
+        var received = decimal.Parse(receivedText, System.Globalization.CultureInfo.InvariantCulture);
+        var fee = decimal.Parse(feeText, System.Globalization.CultureInfo.InvariantCulture);
+        var credit = decimal.Parse(creditText, System.Globalization.CultureInfo.InvariantCulture);
+        var intent = Intent() with { Side = OrderSide.Sell, Quantity = .00001040m, LimitPrice = 2800287.93m, BuyBudget = null };
+        var raw = Raw(intent.Quantity, fee) with { Rate = intent.LimitPrice, FeeCredit = credit };
+        var receipt = Receipt(intent) with { ExecutedAmount = intent.Quantity, ReceivedAmount = received,
+            TotalFee = fee, CreditUsed = credit, CashFee = fee - credit };
+
+        var fill = Assert.Single(Normalize(intent, Order(intent, [raw]), receipt));
+
+        Assert.Equal(intent.Quantity, fill.Quantity);
+        Assert.Equal(intent.LimitPrice, fill.Price);
+        Assert.Equal(fee - credit, fill.CashFee);
+        Assert.Null(fill.QuoteAmount); // Actual cumulative cash belongs to the order receipt.
+        Assert.Equal(29.122994472m, fill.GrossQuoteAmount);
+    }
+
+    [Fact]
+    public void Multiple_sell_fills_keep_exact_prices_when_cumulative_receipt_has_cash_precision()
+    {
+        var intent = Intent() with { Side = OrderSide.Sell, Quantity = .00002m, LimitPrice = 2800000m, BuyBudget = null };
+        var first = Raw(.00001m, 0m, "tx-1") with { Rate = 2800123.45m };
+        var second = Raw(.00001m, 0m, "tx-2") with { Rate = 2800765.43m };
+        var receipt = Receipt(intent) with { ExecutedAmount = intent.Quantity, ReceivedAmount = 56m,
+            TotalFee = 0m, CreditUsed = 0m, CashFee = 0m };
+
+        var fills = Normalize(intent, Order(intent, [first, second]), receipt);
+
+        Assert.Equal(2, fills.Count);
+        Assert.Equal(first.Rate, fills[0].Price);
+        Assert.Equal(second.Rate, fills[1].Price);
+        Assert.All(fills, fill => Assert.Null(fill.QuoteAmount));
+    }
+
+    [Theory]
+    [InlineData("29.11")]
+    [InlineData("29.14")]
+    [InlineData("29.123")]
+    [InlineData("-0.01")]
+    public void Sell_receipt_rejects_excess_precision_difference_or_invalid_net_cash(string receivedText)
+    {
+        var intent = Intent() with { Side = OrderSide.Sell, Quantity = .00001040m, LimitPrice = 2800287.93m, BuyBudget = null };
+        var order = Order(intent, [Raw(intent.Quantity, 0m) with { Rate = intent.LimitPrice }]);
+        var receipt = Receipt(intent) with { ExecutedAmount = intent.Quantity,
+            ReceivedAmount = decimal.Parse(receivedText, System.Globalization.CultureInfo.InvariantCulture),
+            TotalFee = 0m, CreditUsed = 0m, CashFee = 0m };
+
+        Assert.Throws<InvalidDataException>(() => Normalize(intent, order, receipt));
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Settlement_bound_cannot_count_duplicate_or_foreign_fill_history(bool foreign)
+    {
+        var intent = Intent() with { Side = OrderSide.Sell, Quantity = .002m, BuyBudget = null };
+        var first = Raw(.001m, 0m);
+        var second = foreign ? first with { OrderId = "foreign-order", TransactionId = "tx-2" } : first;
+        var receipt = Receipt(intent) with { ExecutedAmount = .002m, ReceivedAmount = 200m,
+            TotalFee = 0m, CreditUsed = 0m, CashFee = 0m };
+
+        Assert.Throws<InvalidDataException>(() => Normalize(intent, Order(intent, [first, second]), receipt));
+    }
+
     [Fact]
     public void Rounded_received_coins_keep_exact_gross_quote_and_receipt_debit()
     {

@@ -11,11 +11,18 @@ public sealed record LiveBrokerOrder(string ClientId, string BrokerId, string Sy
 {
     [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
     public decimal? BuyBudget { get; init; }
+    // Cumulative gross THB proceeds, proven from authenticated net receipt + cash fees.
+    public decimal? SettledSellQuoteAmount { get; init; }
 }
 public sealed record LiveBrokerEvidence(LiveAccountId AccountId, string CredentialFingerprint,
     DateTimeOffset ObservedAt, bool Complete, decimal CashBalance, decimal CashReserved,
     IReadOnlyList<LiveBrokerPosition> Positions, IReadOnlyList<LiveBrokerOrder> Orders,
-    IReadOnlyList<BrokerFill> Fills, IReadOnlyList<LiveQuote> Quotes);
+    IReadOnlyList<BrokerFill> Fills, IReadOnlyList<LiveQuote> Quotes)
+{
+    // Optional for older evidence. ObservedAt is the wallet request time; retain the
+    // start of the bounded REST collection separately, rather than retiming old data.
+    public DateTimeOffset? CollectionStartedAt { get; init; }
+}
 public sealed record LivePerformanceBaseline(DateOnly BangkokDate, decimal DayStartEquity, decimal HighWaterEquity);
 public sealed record LiveBaselineRequest(LiveAccountId AccountId, long MandateVersion, long SnapshotVersion);
 public sealed record LiveReconciliationResult(bool Complete, long SnapshotVersion, IReadOnlyList<string> Violations);

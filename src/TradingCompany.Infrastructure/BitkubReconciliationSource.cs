@@ -64,10 +64,13 @@ public sealed class BitkubReconciliationSource(BitkubLiveBroker transport, Bitku
 
                 var orderFills = new List<BrokerFill>();
                 IReadOnlyList<BrokerFill>? receivedFills = null;
+                decimal? settledSellQuote = null;
                 if (rules.BuyHistoryAmount == BitkubBuyHistoryAmount.AuthenticatedOrderReceipts && info.History.Count > 0)
                 {
                     var receipt = receipts is null ? null : await receipts.ReadLatestAsync(brokerId, clientId, cancellationToken);
                     receivedFills = BitkubOrderReceipts.Normalize(accountId, owned.Intent, info, rules, receipt ?? throw Unavailable());
+                    if (owned.Intent.Side == OrderSide.Sell)
+                        settledSellQuote = receipt!.ReceivedAmount + receipt.CashFee;
                 }
                 foreach (var raw in info.History)
                 {
@@ -93,11 +96,16 @@ public sealed class BitkubReconciliationSource(BitkubLiveBroker transport, Bitku
                 var reservedCoins = !terminal && owned.Intent.Side == OrderSide.Sell ? info.RawRemaining : 0;
                 if (!terminal && matchingOpen[0].RawAmount != info.RawRemaining) throw Unavailable();
                 orders.Add(new(clientId, brokerId, pair.Symbol, owned.Intent.Side, owned.Intent.Quantity,
-                    owned.Intent.LimitPrice, state, quantity, reservedCash, reservedCoins) { BuyBudget = owned.Intent.BuyBudget });
+                    owned.Intent.LimitPrice, state, quantity, reservedCash, reservedCoins)
+                    { BuyBudget = owned.Intent.BuyBudget, SettledSellQuoteAmount = settledSellQuote });
                 fills.AddRange(orderFills);
             }
         }
 
+        // A large universe takes time to scan. Timestamp the actual final wallet request,
+        // not the first market request; quotes keep their own timestamps and the whole
+        // collection remains bounded by the 25-second deadline and retained start time.
+        var walletObservedAt = clock.GetUtcNow();
         var wallet = await transport.GetWalletAsync(cancellationToken);
         var cash = wallet.Single(b => b.Currency == "THB");
         var positions = new List<LiveBrokerPosition>();
@@ -111,7 +119,8 @@ public sealed class BitkubReconciliationSource(BitkubLiveBroker transport, Bitku
             cash.Reserved != orders.Sum(o => o.ReservedCash) ||
             positions.Any(p => p.ReservedQuantity != orders.Where(o => o.Symbol == p.Symbol).Sum(o => o.ReservedQuantity)) ||
             started > clock.GetUtcNow() || clock.GetUtcNow() - started > TimeSpan.FromSeconds(30)) throw Unavailable();
-        return new(accountId, transport.CredentialFingerprint, started, true, cash.Total, cash.Reserved, positions, orders, fills, quotes);
+        return new(accountId, transport.CredentialFingerprint, walletObservedAt, true, cash.Total, cash.Reserved, positions, orders, fills, quotes)
+            { CollectionStartedAt = started };
     }
 
     internal static BrokerFill Normalize(LiveAccountId account, LiveIntent intent, string brokerId,

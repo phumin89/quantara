@@ -12,10 +12,12 @@ namespace TradingCompany.LiveIntegration.Tests;
 public sealed class BitkubDynamicMarketFlowTests(PostgresFixture database)
 {
     [Theory]
-    [InlineData("USDT-THB", "33.12", "2.12", 2, 2)]
-    [InlineData("XRP-THB", "2.12345", "50.12345678", 5, 8)]
+    [InlineData("USDT-THB", "33.12", "2.12", 2, 2, false)]
+    [InlineData("XRP-THB", "2.12345", "50.12345678", 5, 8, false)]
+    [InlineData("BTC-THB", "2800287.93", "0.00001040", 2, 8, true)]
+    [InlineData("BTC-THB", "2800287.93", "0.00001040", 2, 8, false)]
     public async Task Owned_native_sell_preserves_base_units_and_net_THB_receipt_even_when_buys_are_frozen(
-        string symbol, string priceText, string quantityText, int priceScale, int baseScale)
+        string symbol, string priceText, string quantityText, int priceScale, int baseScale, bool credited)
     {
         var (store, template, original) = await new LiveTradingStoreTests(database).Setup();
         var clock = new LiveExecutionFlowTests.TestClock(template.Snapshot.ObservedAt);
@@ -24,20 +26,21 @@ public sealed class BitkubDynamicMarketFlowTests(PostgresFixture database)
         var gross = quantity * price;
         var initialCash = 1000m - gross;
         var handler = new NativeMarketHandler(symbol, price, priceScale, baseScale, clock, OrderSide.Sell, initialCash)
-            { FreezeBuy = true };
+            { FreezeBuy = true, SellFeeOverride = symbol == "BTC-THB" ? .08m : null, CreditUsed = credited ? .08m : 0m };
         using var broker = new BitkubLiveBroker("test-key", "test-secret", handler, clock);
         var id = new LiveAccountId(Guid.NewGuid());
         var account = template with
         {
             AccountId = id,
-            Mandate = template.Mandate with { AccountId = id, CredentialFingerprint = broker.CredentialFingerprint, AllowedSymbols = [symbol] },
+            Mandate = template.Mandate with { AccountId = id, CredentialFingerprint = broker.CredentialFingerprint,
+                AllowedSymbols = [symbol], FeeReserveRate = .0035m },
             Gate = template.Gate with { CredentialFingerprint = broker.CredentialFingerprint },
             Snapshot = template.Snapshot with { AccountId = id, CashBalance = initialCash,
                 Positions = [new(symbol, quantity, 0, price)], Quotes = [new(symbol, price, price + Step(priceScale), clock.Now)] },
             FirstActivatedAt = clock.Now.AddMinutes(-1)
         };
         await store.CreateAsync(account);
-        var rules = new BitkubVerifiedExecutionRules("synthetic-native-sell", new string('a', 64), .0025m,
+        var rules = new BitkubVerifiedExecutionRules("synthetic-native-sell", new string('a', 64), .0035m,
             BitkubBuyHistoryAmount.AuthenticatedOrderReceipts,
             [new(symbol, 1, Step(baseScale), Step(priceScale), 10, 0, 1) { BuyBaseRounding = BitkubBuyBaseRounding.FloorToBaseStep }]);
         var adapter = new BitkubExecutionAdapter(broker, store, id, clock, rules, receiptStreamReady: () => true);
@@ -51,7 +54,7 @@ public sealed class BitkubDynamicMarketFlowTests(PostgresFixture database)
         Assert.Null(order.Intent.BuyBudget);
         Assert.Equal(initialCash, (await store.ReadAsync(id)).CashBalance);
         var receipt = new BitkubOrderReceipt("native-order", intent.Id.ToString("N"), symbol, OrderSide.Sell, "filled",
-            price, quantity, quantity, gross - handler.CashFee, handler.CashFee, 0, handler.CashFee,
+            price, quantity, quantity, handler.Received, handler.TotalFee, handler.CreditUsed, handler.CashFee,
             clock.Now.ToUnixTimeMilliseconds());
         var journal = new BitkubOrderReceiptJournal(database.ConnectionString, id, broker.CredentialFingerprint);
         await journal.AppendAsync(receipt);
@@ -66,7 +69,9 @@ public sealed class BitkubDynamicMarketFlowTests(PostgresFixture database)
         Assert.Equal(quantity, fill.Quantity);
         Assert.Equal(price, fill.Price);
         Assert.Equal(gross, fill.GrossQuoteAmount);
-        Assert.Equal(receipt.ReceivedAmount, fill.GrossQuoteAmount - fill.CashFee);
+        var adjustment = Assert.Single(restored.Orders).SellQuoteAdjustment;
+        Assert.Equal(receipt.ReceivedAmount, fill.GrossQuoteAmount + adjustment - fill.CashFee);
+        Assert.NotEqual(0m, adjustment);
         Assert.Equal(initialCash + receipt.ReceivedAmount, restored.Snapshot.CashBalance);
         Assert.Empty(restored.Snapshot.Positions);
         Assert.Equal(LiveOrderState.Filled, Assert.Single(restored.Orders).State);
@@ -77,6 +82,10 @@ public sealed class BitkubDynamicMarketFlowTests(PostgresFixture database)
         Assert.True((await new LiveReconciliation(restarted,
             new BitkubReconciliationSource(broker, adapter, id, clock, restartedJournal), clock).ReconcileAsync(id)).Complete);
         Assert.Single((await restarted.ReadAccountAsync(id)).Fills);
+        var repeated = await restarted.ReadAccountAsync(id);
+        Assert.Equal(restored.Snapshot.CashBalance, repeated.Snapshot.CashBalance);
+        Assert.Equal(restored.Snapshot.DailyTurnover, repeated.Snapshot.DailyTurnover);
+        Assert.Equal(adjustment, Assert.Single(repeated.Orders).SellQuoteAdjustment);
         Assert.Equal(1, handler.PlacementCount);
     }
 
@@ -253,14 +262,17 @@ public sealed class BitkubDynamicMarketFlowTests(PostgresFixture database)
     private static decimal Step(int scale) { var step = 1m; for (var i = 0; i < scale; i++) step /= 10m; return step; }
 
     // Every transport response is synthetic. Unexpected paths fail instead of reaching any network.
-    private sealed class NativeMarketHandler(string symbol, decimal price, int priceScale, int baseScale,
+    internal sealed class NativeMarketHandler(string symbol, decimal price, int priceScale, int baseScale,
         LiveExecutionFlowTests.TestClock clock, OrderSide side = OrderSide.Buy, decimal initialCash = 1000m) : HttpMessageHandler
     {
         public decimal WireAmount { get; private set; }
-        public decimal CashFee => WireAmount * (side == OrderSide.Buy ? 1m : price) * .0025m;
+        public decimal? SellFeeOverride { get; init; }
+        public decimal CreditUsed { get; init; }
+        public decimal TotalFee => SellFeeOverride ?? WireAmount * (side == OrderSide.Buy ? 1m : price) * .0025m;
+        public decimal CashFee => TotalFee - CreditUsed;
         public decimal Received => side == OrderSide.Buy
             ? decimal.Floor((WireAmount - CashFee) / price / Step(baseScale)) * Step(baseScale)
-            : WireAmount * price - CashFee;
+            : decimal.Floor((WireAmount * price - CashFee) * 100m) / 100m;
         public bool FreezeBuy { get; init; }
         public int PlacementCount { get; private set; }
         private string clientId = "";
@@ -269,6 +281,7 @@ public sealed class BitkubDynamicMarketFlowTests(PostgresFixture database)
             var path = request.RequestUri!.AbsolutePath;
             var timestamp = clock.Now.ToUnixTimeMilliseconds();
             if (path.EndsWith("/servertime")) return Reply(timestamp.ToString(CultureInfo.InvariantCulture));
+            if (path.EndsWith("/wstoken")) return Json(new { error = 0, result = new string('a', 32) });
             if (path.EndsWith("/symbols")) return Json(new { error = 0, result = new[] { new
             {
                 symbol = symbol.Replace('-', '_'), base_asset = symbol[..^4], quote_asset = "THB",
@@ -296,15 +309,15 @@ public sealed class BitkubDynamicMarketFlowTests(PostgresFixture database)
             {
                 txn_id = "native-fill", order_id = "native-order", parent_order_id = "native-order", super_order_id = "native-order",
                 client_id = clientId, side = side == OrderSide.Buy ? "buy" : "sell", type = "limit", rate = price.ToString(CultureInfo.InvariantCulture),
-                amount = WireAmount.ToString(CultureInfo.InvariantCulture), fee = CashFee.ToString(CultureInfo.InvariantCulture),
-                credit = "0", ts = timestamp
+                amount = WireAmount.ToString(CultureInfo.InvariantCulture), fee = TotalFee.ToString(CultureInfo.InvariantCulture),
+                credit = CreditUsed.ToString(CultureInfo.InvariantCulture), ts = timestamp
             } }, pagination = new { has_next = false } });
             if (path.EndsWith("/order-info")) return Json(new { error = 0, result = new
             {
                 id = "native-order", first = "native-order", parent = "native-order", last = "native-order", client_id = clientId,
-                post_only = false, amount = WireAmount, rate = price, fee = CashFee, credit = 0, filled = WireAmount, total = WireAmount,
+                post_only = false, amount = WireAmount, rate = price, fee = TotalFee, credit = CreditUsed, filled = WireAmount, total = WireAmount,
                 status = "filled", partial_filled = false, remaining = 0, history = new[] { new
-                { amount = WireAmount, credit = 0, fee = CashFee, id = "native-order", rate = price, timestamp, txn_id = "native-fill" } }
+                { amount = WireAmount, credit = CreditUsed, fee = TotalFee, id = "native-order", rate = price, timestamp, txn_id = "native-fill" } }
             } });
             if (path.EndsWith("/balances")) return Json(new { code = "0", data = new[]
                 { Balance("THB", side == OrderSide.Buy ? initialCash - WireAmount : initialCash + Received),

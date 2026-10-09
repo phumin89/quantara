@@ -12,6 +12,9 @@ public sealed record LiveOrderRecord(LiveIntent Intent, LiveOrderState State, st
     public DateTimeOffset? CancellationRequestedAt { get; init; }
     public BrokerSubmissionState? CancellationOutcome { get; init; }
     public string? BrokerCredentialFingerprint { get; init; }
+    // Cumulative THB settlement differs from exact fill quantity * price by cash precision.
+    // Keep this on the order: a cumulative receipt cannot prove each fill's cash allocation.
+    public decimal SellQuoteAdjustment { get; init; }
 }
 public sealed record PreparedLiveOrder(LiveIntent Intent, string Body, string BodyHash);
 public enum BrokerSubmissionState { Accepted, Rejected, Unknown }

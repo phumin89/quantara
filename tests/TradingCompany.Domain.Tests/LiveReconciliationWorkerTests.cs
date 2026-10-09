@@ -94,6 +94,25 @@ public sealed class LiveReconciliationWorkerTests
         await worker.StopAsync(default);
     }
 
+    [Fact]
+    public async Task Two_bounded_reads_can_exceed_one_read_timeout_without_cancelling_recovery()
+    {
+        var store = new Store();
+        var clock = new Clock();
+        var source = new Source(store, clock) { ReadDelay = TimeSpan.FromSeconds(13) };
+        using var worker = new LiveReconciliationWorker(new(store, new NoPlacement(), clock), new(store, source, clock),
+            LiveRiskTests.Account, clock);
+        await worker.StartAsync(default);
+        await store.WaitForCommits(2, TimeSpan.FromSeconds(40));
+
+        Assert.Equal(2, source.Reads);
+        Assert.True(store.Account.Snapshot.Reconciled);
+        Assert.False(store.Account.Gate.Armed);
+        Assert.True(store.Account.Gate.Stopped);
+        Assert.Empty(store.Account.Orders);
+        await worker.StopAsync(default);
+    }
+
     private sealed class Store : ILiveTradingStore
     {
         private readonly object sync = new();
@@ -112,28 +131,30 @@ public sealed class LiveReconciliationWorkerTests
                 lock (sync) { Account = state; commits++; changed.TrySetResult(); changed = new(TaskCreationOptions.RunContinuationsAsynchronously); }
                 return Task.CompletedTask;
             }), ct);
-        public async Task WaitForCommits(int count)
+        public async Task WaitForCommits(int count, TimeSpan? waitTimeout = null)
         {
             while (true)
             {
                 Task signal;
                 lock (sync) { if (commits >= count) return; signal = changed.Task; }
-                await signal.WaitAsync(TimeSpan.FromSeconds(3));
+                await signal.WaitAsync(waitTimeout ?? TimeSpan.FromSeconds(3));
             }
         }
     }
     private sealed class Source(Store store, Clock clock) : ILiveReconciliationSource
     {
         public bool Unavailable { get; init; }
+        public TimeSpan ReadDelay { get; init; }
         public int Reads { get; private set; }
-        public Task<LiveBrokerEvidence> ReadAsync(LiveAccountId id, CancellationToken ct)
+        public async Task<LiveBrokerEvidence> ReadAsync(LiveAccountId id, CancellationToken ct)
         {
             Assert.False(store.Account.Gate.Armed);
             Assert.Contains(store.Account.Audit, e => e.Kind == "RecoverySuspended");
             Reads++;
             if (Unavailable) throw new IOException("fixture provider unavailable");
-            return Task.FromResult(new LiveBrokerEvidence(id, "key-fingerprint", clock.GetUtcNow(), true, 1000, 0,
-                [], [], [], [new("BTC-THB", 99900, 100000, clock.GetUtcNow())]));
+            if (ReadDelay > TimeSpan.Zero) await Task.Delay(ReadDelay, ct);
+            return new LiveBrokerEvidence(id, "key-fingerprint", clock.GetUtcNow(), true, 1000, 0,
+                [], [], [], [new("BTC-THB", 99900, 100000, clock.GetUtcNow())]);
         }
     }
     private sealed class NoPlacement : ILiveBroker
