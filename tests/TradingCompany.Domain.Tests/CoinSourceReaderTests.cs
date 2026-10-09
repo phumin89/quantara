@@ -10,6 +10,33 @@ namespace TradingCompany.Domain.Tests;
 public sealed class CoinSourceReaderTests
 {
     [Fact]
+    public async Task Kub_uses_exact_verified_paper_and_reuses_content_addressed_extraction()
+    {
+        const string url = "https://www.kubchain.com/docs/EN_KUB_Chain_WhitePaper_V5.2.pdf";
+        var spec = Assert.Single(CoinSourceReader.Catalog, s => s.Symbol == "KUB-THB");
+        Assert.Equal(url, spec.Url);
+        Assert.True(TradingCompany.Application.CoinResearchValidation.PublicSourceUrl(url));
+        Assert.False(TradingCompany.Application.CoinResearchValidation.PublicSourceUrl("https://www.kubchain.com/unverified.pdf"));
+        Assert.False(TradingCompany.Application.CoinResearchValidation.PublicSourceUrl(url + "?redirect=private"));
+        using var folder = new TempFolder(); var clock = new FakeClock(TestTime);
+        var bytes = new byte[5 * 1024 * 1024]; Encoding.ASCII.GetBytes("%PDF-kub-fixture").CopyTo(bytes, 0);
+        var handler = new RecordingHandler(_ => new(HttpStatusCode.OK) { Content = new ByteArrayContent(bytes) });
+        var extractions = 0;
+        var reader = new CoinSourceReader(new HttpClient(handler), folder.Path, clock, (_, _) =>
+        { extractions++; return Task.FromResult("KUB WHITEPAPER V5.2 " + new string('p', 140)); });
+        var first = await reader.ReadAsync(url, default);
+        Assert.Equal("KUB-THB", first.Source.Symbol);
+        Assert.Equal(spec.Title, first.Source.Title);
+        Assert.Equal("doc-" + first.Source.ContentHash, first.Source.Id);
+        Assert.Equal(first, await reader.ReadAsync(url, default));
+        Assert.Equal(1, handler.Calls); Assert.Equal(1, extractions);
+        using var hugeFolder = new TempFolder();
+        var hugeHandler = new RecordingHandler(_ => new(HttpStatusCode.OK) { Content = new StreamingContent(12 * 1024 * 1024 + 1) });
+        await Assert.ThrowsAsync<InvalidDataException>(() =>
+            new CoinSourceReader(new HttpClient(hugeHandler), hugeFolder.Path, clock).ReadAsync(url, default));
+    }
+
+    [Fact]
     public async Task Reads_catalog_html_and_caches_for_24_hours()
     {
         using var folder = new TempFolder(); var clock = new FakeClock(TestTime);

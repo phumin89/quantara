@@ -30,13 +30,15 @@ public sealed class CodexCliTradingAgentGateway : ITradingAgentGateway
     {
         ArgumentNullException.ThrowIfNull(request);
         if (string.IsNullOrWhiteSpace(request.Model)) throw new AgentModelUnavailableException("Codex Agent model is unavailable.");
+        if (string.IsNullOrWhiteSpace(request.ReasoningEffort)) throw new ArgumentException("Reasoning effort is required.", nameof(request.ReasoningEffort));
+        if (request.MaxOutputTokens <= 0) throw new ArgumentOutOfRangeException(nameof(request.MaxOutputTokens));
         if (request.Timeout <= TimeSpan.Zero) throw new ArgumentOutOfRangeException(nameof(request.Timeout));
         ValidateJson(request.InputJson, nameof(request.InputJson)); ValidateJson(request.JsonSchema, nameof(request.JsonSchema));
         var temp = Path.Combine(Path.GetTempPath(), "quantara-codex-" + Guid.NewGuid().ToString("N")); Directory.CreateDirectory(temp);
         try
         {
             var schemaPath = Path.Combine(temp, "schema.json"); await File.WriteAllTextAsync(schemaPath, request.JsonSchema, cancellationToken);
-            var args = new List<string> { "exec", "--json", "--ephemeral", "--ignore-user-config", "--sandbox", "read-only", "--skip-git-repo-check", "-C", temp, "--output-schema", schemaPath };
+            var args = new List<string> { "exec", "--json", "--ephemeral", "--ignore-user-config", "--sandbox", "read-only", "--skip-git-repo-check", "-C", temp, "--output-schema", schemaPath, "--config", "model_reasoning_effort=" + JsonSerializer.Serialize(request.ReasoningEffort) };
             if (!string.Equals(request.Model, "codex-default", StringComparison.Ordinal)) { args.Add("-m"); args.Add(request.Model); }
             args.Add("-");
             using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken); timeout.CancelAfter(request.Timeout);
@@ -45,7 +47,7 @@ public sealed class CodexCliTradingAgentGateway : ITradingAgentGateway
                 $"If the output schema requires a role field, set it exactly \"{request.Role}\". " +
                 "Copy any required dataCutoff, evidenceHash, and evidenceIds from the supplied input exactly; do not invent them. " +
                 "Amounts are in THB. Return only the JSON object required by the output schema.\n" +
-                request.SystemInstructions + "\nINPUT JSON:\n" + request.InputJson;
+                request.SystemInstructions + $"\nReturn concise JSON; aim for at most {request.MaxOutputTokens} output tokens.\nINPUT JSON:\n" + request.InputJson;
             try { process = await runner(args, temp, prompt, timeout.Token); }
             catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested) { throw new AgentProviderTimeoutException("Codex Agent provider request timed out."); }
             catch (OperationCanceledException) { throw; }

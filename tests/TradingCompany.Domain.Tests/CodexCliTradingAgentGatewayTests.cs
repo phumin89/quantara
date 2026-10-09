@@ -23,9 +23,18 @@ public sealed class CodexCliTradingAgentGatewayTests
         Assert.Equal("{\"action\":\"HOLD\"}", result.OutputJson);
         Assert.Contains("--json", args!); Assert.Contains("--ephemeral", args!); Assert.Contains("--sandbox", args!);
         Assert.Contains("read-only", args!); Assert.Contains("--output-schema", args!); Assert.DoesNotContain("-m", args!);
-        Assert.Contains("exactly \"Role\"", input);
+        Assert.Contains("--config", args!); Assert.Contains("model_reasoning_effort=\"high\"", args!);
+        Assert.Contains("exactly \"Role\"", input); Assert.Contains("at most 100 output tokens", input);
         Assert.Contains(request.InputJson, input);
         Assert.NotNull(schema);
+    }
+
+    [Fact]
+    public async Task Rejects_missing_effort_or_output_limit()
+    {
+        var gateway = new CodexCliTradingAgentGateway("codex", (_, _, _, _) => Task.FromResult(new CodexCliProcessResult(0, "", "")));
+        await Assert.ThrowsAsync<ArgumentException>(() => gateway.CompleteStructuredAsync(Request() with { ReasoningEffort = " " }, CancellationToken.None));
+        await Assert.ThrowsAsync<ArgumentOutOfRangeException>(() => gateway.CompleteStructuredAsync(Request() with { MaxOutputTokens = 0 }, CancellationToken.None));
     }
 
     [Fact]

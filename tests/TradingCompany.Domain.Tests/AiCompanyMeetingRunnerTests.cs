@@ -62,6 +62,48 @@ public sealed class AiCompanyMeetingRunnerTests
         });
     }
 
+    [Fact]
+    public async Task Large_catalog_is_scoped_to_visible_inventory_without_changing_authority_or_validation()
+    {
+        var symbols = new[] { "NVDA", "ETH-THB", "BTC-THB" }.Concat(Enumerable.Range(0, 244).Select(i => $"COIN{i}-THB")).ToArray();
+        var limits = new LiveResearchLimits(100000, .8m, 247, .0035m, .01m, symbols)
+        { MaximumOrderNotional = 100000, MaximumDailyTurnover = 200000,
+            ResearchSymbols = symbols,
+            OrderSizing = symbols.Select(s => new LiveOrderSizing(s, .01m, .00000001m, 1, 10)).ToArray() };
+        var input = Input() with
+        {
+            AccountContext = new(TradingMode.Live, new string('1', 32)), ExecutionLimits = limits,
+            ObservedAt = LiveRiskTests.Now,
+            Research = new(LiveRiskTests.Now, new string('a', 64),
+                [new("COIN0-THB", 1, 1, 0, 0, 0, 0, false, false)], [], [], []),
+            ActualPositions = [new("ETH-THB", 1, 0, 1000)],
+            ActiveTradePlans = [new(Guid.NewGuid(), "BTC-THB", new(100000, .01m, 110000, 95000, LiveRiskTests.Now.AddHours(4)), "WAITING_ENTRY", 0, 0)]
+        };
+        var gateway = new QueueGateway(Roles.Select(r => Output(input, r)));
+        Assert.Equal("COMPLETED", (await Runner(gateway).RunAsync(input, default)).Status);
+        foreach (var request in gateway.Requests)
+        {
+            using var wire = JsonDocument.Parse(request.InputJson);
+            var scoped = wire.RootElement.GetProperty("meeting").GetProperty("executionLimits").Deserialize<LiveResearchLimits>(new JsonSerializerOptions(JsonSerializerDefaults.Web))!;
+            Assert.Equal(new[] { "NVDA", "ETH-THB", "BTC-THB" }, scoped.OrderSizing.Select(s => s.Symbol));
+            Assert.Equal(new[] { "NVDA", "ETH-THB", "BTC-THB", "COIN0-THB" }, scoped.ResearchSymbols);
+            Assert.Equal(JsonSerializer.Serialize(limits), JsonSerializer.Serialize(scoped with
+                { OrderSizing = limits.OrderSizing, ResearchSymbols = limits.ResearchSymbols }));
+            Assert.True(JsonSerializer.SerializeToUtf8Bytes(scoped).Length < JsonSerializer.SerializeToUtf8Bytes(limits).Length / 4);
+            using var schema = JsonDocument.Parse(request.JsonSchema);
+            var fields = schema.RootElement.GetProperty("properties");
+            Assert.Equal(request.Role, fields.GetProperty("role").GetProperty("enum")[0].GetString());
+            Assert.Equal(input.EvidenceHash, fields.GetProperty("evidenceHash").GetProperty("enum")[0].GetString());
+            Assert.Equal(280, fields.GetProperty("summary").GetProperty("maxLength").GetInt32());
+            if (request.Role is "portfolio-initial" or "portfolio-final")
+                Assert.Equal("NVDA", fields.GetProperty("proposals").GetProperty("items").GetProperty("properties").GetProperty("symbol").GetProperty("enum")[0].GetString());
+            else Assert.Equal(0, fields.GetProperty("proposals").GetProperty("maxItems").GetInt32());
+        }
+        Assert.Equal(247, input.ExecutionLimits.OrderSizing.Count);
+        Assert.Equal(247, input.ExecutionLimits.ResearchSymbols.Count);
+        Assert.Equal(247, input.ExecutionLimits.AllowedSymbols.Count);
+    }
+
     [Theory]
     [InlineData(false)]
     [InlineData(true)]

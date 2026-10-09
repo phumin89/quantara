@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using TradingCompany.Application;
 using TradingCompany.Domain;
 using Xunit;
@@ -27,6 +28,25 @@ public sealed class AiCompanyTradePlanContractTests
         var result = Validate(Input(), Output());
         Assert.True(result.IsValid, string.Join(",", result.Violations));
         Assert.Equal(Plan, Assert.Single(result.Output!.Proposals).TradePlan);
+    }
+
+    [Fact]
+    public void Forty_percent_allocation_includes_fee_reserve_before_quantity_rounding()
+    {
+        var input = Input() with { Portfolio = Input().Portfolio with { Equity = 4999.12m, Cash = 4999.12m },
+            MaximumPositionWeight = 1, ExecutionLimits = Input().ExecutionLimits! with
+            { CapitalAllocation = 5000.0872m, MaximumPositionWeight = 1, MaximumOrderNotional = 5000.0872m, FeeReserveRate = .0035m } };
+        var plan = Plan with { EntryPrice = 83699.97m, Quantity = .02389m, TakeProfitPrice = 93000, StopLossPrice = 78897.11m };
+        var output = JsonNode.Parse(Output("BUY", plan))!;
+        output["proposals"]![0]!["targetWeight"] = .4m;
+        Assert.Contains("TRADE_PLAN_BUDGET_EXCEEDED", Validate(input, output.ToJsonString()).Violations);
+        var sizing = input.ExecutionLimits!.OrderSizing[0];
+        var budget = Math.Min(input.Portfolio.Cash, Math.Min(input.ExecutionLimits.MaximumOrderNotional!.Value, .4m * input.Portfolio.Equity));
+        var quantity = decimal.Floor(budget / (plan.EntryPrice * (1 + input.ExecutionLimits.FeeReserveRate)) / sizing.BaseStep) * sizing.BaseStep;
+        Assert.Equal(.02380733m, quantity);
+        output["proposals"]![0]!["tradePlan"]!["quantity"] = quantity;
+        var corrected = Validate(input, output.ToJsonString());
+        Assert.True(corrected.IsValid, string.Join(",", corrected.Violations));
     }
 
     [Theory]

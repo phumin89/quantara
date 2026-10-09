@@ -35,7 +35,8 @@ public static class CoinMarketScout
             .Where(o => o.Active && !o.Frozen && o.Bid > 0 && o.Ask >= o.Bid && o.QuoteVolume24h >= threshold && o.Change24hPercent >= -100m && o.Change24hPercent <= 1_000_000m)
             .Select(o => TryCandidate(o, execution.Contains(o.Symbol), held.Contains(o.Symbol)))
             .Where(c => c is not null && c.SpreadPercent <= 0.5m).Cast<CoinScoutCandidate>()
-            .OrderByDescending(c => c.QuoteVolume24h).ThenBy(c => c.SpreadPercent).ThenByDescending(c => Math.Abs(c.Change24hPercent))
+            // Owner requested KUB monitoring; preference grants no execution authority.
+            .OrderByDescending(c => c.Symbol == "KUB-THB").ThenByDescending(c => c.QuoteVolume24h).ThenBy(c => c.SpreadPercent).ThenByDescending(c => Math.Abs(c.Change24hPercent))
             .ThenBy(c => c.Symbol, StringComparer.Ordinal).ToArray();
         if (!legacy && held.Count >= 8)
         {

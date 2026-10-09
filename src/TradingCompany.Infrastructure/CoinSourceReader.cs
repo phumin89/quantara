@@ -12,6 +12,7 @@ namespace TradingCompany.Infrastructure;
 public sealed partial class CoinSourceReader(HttpClient client, string directory, TimeProvider clock,
     Func<byte[], CancellationToken, Task<string>>? pdfReader = null)
 {
+    private const string KubPaperUrl = "https://www.kubchain.com/docs/EN_KUB_Chain_WhitePaper_V5.2.pdf";
     public static IReadOnlyList<(string Symbol, string Title, string Url)> Catalog { get; } = Array.AsReadOnly<(string Symbol, string Title, string Url)>([
         ("BTC-THB", "Bitcoin whitepaper (2008)", "https://bitcoin.org/bitcoin.pdf"),
         ("BTC-THB", "Bitcoin Core security policy", "https://raw.githubusercontent.com/bitcoin/bitcoin/master/SECURITY.md"),
@@ -24,7 +25,8 @@ public sealed partial class CoinSourceReader(HttpClient client, string directory
         ("ADA-THB", "Cardano Foundation consensus/staking", "https://raw.githubusercontent.com/cardano-foundation/developer-portal/main/docs/operators/basics/consensus-staking.md"),
         ("USDT-THB", "Tether historical whitepaper notice", "https://tether.to/en/whitepaper/"),
         ("NEAR-THB", "NEAR Nightshade paper (documentation archive)", "https://raw.githubusercontent.com/near/docs/master/papers/Nightshade.pdf"),
-        ("CRV-THB", "Curve current CRV token documentation", "https://raw.githubusercontent.com/curvefi/docs/main/docs/user/curve-tokens/crv.md")
+        ("CRV-THB", "Curve current CRV token documentation", "https://raw.githubusercontent.com/curvefi/docs/main/docs/user/curve-tokens/crv.md"),
+        ("KUB-THB", "KUB Chain whitepaper V5.2 (2026)", KubPaperUrl)
     ]);
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
     private const int ByteLimit = 4 * 1024 * 1024;
@@ -36,6 +38,8 @@ public sealed partial class CoinSourceReader(HttpClient client, string directory
         if (!Path.IsPathFullyQualified(directory)) throw new ArgumentException("Public research directory must be absolute.");
         var spec = Catalog.SingleOrDefault(s => s.Url == url);
         if (spec.Url is null) throw new InvalidDataException("Source is outside the public catalog.");
+        // This verified paper is 10,248,937 bytes. Other sources retain 4 MiB.
+        var sourceByteLimit = url == KubPaperUrl ? 12 * 1024 * 1024 : ByteLimit;
         Directory.CreateDirectory(directory);
         var index = Path.Combine(directory, Sha(url) + ".json");
         if (File.Exists(index))
@@ -48,7 +52,7 @@ public sealed partial class CoinSourceReader(HttpClient client, string directory
                 d.Source.Id != "doc-" + d.Source.ContentHash || !CoinResearchValidation.Hash(saved.RawHash) || d.Source.RetrievedAt > clock.GetUtcNow())
                 throw new InvalidDataException("Invalid source cache.");
             var rawPath = Path.Combine(directory, saved.RawHash + ".bin");
-            if (!File.Exists(rawPath) || new FileInfo(rawPath).Length > ByteLimit ||
+            if (!File.Exists(rawPath) || new FileInfo(rawPath).Length > sourceByteLimit ||
                 Convert.ToHexStringLower(SHA256.HashData(await File.ReadAllBytesAsync(rawPath, token))) != saved.RawHash)
                 throw new InvalidDataException("Source snapshot checksum failed.");
             if (clock.GetUtcNow() - d.Source.RetrievedAt < TimeSpan.FromHours(24)) return d;
@@ -58,9 +62,9 @@ public sealed partial class CoinSourceReader(HttpClient client, string directory
         using var response = await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, token);
         // The caller installs a no-redirect, no-cookie handler. Unexpected redirection is not source evidence.
         response.EnsureSuccessStatusCode();
-        if (response.RequestMessage?.RequestUri?.AbsoluteUri != url || response.Content.Headers.ContentLength > ByteLimit)
+        if (response.RequestMessage?.RequestUri?.AbsoluteUri != url || response.Content.Headers.ContentLength > sourceByteLimit)
             throw new InvalidDataException("Unexpected public source response.");
-        var bytes = await ReadBoundedAsync(response, ByteLimit, token);
+        var bytes = await ReadBoundedAsync(response, sourceByteLimit, token);
         string text;
         if (url.EndsWith(".pdf", StringComparison.Ordinal))
         {

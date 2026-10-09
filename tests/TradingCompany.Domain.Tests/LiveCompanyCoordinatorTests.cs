@@ -1371,7 +1371,10 @@ public sealed class LiveCompanyCoordinatorTests : IDisposable
             if (request.Role == "portfolio-final") AfterFinal?.Invoke();
             var candidate = input.Candidates.FirstOrDefault(c => c.Symbol.Value == ProposalSymbol) ?? input.Candidates[0];
             var quote = candidate.CurrentQuote!;
-            var sizing = input.ExecutionLimits!.OrderSizing.FirstOrDefault(s => s.Symbol == ProposalSymbol) ?? input.ExecutionLimits.OrderSizing[0];
+            // Deliberately emit an unauthorized proposal even when its sizing is
+            // absent, so the test reaches validation instead of crashing the fake.
+            var sizing = input.ExecutionLimits!.OrderSizing.FirstOrDefault(s => s.Symbol == ProposalSymbol)
+                ?? input.ExecutionLimits.OrderSizing.FirstOrDefault() ?? new(ProposalSymbol, .01m, .01m, 1, 1);
             var amount = Math.Min(TargetWeight * input.Portfolio.Equity, Math.Min(input.Portfolio.Cash,
                 input.ExecutionLimits.MaximumOrderNotional ?? input.Portfolio.Equity)) / (1 + input.ExecutionLimits.FeeReserveRate);
             var quantity = decimal.Floor(amount / quote.Ask / sizing.BaseStep) * sizing.BaseStep;

@@ -66,6 +66,44 @@ public sealed class CoinMarketScoutTests
     }
 
     [Fact]
+    public void Eligible_kub_is_prioritized_without_bypassing_filters_or_execution_membership()
+    {
+        var rows = new[]
+        {
+            new CoinMarketObservation("BTC-THB", true, false, 10, 10.01m, 2_000_000, 0),
+            new CoinMarketObservation("KUB-THB", true, false, 10, 10.01m, 100_000, 0),
+            new CoinMarketObservation("FRO-THB", true, true, 10, 10.01m, 3_000_000, 0),
+            new CoinMarketObservation("THI-THB", true, false, 10, 10.01m, 99_999, 0),
+            new CoinMarketObservation("BAD-THB", true, false, 10, 11, 3_000_000, 0)
+        };
+
+        var markets = rows.Concat(Enumerable.Range(0, 10).Select(i =>
+            new CoinMarketObservation($"C{i:00}-THB", true, false, 10, 10.01m, 1_000_000, 0))).ToArray();
+        var result = CoinMarketScout.Rank(markets, ["BTC-THB", "AAA-THB", "BBB-THB", "CCC-THB"], [], 1_000);
+
+        Assert.Equal(8, result.Count);
+        Assert.Equal("KUB-THB", result[0].Symbol);
+        Assert.False(result[0].ExecutionAllowed);
+        Assert.DoesNotContain(result, c => c.Symbol is "FRO-THB" or "THI-THB" or "BAD-THB");
+    }
+
+    [Theory]
+    [InlineData(false, false, 10, 10.01, 200000)]
+    [InlineData(true, true, 10, 10.01, 200000)]
+    [InlineData(true, false, 10, 10.01, 99999)]
+    [InlineData(true, false, 10, 11, 200000)]
+    [InlineData(true, false, 0, 10, 200000)]
+    [InlineData(true, false, 10, 9, 200000)]
+    public void Preferred_kub_must_still_pass_the_existing_market_filters(bool active, bool frozen,
+        double bid, double ask, int volume)
+    {
+        CoinMarketObservation[] rows = [new("BTC-THB", true, false, 10, 10.01m, 200000, 0),
+            new("KUB-THB", active, frozen, (decimal)bid, (decimal)ask, volume, 20)];
+        var result = CoinMarketScout.Rank(rows, ["BTC-THB", "AAA-THB", "BBB-THB", "CCC-THB"], [], 1000);
+        Assert.Equal("BTC-THB", Assert.Single(result).Symbol);
+    }
+
+    [Fact]
     public void More_than_eight_holdings_use_a_deterministic_batch_without_rejecting_the_portfolio()
     {
         var symbols = Enumerable.Range(0, 10).Select(i => $"M{i:00}-THB").ToArray();

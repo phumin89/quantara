@@ -34,7 +34,8 @@ public static partial class CoinResearchValidation
     public static bool Hash(string? value) => value is { Length: 64 } && value.All(char.IsAsciiHexDigit);
     public static bool PublicSourceUrl(string? value) => Uri.TryCreate(value, UriKind.Absolute, out var u) &&
         u.Scheme == "https" && u.IsDefaultPort && u.UserInfo.Length == 0 && u.Query.Length == 0 && u.Fragment.Length == 0 &&
-        u.Host is "bitcoin.org" or "raw.githubusercontent.com" or "ethereum.org" or "solana.com" or "xrpl.org" or "tether.to";
+        (u.Host is "bitcoin.org" or "raw.githubusercontent.com" or "ethereum.org" or "solana.com" or "xrpl.org" or "tether.to" ||
+         value == "https://www.kubchain.com/docs/EN_KUB_Chain_WhitePaper_V5.2.pdf");
     public static bool IsValid(CoinResearchBrief? value, DateTimeOffset now)
     {
         if (value is null || value.ObservedAt > now || now - value.ObservedAt > TimeSpan.FromMinutes(16) || !Hash(value.ChangeKey) ||
