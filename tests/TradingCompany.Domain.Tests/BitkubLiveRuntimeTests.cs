@@ -69,9 +69,9 @@ public sealed class BitkubLiveRuntimeTests
     }
 
     [Fact]
-    public void Unsupported_symbol_is_rejected()
+    public void Malformed_market_symbol_is_rejected()
     {
-        var pairs = "\"Pairs\":[{\"Symbol\":\"DOGE-THB\",\"BuyQuoteStep\":1,\"SellBaseStep\":1,\"PriceStep\":1,\"MinimumQuoteSize\":10,\"RawQuantityScale\":8,\"RawQuantityStep\":0.00000001}]";
+        var pairs = "\"Pairs\":[{\"Symbol\":\"DOGE-THB?injected=1\",\"BuyQuoteStep\":1,\"SellBaseStep\":1,\"PriceStep\":1,\"MinimumQuoteSize\":10,\"RawQuantityScale\":8,\"RawQuantityStep\":0.00000001}]";
         using var fixture = new Fixture(ValidJson(rules: pairs));
         AssertInvalid(new ServiceCollection(), Config(true, fixture.VerificationPath, fixture.CredentialsPath));
     }

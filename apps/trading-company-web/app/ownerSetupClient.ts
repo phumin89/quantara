@@ -7,7 +7,7 @@ const amount = (x: unknown): x is number => typeof x === "number" && Number.isFi
 const version = (x: unknown): x is number => typeof x === "number" && Number.isSafeInteger(x) && x > 0;
 const object = (x: unknown): x is Record<string, unknown> => !!x && typeof x === "object" && !Array.isArray(x);
 const uuid = (x: unknown) => typeof x === "string" && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(x);
-const symbols = (x: unknown): x is string[] => Array.isArray(x) && x.length > 0 && x.length <= 3 && new Set(x).size === x.length && x.every(s => ["BTC-THB", "ETH-THB", "SOL-THB"].includes(s));
+const symbols = (x: unknown): x is string[] => Array.isArray(x) && x.length > 0 && x.length <= 1000 && new Set(x).size === x.length && x.every(s => typeof s === "string" && s !== "THB-THB" && /^[A-Z0-9]{1,15}-THB$/.test(s) && s.endsWith("-THB"));
 export function readOwnerSetup(x: unknown): OwnerSetup | undefined {
   if (!object(x) || typeof x.configured !== "boolean" || typeof x.canControl !== "boolean" || !Array.isArray(x.reasons) || x.reasons.length > 64 || !x.reasons.every(r => typeof r === "string" && r.length <= 256)) return;
   if (!x.configured) return { configured: false, canControl: x.canControl, reasons: x.reasons };

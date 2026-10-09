@@ -48,7 +48,7 @@ test('optional coordinator status and symbols are validated and rendered', () =>
   assert.equal(validLiveActivity(valid, account, now), true);
   for (const invalid of [
     { ...valid, coordinatorStatus: 'watching' }, { ...valid, researchSymbols: ['BTC-THB', 'BTC-THB'] },
-    { ...valid, researchSymbols: ['DOGE-THB'] }, { ...valid, tradingSymbols: ['SOL-THB'] },
+    { ...valid, researchSymbols: ['DOGE-USDT'] }, { ...valid, tradingSymbols: ['SOL-THB'] },
     { ...valid, researchSymbols: undefined },
   ]) assert.equal(validLiveActivity(invalid, account, now), false);
   assert.equal(validLiveActivity({ ...make(now), tradingSymbols: [] }, account, now), true);
@@ -56,6 +56,49 @@ test('optional coordinator status and symbols are validated and rendered', () =>
   const html = renderToStaticMarkup(React.createElement(LiveOffice, { activity: { ...valid, roles: [{ ...valid.roles[0], status: 'completed' }] } }));
   assert.ok(html.includes('เฝ้าตลาด')); assert.ok(html.includes('วิเคราะห์ BTC · ETH')); assert.ok(html.includes('เทรดได้ BTC'));
 });
+test('activity and office accept dynamic THB spot markets with more than three research symbols', () => {
+  const now = Date.parse('2026-10-06T06:00:00Z');
+  const researchSymbols = ['BTC-THB', 'ETH-THB', 'DOGE-THB', 'XRP-THB', '1-THB', `${'A'.repeat(15)}-THB`];
+  const activity = { ...make(now), researchSymbols, tradingSymbols: ['DOGE-THB', 'XRP-THB'],
+    issues: [{ code: 'MARKET_HISTORY_UNAVAILABLE', symbol: 'DOGE-THB' }, { code: 'MARKET_HISTORY_UNAVAILABLE', symbol: 'XRP-THB' }] };
+  assert.equal(validLiveActivity(activity, account, now), true);
+  const html = renderToStaticMarkup(React.createElement(LiveOffice, { activity }));
+  assert.ok(html.includes('วิเคราะห์ BTC · ETH · DOGE · XRP'));
+  assert.ok(html.includes('เทรดได้ DOGE · XRP'));
+  const atLimit = { ...make(now), researchSymbols: Array.from({ length: 1000 }, (_, i) => `C${i}-THB`) };
+  atLimit.tradingSymbols = atLimit.researchSymbols;
+  assert.equal(validLiveActivity(atLimit, account, now), true);
+  assert.equal(validLiveActivity({ ...atLimit, researchSymbols: [...atLimit.researchSymbols, 'C1000-THB'] }, account, now), false);
+  assert.equal(validLiveActivity({ ...atLimit, tradingSymbols: [...atLimit.tradingSymbols, 'C1000-THB'] }, account, now), false);
+});
+test('activity and office reject non-canonical symbols, duplicates and invalid array shapes', () => {
+  const now = Date.parse('2026-10-06T06:00:00Z');
+  const invalidSymbols = [null, 1, '', '-THB', 'THB-THB', 'DOGE-USDT', 'doge-THB', 'DOGE-thb',
+    'DÖGE-THB', 'DOGE_THB', 'DOGE-THB?x=1', 'DOGE-THB/..', '../DOGE-THB', `${'A'.repeat(16)}-THB`,
+    ' DOGE-THB', 'DOGE-THB ', 'DOGE-THB\n', 'DOGE-THB\r', 'DOGE-THB\u2028'];
+  for (const symbol of invalidSymbols) {
+    assert.equal(validLiveIssues([{ code: 'MARKET_HISTORY_UNAVAILABLE', symbol }]), false);
+  }
+  assert.equal(validLiveIssues([{ code: 'MARKET_HISTORY_UNAVAILABLE', symbol: 'DOGE-THB' }, { code: 'MARKET_HISTORY_UNAVAILABLE', symbol: 'DOGE-THB' }]), false);
+  for (const researchSymbols of [null, {}, ['DOGE-THB', 'DOGE-THB'], ...invalidSymbols.map(symbol => [symbol])]) {
+    const activity = { ...make(now), researchSymbols };
+    assert.equal(validLiveActivity(activity, account, now), false);
+    assert.equal(validLiveActivity({ ...make(now), researchSymbols: ['DOGE-THB'], tradingSymbols: researchSymbols }, account, now), false);
+    const html = renderToStaticMarkup(React.createElement(LiveOffice, { activity }));
+    assert.ok(!html.includes('วิเคราะห์ '));
+  }
+});
+
+test('eight distinct native market history gaps survive activity and retain a bounded issue list', () => {
+  const now = Date.parse('2026-10-06T06:00:00Z');
+  const issues = ['BTC', 'ETH', 'SOL', 'DOGE', 'XRP', 'ADA', 'USDT', 'NEAR'].map(base => ({ code: 'MARKET_HISTORY_UNAVAILABLE', symbol: `${base}-THB` }));
+  assert.equal(validLiveIssues(issues), true);
+  assert.equal(validLiveActivity({ ...make(now), issues }, account, now), true);
+  const atLimit = Array.from({ length: 1000 }, (_, i) => ({ code: 'MARKET_HISTORY_UNAVAILABLE', symbol: `C${i}-THB` }));
+  assert.equal(validLiveIssues(atLimit), true);
+  assert.equal(validLiveIssues([...atLimit, { code: 'MARKET_HISTORY_UNAVAILABLE', symbol: 'C1000-THB' }]), false);
+});
+
 test('activity issue metadata fails closed and preserves legacy records', () => {
   const now = Date.parse('2026-10-06T06:00:00Z');
   const valid = { ...make(now), issues: [{ code: 'MARKET_HISTORY_UNAVAILABLE', symbol: 'BTC-THB' }, { code: 'MEETING_FAILED' }], nextRetryAt: new Date(now + 86400000).toISOString() };

@@ -37,9 +37,11 @@ public sealed class BitkubAccountProvisioner(LiveTradingStore store, BitkubLiveB
         if (wallet.Any(b => b.Currency != "THB" && b.Total != 0 && !symbols.Contains(b.Currency + "-THB", StringComparer.Ordinal)))
             return new(false, ["INITIAL_ASSET_UNSUPPORTED"]);
         var quotes = new List<LiveQuote>();
-        foreach (var symbol in symbols) quotes.Add(await broker.GetQuoteAsync(symbol, token));
+        if (symbols.Count > 3) quotes.AddRange(await broker.GetQuotesAsync(symbols, token));
+        else foreach (var symbol in symbols) quotes.Add(await broker.GetQuoteAsync(symbol, token));
         var now = clock.GetUtcNow();
-        if (quotes.Any(q => q.Bid <= 0 || q.Ask < q.Bid || q.ObservedAt > now || now - q.ObservedAt > TimeSpan.FromSeconds(30)))
+        if (quotes.Any(q => q.Bid <= 0 || q.Ask < q.Bid || q.ObservedAt > now || now - q.ObservedAt > TimeSpan.FromSeconds(30)) ||
+            wallet.Any(b => b.Currency != "THB" && b.Total != 0 && quotes.All(q => q.Symbol != b.Currency + "-THB")))
             return new(false, ["QUOTE_UNAVAILABLE"]);
         var positions = wallet.Where(b => b.Currency != "THB" && b.Total > 0)
             .Select(b => new LivePosition(b.Currency + "-THB", b.Total, 0,

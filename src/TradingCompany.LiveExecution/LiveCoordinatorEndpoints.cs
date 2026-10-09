@@ -29,9 +29,13 @@ public static class LiveCoordinatorEndpoints
             var now = clock.GetUtcNow();
             var baseline = account.PerformanceBaseline;
             var broker = context.RequestServices.GetService<BitkubLiveBroker>();
-            string[] researchSymbols = broker is null ? mandate.AllowedSymbols.ToArray() : ["BTC-THB", "ETH-THB", "SOL-THB"];
-            var researchQuotes = account.Snapshot.Quotes.Where(q => researchSymbols.Contains(q.Symbol)).ToList();
-            if (broker is not null)
+            var configured = context.RequestServices.GetService<BitkubConfiguredAccount>();
+            string[] researchSymbols = configured is null ? mandate.AllowedSymbols.ToArray() : configured.Verification.Rules.Pairs.Select(p => p.Symbol).ToArray();
+            var researchQuotes = account.Snapshot.Quotes.Where(q => researchSymbols.Contains(q.Symbol) &&
+                q.ObservedAt <= now && now - q.ObservedAt <= TimeSpan.FromSeconds(30)).ToList();
+            if (broker is not null && researchSymbols.Length > 3)
+                researchQuotes = (await broker.GetQuotesAsync(researchSymbols, context.RequestAborted)).ToList();
+            else if (broker is not null)
                 foreach (var symbol in researchSymbols.Where(s => researchQuotes.All(q => q.Symbol != s)))
                     researchQuotes.Add(await broker.GetQuoteAsync(symbol, context.RequestAborted));
             // Construct readiness explicitly rather than trusting a saved armed flag.
@@ -53,6 +57,7 @@ public static class LiveCoordinatorEndpoints
                     MaximumDailyTurnover = mandate.MaximumDailyTurnover,
                     ResearchSymbols = researchSymbols,
                     OrderSizing = context.RequestServices.GetService<BitkubConfiguredAccount>()?.Verification.Rules.Pairs
+                        .Where(p => mandate.AllowedSymbols.Contains(p.Symbol))
                         .Select(p => new LiveOrderSizing(p.Symbol, p.PriceStep, p.SellBaseStep, p.BuyQuoteStep, p.MinimumQuoteSize)).ToArray() ?? []
                 }, ready, account.Gate.Stopped) { ResearchQuotes = researchQuotes,
                     TradePlans = LiveTradePlans.Views(account, now, context.RequestServices.GetService<BitkubConfiguredAccount>()?.Verification.Rules.Pairs

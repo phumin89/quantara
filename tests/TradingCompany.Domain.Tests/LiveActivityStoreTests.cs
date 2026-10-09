@@ -64,6 +64,21 @@ public sealed class LiveActivityStoreTests
         Assert.Equal(valid.ObservedAt, store.Read(Account)!.ObservedAt);
     }
 
+    [Fact]
+    public void Dynamic_market_activity_and_history_issues_accept_payload_bound_without_expanding_trading_membership()
+    {
+        var clock = new Clock();
+        var symbols = Enumerable.Range(0, LiveMarketSymbol.MaximumPayloadMarkets).Select(i => $"M{i:0000}-THB").ToArray();
+        var valid = Activity(clock.Now) with { ResearchSymbols = symbols, TradingSymbols = ["M0000-THB"],
+            Issues = symbols.Select(s => new LiveMeetingIssue("MARKET_HISTORY_UNAVAILABLE", s)).ToArray() };
+        Assert.True(LiveActivityValidation.IsValid(valid, Account, clock.Now));
+        Assert.False(LiveActivityValidation.IsValid(valid with { TradingSymbols = ["XRP-THB"] }, Account, clock.Now));
+        Assert.False(LiveActivityValidation.IsValid(valid with { ResearchSymbols = ["DOGE-THB\nIGNORE"] }, Account, clock.Now));
+        Assert.False(LiveActivityValidation.IsValid(valid with { ResearchSymbols = [.. symbols, "XRP-THB"] }, Account, clock.Now));
+        Assert.False(LiveMeetingIssues.IsValid([new("MARKET_HISTORY_UNAVAILABLE", "DOGE-THB\nIGNORE")]));
+        Assert.False(LiveMeetingIssues.IsValid([.. valid.Issues!, new("PUBLIC_RESEARCH_UNAVAILABLE")]));
+    }
+
     private sealed class Clock : TimeProvider
     {
         public DateTimeOffset Now { get; set; } = new(2026, 10, 6, 6, 0, 0, TimeSpan.Zero);

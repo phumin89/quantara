@@ -48,6 +48,16 @@ test('saved market history issue stays symbol-specific and historical',()=>{
  const html=renderToStaticMarkup(React.createElement(LiveMeetingView,{meetings:readMeetings(x).meetings,selected:'',onSelect(){}}));
  assert.ok(html.includes('กราฟประวัติตลาดของรอบนี้ไม่ครบ (SOL-THB)')); assert.ok(html.includes('รอบนี้วิเคราะห์เท่านั้น · ไม่ได้ส่งคำสั่ง')); assert.ok(!html.includes('ตลาดทั้งหมดไม่พร้อม')); assert.ok(!html.includes('ส่งคำสั่งแล้ว'));
 });
+test('saved reports retain eight distinct native market history gaps',()=>{
+ const x=fixture(); x.meetings[0].status='READ_ONLY';
+ const symbols=['BTC','ETH','SOL','DOGE','XRP','ADA','USDT','NEAR'].map(base=>`${base}-THB`);
+ x.meetings[0].summary.issues=symbols.map(symbol=>({code:'MARKET_HISTORY_UNAVAILABLE',symbol}));
+ const parsed=readMeetings(x); assert.ok(parsed); assert.equal(parsed.meetings[0].summary.issues.length,8);
+ const html=renderToStaticMarkup(React.createElement(LiveMeetingView,{meetings:parsed.meetings,selected:'',onSelect(){}}));
+ for(const symbol of symbols) assert.ok(html.includes(`(${symbol})`));
+ assert.equal(html.split('กราฟประวัติตลาดของรอบนี้ไม่ครบ').length-1,1);
+});
+
 test('report reads require fixed HTTPS and never confuse unauthorized with an empty report',async()=>{
  const calls=[];const fetcher=async(url,options)=>{calls.push({url,options});return Response.json(fixture());};
  assert.equal(await readLiveMeetings('http://localhost:3000',fetcher),undefined);assert.equal(calls.length,0);
@@ -60,6 +70,18 @@ test('research is optional, strict, and rendered after the conclusion',()=>{
  for(const mutate of [v=>v.sources[0].url='https://evil.example/x',v=>v.findings[0].claims[0].sourceId='doc-'+'c'.repeat(64),v=>v.watchlist[0].symbol='btc-thb',v=>v.gaps=Array(13).fill('gap')]) { const bad=structuredClone(brief); mutate(bad); assert.equal(readResearch(bad),undefined); }
  assert.equal(readResearch(null),undefined); assert.deepEqual(readResearch(brief,Date.parse(now)),brief);
 });
+test('research watchlist, sources and findings share canonical THB symbol validation',()=>{
+ const now=Date.parse('2026-10-07T00:00:00Z');
+ const brief={observedAt:'2026-10-06T02:00:00Z',changeKey:'a'.repeat(64),watchlist:[{symbol:'DOGE-THB',bid:100,ask:101,quoteVolume24h:1000,change24hPercent:1,spreadPercent:1,depthQuoteNotional:500,executionAllowed:false,held:false}],sources:[{id:'doc-'+'b'.repeat(64),symbol:'DOGE-THB',title:'Official project document',url:'https://raw.githubusercontent.com/dogecoin/dogecoin/master/doc/FAQ.md',contentHash:'b'.repeat(64),retrievedAt:'2026-10-06T01:00:00Z'}],findings:[{symbol:'DOGE-THB',summary:'ตรวจหลักฐานโครงการ',claims:[{statement:'โครงการเผยแพร่ข้อมูลสาธารณะที่ตรวจสอบได้',assessment:'PROJECT_CLAIM',sourceId:'doc-'+'b'.repeat(64),quote:'ข้อมูลสาธารณะจากเอกสารโครงการที่เผยแพร่'}]}],gaps:[]};
+ for(const symbol of ['DOGE-THB','XRP-THB','1-THB',`${'A'.repeat(15)}-THB`]) {
+  const candidate=structuredClone(brief); for(const field of ['watchlist','sources','findings']) candidate[field][0].symbol=symbol;
+  assert.ok(readResearch(candidate,now));
+ }
+ for(const symbol of [null,1,'THB-THB','-THB','doge-THB','DOGE-thb','DOGE-THB?x=1','DOGE-THB/..','../DOGE-THB','DOGE-THB\n','DOGE-THB\r','DOGE-THB\u2028',`${'A'.repeat(16)}-THB`]) {
+  for(const field of ['watchlist','sources','findings']) { const candidate=structuredClone(brief); candidate[field][0].symbol=symbol; assert.equal(readResearch(candidate,now),undefined); }
+ }
+});
+
 test('research keeps historical saved reports and accepts negative changes',()=>{
  const old={observedAt:'2026-09-10T02:00:00Z',changeKey:'a'.repeat(64),watchlist:[{symbol:'BTC-THB',bid:100,ask:101,quoteVolume24h:1000,change24hPercent:-2,spreadPercent:1,depthQuoteNotional:500,executionAllowed:false,held:false}],sources:[{id:'doc-'+'b'.repeat(64),symbol:'BTC-THB',title:'Bitcoin project',url:'https://bitcoin.org/',contentHash:'b'.repeat(64),retrievedAt:'2026-09-09T02:00:00Z'}],findings:[{symbol:'BTC-THB',summary:'หลักฐานย้อนหลัง',claims:[{statement:'เอกสารอ้างอิงโครงการ',assessment:'PROJECT_CLAIM',sourceId:'doc-'+'b'.repeat(64),quote:'ข้อความอ้างอิงย้อนหลังจากเอกสารโครงการ'}]}],gaps:[]};
  assert.ok(readResearch(old,Date.parse('2026-10-07T00:00:00Z'))); const x=fixture(); x.meetings[0].businessDate='2026-09-10'; x.meetings[0].summary.research=old; x.meetings[0].summary.reports.forEach(r=>r.dataCutoff='2026-09-09'); const parsed=readMeetings(x,Date.parse('2026-10-07T00:00:00Z')); assert.ok(parsed); const html=renderToStaticMarkup(React.createElement(LiveMeetingView,{meetings:parsed.meetings,selected:'',onSelect(){}})); assert.ok(html.includes('หลักฐานย้อนหลัง'));

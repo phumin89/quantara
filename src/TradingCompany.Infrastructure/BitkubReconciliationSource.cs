@@ -29,17 +29,23 @@ public sealed class BitkubReconciliationSource(BitkubLiveBroker transport, Bitku
         var fills = new List<BrokerFill>();
         var quotes = new List<LiveQuote>();
 
+        var symbols = rules.Pairs.Select(p => p.Symbol).ToArray();
+        var observed = symbols.Length > 3 ? (await BitkubLiveBroker.ReadMarketBatchesAsync(symbols, async (symbol, token) =>
+            (Symbol: symbol, Open: await transport.GetOpenOrdersAsync(symbol, token),
+                History: await transport.GetHistoryAsync(symbol, token)), cancellationToken)).ToDictionary(x => x.Symbol, StringComparer.Ordinal) : null;
+        if (symbols.Length > 3) quotes.AddRange(await transport.GetQuotesAsync(symbols, cancellationToken));
+
         foreach (var pair in rules.Pairs)
         {
-            var open = await transport.GetOpenOrdersAsync(pair.Symbol, cancellationToken);
-            var history = (await transport.GetHistoryAsync(pair.Symbol, cancellationToken))
+            var open = observed is null ? await transport.GetOpenOrdersAsync(pair.Symbol, cancellationToken) : observed[pair.Symbol].Open;
+            var history = (observed is null ? await transport.GetHistoryAsync(pair.Symbol, cancellationToken) : observed[pair.Symbol].History)
                 .Where(h => h.Timestamp >= epoch.ToUnixTimeMilliseconds()).ToArray();
             if (history.Any(h => h.Timestamp > clock.GetUtcNow().ToUnixTimeMilliseconds())) throw Unavailable();
             var local = expected.Where(o => o.Intent.Symbol == pair.Symbol).ToArray();
             if (open.Any(o => !local.Any(l => l.Intent.Id.ToString("N") == o.ClientId && l.Intent.Side == o.Side)) ||
                 history.Any(h => !local.Any(l => l.Intent.Id.ToString("N") == h.ClientId &&
                     (l.Intent.Side == OrderSide.Buy ? "buy" : "sell") == h.Side))) throw Unavailable();
-            quotes.Add(await transport.GetQuoteAsync(pair.Symbol, cancellationToken));
+            if (observed is null) quotes.Add(await transport.GetQuoteAsync(pair.Symbol, cancellationToken));
 
             foreach (var owned in local)
             {

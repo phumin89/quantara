@@ -11,14 +11,14 @@ export type LiveAccount = {
   tradePlans?: TradePlan[];
 };
 export type TradePlanStatus = "WAITING_ENTRY" | "ENTRY_PENDING" | "WATCHING_EXIT" | "EXIT_PENDING" | "EXPIRED" | "INVALIDATED" | "ENTRY_REJECTED" | "CLOSED" | "REVIEW_REQUIRED";
-export type TradePlan = { id: string; symbol: "BTC-THB" | "ETH-THB" | "SOL-THB"; plan: { entryPrice: number; quantity: number; takeProfitPrice: number; stopLossPrice: number; expiresAt: string }; status: TradePlanStatus; acquiredQuantity: number; soldQuantity: number };
+export type TradePlan = { id: string; symbol: string; plan: { entryPrice: number; quantity: number; takeProfitPrice: number; stopLossPrice: number; expiresAt: string }; status: TradePlanStatus; acquiredQuantity: number; soldQuantity: number };
 type AccountAuthority = { accountId?: { value: string }; snapshotVersion?: number; mandateVersion?: number };
 const object = (v: unknown): v is Record<string, any> => !!v && typeof v === "object" && !Array.isArray(v);
 const positive = (v: unknown): v is number => typeof v === "number" && Number.isFinite(v) && v > 0;
 const amount = (v: unknown): v is number => typeof v === "number" && Number.isFinite(v) && v >= 0;
 const version = (v: unknown) => positive(v) && Number.isSafeInteger(v);
 const uuid = (v: unknown) => typeof v === "string" && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(v) && !/^0{8}-0{4}-0{4}-0{4}-0{12}$/.test(v);
-const supported = (v: unknown) => ["BTC-THB", "ETH-THB", "SOL-THB"].includes(String(v));
+const supported = (v: unknown): v is string => typeof v === "string" && v !== "THB-THB" && /^[A-Z0-9]{1,15}-THB$/.test(v) && v.endsWith("-THB");
 const timestamp = (v: unknown) => typeof v === "string" && /^\d{4}-\d{2}-\d{2}T.*(?:Z|[+-]\d{2}:\d{2})$/.test(v) &&
   Number.isFinite(Date.parse(v)) && new Date(`${v.slice(0, 10)}T00:00:00Z`).toISOString().slice(0, 10) === v.slice(0, 10);
 const planStatuses: TradePlanStatus[] = ["WAITING_ENTRY", "ENTRY_PENDING", "WATCHING_EXIT", "EXIT_PENDING", "EXPIRED", "INVALIDATED", "ENTRY_REJECTED", "CLOSED", "REVIEW_REQUIRED"];

@@ -36,8 +36,9 @@ public sealed class CoinMarketScoutTests
         Assert.Throws<InvalidDataException>(() => CoinMarketScout.Rank([new("btc-THB", true, false, 1, 1, 1, 0)], [], [], 1));
         Assert.Throws<InvalidDataException>(() => CoinMarketScout.Rank([new("BTC-THB", true, false, 1, 1, 1, 0), new("BTC-THB", true, false, 1, 1, 1, 0)], [], [], 1));
         Assert.Throws<ArgumentOutOfRangeException>(() => CoinMarketScout.Rank([], [], [], 0));
+        Assert.Throws<ArgumentOutOfRangeException>(() => CoinMarketScout.Rank([], [], [], 1, -1));
         Assert.Throws<InvalidDataException>(() => CoinMarketScout.Rank([], ["bad"], [], 1));
-        Assert.Throws<InvalidDataException>(() => CoinMarketScout.Rank([], ["AA-THB", "BB-THB"], ["CC-THB", "DD-THB"], 1));
+        Assert.Throws<InvalidDataException>(() => CoinMarketScout.Rank([], ["XRP-THB\nIGNORE"], [], 1));
     }
 
     [Fact]
@@ -48,5 +49,64 @@ public sealed class CoinMarketScoutTests
         var result = CoinMarketScout.Rank(mandatory.Concat(scouts).ToArray(), ["CC-THB"], ["AA-THB", "BB-THB"], 1_000);
         Assert.Equal(8, result.Count);
         Assert.DoesNotContain(result, x => x.Symbol == "S00-THB");
+    }
+
+    [Fact]
+    public void Broad_execution_membership_does_not_fill_the_research_batch_with_mandatory_markets()
+    {
+        var symbols = Enumerable.Range(0, 12).Select(i => $"M{i:00}-THB").ToArray();
+        var rows = symbols.Select((s, i) => new CoinMarketObservation(s, true, false, 10, 10.01m, 200_000 + i * 1000, 0)).ToArray();
+        var result = CoinMarketScout.Rank(rows, symbols, ["M00-THB"], 1000);
+        Assert.Equal(8, result.Count);
+        Assert.Equal("M00-THB", result[0].Symbol);
+        Assert.True(result[0].Held);
+        Assert.Equal(symbols.Reverse().Take(7), result.Skip(1).Select(c => c.Symbol));
+        Assert.All(result, c => Assert.True(c.ExecutionAllowed));
+        Assert.Equal(12, symbols.Length);
+    }
+
+    [Fact]
+    public void More_than_eight_holdings_use_a_deterministic_batch_without_rejecting_the_portfolio()
+    {
+        var symbols = Enumerable.Range(0, 10).Select(i => $"M{i:00}-THB").ToArray();
+        var rows = symbols.Select(s => new CoinMarketObservation(s, true, false, 10, 10.01m, 200_000, 0)).ToArray();
+        var result = CoinMarketScout.Rank(rows.Reverse().ToArray(), symbols, symbols.Reverse().ToArray(), 1000);
+        Assert.Equal(symbols.Take(8), result.Select(c => c.Symbol));
+        Assert.All(result, c => Assert.True(c.Held));
+        Assert.Equal(10, symbols.Length);
+    }
+
+    [Fact]
+    public void Twelve_held_markets_rotate_across_batches_while_preserving_the_best_new_opportunity()
+    {
+        var held = Enumerable.Range(0, 12).Select(i => $"H{i:00}-THB").ToArray();
+        var rows = held.Select(s => new CoinMarketObservation(s, true, false, 10, 10.01m, 1, 0))
+            .Concat([new("XRP-THB", true, false, 10, 10.01m, 500_000, 0),
+                new("DOGE-THB", true, false, 10, 10.01m, 400_000, 0),
+                new("FROZEN-THB", true, true, 10, 10.01m, 900_000, 0)]).ToArray();
+        var execution = rows.Select(r => r.Symbol).ToArray();
+        var first = CoinMarketScout.Rank(rows, execution, held, 1000, 0);
+        var second = CoinMarketScout.Rank(rows.Reverse().ToArray(), execution.Reverse().ToArray(), held.Reverse().ToArray(), 1000, 1);
+        Assert.Equal(held.Take(7).Append("XRP-THB"), first.Select(c => c.Symbol));
+        Assert.Equal(held.Skip(7).Concat(held.Take(2)).Append("XRP-THB"), second.Select(c => c.Symbol));
+        Assert.Equal(held, first.Concat(second).Where(c => c.Held).Select(c => c.Symbol).Distinct().Order(StringComparer.Ordinal));
+        Assert.All(new[] { first, second }, batch =>
+        {
+            Assert.Equal(8, batch.Count);
+            Assert.Equal("XRP-THB", Assert.Single(batch, c => !c.Held).Symbol);
+        });
+        Assert.Equal(first, CoinMarketScout.Rank(rows, execution, held, 1000, 0));
+        Assert.Equal(12, held.Length);
+    }
+
+    [Fact]
+    public void Seven_held_markets_and_legacy_mandatory_membership_do_not_rotate()
+    {
+        var symbols = Enumerable.Range(0, 9).Select(i => $"M{i:00}-THB").ToArray();
+        var rows = symbols.Select((s, i) => new CoinMarketObservation(s, true, false, 10, 10.01m, 200_000 + i, 0)).ToArray();
+        Assert.Equal(CoinMarketScout.Rank(rows, symbols, symbols.Take(7).ToArray(), 1000, 0),
+            CoinMarketScout.Rank(rows, symbols, symbols.Take(7).ToArray(), 1000, 1));
+        Assert.Equal(CoinMarketScout.Rank(rows, symbols.Take(3).ToArray(), [], 1000, 0),
+            CoinMarketScout.Rank(rows, symbols.Take(3).ToArray(), [], 1000, 1));
     }
 }

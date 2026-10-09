@@ -1,7 +1,7 @@
 'use client';
 import { useEffect, useRef } from "react";
 import type { LiveActivity } from "./liveActivity";
-import { liveActivityRoles } from "./liveActivity";
+import { liveActivityRoles, validLiveSymbols } from "./liveActivity";
 
 export function LiveOffice({ activity }: { activity?: LiveActivity }) {
   const frame = useRef<HTMLIFrameElement>(null);
@@ -9,8 +9,7 @@ export function LiveOffice({ activity }: { activity?: LiveActivity }) {
   useEffect(publish, [activity]);
   const working = activity?.roles.find(r => r.status === "working");
   const names: Record<string, string> = { ceo: "CEO", "chief-of-staff": "ผู้ประสานงาน", "market-research": "ทีมตลาด", "security-analysis": "ทีมวิเคราะห์เหรียญ", "quant-research": "ทีมกลยุทธ์", "portfolio-initial": "ทีมพอร์ต", "risk-critic": "ทีมความเสี่ยง", "portfolio-final": "ทีมพอร์ต" };
-  const validSymbols = (value: unknown): value is string[] => Array.isArray(value) && value.length <= 3 && value.every(s => ["BTC-THB", "ETH-THB", "SOL-THB"].includes(s)) && new Set(value).size === value.length;
-  const hasSymbols = validSymbols(activity?.researchSymbols) && activity!.researchSymbols!.length > 0 && (activity?.tradingSymbols === undefined || validSymbols(activity.tradingSymbols) && activity.tradingSymbols.every(s => activity.researchSymbols!.includes(s)));
+  const hasSymbols = validLiveSymbols(activity?.researchSymbols) && activity!.researchSymbols!.length > 0 && (activity?.tradingSymbols === undefined || validLiveSymbols(activity.tradingSymbols) && activity.tradingSymbols.every(s => activity.researchSymbols!.includes(s)));
   const status = working ? `${names[working.role]} กำลังวิเคราะห์` : ({ PLAN_REGISTERED: "เฝ้าราคาตามแผน", PLAN_REJECTED: "แผนยังไม่ผ่านเงื่อนไข", READ_ONLY: "เฝ้าตลาด · พักส่งคำสั่ง", RESEARCH_UNAVAILABLE: "รอข้อมูลตลาด", LIVE_BLOCKED: "รอข้อมูลบัญชี", LIVE_UNAVAILABLE: "เชื่อมระบบอีกครั้ง", WATCHING: "เฝ้าตลาด", ALREADY_ATTEMPTED: "รอรอบทบทวนถัดไป", BEFORE_MEETING: "รอประชุม 09:00", ORDER_PENDING: "รอผลคำสั่งจากตลาด", HOLD: "คงพอร์ต" }[activity?.coordinatorStatus ?? ""] ?? (activity?.coordinatorStatus ? "รอข้อมูล" : ""));
   const team = activity ? `ทีม ${liveActivityRoles.length} บทบาท${working ? " · กำลังทำงาน 1" : ""}` : "";
   const coins = hasSymbols ? `วิเคราะห์ ${activity!.researchSymbols!.map(s => s.slice(0, -4)).join(" · ")}` : "";

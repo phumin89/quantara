@@ -83,10 +83,10 @@ public static class BitkubLiveRuntime
     {
         try
         {
-            var buffer = new byte[64 * 1024 + 1];
+            var buffer = new byte[512 * 1024 + 1];
             using var stream = File.OpenRead(path);
             var length = stream.ReadAtLeast(buffer, buffer.Length, throwOnEndOfStream: false);
-            if (length > 64 * 1024) throw Invalid();
+            if (length > 512 * 1024) throw Invalid();
             var bytes = buffer.AsMemory(0, length);
             using var document = JsonDocument.Parse(bytes, new JsonDocumentOptions { AllowTrailingCommas = false, CommentHandling = JsonCommentHandling.Disallow });
             RejectDuplicates(document.RootElement);
@@ -148,8 +148,7 @@ internal sealed class BitkubActivationSource(BitkubLiveBroker broker, LiveAccoun
         // may have been revoked since startup. All owner activation paths use this probe.
         var tradePermission = await broker.CheckTradePermissionAsync(cancellationToken);
         var wallet = await broker.GetWalletAsync(cancellationToken);
-        var opens = new List<BrokerOpenOrderEvidence>();
-        foreach (var pair in verification.Rules.Pairs) opens.AddRange(await broker.GetOpenOrdersAsync(pair.Symbol, cancellationToken));
+        var opens = await broker.GetOpenOrdersForMarketsAsync(verification.Rules.Pairs.Select(p => p.Symbol).ToArray(), cancellationToken);
         var cash = wallet.Single(b => b.Currency == "THB");
         // Local risk reservations retain fee headroom until terminal reconciliation.
         // Broker reservations must match its open orders and fit inside that headroom.

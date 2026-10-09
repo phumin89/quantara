@@ -9,6 +9,7 @@ using TradingCompany.Application;
 
 [assembly: InternalsVisibleTo("TradingCompany.Domain.Tests")]
 [assembly: InternalsVisibleTo("TradingCompany.LiveIntegration.Tests")]
+[assembly: InternalsVisibleTo("BitkubAccountCheck")]
 
 namespace TradingCompany.Infrastructure;
 
@@ -91,17 +92,7 @@ public sealed partial class BitkubLiveBroker : IDisposable
                 string.Equals(Required(item, "symbol").GetString(), pair, StringComparison.OrdinalIgnoreCase)).ToArray();
             if (matches.Length != 1) throw Unavailable();
             var item = matches[0];
-            if (Required(item, "base_asset").GetString() != symbol[..^4] || Required(item, "quote_asset").GetString() != "THB")
-                throw Unavailable();
-            var result = new BrokerSymbolRules(symbol, observedAt, Scale(item, "base_asset_scale"), Scale(item, "quote_asset_scale"),
-                OptionalScale(item, "base_quantity_scale"), OptionalScale(item, "quote_quantity_scale"),
-                Scale(item, "price_scale"), Amount(item, "price_step"), Scale(item, "quantity_scale"),
-                Amount(item, "quantity_step"), NumericAmount(item, "min_quote_size"),
-                Required(item, "freeze_buy").GetBoolean(), Required(item, "freeze_sell").GetBoolean(),
-                Required(item, "freeze_cancel").GetBoolean(), Identifier(item, "status"), Identifier(item, "source"),
-                Identifier(item, "market_segment"));
-            if (result.PriceStep <= 0 || result.QuantityStep <= 0 || result.MinimumQuoteSize <= 0) throw Unavailable();
-            return result;
+            return ParseMarket(item, symbol, observedAt);
         }
         catch (Exception error) when (error is JsonException or InvalidOperationException or FormatException or OverflowException)
         { throw Unavailable(); }
@@ -308,6 +299,9 @@ public sealed partial class BitkubLiveBroker : IDisposable
         {
             for (var page = 0; page < 100; page++)
             {
+                // Eight concurrent market scans must also respect the history rate
+                // while paging; the outer batch gap covers only the first page.
+                if (page > 0) await Task.Delay(TimeSpan.FromMilliseconds(100), clock, cancellationToken);
                 var path = "/api/v3/market/my-order-history?sym=" + pair + "&pagination_type=keyset&lmt=100";
                 if (cursor is not null) path += "&cursor=" + Uri.EscapeDataString(cursor);
                 using var document = await GetSignedRead(path, cancellationToken);
@@ -381,7 +375,7 @@ public sealed partial class BitkubLiveBroker : IDisposable
     }
 
     private static string Pair(string symbol)
-        => symbol switch { "BTC-THB" => "btc_thb", "ETH-THB" => "eth_thb", "SOL-THB" => "sol_thb", _ => throw Unavailable() };
+        => LiveMarketSymbol.IsValid(symbol) ? symbol.Replace('-', '_').ToLowerInvariant() : throw Unavailable();
 
     public async Task<BrokerCancellation> CancelAsync(string symbol, string orderId, OrderSide side, CancellationToken cancellationToken = default)
     {

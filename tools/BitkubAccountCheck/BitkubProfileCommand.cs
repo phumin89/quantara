@@ -45,11 +45,12 @@ internal static class BitkubProfileCommand
                 first.Any(b => b.Reserved != 0 || !useReceipts && b.Currency != "THB" && b.Total != 0) ||
                 first.Single(b => b.Currency == "THB").Total != expectedCash || (!useReceipts && expectedCash <= 0) ||
                 !(await File.ReadAllBytesAsync(settingsPath)).SequenceEqual(settingsBytes)) throw new InvalidDataException();
-            foreach (var symbol in new[] { "BTC-THB", "ETH-THB", "SOL-THB" })
-                if ((await broker.GetOpenOrdersAsync(symbol, deadline.Token)).Count != 0) throw new InvalidDataException();
+            var expectedMarkets = JsonSerializer.Deserialize<BrokerSymbolRules[]>(finalCapture.RootElement.GetProperty("marketRules"))!;
+            var marketSymbols = expectedMarkets.Select(m => m.Symbol).ToArray();
+            if ((await broker.GetOpenOrdersForMarketsAsync(marketSymbols, deadline.Token)).Count != 0) throw new InvalidDataException();
             // Corroborate the saved records against fresh authenticated broker reads.
             var expectedHistory = JsonSerializer.Deserialize<BrokerHistoryEntry[]>(finalCapture.RootElement.GetProperty("orderHistory"))!;
-            var history = await broker.GetHistoryAsync("BTC-THB", deadline.Token);
+            var history = (await BitkubLiveBroker.ReadMarketBatchesAsync(marketSymbols, broker.GetHistoryAsync, deadline.Token)).SelectMany(h => h).ToArray();
             if (!history.OrderBy(h => h.TransactionId).SequenceEqual(expectedHistory.OrderBy(h => h.TransactionId)))
                 throw new InvalidDataException();
             var expectedOrders = JsonSerializer.Deserialize<BrokerOrderEvidence[]>(finalCapture.RootElement.GetProperty("orderDetails"))!;
@@ -60,10 +61,10 @@ internal static class BitkubProfileCommand
                     !expected.History.OrderBy(h => h.TransactionId).SequenceEqual(observed.History.OrderBy(h => h.TransactionId)))
                     throw new InvalidDataException();
             }
-            var expectedMarkets = JsonSerializer.Deserialize<BrokerSymbolRules[]>(finalCapture.RootElement.GetProperty("marketRules"))!;
+            var observedMarkets = await broker.GetAvailableMarketsAsync(deadline.Token);
             foreach (var pair in profile.Rules.Pairs)
             {
-                var market = await broker.GetSymbolRulesAsync(pair.Symbol, deadline.Token);
+                var market = observedMarkets.Single(m => m.Symbol == pair.Symbol);
                 var expectedMarket = expectedMarkets.Single(p => p.Symbol == pair.Symbol);
                 if (market with { ObservedAt = expectedMarket.ObservedAt } != expectedMarket) throw new InvalidDataException();
             }
@@ -94,7 +95,7 @@ internal static class BitkubProfileCommand
             var pending = profilePath + ".pending-" + Guid.NewGuid().ToString("N");
             await File.WriteAllTextAsync(pending, JsonSerializer.Serialize(profile, new JsonSerializerOptions { WriteIndented = true }));
             File.Move(pending, profilePath, overwrite: true);
-            Console.WriteLine(useReceipts ? "BTC, ETH and SOL Spot profile prepared with authenticated order receipts. Existing cash/coins retained; execution remains disabled. No order was sent."
+            Console.WriteLine(useReceipts ? $"{profile.Rules.Pairs.Count} native THB Spot markets prepared with authenticated order receipts. Existing cash/coins retained; execution remains disabled. No order was sent."
                 : "Verified BTC Spot profile saved from matching broker captures. Execution remains disabled; no order was sent.");
             return 0;
         }

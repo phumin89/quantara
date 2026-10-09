@@ -105,7 +105,10 @@ public sealed class LiveCompanyCoordinator(ILiveCompanyClient client, IHistorica
             var learningChanged = learningReport is not null && learningReport.BusinessDate != latest?.Summary?.Learning?.BusinessDate;
             var cutoff = DateOnly.FromDateTime(now.UtcDateTime).AddDays(-1);
             var candidates = new List<AiCompanyCandidateEvidence>();
-            foreach (var text in ResearchSymbols(packet))
+            if (brief is not null && ResearchSymbols(packet).Count > 3 && packet.Snapshot.Positions.Count >= 8 &&
+                !brief.Watchlist.Any(c => ResearchSymbols(packet).Contains(c.Symbol) && ResearchQuotes(packet).Any(q => q.Symbol == c.Symbol)))
+                problems.Add(new("PUBLIC_RESEARCH_UNAVAILABLE"));
+            foreach (var text in CandidateSymbols(packet, brief))
             {
                 try
                 {
@@ -153,7 +156,12 @@ public sealed class LiveCompanyCoordinator(ILiveCompanyClient client, IHistorica
             packet = refreshed;
             executionPaused |= !packet.Armed || packet.Stopped;
             checkpoint = packet.Snapshot with { Quotes = ResearchQuotes(packet) };
-            candidates = candidates.Select(c => c with { CurrentQuote = checkpoint.Quotes.Single(q => q.Symbol == c.Symbol.Value) }).ToList();
+            candidates = candidates.Where(c => checkpoint.Quotes.Any(q => q.Symbol == c.Symbol.Value))
+                .Select(c => c with { CurrentQuote = checkpoint.Quotes.Single(q => q.Symbol == c.Symbol.Value) }).ToList();
+            if (candidates.Count == 0) { Retry("RESEARCH_UNAVAILABLE", Issues); return; }
+            var reviewedSymbols = candidates.Select(c => c.Symbol.Value).Concat(packet.Snapshot.Positions.Select(p => p.Symbol))
+                .ToHashSet(StringComparer.Ordinal);
+            checkpoint = checkpoint with { Quotes = checkpoint.Quotes.Where(q => reviewedSymbols.Contains(q.Symbol)).ToArray() };
             var missingHeldEvidence = problems.Any(i => i.Code == "MARKET_HISTORY_UNAVAILABLE" &&
                 packet.Snapshot.Positions.Any(p => p.Symbol == i.Symbol));
             var advisoryOnly = executionPaused || missingHeldEvidence || problems.Any(i => i.Code == "PUBLIC_RESEARCH_UNAVAILABLE") || continuousReviews &&
@@ -188,7 +196,7 @@ public sealed class LiveCompanyCoordinator(ILiveCompanyClient client, IHistorica
                 AccountContext = context, PortfolioReview = reviewHour is not null && latest?.Summary?.Reports.Count > 0,
                 ObservedAt = now, Research = brief, ResearchChanged = researchChanged,
                 Learning = learningReport, LearningChanged = learningChanged, ExecutionLimits = packet.Limits,
-                ActiveTradePlans = packet.TradePlans.Where(LiveTradePlans.Active).ToArray(),
+                ActiveTradePlans = packet.TradePlans.Where(LiveTradePlans.Active).ToArray(), ActualPositions = snapshot.Positions,
                 PreviousConclusion = reviewHour is null ? null : latest?.Summary?.Reports
                     .SingleOrDefault(r => r.Role == "portfolio-final")?.Summary
             };
@@ -214,8 +222,9 @@ public sealed class LiveCompanyCoordinator(ILiveCompanyClient client, IHistorica
                     !ValidPacket(current, clock.GetUtcNow()) || !current.Armed || current.Stopped || current.MandateVersion != packet.MandateVersion ||
                     JsonSerializer.Serialize(current.Limits) != JsonSerializer.Serialize(packet.Limits) ||
                     !SameOwnedMoney(snapshot, current.Snapshot)) { Finish(registeredPlans > 0 ? "PLAN_REGISTERED" : "SNAPSHOT_CHANGED"); return; }
-                var quote = current.Snapshot.Quotes.Single(q => q.Symbol == proposal.Symbol.Value);
-                var originalQuote = snapshot.Quotes.Single(q => q.Symbol == proposal.Symbol.Value);
+                var quote = ResearchQuotes(current).SingleOrDefault(q => q.Symbol == proposal.Symbol.Value);
+                var originalQuote = checkpoint.Quotes.SingleOrDefault(q => q.Symbol == proposal.Symbol.Value);
+                if (quote is null || originalQuote is null) { Finish("SNAPSHOT_CHANGED"); return; }
                 if (Math.Abs(quote.Ask - originalQuote.Ask) > originalQuote.Ask * packet.Limits.MaximumSlippage ||
                     Math.Abs(quote.Bid - originalQuote.Bid) > originalQuote.Bid * packet.Limits.MaximumSlippage)
                 { Finish("PRICE_CHANGED"); return; }
@@ -314,32 +323,37 @@ public sealed class LiveCompanyCoordinator(ILiveCompanyClient client, IHistorica
             m.CapitalAllocation <= 0 || m.MaximumPositionWeight is <= 0 or > 1m || m.MaximumOpenPositions <= 0 ||
             m.MaximumOrderNotional is <= 0 || m.MaximumDailyTurnover is <= 0 ||
             m.FeeReserveRate is <= 0 or > .1m || m.MaximumSlippage is < 0 or > .02m ||
-            m.AllowedSymbols is not { Count: > 0 } || m.AllowedSymbols.Any(symbol => symbol is not ("BTC-THB" or "ETH-THB" or "SOL-THB")) ||
+            m.AllowedSymbols is not { Count: > 0 and <= LiveMarketSymbol.MaximumPayloadMarkets } || m.AllowedSymbols.Any(symbol => !LiveMarketSymbol.IsValid(symbol)) ||
             m.AllowedSymbols.Distinct().Count() != m.AllowedSymbols.Count || s.Positions is null || s.Quotes is null ||
             s.PendingBuySymbols is null || s.PendingBuyNotional < 0 || s.PendingSellNotional < 0 ||
             s.DailyLoss < 0 || s.Drawdown is < 0 or > 1 || s.DailyTurnover < 0 ||
             s.PendingBuySymbols.Any(symbol => !m.AllowedSymbols.Contains(symbol)) ||
             s.Positions.Any(p => p is null || p.Quantity <= 0 || p.ReservedQuantity < 0 || p.ReservedQuantity > p.Quantity ||
                 p.MarketPrice <= 0 || !m.AllowedSymbols.Contains(p.Symbol)) ||
+            s.Positions.Count > LiveMarketSymbol.MaximumPayloadMarkets || s.PendingBuySymbols.Count > LiveMarketSymbol.MaximumPayloadMarkets ||
             s.Positions.Select(p => p.Symbol).Distinct().Count() != s.Positions.Count ||
-            s.Quotes.Any(q => q is null) || s.Quotes.Select(q => q.Symbol).Distinct().Count() != s.Quotes.Count) return false;
+            s.Quotes.Count > LiveMarketSymbol.MaximumPayloadMarkets || s.Quotes.Any(q => q is null) ||
+            s.Quotes.Select(q => q.Symbol).Distinct().Count() != s.Quotes.Count) return false;
         try { if (s.Equity != s.CashBalance + s.Positions.Sum(p => p.Quantity * p.MarketPrice)) return false; }
         catch (OverflowException) { return false; }
-        if (m.OrderSizing is null || m.OrderSizing.Any(p => p is null || p.PriceStep <= 0 || p.BaseStep <= 0 || p.QuoteStep <= 0 || p.MinimumQuoteSize <= 0) ||
+        if (m.OrderSizing is not { Count: <= LiveMarketSymbol.MaximumPayloadMarkets } ||
+            m.OrderSizing.Any(p => p is null || !LiveMarketSymbol.IsValid(p.Symbol) || !m.AllowedSymbols.Contains(p.Symbol) ||
+                p.PriceStep <= 0 || p.BaseStep <= 0 || p.QuoteStep <= 0 || p.MinimumQuoteSize <= 0) ||
             m.OrderSizing.Select(p => p.Symbol).Distinct().Count() != m.OrderSizing.Count ||
             m.AllowedSymbols.Any(symbol => m.OrderSizing.Count(p => p.Symbol == symbol) != 1)) return false;
-        if (!m.AllowedSymbols.All(symbol => s.Quotes.Count(q => q.Symbol == symbol && q.Bid > 0 && q.Ask >= q.Bid &&
-            q.ObservedAt <= now && now - q.ObservedAt <= TimeSpan.FromSeconds(30)) == 1) ||
-            m.ResearchSymbols is null || packet.ResearchQuotes is null) return false;
+        if (m.ResearchSymbols is null || packet.ResearchQuotes is not { Count: <= LiveMarketSymbol.MaximumPayloadMarkets }) return false;
         var research = ResearchSymbols(packet);
         var quotes = ResearchQuotes(packet);
-        return research.Count is > 0 and <= 3 && research.Distinct().Count() == research.Count &&
-            research.All(symbol => symbol is "BTC-THB" or "ETH-THB" or "SOL-THB") &&
-            m.AllowedSymbols.All(research.Contains) && quotes.Count == research.Count &&
-            quotes.All(q => q is not null && research.Contains(q.Symbol) && q.Bid > 0 && q.Ask >= q.Bid &&
-                q.ObservedAt <= now && now - q.ObservedAt <= TimeSpan.FromSeconds(30)) &&
-            quotes.Select(q => q.Symbol).Distinct().Count() == quotes.Count;
+        return research.Count is > 0 and <= LiveMarketSymbol.MaximumPayloadMarkets && research.Distinct().Count() == research.Count &&
+            research.All(LiveMarketSymbol.IsValid) && m.AllowedSymbols.All(research.Contains) &&
+            s.Quotes.All(q => FreshResearchQuote(q, research, now)) && quotes.All(q => FreshResearchQuote(q, research, now)) &&
+            quotes.Select(q => q.Symbol).Distinct().Count() == quotes.Count &&
+            s.Positions.All(p => quotes.Any(q => q.Symbol == p.Symbol));
     }
+
+    private static bool FreshResearchQuote(LiveQuote? quote, IReadOnlyList<string> research, DateTimeOffset now) =>
+        quote is not null && LiveMarketSymbol.IsValid(quote.Symbol) && research.Contains(quote.Symbol) &&
+        quote.Bid > 0 && quote.Ask >= quote.Bid && quote.ObservedAt <= now && now - quote.ObservedAt <= TimeSpan.FromSeconds(30);
 
     private void Retry(string status, IReadOnlyList<LiveMeetingIssue> problems)
     {
@@ -358,6 +372,20 @@ public sealed class LiveCompanyCoordinator(ILiveCompanyClient client, IHistorica
 
     private static IReadOnlyList<LiveQuote> ResearchQuotes(LiveResearchPacket packet) =>
         packet.ResearchQuotes.Count == 0 ? packet.Snapshot.Quotes : packet.ResearchQuotes;
+
+    private static IReadOnlyList<string> CandidateSymbols(LiveResearchPacket packet, CoinResearchBrief? brief)
+    {
+        var universe = ResearchSymbols(packet);
+        var quoted = ResearchQuotes(packet).Select(q => q.Symbol).ToHashSet(StringComparer.Ordinal);
+        if (universe.Count <= 3) return universe.Where(quoted.Contains).ToArray();
+        var held = packet.Snapshot.Positions.Select(p => p.Symbol).Order(StringComparer.Ordinal);
+        var watchlist = brief is null ? universe.Order(StringComparer.Ordinal) : brief.Watchlist.Select(c => c.Symbol);
+        if (packet.Snapshot.Positions.Count >= 8 && brief is not null)
+            return watchlist.Concat(held).Where(s => universe.Contains(s) && quoted.Contains(s))
+                .Distinct(StringComparer.Ordinal).Take(8).ToArray();
+        return held.Concat(watchlist).Where(s => universe.Contains(s) && quoted.Contains(s))
+            .Distinct(StringComparer.Ordinal).Take(8).ToArray();
+    }
 
     private static bool NeedsReview(LiveSnapshot before, LiveSnapshot current) => !SameOwnedMoney(before, current) ||
         before.Quotes.Count != current.Quotes.Count || current.Quotes.Any(q =>

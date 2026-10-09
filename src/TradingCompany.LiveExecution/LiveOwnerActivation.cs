@@ -89,9 +89,7 @@ public sealed class LiveOwnerActivation(BitkubConfiguredAccount configured, Live
             var configured = host.Services.GetRequiredService<BitkubConfiguredAccount>();
             using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(30));
             if (!await broker.CheckTradePermissionAsync(deadline.Token)) throw new InvalidDataException();
-            var markets = new List<BrokerSymbolRules>();
-            foreach (var symbol in new[] { "BTC-THB", "ETH-THB", "SOL-THB" })
-                markets.Add(await broker.GetSymbolRulesAsync(symbol, deadline.Token));
+            var markets = await broker.GetAvailableMarketsAsync(deadline.Token);
             var v = configured.Verification;
             var previous = new BitkubVerifiedProfile(v.BrokerAccountReference, v.CredentialFingerprint, v.ConfirmationReference,
                 v.EvidenceHash, v.AccountBindingVerified, v.TradePermissionVerified, v.Rules);
@@ -107,7 +105,8 @@ public sealed class LiveOwnerActivation(BitkubConfiguredAccount configured, Live
                 throw new InvalidDataException();
             if (System.Text.Json.JsonSerializer.Serialize(expanded) != System.Text.Json.JsonSerializer.Serialize(previous))
             {
-                var backup = profile + ".before-multi-market";
+                var backup = profile + ".before-market-" + Convert.ToHexStringLower(
+                    System.Security.Cryptography.SHA256.HashData(before));
                 if (File.Exists(backup) && !(await File.ReadAllBytesAsync(backup, deadline.Token)).SequenceEqual(before))
                     throw new InvalidDataException();
                 if (!File.Exists(backup)) await File.WriteAllBytesAsync(backup, before, deadline.Token);
@@ -119,7 +118,7 @@ public sealed class LiveOwnerActivation(BitkubConfiguredAccount configured, Live
                 }
                 finally { if (File.Exists(temporary)) File.Delete(temporary); }
             }
-            Console.WriteLine("BTC, ETH and SOL market rules verified. Existing account retained; no activation or order.");
+            Console.WriteLine($"{markets.Count} active THB Spot markets verified. Existing account retained; no activation or order.");
             return 0;
         }
         catch { Console.WriteLine("Market expansion did not verify. No activation or order was sent."); return 1; }

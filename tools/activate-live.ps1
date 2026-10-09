@@ -66,7 +66,7 @@ try {
     $profileDirectory = Join-Path $activationRoot '.runtime/live'
     $dockerExitCode = Invoke-ActivationDocker @('compose', '--env-file', 'NUL', '-p', 'quantara-owner-readonly', '-f', $composePath,
         'run', '--rm', '--no-deps', '-T', '--volume', "${profileDirectory}:/profile-output", 'owner', '--prepare-multi-asset-profile')
-    if ($dockerExitCode -ne 0) { throw 'BTC/ETH/SOL market verification failed. Existing account and mandate were preserved.' }
+    if ($dockerExitCode -ne 0) { throw 'Active THB Spot market verification failed. Existing account and mandate were preserved.' }
     $configurationChanged = $true
     $settings.LiveExecution.Enabled = $true
     [IO.File]::WriteAllText($settingsPath, ($settings | ConvertTo-Json -Depth 12))

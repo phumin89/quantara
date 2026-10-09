@@ -713,6 +713,287 @@ public sealed class LiveCompanyCoordinatorTests : IDisposable
     }
 
     [Fact]
+    public async Task Broad_authority_with_sparse_quotes_uses_only_eight_deterministic_candidates()
+    {
+        var client = DynamicClient();
+        client.Packet = client.Packet with { ResearchQuotes = client.Packet.ResearchQuotes.Take(8).ToArray(),
+            Snapshot = client.Packet.Snapshot with { Quotes = client.Packet.Snapshot.Quotes.Take(8).ToArray() } };
+        var gateway = new Gateway { Scenario = "hold" };
+        var coordinator = Coordinator(client, gateway);
+        await coordinator.TickAsync();
+        Assert.Equal("HOLD", coordinator.Status);
+        Assert.All(gateway.CandidateSymbols, symbols => Assert.Equal(client.Packet.Limits.ResearchSymbols.Take(8), symbols));
+        Assert.All(gateway.Inputs, input =>
+        {
+            Assert.Equal(12, input.ExecutionLimits!.AllowedSymbols.Count);
+            Assert.Equal(8, input.Candidates.Count);
+        });
+        Assert.Empty(client.Intents);
+        Assert.Empty(client.Plans);
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(12)]
+    public async Task Broad_review_snapshot_keeps_only_candidates_and_all_holdings_without_outside_market_reviews(int heldCount)
+    {
+        var client = DynamicClient(247);
+        var positions = client.Packet.Limits.AllowedSymbols.Take(heldCount).Select(s => new LivePosition(s, 1, 0, 10)).ToArray();
+        client.Packet = client.Packet with { Snapshot = client.Packet.Snapshot with { Positions = positions, Equity = 1000 + heldCount * 10 } };
+        var original = client.Packet;
+        var gateway = new Gateway { Scenario = "hold" };
+        var coordinator = Coordinator(client, gateway, continuous: true);
+        await coordinator.TickAsync();
+        Assert.Equal("HOLD", coordinator.Status);
+        Assert.Equal(8, gateway.Inputs.Count);
+        var journal = new JsonDailyMeetingJournal(Path.Combine(root, "live-meetings.json"), Scope);
+        var saved = Assert.Single(journal.ReadAll());
+        var checkpoint = Assert.IsType<LiveSnapshot>(saved.ReviewSnapshot);
+        var selected = gateway.CandidateSymbols[0].Concat(positions.Select(p => p.Symbol)).ToHashSet(StringComparer.Ordinal);
+        Assert.Equal(Math.Max(8, heldCount), checkpoint.Quotes.Count);
+        Assert.True(selected.SetEquals(checkpoint.Quotes.Select(q => q.Symbol)));
+        Assert.Equal(JsonSerializer.Serialize(original.Snapshot with { Quotes = checkpoint.Quotes }), JsonSerializer.Serialize(checkpoint));
+        Assert.All(gateway.Inputs, input =>
+        {
+            Assert.Equal(247, input.ExecutionLimits!.AllowedSymbols.Count);
+            Assert.Equal(positions, input.ActualPositions);
+        });
+        Assert.Equal(JsonSerializer.Serialize(original), JsonSerializer.Serialize(client.Packet));
+
+        clock.Now = clock.Now.AddHours(1);
+        var quotes = client.Packet.ResearchQuotes.Select(q => q with { ObservedAt = clock.Now }).ToArray();
+        client.Packet = client.Packet with { ResearchQuotes = quotes,
+            Snapshot = client.Packet.Snapshot with { Version = 2, ObservedAt = clock.Now, Quotes = quotes } };
+        await coordinator.TickAsync();
+        Assert.Equal("WATCHING", coordinator.Status);
+        Assert.Equal(8, gateway.Inputs.Count);
+
+        var outside = client.Packet.Limits.AllowedSymbols.First(s => !selected.Contains(s));
+        quotes = quotes.Select(q => q.Symbol == outside ? q with { Bid = 11, Ask = 11 } : q).ToArray();
+        client.Packet = client.Packet with { ResearchQuotes = quotes, Snapshot = client.Packet.Snapshot with { Quotes = quotes } };
+        await coordinator.TickAsync();
+        Assert.Equal("WATCHING", coordinator.Status);
+        Assert.Equal(8, gateway.Inputs.Count);
+        Assert.Single(journal.ReadAll());
+        Assert.Equal(JsonSerializer.Serialize(original.Limits), JsonSerializer.Serialize(client.Packet.Limits));
+        Assert.Equal(positions, client.Packet.Snapshot.Positions);
+        Assert.Empty(client.Intents);
+        Assert.Empty(client.Plans);
+
+        var reviewed = gateway.CandidateSymbols[0][0];
+        quotes = quotes.Select(q => q.Symbol == reviewed ? q with { Bid = 10.11m, Ask = 10.11m } : q).ToArray();
+        client.Packet = client.Packet with { ResearchQuotes = quotes, Snapshot = client.Packet.Snapshot with { Quotes = quotes } };
+        await coordinator.TickAsync();
+        Assert.Equal("HOLD", coordinator.Status);
+        Assert.True(gateway.Inputs.Count > 8);
+        Assert.Equal(2, journal.ReadAll().Count);
+    }
+
+    [Fact]
+    public async Task Dynamic_public_watchlist_is_filtered_to_declared_quoted_markets_with_held_priority()
+    {
+        var client = DynamicClient();
+        var quotes = new[] { new LiveQuote("XRP-THB", 10, 10, clock.Now), new LiveQuote("DOGE-THB", 10, 10, clock.Now) };
+        client.Packet = client.Packet with { ResearchQuotes = quotes,
+            Snapshot = client.Packet.Snapshot with { Quotes = quotes, Positions = [new("XRP-THB", 1, 0, 10)], Equity = 1010 } };
+        var gateway = new Gateway { Scenario = "hold" };
+        var research = new Research(clock) { Symbols = ["DOGE-THB", "M02-THB", "UNLISTED-THB"] };
+        var coordinator = Coordinator(client, gateway, research: research);
+        await coordinator.TickAsync();
+        Assert.Equal("HOLD", coordinator.Status);
+        Assert.All(gateway.CandidateSymbols, symbols => Assert.Equal(["XRP-THB", "DOGE-THB"], symbols));
+        Assert.All(gateway.Inputs, input =>
+        {
+            Assert.Equal(2, input.Candidates.Count);
+            Assert.True(input.Candidates[0].Held);
+            Assert.Equal("XRP-THB", Assert.Single(input.ActualPositions!).Symbol);
+        });
+        Assert.Equal(12, client.Packet.Limits.AllowedSymbols.Count);
+        Assert.Empty(client.Intents);
+    }
+
+    [Theory]
+    [InlineData("XRP-THB")]
+    [InlineData("DOGE-THB")]
+    public async Task Dynamic_watchlist_can_register_a_plan_only_with_existing_owner_authority(string symbol)
+    {
+        var client = DynamicClient();
+        var gateway = new Gateway { ProposalSymbol = symbol };
+        var coordinator = Coordinator(client, gateway, research: new Research(clock) { Symbols = [symbol] });
+        await coordinator.TickAsync();
+        Assert.Equal("PLAN_REGISTERED", coordinator.Status);
+        Assert.Equal(symbol, Assert.Single(client.Plans).Symbol);
+        Assert.Empty(client.Intents);
+        Assert.Equal(12, client.Packet.Limits.AllowedSymbols.Count);
+    }
+
+    [Theory]
+    [InlineData(8)]
+    [InlineData(12)]
+    public async Task An_existing_large_portfolio_can_register_a_new_authorized_market_from_the_bounded_watchlist(int heldCount)
+    {
+        var client = DynamicClient(13);
+        var positions = client.Packet.Limits.AllowedSymbols.Take(heldCount).Select(s => new LivePosition(s, 1, 0, 10)).ToArray();
+        client.Packet = client.Packet with { Snapshot = client.Packet.Snapshot with { Positions = positions, Equity = 1000 + heldCount * 10 } };
+        var original = client.Packet;
+        var watchlist = positions.Take(7).Select(p => p.Symbol).Append("XRP-THB").ToArray();
+        var gateway = new Gateway { ProposalSymbol = "XRP-THB" };
+        var coordinator = Coordinator(client, gateway, continuous: true, research: new Research(clock) { Symbols = watchlist });
+        await coordinator.TickAsync();
+        Assert.Equal("PLAN_REGISTERED", coordinator.Status);
+        Assert.Equal("XRP-THB", Assert.Single(client.Plans).Symbol);
+        Assert.All(gateway.CandidateSymbols, symbols => Assert.Equal(watchlist, symbols));
+        Assert.All(gateway.Inputs, input =>
+        {
+            Assert.Equal(8, input.Candidates.Count);
+            Assert.Equal(7, input.Candidates.Count(c => c.Held));
+            Assert.Equal(positions, input.ActualPositions);
+            Assert.Equal(heldCount, input.Portfolio.OpenPositions);
+            Assert.Equal(13, input.ExecutionLimits!.AllowedSymbols.Count);
+            Assert.Equal(13, input.MaximumOpenPositions);
+        });
+        var journal = new JsonDailyMeetingJournal(Path.Combine(root, "live-meetings.json"), Scope);
+        var checkpoint = Assert.IsType<LiveSnapshot>(Assert.Single(journal.ReadAll()).ReviewSnapshot);
+        Assert.Equal(heldCount + 1, checkpoint.Quotes.Count);
+        Assert.Equal(positions, checkpoint.Positions);
+        Assert.Equal(JsonSerializer.Serialize(original), JsonSerializer.Serialize(client.Packet));
+        Assert.Empty(client.Intents);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task A_large_portfolio_with_no_usable_public_watchlist_keeps_the_held_fallback_advisory(bool undeclared)
+    {
+        var client = DynamicClient(13);
+        var positions = client.Packet.Limits.AllowedSymbols.Take(12).Select(s => new LivePosition(s, 1, 0, 10)).ToArray();
+        client.Packet = client.Packet with { Snapshot = client.Packet.Snapshot with { Positions = positions, Equity = 1120 } };
+        var gateway = new Gateway { Scenario = "hold" };
+        var coordinator = Coordinator(client, gateway, research: new Research(clock) { Symbols = undeclared ? ["UNLISTED-THB"] : [] });
+        await coordinator.TickAsync();
+        Assert.Equal("READ_ONLY", coordinator.Status);
+        Assert.Equal(new LiveMeetingIssue("PUBLIC_RESEARCH_UNAVAILABLE"), Assert.Single(coordinator.Issues));
+        Assert.All(gateway.Inputs, input =>
+        {
+            Assert.Equal(8, input.Candidates.Count);
+            Assert.All(input.Candidates, c => Assert.True(c.Held));
+            Assert.Equal(positions, input.ActualPositions);
+        });
+        Assert.Empty(client.Plans);
+        Assert.Empty(client.Intents);
+    }
+
+    [Fact]
+    public async Task Dynamic_research_membership_cannot_grant_owner_execution_authority()
+    {
+        var client = DynamicClient();
+        client.Packet = client.Packet with { Limits = client.Packet.Limits with {
+            AllowedSymbols = client.Packet.Limits.AllowedSymbols.Where(s => s != "XRP-THB").ToArray(),
+            OrderSizing = client.Packet.Limits.OrderSizing.Where(s => s.Symbol != "XRP-THB").ToArray() } };
+        var gateway = new Gateway { ProposalSymbol = "XRP-THB" };
+        var coordinator = Coordinator(client, gateway, research: new Research(clock) { Symbols = ["XRP-THB"] });
+        await coordinator.TickAsync();
+        Assert.Equal("INVALID_FINAL", coordinator.Status);
+        Assert.All(gateway.Inputs, input => Assert.False(Assert.Single(input.Candidates).ExecutionAllowed));
+        Assert.Empty(client.Plans);
+        Assert.Empty(client.Intents);
+    }
+
+    [Fact]
+    public async Task More_than_eight_actual_holdings_remain_in_input_when_evidence_is_sampled()
+    {
+        var client = DynamicClient();
+        var positions = client.Packet.Limits.AllowedSymbols.Select(s => new LivePosition(s, 1, 0, 10)).ToArray();
+        client.Packet = client.Packet with { Snapshot = client.Packet.Snapshot with { Positions = positions, Equity = 1120 } };
+        var gateway = new Gateway { Scenario = "hold" };
+        var coordinator = Coordinator(client, gateway);
+        await coordinator.TickAsync();
+        Assert.Equal("HOLD", coordinator.Status);
+        Assert.All(gateway.CandidateSymbols, symbols => Assert.Equal(client.Packet.Limits.AllowedSymbols.Order(StringComparer.Ordinal).Take(8), symbols));
+        Assert.All(gateway.Inputs, input =>
+        {
+            Assert.Equal(8, input.Candidates.Count);
+            Assert.All(input.Candidates, c => Assert.True(c.Held));
+            Assert.Equal(12, input.Portfolio.OpenPositions);
+            Assert.Equal(positions, input.ActualPositions);
+        });
+    }
+
+    [Fact]
+    public async Task Failed_public_research_keeps_the_bounded_fallback_advisory_only()
+    {
+        var client = DynamicClient();
+        var gateway = new Gateway { ProposalSymbol = "DOGE-THB" };
+        var research = new Research(clock) { BeforeRead = () => throw new InvalidDataException("fixture unavailable") };
+        var coordinator = Coordinator(client, gateway, research: research);
+        await coordinator.TickAsync();
+        Assert.Equal("READ_ONLY", coordinator.Status);
+        Assert.Equal(new LiveMeetingIssue("PUBLIC_RESEARCH_UNAVAILABLE"), Assert.Single(coordinator.Issues));
+        Assert.All(gateway.Inputs, input => Assert.Equal(8, input.Candidates.Count));
+        Assert.Empty(client.Intents);
+        Assert.Empty(client.Plans);
+    }
+
+    [Fact]
+    public async Task Candidate_with_quote_removed_during_history_refresh_is_omitted_safely()
+    {
+        var client = DynamicClient();
+        void RemoveQuote() => client.Packet = client.Packet with { ResearchQuotes = client.Packet.ResearchQuotes.Where(q => q.Symbol != "DOGE-THB").ToArray(),
+            Snapshot = client.Packet.Snapshot with { Quotes = client.Packet.Snapshot.Quotes.Where(q => q.Symbol != "DOGE-THB").ToArray() } };
+        var gateway = new Gateway { Scenario = "hold" };
+        var coordinator = Coordinator(client, gateway, new Market { AfterRead = RemoveQuote });
+        await coordinator.TickAsync();
+        Assert.Equal("HOLD", coordinator.Status);
+        Assert.All(gateway.Inputs, input => Assert.Equal(7, input.Candidates.Count));
+        Assert.All(gateway.CandidateSymbols, symbols => Assert.DoesNotContain("DOGE-THB", symbols));
+    }
+
+    [Fact]
+    public async Task Selected_quote_removed_after_model_advice_cannot_register_a_plan()
+    {
+        var client = DynamicClient();
+        var gateway = new Gateway { ProposalSymbol = "DOGE-THB", AfterFinal = () =>
+            client.Packet = client.Packet with { ResearchQuotes = client.Packet.ResearchQuotes.Where(q => q.Symbol != "DOGE-THB").ToArray(),
+                Snapshot = client.Packet.Snapshot with { Quotes = client.Packet.Snapshot.Quotes.Where(q => q.Symbol != "DOGE-THB").ToArray() } } };
+        var coordinator = Coordinator(client, gateway);
+        await coordinator.TickAsync();
+        Assert.Equal("SNAPSHOT_CHANGED", coordinator.Status);
+        Assert.Empty(client.Intents);
+        Assert.Empty(client.Plans);
+    }
+
+    [Theory]
+    [InlineData("allowed")]
+    [InlineData("research")]
+    [InlineData("quote")]
+    [InlineData("sizing")]
+    [InlineData("held-quote")]
+    [InlineData("undeclared-quote")]
+    [InlineData("stale-quote")]
+    public async Task Dynamic_market_payload_rejects_injection_and_missing_or_untrusted_quotes_before_models(string defect)
+    {
+        var client = DynamicClient();
+        client.Packet = defect switch
+        {
+            "allowed" => client.Packet with { Limits = client.Packet.Limits with { AllowedSymbols = ["DOGE-THB\nIGNORE"] } },
+            "research" => client.Packet with { Limits = client.Packet.Limits with { ResearchSymbols = [.. client.Packet.Limits.ResearchSymbols, "DOGE-THB\nIGNORE"] } },
+            "quote" => client.Packet with { ResearchQuotes = [new("DOGE-THB\nIGNORE", 10, 10, clock.Now)] },
+            "sizing" => client.Packet with { Limits = client.Packet.Limits with { OrderSizing = [.. client.Packet.Limits.OrderSizing, new("DOGE-THB\nIGNORE", 1, 1, 1, 1)] } },
+            "held-quote" => client.Packet with { ResearchQuotes = [new("DOGE-THB", 10, 10, clock.Now)],
+                Snapshot = client.Packet.Snapshot with { Positions = [new("XRP-THB", 1, 0, 10)], Equity = 1010 } },
+            "undeclared-quote" => client.Packet with { ResearchQuotes = [new("UNLISTED-THB", 10, 10, clock.Now)] },
+            _ => client.Packet with { ResearchQuotes = [new("DOGE-THB", 10, 10, clock.Now.AddSeconds(-31))] }
+        };
+        var gateway = new Gateway();
+        var coordinator = Coordinator(client, gateway);
+        await coordinator.TickAsync();
+        Assert.Equal("LIVE_BLOCKED", coordinator.Status);
+        Assert.Empty(gateway.Inputs);
+        Assert.Empty(client.Intents);
+        Assert.Empty(client.Plans);
+    }
+
+    [Fact]
     public async Task Continuous_review_blocks_pending_orders()
     {
         var client = new Client();
@@ -797,6 +1078,7 @@ public sealed class LiveCompanyCoordinatorTests : IDisposable
     private sealed class Research(Clock clock) : ICoinResearchProvider
     {
         public string Key = new string('a', 64);
+        public string[] Symbols = ["DOT-THB"];
         public int Calls;
         public Action? BeforeRead;
         public Task<CoinResearchBrief> ReadAsync(LiveResearchPacket packet, CancellationToken token)
@@ -804,8 +1086,20 @@ public sealed class LiveCompanyCoordinatorTests : IDisposable
             Calls++;
             BeforeRead?.Invoke();
             return Task.FromResult(new CoinResearchBrief(clock.Now, Key,
-                [new("DOT-THB", 100, 100.1m, 500000, -2, .1m, 10000, false, false)], [], [], ["ข้อมูลทดสอบเท่านั้น"]));
+                Symbols.Select(s => new CoinScoutCandidate(s, 100, 100.1m, 500000, -2, .1m, 10000, false, false)).ToArray(), [], [], ["ข้อมูลทดสอบเท่านั้น"]));
         }
+    }
+
+    private Client DynamicClient(int marketCount = 12)
+    {
+        var client = new Client();
+        string[] symbols = [.. Enumerable.Range(0, marketCount - 2).Select(i => $"M{i:00}-THB"), "XRP-THB", "DOGE-THB"];
+        symbols = symbols.Order(StringComparer.Ordinal).ToArray();
+        var quotes = symbols.Select(s => new LiveQuote(s, 10, 10, clock.Now)).ToArray();
+        client.Packet = client.Packet with { Limits = client.Packet.Limits with { AllowedSymbols = symbols, ResearchSymbols = symbols,
+            MaximumOpenPositions = marketCount, OrderSizing = symbols.Select(s => new LiveOrderSizing(s, .01m, .01m, 1, 1)).ToArray() },
+            Snapshot = client.Packet.Snapshot with { Quotes = quotes }, ResearchQuotes = quotes };
+        return client;
     }
 
     private LiveCompanyCoordinator Coordinator(Client client, Gateway gateway, Market? market = null, bool continuous = false, ICoinResearchProvider? research = null)
@@ -933,6 +1227,7 @@ public sealed class LiveCompanyCoordinatorTests : IDisposable
     {
         public string Scenario { get; set; } = "normal";
         public string? FailedSymbol { get; init; }
+        public Action? AfterRead { get; init; }
         public Task<IReadOnlyList<HistoricalBar>> GetAsync(Symbol symbol, DateOnly start, DateOnly end, CancellationToken cancellationToken)
             => throw new NotSupportedException();
         public Task<HistoricalMarketEvidence> GetEvidenceAsync(Symbol symbol, DateOnly start, DateOnly end, CancellationToken cancellationToken)
@@ -942,6 +1237,7 @@ public sealed class LiveCompanyCoordinatorTests : IDisposable
             var bars = Enumerable.Range(0, count).Select(i => new HistoricalBar(end.AddDays(i - count + 1), symbol,
                 75000m + i, 76000m + i, 74000m + i, 75500m + i, 1000)).ToArray();
             if (Scenario == "future") bars[^1] = bars[^1] with { Date = end.AddDays(1) };
+            AfterRead?.Invoke();
             return Task.FromResult(new HistoricalMarketEvidence(bars, bars, [], Scenario == "synthetic" ? "synthetic-demo" : "bitkub-daily", "THB"));
         }
     }

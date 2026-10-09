@@ -7,8 +7,8 @@ public sealed record LiveMeetingIssue(string Code, string? Symbol = null);
 public static class LiveMeetingIssues
 {
     public static bool IsValid(IReadOnlyList<LiveMeetingIssue>? issues) => issues is null ||
-        issues.Count <= 5 && issues.All(i => i is not null && (i.Code == "MARKET_HISTORY_UNAVAILABLE"
-            ? i.Symbol is "BTC-THB" or "ETH-THB" or "SOL-THB"
+        issues.Count <= LiveMarketSymbol.MaximumPayloadMarkets && issues.All(i => i is not null && (i.Code == "MARKET_HISTORY_UNAVAILABLE"
+            ? LiveMarketSymbol.IsValid(i.Symbol)
             : i.Symbol is null && i.Code is "PUBLIC_RESEARCH_UNAVAILABLE" or "LIVE_READ_UNAVAILABLE" or
                 "ACCOUNT_STATE_INVALID" or "JOURNAL_UNAVAILABLE" or "MEETING_FAILED")) &&
         issues.Distinct().Count() == issues.Count;

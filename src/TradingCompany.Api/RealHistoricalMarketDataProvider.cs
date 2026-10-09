@@ -37,11 +37,16 @@ public sealed class RealHistoricalMarketDataProvider(IHttpClientFactory clients,
 
     private static bool TryGetBitkubPair(Symbol symbol, out string pair)
     {
+        if (LiveMarketSymbol.IsValid(symbol.Value))
+        {
+            pair = symbol.Value[..^4] + "_THB";
+            return true;
+        }
         pair = symbol.Value switch
         {
-            "BTC-THB" or "BTC-USDT" => "BTC_THB",
-            "ETH-THB" or "ETH-USDT" => "ETH_THB",
-            "SOL-THB" or "SOL-USDT" => "SOL_THB",
+            "BTC-USDT" => "BTC_THB",
+            "ETH-USDT" => "ETH_THB",
+            "SOL-USDT" => "SOL_THB",
             _ => string.Empty
         };
         return pair.Length > 0;
@@ -126,7 +131,7 @@ public sealed class RealHistoricalMarketDataProvider(IHttpClientFactory clients,
             var usableEnd = CompletedEnd(end);
             var bars = Enumerable.Range(0, timestamps.Length).Select(index => new HistoricalBar(
                 DateOnly.FromDateTime(DateTimeOffset.FromUnixTimeSeconds(timestamps[index].GetInt64()).UtcDateTime), symbol,
-                opens[index].GetDecimal(), highs[index].GetDecimal(), lows[index].GetDecimal(), closes[index].GetDecimal(), decimal.ToInt64(decimal.Truncate(volumes[index].GetDecimal())))).Where(x => x.Date <= usableEnd).ToArray();
+                opens[index].GetDecimal(), highs[index].GetDecimal(), lows[index].GetDecimal(), closes[index].GetDecimal(), decimal.ToInt64(decimal.Truncate(volumes[index].GetDecimal())))).Where(x => x.Date >= start && x.Date <= usableEnd).ToArray();
             Validate(bars, start, end, "Bitkub");
             return bars;
         }

@@ -44,11 +44,11 @@ public sealed class BitkubQuoteTests
     }
 
     [Fact]
-    public async Task Unsupported_symbol_fails_before_network()
+    public async Task Malformed_symbol_fails_before_network()
     {
         var wire = new Wire("[]", new Clock(DateTimeOffset.UtcNow));
         using var broker = new BitkubLiveBroker("test-key", "test-secret", wire, wire.Clock);
-        await Assert.ThrowsAsync<InvalidDataException>(() => broker.GetQuoteAsync("DOGE-THB"));
+        await Assert.ThrowsAsync<InvalidDataException>(() => broker.GetQuoteAsync("DOGE-THB?injected=1"));
         Assert.Null(wire.Path);
     }
 

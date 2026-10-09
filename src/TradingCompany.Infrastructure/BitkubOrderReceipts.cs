@@ -20,7 +20,7 @@ public static class BitkubOrderReceipts
             if (client is null || !Guid.TryParseExact(client, "N", out var id) || id == Guid.Empty) return null;
             if (BitkubLiveBroker.Identifier(data, "type") != "limit") throw Invalid();
             var symbol = BitkubLiveBroker.Identifier(data, "symbol").ToUpperInvariant().Replace('_', '-');
-            if (symbol is not ("BTC-THB" or "ETH-THB" or "SOL-THB")) throw Invalid();
+            if (!LiveMarketSymbol.IsValid(symbol)) throw Invalid();
             var side = BitkubLiveBroker.Identifier(data, "side") switch
             { "buy" => OrderSide.Buy, "sell" => OrderSide.Sell, _ => throw Invalid() };
             var currency = side == OrderSide.Buy ? "THB" : symbol[..^4];

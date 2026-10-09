@@ -34,7 +34,8 @@ public sealed class CoinResearchProvider(IHttpClientFactory clients, CoinSourceR
             {
                 var observations = await ObserveMarketsAsync(token);
                 var ranked = CoinMarketScout.Rank(observations, packet.Limits.AllowedSymbols,
-                    packet.Snapshot.Positions.Select(p => p.Symbol).ToArray(), notional);
+                    packet.Snapshot.Positions.Select(p => p.Symbol).ToArray(), notional,
+                    (int)Math.Floor(now.ToUnixTimeSeconds() / 900d));
                 foreach (var candidate in ranked)
                 {
                     try

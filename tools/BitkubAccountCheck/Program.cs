@@ -53,21 +53,30 @@ try
         { true => "Trade permission probe succeeded. The issued token was discarded.", false => "Bitkub rejected the Trade permission probe (52).", _ => "Trade permission remains unknown: the token probe is unavailable." });
         stage = "orders-and-history";
         openOrderCount = 0;
-        foreach (var symbol in new[] { "BTC-THB", "ETH-THB", "SOL-THB" })
+        marketRules.AddRange(await broker.GetAvailableMarketsAsync(deadline.Token));
+        var symbols = marketRules.Select(m => m.Symbol).ToArray();
+        openOrderCount = (await broker.GetOpenOrdersForMarketsAsync(symbols, deadline.Token)).Count;
+        var histories = await BitkubLiveBroker.ReadMarketBatchesAsync(symbols, async (symbol, token) =>
+            (Symbol: symbol, History: await broker.GetHistoryAsync(symbol, token)), deadline.Token);
+        foreach (var observation in histories)
         {
-            openOrderCount += (await broker.GetOpenOrdersAsync(symbol, deadline.Token)).Count;
-            var history = await broker.GetHistoryAsync(symbol, deadline.Token);
+            var symbol = observation.Symbol;
+            var history = observation.History;
             historyCounts[symbol] = history.Count;
             if (captureEvidence)
             {
-                // A bounded canary capture must be complete, never silently truncated.
-                if (history.Count > 20) throw new InvalidDataException("Capture history exceeds the canary bound.");
+                // Receipt-mode accounts can have history across many native markets.
+                // Canary verification retains its separate 20-fill/two-order bound.
+                // Every capture remains bounded and complete, never silently truncated.
+                if (capturedHistory.Count + history.Count > 1000) throw new InvalidDataException("Capture history exceeds the evidence bound.");
                 capturedHistory.AddRange(history);
                 foreach (var identity in history.Select(h => (h.OrderId, h.Side)).Distinct())
+                {
+                    if (capturedOrders.Count == 1000) throw new InvalidDataException("Capture orders exceed the evidence bound.");
                     capturedOrders.Add(await broker.GetOrderAsync(symbol, identity.OrderId,
                         identity.Side == "buy" ? TradingCompany.Domain.OrderSide.Buy : TradingCompany.Domain.OrderSide.Sell, deadline.Token));
+                }
             }
-            marketRules.Add(await broker.GetSymbolRulesAsync(symbol, deadline.Token));
         }
         stage = "stable-wallet";
         var second = await broker.GetWalletAsync(deadline.Token);

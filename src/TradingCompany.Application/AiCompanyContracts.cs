@@ -67,6 +67,8 @@ public sealed record AiCompanyMeetingInput(
     [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
     public LiveResearchLimits? ExecutionLimits { get; init; }
     public IReadOnlyList<LiveTradePlanView> ActiveTradePlans { get; init; } = [];
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public IReadOnlyList<LivePosition>? ActualPositions { get; init; }
 }
 
 public sealed record AiCompanyProposal(

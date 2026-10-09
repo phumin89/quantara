@@ -39,8 +39,6 @@ public sealed record LiveGateDecision(bool Allowed, IReadOnlyList<string> Violat
 
 public static class LiveRiskPolicy
 {
-    private static readonly HashSet<string> SupportedSymbols = ["BTC-THB", "ETH-THB", "SOL-THB"];
-
     public static LiveGateDecision Evaluate(LiveIntent intent, LiveSnapshot snapshot, LiveMandate? mandate,
         LiveGateState gate, DateTimeOffset now)
     {
@@ -63,7 +61,7 @@ public static class LiveRiskPolicy
         if (string.IsNullOrWhiteSpace(gate.CredentialFingerprint) || gate.CredentialFingerprint != mandate.CredentialFingerprint)
             errors.Add("ACCOUNT_BINDING_CHANGED");
         if (mandate.ExpiresAt is { } expiry && expiry <= now) errors.Add("MANDATE_EXPIRED");
-        if (!mandate.AllowedSymbols.Contains(intent.Symbol, StringComparer.Ordinal) || !SupportedSymbols.Contains(intent.Symbol))
+        if (!mandate.AllowedSymbols.Contains(intent.Symbol, StringComparer.Ordinal) || !LiveMarketSymbol.IsValid(intent.Symbol))
             errors.Add("SYMBOL_NOT_ALLOWED");
         if (intent.Id == Guid.Empty || intent.DecisionId == Guid.Empty || string.IsNullOrWhiteSpace(intent.EvidenceHash) ||
             intent.Quantity <= 0 || intent.LimitPrice <= 0 || !Enum.IsDefined(intent.Side))
@@ -75,9 +73,9 @@ public static class LiveRiskPolicy
                 errors.Add("INVALID_INTENT");
             if (snapshot.Version <= 0 || snapshot.CashBalance < 0 || snapshot.CashReserved < 0 || snapshot.CashReserved > snapshot.CashBalance ||
                 snapshot.PendingBuyNotional < 0 || snapshot.PendingSellNotional < 0 || snapshot.DailyLoss < 0 || snapshot.Drawdown < 0 || snapshot.DailyTurnover < 0 || snapshot.Equity <= 0 ||
-                snapshot.PendingBuySymbols is null || snapshot.PendingBuySymbols.Any(s => !SupportedSymbols.Contains(s)) ||
+                snapshot.PendingBuySymbols is null || snapshot.PendingBuySymbols.Any(s => !LiveMarketSymbol.IsValid(s)) ||
                 snapshot.Positions is null || snapshot.Quotes is null ||
-                snapshot.Positions.Any(p => p.Quantity <= 0 || p.ReservedQuantity < 0 || p.ReservedQuantity > p.Quantity || p.MarketPrice <= 0 || !SupportedSymbols.Contains(p.Symbol)) ||
+                snapshot.Positions.Any(p => p is null || p.Quantity <= 0 || p.ReservedQuantity < 0 || p.ReservedQuantity > p.Quantity || p.MarketPrice <= 0 || !LiveMarketSymbol.IsValid(p.Symbol)) ||
                 snapshot.Positions.Select(p => p.Symbol).Distinct().Count() != snapshot.Positions.Count ||
                 snapshot.Equity != snapshot.CashBalance + snapshot.Positions.Sum(p => p.Quantity * p.MarketPrice))
             {
@@ -126,6 +124,6 @@ public static class LiveRiskPolicy
         mandate.MaximumDailyTurnover > 0 && mandate.MaximumDailyLoss > 0 && mandate.MaximumDrawdown is > 0 and <= 1 &&
         mandate.MaximumPortfolioExposure is > 0 and <= 1 && mandate.MaximumOpenPositions > 0 &&
         mandate.MaximumSlippage is >= 0 and <= .02m && mandate.FeeReserveRate is > 0 and <= .1m &&
-        mandate.AllowedSymbols is { Count: > 0 } && mandate.AllowedSymbols.All(SupportedSymbols.Contains) &&
+        mandate.AllowedSymbols is { Count: > 0 and <= LiveMarketSymbol.MaximumPayloadMarkets } && mandate.AllowedSymbols.All(LiveMarketSymbol.IsValid) &&
         mandate.AllowedSymbols.Distinct().Count() == mandate.AllowedSymbols.Count;
 }

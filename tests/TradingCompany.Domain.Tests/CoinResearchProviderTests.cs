@@ -5,6 +5,7 @@ using TradingCompany.AgentRuntime;
 using TradingCompany.Api;
 using TradingCompany.Application;
 using TradingCompany.Infrastructure;
+using TradingCompany.Domain;
 using Xunit;
 
 namespace TradingCompany.Domain.Tests;
@@ -83,6 +84,32 @@ public sealed class CoinResearchProviderTests
         using var fixture = new Fixture { Symbols = ["BTC", "UNSUPPORTED"], AllowedSymbols = ["BTC-THB", "UNSUPPORTED-THB"] };
         var brief = await fixture.Provider.ReadAsync(fixture.Packet, default);
         Assert.Contains(brief.Gaps, gap => gap.Contains("UNSUPPORTED-THB", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task Cached_fifteen_minute_scans_rotate_all_twelve_holdings_and_keep_a_new_opportunity()
+    {
+        var held = Enumerable.Range(0, 12).Select(i => $"H{i:00}-THB").ToArray();
+        using var fixture = new Fixture { Symbols = [.. held.Select(s => s[..^4]), "NEW"],
+            AllowedSymbols = [.. held, "NEW-THB"], HeldSymbols = held };
+        var first = await fixture.Provider.ReadAsync(fixture.Packet, default);
+        var calls = fixture.HttpCalls;
+        fixture.Clock.Now += TimeSpan.FromMinutes(14);
+        Assert.Same(first, await fixture.Provider.ReadAsync(fixture.Packet, default));
+        Assert.Equal(calls, fixture.HttpCalls);
+        fixture.Clock.Now += TimeSpan.FromMinutes(1);
+        var second = await fixture.Provider.ReadAsync(fixture.Packet, default);
+        Assert.NotEqual(first.ChangeKey, second.ChangeKey);
+        Assert.All(new[] { first, second }, brief =>
+        {
+            Assert.Equal(8, brief.Watchlist.Count);
+            Assert.Equal("NEW-THB", Assert.Single(brief.Watchlist, c => !c.Held).Symbol);
+        });
+        Assert.Equal(held, first.Watchlist.Concat(second.Watchlist).Where(c => c.Held)
+            .Select(c => c.Symbol).Distinct().Order(StringComparer.Ordinal));
+        Assert.Equal(13, fixture.Packet.Limits.AllowedSymbols.Count);
+        Assert.Equal(12, fixture.Packet.Snapshot.Positions.Count);
+        Assert.Equal(0, fixture.Model.Calls);
     }
 
     [Fact]
@@ -178,9 +205,11 @@ public sealed class CoinResearchProviderTests
         public bool ThinDot, MarketTimeout;
         public IReadOnlyList<string> Symbols { get; set; } = ["BTC", "ETH", "DOT"];
         public IReadOnlyList<string> AllowedSymbols { get; set; } = ["BTC-THB"];
+        public IReadOnlyList<string> HeldSymbols { get; set; } = [];
         public int Revision, HttpCalls;
         public LiveResearchPacket Packet => new(new(TradingCompany.Domain.TradingMode.Live, LiveRiskTests.Account.Value.ToString("N")), 1,
-            LiveRiskTests.Snapshot with { ObservedAt = Clock.Now }, new(1000, .2m, 3, .003m, .01m, AllowedSymbols), true, false);
+            LiveRiskTests.Snapshot with { ObservedAt = Clock.Now, Positions = HeldSymbols.Select(s => new LivePosition(s, 1, 0, 100)).ToArray(),
+                Equity = 1000 + HeldSymbols.Count * 100 }, new(1000, .2m, Math.Max(3, AllowedSymbols.Count), .003m, .01m, AllowedSymbols), true, false);
         public Fixture()
         {
             artifacts = new(Path.Combine(directory, "artifacts"));

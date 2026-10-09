@@ -29,9 +29,10 @@ public static class BitkubProfileVerifier
         {
             if (fingerprint is not { Length: 71 } || !fingerprint.StartsWith("sha256:", StringComparison.Ordinal) ||
                 fingerprint[7..].Any(c => !char.IsAsciiHexDigit(c))) throw Invalid();
-            var capture = Read(bytes, fingerprint, now, allowZeroCash: true);
+            var capture = Read(bytes, fingerprint, now, receiptMode: true);
             if (now - capture.observedAt > TimeSpan.FromMinutes(5) ||
-                capture.walletBalances.Any(b => b.Currency is not ("THB" or "BTC" or "ETH" or "SOL") && b.Total != 0) ||
+                capture.walletBalances.Any(b => b.Currency != "THB" && b.Total != 0 &&
+                    !capture.marketRules.Any(m => m.Symbol == b.Currency + "-THB")) ||
                 capture.walletBalances.All(b => b.Total == 0)) throw Invalid();
             var pairs = ReceiptPairs(capture.marketRules, now);
             var hash = Convert.ToHexStringLower(SHA256.HashData(bytes.Span));
@@ -75,14 +76,31 @@ public static class BitkubProfileVerifier
     private static BitkubPairExecutionRules[] ReceiptPairs(IReadOnlyList<BrokerSymbolRules> markets, DateTimeOffset now)
     {
         var sorted = markets.OrderBy(p => p.Symbol, StringComparer.Ordinal).ToArray();
-        if (!sorted.Select(p => p.Symbol).SequenceEqual(new[] { "BTC-THB", "ETH-THB", "SOL-THB" }) ||
-            sorted.Any(p => p.BaseAssetScale != 8 || p.QuoteAssetScale != 2 || p.BaseQuantityScale != 8 ||
-                p.QuoteQuantityScale != 2 || p.QuantityScale != 0 || p.QuantityStep != 1 || p.PriceScale != 2 ||
-                p.PriceStep != .01m || p.MinimumQuoteSize != 10 || p.Status != "active" || p.Source != "exchange" ||
-                p.MarketSegment != "SPOT" || p.FreezeBuy || p.FreezeSell || p.FreezeCancel ||
-                p.ObservedAt > now || now - p.ObservedAt > TimeSpan.FromSeconds(60))) throw Invalid();
-        return sorted.Select(m => new BitkubPairExecutionRules(m.Symbol, 1m, .00000001m, m.PriceStep,
+        if (sorted.Length is 0 or > LiveMarketSymbol.MaximumPayloadMarkets ||
+            sorted.Select(p => p.Symbol).Distinct(StringComparer.Ordinal).Count() != sorted.Length ||
+            sorted.Any(p => !IsReceiptMarket(p, now))) throw Invalid();
+        // Whole-THB buy budgets are conservative across native quantity precision;
+        // explicit authenticated wallet receipts still prove every actual debit/fill.
+        return sorted.Select(m => new BitkubPairExecutionRules(m.Symbol, 1m, BaseStep(m), m.PriceStep,
             m.MinimumQuoteSize, m.QuantityScale, m.QuantityStep) { BuyBaseRounding = BitkubBuyBaseRounding.FloorToBaseStep }).ToArray();
+    }
+
+    public static bool IsReceiptMarket(BrokerSymbolRules? market, DateTimeOffset now) => market is { } m &&
+        LiveMarketSymbol.IsValid(m.Symbol) && m.BaseAssetScale is >= 0 and <= 28 && m.QuoteAssetScale == 2 &&
+        m.BaseQuantityScale is >= 0 and <= 28 && m.BaseQuantityScale <= m.BaseAssetScale && m.QuoteQuantityScale == 2 &&
+        m.PriceScale is >= 0 and <= 28 && m.QuantityScale is >= 0 and <= 28 &&
+        m.PriceStep == DecimalStep(m.PriceScale) && m.QuantityStep == DecimalStep(m.QuantityScale) &&
+        m.MinimumQuoteSize >= 10 && m.Status == "active" && m.Source == "exchange" && m.MarketSegment == "SPOT" &&
+        !m.FreezeBuy && !m.FreezeSell && !m.FreezeCancel && m.ObservedAt <= now && now - m.ObservedAt <= TimeSpan.FromSeconds(60);
+
+    public static decimal BaseStep(BrokerSymbolRules market) => DecimalStep(market.BaseQuantityScale ?? throw Invalid());
+
+    private static decimal DecimalStep(int scale)
+    {
+        if (scale is < 0 or > 28) throw Invalid();
+        decimal step = 1;
+        for (var i = 0; i < scale; i++) step /= 10;
+        return step;
     }
 
     public static BitkubVerifiedProfile Verify(ReadOnlyMemory<byte> beforeBytes, ReadOnlyMemory<byte> boughtBytes,
@@ -166,7 +184,7 @@ public static class BitkubProfileVerifier
         { throw Invalid(); }
     }
 
-    private static Capture Read(ReadOnlyMemory<byte> bytes, string fingerprint, DateTimeOffset now, bool allowZeroCash = false)
+    private static Capture Read(ReadOnlyMemory<byte> bytes, string fingerprint, DateTimeOffset now, bool receiptMode = false)
     {
         if (bytes.Length is 0 or > 512 * 1024) throw Invalid();
         using var document = JsonDocument.Parse(bytes);
@@ -184,20 +202,21 @@ public static class BitkubProfileVerifier
                 b.Currency.Any(c => !char.IsAsciiLetterUpper(c) && !char.IsAsciiDigit(c))) ||
             capture.walletBalances.Select(b => b.Currency).Distinct().Count() != capture.walletBalances.Length ||
             capture.walletBalances.Any(b => b.Available < 0 || b.Reserved != 0 || b.Total != b.Available) ||
-            (allowZeroCash ? capture.thbTotal < 0 : capture.thbTotal <= 0) || capture.thbAvailable != capture.thbTotal || capture.thbReserved != 0 ||
+            (receiptMode ? capture.thbTotal < 0 : capture.thbTotal <= 0) || capture.thbAvailable != capture.thbTotal || capture.thbReserved != 0 ||
             capture.walletBalances.Single(b => b.Currency == "THB").Total != capture.thbTotal ||
-            capture.marketRules is null || capture.marketRules.Length != 3 ||
+            capture.marketRules is null || capture.marketRules.Length is 0 or > LiveMarketSymbol.MaximumPayloadMarkets ||
             capture.marketRules.Any(p => p is null) ||
-            capture.marketRules.Select(p => p.Symbol).Distinct().Count() != 3 ||
-            capture.marketRules.Any(p => p.Symbol is not ("BTC-THB" or "ETH-THB" or "SOL-THB") || p.Status != "active" ||
+            capture.marketRules.Select(p => p.Symbol).Distinct().Count() != capture.marketRules.Length ||
+            capture.marketRules.Any(p => !LiveMarketSymbol.IsValid(p.Symbol) || p.Status != "active" ||
                 p.Source != "exchange" || p.MarketSegment != "SPOT" || p.FreezeBuy || p.FreezeSell || p.FreezeCancel ||
                 p.ObservedAt > capture.observedAt || capture.observedAt - p.ObservedAt > TimeSpan.FromSeconds(60)) ||
-            capture.orderHistory is null || capture.orderHistory.Length > 20 || capture.orderDetails is null ||
+            capture.orderHistory is null || capture.orderHistory.Length > (receiptMode ? 1000 : 20) || capture.orderDetails is null ||
             capture.orderHistory.Any(h => h is null || string.IsNullOrWhiteSpace(h.TransactionId)) ||
             capture.orderDetails.Any(o => o is null || o.History is null || o.History.Any(h => h is null)) ||
-            capture.orderDetails.Length > 2 || capture.orderHistory.Select(h => h.TransactionId).Distinct().Count() != capture.orderHistory.Length ||
-            capture.orderHistory.Any(h => h.Symbol != "BTC-THB") || capture.historyCounts is null || capture.historyCounts.Count != 3 ||
-            !capture.historyCounts.Keys.Order(StringComparer.Ordinal).SequenceEqual(new[] { "BTC-THB", "ETH-THB", "SOL-THB" }) ||
+            capture.orderDetails.Length > (receiptMode ? 1000 : 2) || capture.orderHistory.Select(h => h.TransactionId).Distinct().Count() != capture.orderHistory.Length ||
+            capture.orderHistory.Any(h => !capture.marketRules.Any(m => m.Symbol == h.Symbol)) ||
+            capture.historyCounts is null || capture.historyCounts.Count != capture.marketRules.Length ||
+            !capture.historyCounts.Keys.Order(StringComparer.Ordinal).SequenceEqual(capture.marketRules.Select(m => m.Symbol).Order(StringComparer.Ordinal)) ||
             capture.historyCounts.Any(p => p.Value != capture.orderHistory.Count(h => h.Symbol == p.Key))) throw Invalid();
         return capture;
     }

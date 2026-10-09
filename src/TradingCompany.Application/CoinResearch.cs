@@ -1,5 +1,5 @@
 using System.Text.Json;
-using System.Text.RegularExpressions;
+using TradingCompany.Domain;
 
 namespace TradingCompany.Application;
 
@@ -25,7 +25,7 @@ public interface ICoinResearchProvider
 // Public provenance only. Research is never execution authority.
 public static partial class CoinResearchValidation
 {
-    public static bool ValidSymbol(string? value) => value is not null && SymbolPattern().IsMatch(value);
+    public static bool ValidSymbol(string? value) => LiveMarketSymbol.IsValid(value);
     public static bool Hash(string? value) => value is { Length: 64 } && value.All(char.IsAsciiHexDigit);
     public static bool PublicSourceUrl(string? value) => Uri.TryCreate(value, UriKind.Absolute, out var u) &&
         u.Scheme == "https" && u.IsDefaultPort && u.UserInfo.Length == 0 && u.Query.Length == 0 && u.Fragment.Length == 0 &&
@@ -48,6 +48,4 @@ public static partial class CoinResearchValidation
         return JsonSerializer.SerializeToUtf8Bytes(value).Length <= 24 * 1024;
     }
     private static bool Text(string? value, int maximum) => !string.IsNullOrWhiteSpace(value) && value.Length <= maximum && !value.Any(c => char.IsControl(c) && c is not ('\n' or '\r' or '\t'));
-    [GeneratedRegex("^[A-Z0-9]{1,15}-THB$")]
-    private static partial Regex SymbolPattern();
 }

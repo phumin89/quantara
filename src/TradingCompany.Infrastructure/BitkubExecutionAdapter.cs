@@ -50,8 +50,8 @@ public sealed class BitkubExecutionAdapter : ILiveBroker
         if (rules is null || string.IsNullOrWhiteSpace(rules.ConfirmationReference) ||
             rules.EvidenceHash is not { Length: 64 } || rules.EvidenceHash.Any(c => !char.IsAsciiHexDigit(c)) ||
             rules.MaximumCashFeeRate is <= 0 or > .1m || !Enum.IsDefined(rules.BuyHistoryAmount) ||
-            rules.Pairs is null || rules.Pairs.Count is 0 or > 3 ||
-            rules.Pairs.Any(p => p is null || p.Symbol is not ("BTC-THB" or "ETH-THB" or "SOL-THB") ||
+            rules.Pairs is null || rules.Pairs.Count is 0 or > LiveMarketSymbol.MaximumPayloadMarkets ||
+            rules.Pairs.Any(p => p is null || !LiveMarketSymbol.IsValid(p.Symbol) ||
                 p.BuyQuoteStep <= 0 || p.SellBaseStep <= 0 || p.PriceStep <= 0 || p.MinimumQuoteSize <= 0 ||
                 p.RawQuantityScale is < 0 or > 28 || p.RawQuantityStep <= 0 || !Enum.IsDefined(p.BuyBaseRounding)) ||
             rules.Pairs.Select(p => p.Symbol).Distinct().Count() != rules.Pairs.Count)
@@ -108,14 +108,18 @@ public sealed class BitkubExecutionAdapter : ILiveBroker
         RequireReceiptStream();
         var amount = WireAmount(intent);
         _ = await BoundAccount(cancellationToken);
-        var expected = VerifiedRules().Pairs.Single(p => p.Symbol == intent.Symbol);
+        var verified = VerifiedRules();
+        var expected = verified.Pairs.Single(p => p.Symbol == intent.Symbol);
         var observed = await transport.GetSymbolRulesAsync(intent.Symbol, cancellationToken);
         var now = clock.GetUtcNow();
         if (observed.ObservedAt > now || now - observed.ObservedAt > TimeSpan.FromSeconds(30) ||
             observed.Status != "active" || observed.Source != "exchange" || observed.MarketSegment != "SPOT" ||
             (intent.Side == OrderSide.Buy ? observed.FreezeBuy : observed.FreezeSell) ||
             observed.PriceStep != expected.PriceStep || observed.MinimumQuoteSize != expected.MinimumQuoteSize ||
-            observed.QuantityScale != expected.RawQuantityScale || observed.QuantityStep != expected.RawQuantityStep)
+            observed.QuantityScale != expected.RawQuantityScale || observed.QuantityStep != expected.RawQuantityStep ||
+            (verified.BuyHistoryAmount == BitkubBuyHistoryAmount.AuthenticatedOrderReceipts &&
+             (!BitkubProfileVerifier.IsReceiptMarket(observed with { FreezeBuy = false, FreezeSell = false, FreezeCancel = false }, now) ||
+              BitkubProfileVerifier.BaseStep(observed) != expected.SellBaseStep)))
             throw new InvalidDataException("BITKUB_MARKET_RULES_CHANGED");
         return intent.Side == OrderSide.Buy ? BitkubLiveBroker.EncodeBudgetLimitRequest(intent, amount)
             : BitkubLiveBroker.EncodeLimitRequest(intent);

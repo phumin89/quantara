@@ -61,6 +61,38 @@ public class TradingTests
         Assert.Equal(200, bars.Count);
         Assert.All(bars, bar => Assert.Equal("BTC-USDT", bar.Symbol.Value));
     }
+    [Theory]
+    [InlineData("XRP-THB", "XRP_THB")]
+    [InlineData("DOGE-THB", "DOGE_THB")]
+    public async Task Dynamic_native_thb_history_preserves_market_and_never_uses_fx(string symbol, string pair)
+    {
+        var rates = new SpyUsdThbRateProvider();
+        var handler = new StubHttpHandler(request =>
+        {
+            Assert.Equal("api.bitkub.com", request.RequestUri!.Host);
+            Assert.Contains("symbol=" + pair + "&", request.RequestUri.Query);
+            return BitkubRows(new(2024, 1, 1), 200);
+        });
+        var provider = new RealHistoricalMarketDataProvider(new FakeHttpClientFactory(new HttpClient(handler)), rates);
+        var evidence = await provider.GetEvidenceAsync(new(symbol), new(2024, 1, 1), new(2024, 7, 18), default);
+        Assert.Equal("bitkub-daily", evidence.Source);
+        Assert.Equal("THB", evidence.SourceCurrency);
+        Assert.Empty(evidence.FxRates);
+        Assert.All(evidence.Bars, bar => Assert.Equal(symbol, bar.Symbol.Value));
+        Assert.Equal(0, rates.HistoricalCalls);
+    }
+    [Theory]
+    [InlineData("XRP-USDT")]
+    [InlineData("DOGE-USDT")]
+    [InlineData("XRP/IGNORE-THB")]
+    public async Task Unsupported_crypto_proxy_or_injected_pair_is_rejected_before_network(string symbol)
+    {
+        var calls = 0;
+        var provider = new RealHistoricalMarketDataProvider(new FakeHttpClientFactory(new HttpClient(
+            new StubHttpHandler(_ => { calls++; throw new InvalidOperationException("No network request expected"); }))));
+        await Assert.ThrowsAsync<InvalidOperationException>(() => provider.GetEvidenceAsync(new(symbol), new(2024, 1, 1), new(2024, 7, 18), default));
+        Assert.Equal(0, calls);
+    }
     [Fact]
     public async Task Real_crypto_provider_translates_malformed_bitkub_schema_to_invalid_data()
     {

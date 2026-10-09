@@ -24,6 +24,7 @@ test('only fresh reconciled account matching authoritative account and both vers
     a => { a.snapshot.version++; }, a => { a.mandate.version++; },
     a => { a.snapshot.reconciled = false; }, a => { a.snapshot.cashReserved = 1001; },
     a => { a.snapshot.equity = 999; }, a => { a.snapshot.cashBalance = Infinity; },
+    a => { a.snapshot.positions[0].quantity = Number.MAX_VALUE; },
     a => { a.snapshot.observedAt = new Date(now - 30000).toISOString(); },
     a => { a.snapshot.observedAt = new Date(now + 1).toISOString(); },
     a => { a.snapshot.observedAt = '2026-02-31T12:00:00Z'; },
@@ -78,12 +79,37 @@ test('plans validate numeric geometry, identity, explicit time and actual fills;
   for (const alter of [p => p.plan.entryPrice = Infinity, p => p.plan.quantity = 0,
     p => p.plan.takeProfitPrice = 90000, p => p.plan.stopLossPrice = 100000,
     p => p.plan.expiresAt = '2026-10-02T12:00:00', p => p.plan.expiresAt = '2026-02-31T12:00:00Z',
-    p => p.soldQuantity = .1, p => p.acquiredQuantity = -1, p => p.symbol = 'DOGE-THB', p => p.status = 'LIVE_PROFIT',
+    p => p.soldQuantity = .1, p => p.acquiredQuantity = -1, p => p.symbol = 'DOGE-USDT', p => p.status = 'LIVE_PROFIT',
     p => p.id = 'not-an-id']) {
     a.tradePlans = [planFixture()]; alter(a.tradePlans[0]); assert.equal(validLiveAccount(a, authority, now), false);
   }
   a.tradePlans = [planFixture(), planFixture()]; assert.equal(validLiveAccount(a, authority, now), false);
   delete a.tradePlans; assert.equal(validLiveAccount(a, authority, now), true);
+});
+test('account positions, orders and plans accept canonical THB spot symbols beyond the original three', () => {
+  const symbols = ['BTC-THB', 'ETH-THB', 'DOGE-THB', 'XRP-THB', '1-THB', `${'A'.repeat(15)}-THB`];
+  const a = fixture();
+  a.snapshot.positions = symbols.map(symbol => ({ symbol, quantity: 1, reservedQuantity: 0, marketPrice: 100 }));
+  a.snapshot.equity = a.snapshot.cashBalance + symbols.length * 100;
+  a.orders = symbols.map((symbol, i) => ({ ...fixture().orders[0], symbol, intentId: `00000000-0000-0000-0000-${String(i + 2).padStart(12, '0')}` }));
+  a.tradePlans = symbols.map((symbol, i) => ({ ...planFixture(), symbol, id: `00000000-0000-0000-0000-${String(i + 10).padStart(12, '0')}` }));
+  assert.equal(validLiveAccount(a, authority, now), true);
+  const html = renderToStaticMarkup(React.createElement(LiveTradePlansView, { account: a }));
+  assert.match(html, /DOGE/); assert.match(html, /XRP/);
+});
+test('account symbol trust boundaries reject malformed, non-string and non-canonical symbols', () => {
+  const invalidSymbols = [null, 1, { toString: () => 'BTC-THB' }, '', '-THB', 'THB-THB', 'DOGE', 'DOGE-USDT',
+    'doge-THB', 'DOGE-thb', 'DÖGE-THB', 'DOGE_THB', 'DOGE-THB?x=1', 'DOGE-THB/..', '../DOGE-THB',
+    `${'A'.repeat(16)}-THB`, ' DOGE-THB', 'DOGE-THB ', 'DOGE-THB\n', 'DOGE-THB\r', 'DOGE-THB\u2028'];
+  for (const symbol of invalidSymbols) {
+    for (const target of ['position', 'order', 'plan']) {
+      const a = fixture(); a.tradePlans = [planFixture()];
+      if (target === 'position') a.snapshot.positions[0].symbol = symbol;
+      else if (target === 'order') a.orders[0].symbol = symbol;
+      else a.tradePlans[0].symbol = symbol;
+      assert.equal(validLiveAccount(a, authority, now), false, `${target}: ${String(symbol)}`);
+    }
+  }
 });
 test('plan view distinguishes planned quantity and actual buy/sell with units and no activation action', () => {
   const a = fixture(); a.tradePlans = [planFixture()];

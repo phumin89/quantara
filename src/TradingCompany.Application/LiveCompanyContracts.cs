@@ -51,8 +51,8 @@ public static class LiveActivityValidation
         (activity.NextRetryAt is null || activity.NextRetryAt >= activity.ObservedAt.AddDays(-1) &&
             activity.NextRetryAt <= activity.ObservedAt.AddDays(1));
 
-    private static bool ValidSymbols(IReadOnlyList<string>? symbols) => symbols is { Count: <= 3 } &&
-        symbols.All(s => s is "BTC-THB" or "ETH-THB" or "SOL-THB") && symbols.Distinct().Count() == symbols.Count;
+    private static bool ValidSymbols(IReadOnlyList<string>? symbols) => symbols is { Count: <= LiveMarketSymbol.MaximumPayloadMarkets } &&
+        symbols.All(LiveMarketSymbol.IsValid) && symbols.Distinct(StringComparer.Ordinal).Count() == symbols.Count;
 
     public static bool IsRole(string role) => role is "ceo" or "chief-of-staff" or "market-research" or "security-analysis" or
         "quant-research" or "portfolio-initial" or "risk-critic" or "portfolio-final";
