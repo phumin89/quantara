@@ -57,6 +57,8 @@ public static class LiveCompanyHost
             .ConfigurePrimaryHttpMessageHandler(() => new SocketsHttpHandler { AllowAutoRedirect = false, UseCookies = false });
         services.AddSingleton(sp => new CoinSourceReader(sp.GetRequiredService<IHttpClientFactory>().CreateClient("public-research"),
             Path.Combine(dataPath!, "research-sources"), sp.GetRequiredService<TimeProvider>()));
+        services.AddSingleton(sp => new CoinNewsReader(sp.GetRequiredService<IHttpClientFactory>().CreateClient("public-research"),
+            Path.Combine(dataPath!, "news-sources"), sp.GetRequiredService<TimeProvider>()));
         services.AddSingleton(sp => new CoinCredibilityResearcher(sp.GetRequiredService<ITradingAgentGateway>(),
             sp.GetRequiredService<IAgentDecisionArtifactStore>(), model, sp.GetRequiredService<TimeProvider>(), sp.GetRequiredService<IRealtimeEventPublisher>()));
         services.AddSingleton<ICoinResearchProvider, CoinResearchProvider>();

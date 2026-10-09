@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using TradingCompany.Domain;
 
 namespace TradingCompany.Application;
@@ -15,7 +16,11 @@ public sealed record CoinResearchClaim(string Statement, string Assessment, stri
 public sealed record CoinCredibilityFinding(string Symbol, string Summary, IReadOnlyList<CoinResearchClaim> Claims);
 public sealed record CoinResearchBrief(DateTimeOffset ObservedAt, string ChangeKey,
     IReadOnlyList<CoinScoutCandidate> Watchlist, IReadOnlyList<CoinResearchSource> Sources,
-    IReadOnlyList<CoinCredibilityFinding> Findings, IReadOnlyList<string> Gaps);
+    IReadOnlyList<CoinCredibilityFinding> Findings, IReadOnlyList<string> Gaps)
+{
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public CoinNewsBrief? News { get; init; }
+}
 
 public interface ICoinResearchProvider
 {
@@ -35,6 +40,7 @@ public static partial class CoinResearchValidation
         if (value is null || value.ObservedAt > now || now - value.ObservedAt > TimeSpan.FromMinutes(16) || !Hash(value.ChangeKey) ||
             value.Watchlist is not { Count: <= 8 } || value.Sources is not { Count: <= 16 } || value.Findings is not { Count: <= 8 } ||
             value.Gaps is not { Count: <= 12 } || value.Gaps.Any(g => !Text(g, 200)) ||
+            (value.News is not null && (!CoinNewsValidation.IsValid(value.News, now) || value.News.ObservedAt > value.ObservedAt)) ||
             value.Watchlist.Any(c => c is null || !ValidSymbol(c.Symbol) || c.Bid <= 0 || c.Ask < c.Bid || c.QuoteVolume24h < 0 ||
                 c.Change24hPercent is < -100 or > 1_000_000 || c.SpreadPercent < 0 || c.DepthQuoteNotional < 0) || value.Watchlist.Select(c => c.Symbol).Distinct().Count() != value.Watchlist.Count ||
             value.Sources.Any(s => s is null || !ValidSymbol(s.Symbol) || !Text(s.Title, 150) || !PublicSourceUrl(s.Url) ||

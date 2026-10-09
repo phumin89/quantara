@@ -200,6 +200,8 @@ public static class AiCompanyContract
             {
                 foreach (var source in research.Sources) allowedIds.Add(source.Id);
                 foreach (var candidate in research.Watchlist) allowedIds.Add(candidate.EvidenceId);
+                if (research.News is { } news && input.ObservedAt is { } observed && CoinResearchValidation.IsValid(research, observed))
+                    foreach (var item in news.Items) allowedIds.Add(item.Id);
             }
             if (evidenceIds.Any(id => !allowedIds.Contains(id))) violations.Add("UNKNOWN_EVIDENCE_ID");
             if (!allowProposals && proposals.Length > 0) violations.Add("UNAUTHORIZED_PROPOSAL");

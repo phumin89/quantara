@@ -13,6 +13,38 @@ namespace TradingCompany.Domain.Tests;
 public sealed class CoinResearchProviderTests
 {
     [Fact]
+    public async Task New_news_reaches_research_change_without_repeating_document_models_or_expanding_authority()
+    {
+        using var fixture = new Fixture(withNews: true);
+        var first = await fixture.Provider.ReadAsync(fixture.Packet, default);
+        Assert.NotNull(first.News); Assert.Equal(3, first.News.Items.Count);
+        Assert.True(CoinResearchValidation.IsValid(first, fixture.Clock.Now));
+        var calls = fixture.HttpCalls; var models = fixture.Model.Calls;
+        Assert.Same(first, await fixture.Provider.ReadAsync(fixture.Packet, default)); Assert.Equal(calls, fixture.HttpCalls);
+        fixture.Clock.Now += TimeSpan.FromMinutes(16);
+        var stable = await fixture.Provider.ReadAsync(fixture.Packet, default);
+        Assert.Equal(first.ChangeKey, stable.ChangeKey); Assert.Equal(models, fixture.Model.Calls);
+        fixture.NewsRevision++; fixture.Clock.Now += TimeSpan.FromMinutes(16);
+        var changed = await fixture.Provider.ReadAsync(fixture.Packet, default);
+        Assert.NotEqual(stable.ChangeKey, changed.ChangeKey); Assert.NotEqual(stable.News!.ChangeKey, changed.News!.ChangeKey);
+        Assert.Equal(models, fixture.Model.Calls); Assert.Equal(["BTC-THB"], fixture.Packet.Limits.AllowedSymbols);
+        Assert.Equal(1000m, fixture.Packet.Limits.CapitalAllocation);
+        Assert.Contains(changed.Watchlist, candidate => candidate.Symbol == "DOT-THB" && !candidate.ExecutionAllowed);
+    }
+
+    [Fact]
+    public async Task Optional_news_archive_failure_preserves_valid_market_and_document_evidence()
+    {
+        using var fixture = new Fixture(withNews: true, newsStorageFailure: true);
+        var brief = await fixture.Provider.ReadAsync(fixture.Packet, default);
+        Assert.NotEmpty(brief.Watchlist); Assert.NotEmpty(brief.Findings); Assert.NotEmpty(brief.Sources);
+        Assert.NotNull(brief.News); Assert.Empty(brief.News.Items);
+        Assert.All(brief.News.Coverage, c => Assert.Equal("UNAVAILABLE", c.Status));
+        Assert.True(CoinResearchValidation.IsValid(brief, fixture.Clock.Now));
+        Assert.Equal(["BTC-THB"], fixture.Packet.Limits.AllowedSymbols);
+    }
+
+    [Fact]
     public async Task Full_public_pipeline_polls_without_repeating_document_quota_and_updates_shortlist_after_depth_change()
     {
         using var fixture = new Fixture();
@@ -206,18 +238,26 @@ public sealed class CoinResearchProviderTests
         public IReadOnlyList<string> Symbols { get; set; } = ["BTC", "ETH", "DOT"];
         public IReadOnlyList<string> AllowedSymbols { get; set; } = ["BTC-THB"];
         public IReadOnlyList<string> HeldSymbols { get; set; } = [];
-        public int Revision, HttpCalls;
+        public int Revision, NewsRevision, HttpCalls;
         public LiveResearchPacket Packet => new(new(TradingCompany.Domain.TradingMode.Live, LiveRiskTests.Account.Value.ToString("N")), 1,
             LiveRiskTests.Snapshot with { ObservedAt = Clock.Now, Positions = HeldSymbols.Select(s => new LivePosition(s, 1, 0, 100)).ToArray(),
                 Equity = 1000 + HeldSymbols.Count * 100 }, new(1000, .2m, Math.Max(3, AllowedSymbols.Count), .003m, .01m, AllowedSymbols), true, false);
-        public Fixture()
+        public Fixture(bool withNews = false, bool newsStorageFailure = false)
         {
             artifacts = new(Path.Combine(directory, "artifacts"));
             var handler = new Handler((request, _) =>
             {
                 HttpCalls++; Assert.Equal(HttpMethod.Get, request.Method); Assert.Null(request.Headers.Authorization);
                 var uri = request.RequestUri!; string body;
-                if (uri.Host == "api.bitkub.com")
+                if (CoinNewsReader.Feeds.Any(f => f.Url == uri.AbsoluteUri))
+                {
+                    var article = uri.Host == "www.coindesk.com" ? "https://www.coindesk.com/markets/btc" :
+                        uri.Host == "blog.ethereum.org" ? "https://blog.ethereum.org/en/2026/10/07/update" :
+                        "https://www.federalreserve.gov/newsevents/pressreleases/monetary20261007a.htm";
+                    body = $"<rss><channel><item><title>BTC ETH crypto event {NewsRevision}</title><link>{article}</link>" +
+                        "<pubDate>Wed, 07 Oct 2026 02:00:00 GMT</pubDate><description>BTC ETH public feed excerpt</description></item></channel></rss>";
+                }
+                else if (uri.Host == "api.bitkub.com")
                 {
                     if (MarketTimeout) throw new TaskCanceledException("Synthetic HTTP timeout, caller not cancelled");
                     body = uri.AbsolutePath.EndsWith("symbols") ? JsonSerializer.Serialize(new { error = 0, result = Symbols.Select(s => new
@@ -238,7 +278,9 @@ public sealed class CoinResearchProviderTests
             var factory = new Factory(handler);
             var reader = new CoinSourceReader(factory.CreateClient("public-research"), Path.Combine(directory, "sources"), Clock,
                 (bytes, _) => Task.FromResult(Encoding.UTF8.GetString(bytes)[5..]));
-            Provider = new(factory, reader, new CoinCredibilityResearcher(Model, artifacts, "fixture", Clock), Clock);
+            if (newsStorageFailure) File.WriteAllText(Path.Combine(directory, "news"), "Synthetic file blocks news directory creation");
+            Provider = new(factory, reader, new CoinCredibilityResearcher(Model, artifacts, "fixture", Clock), Clock,
+                news: withNews ? new CoinNewsReader(factory.CreateClient("public-research"), Path.Combine(directory, "news"), Clock) : null);
         }
         public void Dispose() { artifacts.Dispose(); Directory.Delete(directory, true); }
     }

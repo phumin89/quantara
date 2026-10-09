@@ -8,7 +8,7 @@ using TradingCompany.Infrastructure;
 namespace TradingCompany.Api;
 
 public sealed class CoinResearchProvider(IHttpClientFactory clients, CoinSourceReader sources,
-    CoinCredibilityResearcher researcher, TimeProvider clock, IRealtimeEventPublisher? events = null) : ICoinResearchProvider
+    CoinCredibilityResearcher researcher, TimeProvider clock, IRealtimeEventPublisher? events = null, CoinNewsReader? news = null) : ICoinResearchProvider
 {
     private readonly SemaphoreSlim gate = new(1, 1);
     private CoinResearchBrief? cached;
@@ -28,11 +28,13 @@ public sealed class CoinResearchProvider(IHttpClientFactory clients, CoinSourceR
             // One public scan per 15 minutes; model reports reuse the content-addressed document cache.
             nextRead = now.AddMinutes(15); scope = currentScope;
             var gaps = new List<string>(); var shortlist = new List<CoinScoutCandidate>();
+            IReadOnlyList<string> publicSymbols = packet.Limits.AllowedSymbols;
             var scoutId = Guid.NewGuid();
             await Publish("AgentStartedTask", "working");
             try
             {
                 var observations = await ObserveMarketsAsync(token);
+                publicSymbols = observations.Select(o => o.Symbol).Distinct().ToArray();
                 var ranked = CoinMarketScout.Rank(observations, packet.Limits.AllowedSymbols,
                     packet.Snapshot.Positions.Select(p => p.Symbol).ToArray(), notional,
                     (int)Math.Floor(now.ToUnixTimeSeconds() / 900d));
@@ -55,6 +57,20 @@ public sealed class CoinResearchProvider(IHttpClientFactory clients, CoinSourceR
             }
             catch (OperationCanceledException) when (token.IsCancellationRequested) { throw; }
             catch (Exception) { gaps.Add("อ่านตลาด Bitkub ไม่สำเร็จ รอบนี้ไม่มีรายการคัดใหม่"); }
+            CoinNewsBrief? newsBrief = null;
+            if (news is not null)
+            {
+                try { newsBrief = await news.ReadAsync(publicSymbols,
+                    shortlist.Select(c => c.Symbol).Concat(packet.Snapshot.Positions.Select(p => p.Symbol)).Distinct().ToArray(), token); }
+                catch (OperationCanceledException) when (token.IsCancellationRequested) { throw; }
+                catch (Exception)
+                {
+                    // Optional news storage/transport failure must not discard valid market and document evidence.
+                    var coverage = CoinNewsReader.Feeds.Select(f => new CoinNewsCoverage(f.Source, "UNAVAILABLE"))
+                        .Append(new CoinNewsCoverage("Bitkub", "UNAVAILABLE")).ToArray();
+                    newsBrief = new(clock.GetUtcNow(), CoinNewsValidation.ChangeKey([], coverage), [], coverage);
+                }
+            }
             await Publish(shortlist.Count == 0 ? "AgentFailed" : "AgentCompletedTask", shortlist.Count == 0 ? "failed" : "completed");
             var documents = new List<CoinSourceDocument>();
             var findings = new List<CoinCredibilityFinding>();
@@ -85,20 +101,25 @@ public sealed class CoinResearchProvider(IHttpClientFactory clients, CoinSourceR
             var changeKey = Convert.ToHexStringLower(SHA256.HashData(JsonSerializer.SerializeToUtf8Bytes(new
             {
                 symbols = shortlist.Select(c => new { c.Symbol, c.ExecutionAllowed, c.Held }).OrderBy(c => c.Symbol),
-                sources = documents.Select(d => d.Source.Id).Order(), findings, gaps = gaps.Distinct().Order()
+                sources = documents.Select(d => d.Source.Id).Order(), findings, gaps = gaps.Distinct().Order(), news = newsBrief?.ChangeKey
             })));
             cached = new(clock.GetUtcNow(), changeKey, shortlist, documents.Select(d => d.Source).ToArray(), findings,
-                gaps.Distinct().Take(12).ToArray());
+                gaps.Distinct().Take(12).ToArray()) { News = newsBrief };
             if (JsonSerializer.SerializeToUtf8Bytes(cached).Length > 24 * 1024)
                 cached = cached with { Findings = findings.Select(f => f with { Summary = Clip(f.Summary, 140),
                     Claims = f.Claims.Select(c => c with { Statement = Clip(c.Statement, 100),
                         Quote = c.Quote[..Math.Min(c.Quote.Length, 80)] }).ToArray() }).ToArray() };
+            while (JsonSerializer.SerializeToUtf8Bytes(cached).Length > 24 * 1024 && cached.News is { Items.Count: > 0 } remaining)
+            {
+                var items = remaining.Items.Take(remaining.Items.Count - 1).ToArray();
+                cached = cached with { News = remaining with { Items = items, ChangeKey = CoinNewsValidation.ChangeKey(items, remaining.Coverage) } };
+            }
             if (!CoinResearchValidation.IsValid(cached, clock.GetUtcNow())) throw new InvalidDataException("Invalid public research brief.");
             return cached;
 
             Task Publish(string type, string status) => events?.PublishAsync(new(type, scoutId, clock.GetUtcNow(),
-                new AgentRuntimeEventPayload("news", "market-research", status, "Scanning public Bitkub markets", "ResearchDesk",
-                    "Scanning public Bitkub markets", new AgentPresentation("researcher", "ResearchDesk", "market-research"), MeetingId: scoutId))
+                new AgentRuntimeEventPayload("news", "market-research", status, "ตรวจตลาดและข่าวล่าสุด", "ResearchDesk",
+                    "ตรวจตลาดและข่าวล่าสุด", new AgentPresentation("researcher", "ResearchDesk", "market-research"), MeetingId: scoutId))
                 { AccountContext = packet.AccountContext }, token) ?? Task.CompletedTask;
         }
         finally { gate.Release(); }

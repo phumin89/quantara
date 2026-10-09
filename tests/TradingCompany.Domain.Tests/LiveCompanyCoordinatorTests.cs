@@ -1081,13 +1081,52 @@ public sealed class LiveCompanyCoordinatorTests : IDisposable
         public string[] Symbols = ["DOT-THB"];
         public int Calls;
         public Action? BeforeRead;
+        public Func<CoinNewsBrief>? ReadNews;
         public Task<CoinResearchBrief> ReadAsync(LiveResearchPacket packet, CancellationToken token)
         {
             Calls++;
             BeforeRead?.Invoke();
-            return Task.FromResult(new CoinResearchBrief(clock.Now, Key,
-                Symbols.Select(s => new CoinScoutCandidate(s, 100, 100.1m, 500000, -2, .1m, 10000, false, false)).ToArray(), [], [], ["ข้อมูลทดสอบเท่านั้น"]));
+            var news = ReadNews?.Invoke();
+            return Task.FromResult(new CoinResearchBrief(clock.Now, news?.ChangeKey ?? Key,
+                Symbols.Select(s => new CoinScoutCandidate(s, 100, 100.1m, 500000, -2, .1m, 10000, false, false)).ToArray(), [], [], ["ข้อมูลทดสอบเท่านั้น"]) { News = news });
         }
+    }
+
+    [Fact]
+    public async Task Changed_news_reaches_next_scheduled_review_without_duplicate_meetings_or_authority_changes()
+    {
+        var client = new Client(); var gateway = new Gateway { Scenario = "hold" }; var revision = 0;
+        var sourceAt = clock.Now.AddHours(-1);
+        var research = new Research(clock) { ReadNews = () =>
+        {
+            var title = "BTC crypto event " + revision; const string url = "https://www.coindesk.com/markets/btc-event";
+            var hash = CoinNewsValidation.ContentHash("CoinDesk", title, url, sourceAt, "PUBLISHED", title);
+            CoinNewsItem[] items = [new("news-" + hash, "CoinDesk", "REPORT", title, url, sourceAt, "PUBLISHED", clock.Now, hash, ["BTC-THB"], false, title)];
+            CoinNewsCoverage[] coverage = [new("CoinDesk", "CURRENT"), new("Bitkub", "UNAVAILABLE")];
+            return new(clock.Now, CoinNewsValidation.ChangeKey(items, coverage), items, coverage);
+        } };
+        var coordinator = Coordinator(client, gateway, continuous: true, research: research);
+        await coordinator.TickAsync(); Assert.Equal(8, gateway.Inputs.Count);
+        var initialKey = gateway.Inputs[0].Research!.News!.ChangeKey;
+        clock.Now += TimeSpan.FromHours(1); RefreshPacket();
+        await coordinator.TickAsync(); Assert.Equal(8, gateway.Inputs.Count); // identical news and prices need no AI rerun
+        revision++; clock.Now += TimeSpan.FromMinutes(15); RefreshPacket();
+        await coordinator.TickAsync(); Assert.Equal(13, gateway.Inputs.Count);
+        Assert.All(gateway.Inputs.Skip(8), input =>
+        {
+            Assert.True(input.ResearchChanged); Assert.True(input.PortfolioReview);
+            Assert.NotEqual(initialKey, input.Research!.News!.ChangeKey);
+            Assert.DoesNotContain("advisory only", input.Mandate); // unavailable publisher does not pause otherwise valid trading
+            Assert.Equal(JsonSerializer.Serialize(client.Packet.Limits), JsonSerializer.Serialize(input.ExecutionLimits));
+        });
+        Assert.Contains("market-research", gateway.Roles.Skip(8));
+        await coordinator.TickAsync(); Assert.Equal(13, gateway.Inputs.Count);
+        Assert.Empty(client.Intents); Assert.Empty(client.Plans);
+        var attempts = new JsonDailyMeetingJournal(Path.Combine(root, "live-meetings.json"), Scope).ReadAll();
+        Assert.Equal(initialKey, attempts.Single(a => a.ReviewHour is null).Summary!.Research!.News!.ChangeKey);
+        Assert.NotEqual(initialKey, attempts.Single(a => a.ReviewHour is not null).Summary!.Research!.News!.ChangeKey);
+        void RefreshPacket() => client.Packet = client.Packet with { Snapshot = client.Packet.Snapshot with { ObservedAt = clock.Now,
+            Quotes = client.Packet.Snapshot.Quotes.Select(q => q with { ObservedAt = clock.Now }).ToArray() } };
     }
 
     private Client DynamicClient(int marketCount = 12)
