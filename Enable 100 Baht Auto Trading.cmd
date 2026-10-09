@@ -1,6 +1,6 @@
 @echo off
 rem Explicit owner action. Run only when ready to allow real Spot orders.
-echo Quantara: allow BTC / ETH / SOL Spot orders up to 100 THB including fee reserve.
+echo Quantara: allow verified native THB Spot orders up to 100 THB including fee reserve.
 echo Existing smaller limits, balances, loss history and owner Stop are preserved.
 echo CEO may hold when evidence or trading conditions do not justify a new order.
 echo Verifying software with isolated fixtures before owner activation...

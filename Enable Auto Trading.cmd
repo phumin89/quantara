@@ -1,6 +1,6 @@
 @echo off
 rem Owner action: allow CEO sizing within existing funded capital after verification.
-echo Quantara: BTC / ETH / SOL, daily research and portfolio reviews.
+echo Quantara: native Bitkub THB Spot markets, daily research and portfolio reviews.
 echo CEO may size orders up to the existing funded capital, including fee reserve.
 echo Existing balances, loss history and owner Stop are kept.
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%~dp0tools\test-trading.ps1"
