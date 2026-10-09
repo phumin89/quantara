@@ -229,7 +229,7 @@ public sealed class AiCompanyMeetingRunner : IAiCompanyMeetingRunner
                 if (!validation.IsValid)
                 {
                     await Publish("AgentFailed", step.Role, "failed", "Structured report failed validation; no order approval", cancellationToken);
-                    return Failure(step.Role == "portfolio-final" ? "INVALID_FINAL" : $"INVALID_{step.Role.ToUpperInvariant()}",
+                    return Failure(step.Role == "portfolio-final" ? "INVALID_FINAL" : $"INVALID_{step.Role.ToUpperInvariant().Replace('-', '_')}",
                         artifacts, modelCalls, inputTokens, outputTokens, cacheHits);
                 }
                 priorOutputs.Add(Parse(outputJson));

@@ -126,6 +126,41 @@ public sealed class LiveExecutionClientTests
         Assert.Equal(1, wire.Calls);
     }
 
+    [Theory]
+    [InlineData("INVALID_CHIEF-OF-STAFF")]
+    [InlineData("INVALID_MARKET-RESEARCH")]
+    [InlineData("INVALID_SECURITY-ANALYSIS")]
+    [InlineData("INVALID_QUANT-RESEARCH")]
+    [InlineData("INVALID_PORTFOLIO-INITIAL")]
+    [InlineData("INVALID_RISK-CRITIC")]
+    public async Task Known_legacy_role_failure_is_publishable_without_rewriting_saved_identity(string status)
+    {
+        var wire = new Wire((_, _) => new(HttpStatusCode.OK));
+        using var http = new HttpClient(wire);
+        var client = new LiveExecutionClient(http, Token, LiveRiskTests.Account);
+        var saved = new DailyMeetingAttempt(new(2026, 9, 12), Guid.NewGuid(), status)
+        { AccountContext = new(TradingMode.Live, LiveRiskTests.Account.Value.ToString("N")) };
+
+        await client.SaveMeetingAsync(saved, default);
+
+        var sent = JsonSerializer.Deserialize<DailyMeetingAttempt>(wire.Body!, new JsonSerializerOptions(JsonSerializerDefaults.Web));
+        Assert.Equal(saved with { Status = status.Replace('-', '_') }, sent);
+        Assert.Equal(status, saved.Status);
+        Assert.Single(wire.Uris);
+    }
+
+    [Fact]
+    public async Task Unknown_hyphenated_status_still_fails_before_transport()
+    {
+        var wire = new Wire((_, _) => new(HttpStatusCode.OK));
+        using var http = new HttpClient(wire);
+        var client = new LiveExecutionClient(http, Token, LiveRiskTests.Account);
+        var saved = new DailyMeetingAttempt(new(2026, 9, 12), Guid.NewGuid(), "INVALID_OTHER-ROLE")
+        { AccountContext = new(TradingMode.Live, LiveRiskTests.Account.Value.ToString("N")) };
+        await Assert.ThrowsAsync<InvalidDataException>(() => client.SaveMeetingAsync(saved, default));
+        Assert.Empty(wire.Uris);
+    }
+
     private sealed class Clock : TimeProvider { public override DateTimeOffset GetUtcNow() => LiveRiskTests.Now; }
 
     private sealed class Wire(Func<HttpRequestMessage, int, HttpResponseMessage> response) : HttpMessageHandler

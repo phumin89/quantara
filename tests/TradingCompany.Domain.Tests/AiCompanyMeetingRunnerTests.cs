@@ -288,6 +288,19 @@ public sealed class AiCompanyMeetingRunnerTests
         Assert.Empty(result.Proposals);
     }
 
+    [Fact]
+    public async Task Invalid_non_final_role_status_uses_machine_safe_underscore()
+    {
+        var input = Input();
+        var outputs = Roles.Select(role => role == "portfolio-initial"
+            ? Output(input, role, "BUY", "INVENTED")
+            : Output(input, role));
+        var result = await Runner(new QueueGateway(outputs)).RunAsync(input, default);
+
+        Assert.Equal("INVALID_PORTFOLIO_INITIAL", result.Status);
+        Assert.Empty(result.Proposals);
+    }
+
     [Theory]
     [InlineData("cash")]
     [InlineData("mandate")]

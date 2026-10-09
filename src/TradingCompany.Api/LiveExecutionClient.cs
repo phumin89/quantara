@@ -67,6 +67,11 @@ public sealed class LiveExecutionClient : ILiveCompanyClient
     public async Task SaveMeetingAsync(DailyMeetingAttempt attempt, CancellationToken cancellationToken)
     {
         EnsureBinding(boundAccount);
+        // Older role failures used hyphens in status codes. Normalize only these
+        // known wire values; preserve the content-addressed journal as recorded.
+        if (attempt.Status is "INVALID_CHIEF-OF-STAFF" or "INVALID_MARKET-RESEARCH" or "INVALID_SECURITY-ANALYSIS" or
+            "INVALID_QUANT-RESEARCH" or "INVALID_PORTFOLIO-INITIAL" or "INVALID_RISK-CRITIC")
+            attempt = attempt with { Status = attempt.Status.Replace('-', '_') };
         LiveMeetingReports.Validate(attempt, boundAccount, DateTimeOffset.UtcNow);
         using var request = new HttpRequestMessage(HttpMethod.Post, "https://localhost:7443/internal/live/meetings");
         request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", coordinatorToken);
