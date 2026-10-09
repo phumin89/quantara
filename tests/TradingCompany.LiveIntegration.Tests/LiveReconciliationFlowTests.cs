@@ -77,6 +77,32 @@ public sealed class LiveReconciliationFlowTests(PostgresFixture database)
         Assert.DoesNotContain(restored.Audit, a => a.Detail.Contains("private-error"));
     }
 
+    [Fact]
+    public async Task Explicit_owner_new_day_uses_current_snapshot_without_relaxing_browser_version_guard()
+    {
+        var (store, template, _) = await new LiveTradingStoreTests(database).Setup();
+        var id = new LiveAccountId(Guid.NewGuid());
+        var now = template.Snapshot.ObservedAt.AddDays(1);
+        var account = template with { AccountId = id, Mandate = template.Mandate with { AccountId = id },
+            Gate = template.Gate with { Armed = false }, Snapshot = template.Snapshot with { AccountId = id },
+            PerformanceBaseline = new(new(2026, 9, 27), 1000m, 1200m) };
+        await store.CreateAsync(account);
+        var clock = new LiveExecutionFlowTests.TestClock(now);
+        var evidence = new LiveBrokerEvidence(id, account.Mandate.CredentialFingerprint, now, true,
+            1000m, 0m, [], [], [], [new("BTC-THB", 99900m, 100000m, now)]);
+        var service = new LiveReconciliation(store, new Source(evidence), clock);
+        var staleRequest = new LiveBaselineRequest(id, account.Mandate.Version, account.Snapshot.Version);
+        Assert.False((await service.ReconcileAsync(id)).Complete); // Refresh advances the snapshot.
+        Assert.Contains("STALE_APPROVAL", (await service.RollDailyBaselineAsync(staleRequest)).Violations);
+        Assert.True((await service.RollDailyBaselineForOwnerCommandAsync(id, account.Mandate.Version)).Complete);
+        var restored = await store.ReadAccountAsync(id);
+        Assert.Equal(new LivePerformanceBaseline(new(2026, 9, 28), 1000m, 1200m), restored.PerformanceBaseline);
+        Assert.False(restored.Gate.Armed);
+        Assert.Equal(1000m, restored.Snapshot.CashBalance);
+        Assert.Equal(account.Mandate.Version, restored.Mandate.Version);
+        Assert.Empty(restored.Orders);
+    }
+
     private async Task<(LiveTradingStore Store, LiveAccountState Account, LiveIntent Intent, LiveExecutionFlowTests.TestClock Clock)> Setup()
     {
         var (store, template, initialIntent) = await new LiveTradingStoreTests(database).Setup();

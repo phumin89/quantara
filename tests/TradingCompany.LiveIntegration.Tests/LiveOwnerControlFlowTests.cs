@@ -45,6 +45,52 @@ public sealed class LiveOwnerControlFlowTests(PostgresFixture database)
     }
 
     [Fact]
+    public async Task Local_owner_command_uses_current_verified_snapshot_while_browser_approval_stays_strict()
+    {
+        var (store, state, controls) = await Setup();
+        var evidence = new LiveBrokerEvidence(state.AccountId, state.Mandate.CredentialFingerprint,
+            state.Snapshot.ObservedAt, true, 1000m, 0m, [], [], [], state.Snapshot.Quotes);
+        await store.WithAccountLockAsync(state.AccountId, async (tx, ct) =>
+        { Assert.True(tx.Reconcile(evidence, evidence, state.Snapshot.ObservedAt).Complete); await tx.CommitAsync(ct); return 0; });
+        var strict = await controls.ArmAsync(Request(state));
+        Assert.False(strict.Allowed);
+        Assert.Contains("STALE_APPROVAL", strict.Violations);
+
+        var result = await controls.ArmCurrentSnapshotForOwnerCommandAsync(state.AccountId,
+            "test-owner-account", state.Mandate.Version);
+
+        Assert.True(result.Allowed, string.Join(",", result.Violations));
+        var restored = await store.ReadAccountAsync(state.AccountId);
+        Assert.True(restored.Gate.Armed);
+        Assert.Equal(1000m, restored.Snapshot.CashBalance);
+        Assert.Equal(state.Mandate.Version, restored.Mandate.Version);
+        Assert.Empty(restored.Orders);
+    }
+
+    [Theory]
+    [InlineData("mandate")]
+    [InlineData("stop")]
+    [InlineData("binding")]
+    public async Task Current_snapshot_owner_command_cannot_accept_changed_authority_or_clear_stop(string defect)
+    {
+        var (store, state, controls) = await Setup();
+        if (defect == "mandate") Assert.True((await controls.SaveMandateAsync(state.Mandate with
+            { Version = state.Mandate.Version + 1, MaximumOrderNotional = 300m })).Allowed);
+        if (defect == "stop") await controls.StopAsync();
+
+        var result = await controls.ArmCurrentSnapshotForOwnerCommandAsync(state.AccountId,
+            defect == "binding" ? "different-account" : "test-owner-account", state.Mandate.Version);
+
+        Assert.False(result.Allowed);
+        var restored = await store.ReadAccountAsync(state.AccountId);
+        Assert.False(restored.Gate.Armed);
+        Assert.Equal(defect == "stop", restored.Gate.Stopped);
+        Assert.Equal(defect == "mandate" ? 300m : state.Mandate.MaximumOrderNotional, restored.Mandate.MaximumOrderNotional);
+        Assert.Equal(1000m, restored.Snapshot.CashBalance);
+        Assert.Empty(restored.Orders);
+    }
+
+    [Fact]
     public async Task Changing_mandate_disarms_and_stale_activation_cannot_restore_old_limits()
     {
         var (store, state, controls) = await Setup();

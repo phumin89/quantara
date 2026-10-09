@@ -53,12 +53,25 @@ public sealed class LiveOwnerControls(ILiveTradingStore store, ILiveActivationSo
         }, cancellationToken);
 
     public Task<LiveGateDecision> ArmAsync(LiveArmRequest request, CancellationToken cancellationToken = default)
+        => ArmCoreAsync(request, cancellationToken);
+
+    // Explicit local owner command only; no HTTP/model route calls this method.
+    // Approve the freshly verified snapshot under its lease, while pinning the mandate
+    // and binding. This cannot clear Stop or accept changed owner limits.
+    public Task<LiveGateDecision> ArmCurrentSnapshotForOwnerCommandAsync(LiveAccountId requestedAccount,
+        string brokerAccountReference, long mandateVersion, CancellationToken cancellationToken = default)
+        => ArmCoreAsync(new(requestedAccount, brokerAccountReference, mandateVersion, 0, true, false),
+            cancellationToken, currentSnapshot: true);
+
+    private Task<LiveGateDecision> ArmCoreAsync(LiveArmRequest request, CancellationToken cancellationToken,
+        bool currentSnapshot = false)
         => store.WithAccountLockAsync(accountId, async (tx, ct) =>
         {
             var evidence = await ReadPreflight(tx, ct);
             if (evidence is null) return new LiveGateDecision(false, ["PREFLIGHT_UNAVAILABLE"]);
             await tx.VerifyLeaseAsync(ct);
-            var result = tx.Arm(request, evidence, clock.GetUtcNow());
+            var approved = currentSnapshot ? request with { SnapshotVersion = tx.Account.Snapshot.Version } : request;
+            var result = tx.Arm(approved, evidence, clock.GetUtcNow());
             await tx.CommitAsync(ct);
             return result;
         }, cancellationToken);

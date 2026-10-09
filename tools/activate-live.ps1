@@ -28,7 +28,13 @@ function Invoke-ActivationDocker {
     if ($null -eq $nativeExitCode) { throw 'Docker command could not be started.' }
     # Windows PowerShell wraps native stderr in ErrorRecord objects. Render the
     # original text; progress must not look like a PowerShell exception.
-    $lines = @($output | ForEach-Object { $_.ToString() })
+    $lines = @($output | ForEach-Object {
+        if ($_ -is [System.Management.Automation.ErrorRecord] -and $_.Exception -and $_.Exception.Message) {
+            $_.Exception.Message
+        } else {
+            $_.ToString()
+        }
+    })
     if ($OutputPath) { $lines | Out-File -FilePath $OutputPath -Encoding utf8 }
     elseif ($lines) { $lines | Out-Host }
     return [int]$nativeExitCode

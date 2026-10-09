@@ -52,8 +52,17 @@ public sealed class LiveTradingStore(string connectionString) : ILiveTradingStor
     {
         // ponytail: one serialized writer per account; scale to multiple accounts, not concurrent money writers.
         await using var connection = await Connect(cancellationToken);
-        await using (var command = new NpgsqlCommand("SELECT pg_advisory_lock(hashtextextended(@id,0))", connection))
-        { command.Parameters.AddWithValue("id", id.Value.ToString()); await command.ExecuteNonQueryAsync(cancellationToken); }
+        using (var acquisition = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken))
+        {
+            // Reconciliation holds this lease across two bounded broker scans. Npgsql's
+            // default 30-second query timeout is shorter than a healthy full-catalog cycle.
+            // Keep a bounded, cancellable wait; never skip ownership or reconnect a lease.
+            acquisition.CancelAfter(TimeSpan.FromSeconds(60));
+            await using var command = new NpgsqlCommand("SELECT pg_advisory_lock(hashtextextended(@id,0))", connection)
+                { CommandTimeout = 0 };
+            command.Parameters.AddWithValue("id", id.Value.ToString());
+            await command.ExecuteNonQueryAsync(acquisition.Token);
+        }
         var loaded = await Load(connection, id, cancellationToken);
         var revision = loaded.Revision;
         var account = new LiveAccountTransaction(loaded.Account, async (state, ct) =>

@@ -40,13 +40,26 @@ public sealed class LiveReconciliation(ILiveTradingStore store, ILiveReconciliat
     // Owner onboarding only. No owner-supplied balances and no automatic day/loss reset.
     public Task<LiveReconciliationResult> InitializeBaselineAsync(LiveBaselineRequest request, CancellationToken cancellationToken = default)
         => ReadAndReconcile(request.AccountId, request, cancellationToken);
+    public Task<LiveReconciliationResult> InitializeBaselineForOwnerCommandAsync(LiveAccountId accountId,
+        long mandateVersion, CancellationToken cancellationToken = default)
+        => ReadAndReconcile(accountId, new(accountId, mandateVersion, 0), cancellationToken, currentSnapshot: true);
     public Task<LiveReconciliationResult> RollDailyBaselineAsync(LiveBaselineRequest request, CancellationToken cancellationToken = default)
         => ReadAndReconcile(request.AccountId, request, cancellationToken, manualDay: true);
 
+    // Explicit local owner recovery command: keep its approved mandate pinned, but
+    // capture the current snapshot after acquiring ownership. UI approvals retain
+    // their original strict snapshot versions through the existing method.
+    public Task<LiveReconciliationResult> RollDailyBaselineForOwnerCommandAsync(LiveAccountId accountId,
+        long mandateVersion, CancellationToken cancellationToken = default)
+        => ReadAndReconcile(accountId, new(accountId, mandateVersion, 0), cancellationToken,
+            manualDay: true, currentSnapshot: true);
+
     private Task<LiveReconciliationResult> ReadAndReconcile(LiveAccountId accountId, LiveBaselineRequest? initialization,
-        CancellationToken cancellationToken, bool manualDay = false)
+        CancellationToken cancellationToken, bool manualDay = false, bool currentSnapshot = false)
         => store.WithAccountLockAsync(accountId, async (tx, ct) =>
         {
+            if (currentSnapshot && initialization is not null)
+                initialization = initialization with { SnapshotVersion = tx.Account.Snapshot.Version };
             LiveBrokerEvidence first;
             LiveBrokerEvidence second;
             try

@@ -62,17 +62,24 @@ public sealed class LiveOwnerActivation(BitkubConfiguredAccount configured, Live
         var approvedMandate = account.Mandate.Version;
         if (account.PerformanceBaseline is null)
         {
-            var baseline = await reconciliation.InitializeBaselineAsync(new(configured.AccountId,
-                account.Mandate.Version, account.Snapshot.Version), token);
+            var baseline = await reconciliation.InitializeBaselineForOwnerCommandAsync(configured.AccountId,
+                approvedMandate, token);
             if (!baseline.Complete) return new(false, baseline.Violations);
         }
         else
         {
-            var refreshed = await reconciliation.ReconcileAsync(configured.AccountId, token);
+            var today = DateOnly.FromDateTime(clock.GetUtcNow().ToOffset(TimeSpan.FromHours(7)).DateTime);
+            // Manual rollover performs its own complete two-read reconciliation. Settled
+            // old-day accounts need that proof once, not a second identical scan first.
+            var settledOldDay = account.PerformanceBaseline.BangkokDate < today && account.Orders.All(o => o.State is
+                TradingCompany.Domain.LiveOrderState.Filled or TradingCompany.Domain.LiveOrderState.Cancelled or
+                TradingCompany.Domain.LiveOrderState.Rejected);
+            var refreshed = settledOldDay
+                ? await reconciliation.RollDailyBaselineForOwnerCommandAsync(configured.AccountId, approvedMandate, token)
+                : await reconciliation.ReconcileAsync(configured.AccountId, token);
             if (!refreshed.Complete && refreshed.Violations.SequenceEqual(new[] { "DAILY_BASELINE_REQUIRED" }))
             {
                 account = await controls.ReadAsync(token);
-                var today = DateOnly.FromDateTime(clock.GetUtcNow().ToOffset(TimeSpan.FromHours(7)).DateTime);
                 if (account.Gate.Stopped) return new(false, ["OWNER_STOP_ACTIVE"]);
                 // This explicit owner command may establish today's risk frame after downtime.
                 // Only verified, settled money qualifies; high-water equity is never reset.
@@ -80,24 +87,15 @@ public sealed class LiveOwnerActivation(BitkubConfiguredAccount configured, Live
                     baseline.BangkokDate < today && account.Orders.All(o => o.State is
                         TradingCompany.Domain.LiveOrderState.Filled or TradingCompany.Domain.LiveOrderState.Cancelled or
                         TradingCompany.Domain.LiveOrderState.Rejected))
-                    refreshed = await reconciliation.RollDailyBaselineAsync(new(configured.AccountId,
-                        account.Mandate.Version, account.Snapshot.Version), token);
+                    refreshed = await reconciliation.RollDailyBaselineForOwnerCommandAsync(configured.AccountId,
+                        approvedMandate, token);
             }
             if (!refreshed.Complete) return new(false, refreshed.Violations);
         }
         account = await controls.ReadAsync(token);
         if (account.Mandate.Version != approvedMandate) return new(false, ["STALE_APPROVAL"]);
-        var activated = await controls.ArmAsync(new(configured.AccountId, configured.Verification.BrokerAccountReference,
-            account.Mandate.Version, account.Snapshot.Version, true, false), token);
-        // Reconciliation can update only the snapshot between read and arm. Retry
-        // once without accepting a changed mandate or clearing an owner stop.
-        if (!activated.Allowed && activated.Violations.SequenceEqual(new[] { "STALE_APPROVAL" }))
-        {
-            account = await controls.ReadAsync(token);
-            if (account.Mandate.Version != approvedMandate || account.Gate.Stopped) return new(false, activated.Violations);
-            activated = await controls.ArmAsync(new(configured.AccountId, configured.Verification.BrokerAccountReference,
-                approvedMandate, account.Snapshot.Version, true, false), token);
-        }
+        var activated = await controls.ArmCurrentSnapshotForOwnerCommandAsync(configured.AccountId,
+            configured.Verification.BrokerAccountReference, approvedMandate, token);
         return new(activated.Allowed, activated.Violations);
     }
 
@@ -153,6 +151,7 @@ public sealed class LiveOwnerActivation(BitkubConfiguredAccount configured, Live
     public static async Task<int> RunCommandAsync(bool activate = true, decimal? maximumOrderNotional = null,
         bool useFundedOrderCeiling = false)
     {
+        var phase = ActivationPhase.Configuration;
         try
         {
             var builder = Host.CreateApplicationBuilder(new HostApplicationBuilderSettings
@@ -169,26 +168,48 @@ public sealed class LiveOwnerActivation(BitkubConfiguredAccount configured, Live
             using var deadline = new CancellationTokenSource(TimeSpan.FromMinutes(3));
             if (!activate)
             {
+                phase = ActivationPhase.Inspection;
                 var broker = host.Services.GetRequiredService<BitkubLiveBroker>();
                 if (!await broker.CheckTradePermissionAsync(deadline.Token)) throw new InvalidDataException();
                 _ = await broker.GetWalletAsync(deadline.Token);
                 Console.WriteLine("LIVE_CONFIGURATION_VERIFIED: profile, key binding and current Trade access passed. No activation or order.");
                 return 0;
             }
+            phase = ActivationPhase.Storage;
             var store = host.Services.GetRequiredService<LiveTradingStore>();
             await store.EnsureSchemaAsync(deadline.Token);
             if (host.Services.GetService<BitkubReceiptObserver>() is { } observer)
             {
+                phase = ActivationPhase.ReceiptStream;
                 await observer.StartAsync(deadline.Token);
                 while (!observer.Ready) await Task.Delay(100, deadline.Token);
             }
+            phase = ActivationPhase.Activation;
             var result = await host.Services.GetRequiredService<LiveOwnerActivation>().ActivateFullSpotAsync(deadline.Token,
                 maximumOrderNotional, useFundedOrderCeiling);
             Console.WriteLine(result.Activated ? "LIVE_ACTIVATED: owner Spot mandate and broker reconciliation passed. No order was sent by this command." :
                 "LIVE_NOT_ACTIVATED: " + string.Join(",", result.Reasons));
             return result.Activated ? 0 : 1;
         }
-        catch
-        { Console.WriteLine("LIVE_NOT_ACTIVATED: account, storage or broker verification failed. No order was sent by this command."); return 1; }
+        catch (Exception error)
+        { Console.WriteLine(CommandFailure(phase, error)); return 1; }
+    }
+
+    internal enum ActivationPhase { Configuration, Storage, ReceiptStream, Inspection, Activation }
+
+    internal static string CommandFailure(ActivationPhase phase, Exception error)
+    {
+        // Raw exception messages may contain connection strings or authenticated URLs.
+        // Emit only a code selected from types, plus the known command phase.
+        var code = error switch
+        {
+            OperationCanceledException or TimeoutException => "TIMEOUT",
+            Npgsql.NpgsqlException { InnerException: TimeoutException } => "STORAGE_TIMEOUT",
+            Npgsql.NpgsqlException => "STORAGE_UNAVAILABLE",
+            HttpRequestException or System.Net.WebSockets.WebSocketException => "BROKER_CONNECTION_UNAVAILABLE",
+            InvalidDataException => "EVIDENCE_UNVERIFIED",
+            _ => "UNEXPECTED_FAILURE"
+        };
+        return $"LIVE_NOT_ACTIVATED: {phase} / {code}. No order was sent by this command.";
     }
 }

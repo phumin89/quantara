@@ -13,6 +13,67 @@ public sealed class LiveTradingStoreTests(PostgresFixture database)
     private static readonly DateTimeOffset Now = new(2026, 9, 27, 2, 0, 0, TimeSpan.Zero);
 
     [Fact]
+    public async Task Healthy_lease_wait_over_thirty_seconds_preserves_serialization_and_observes_owner_stop()
+    {
+        var (store, state, _) = await Setup();
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(45));
+        var holder = store.WithAccountLockAsync(state.AccountId, async (tx, ct) =>
+        {
+            entered.TrySetResult();
+            await release.Task.WaitAsync(ct);
+            tx.SetStopped(true);
+            await tx.CommitAsync(ct);
+            return 0;
+        }, deadline.Token);
+        await entered.Task.WaitAsync(deadline.Token);
+        var acquired = false;
+        var waiting = new LiveTradingStore(database.ConnectionString).WithAccountLockAsync(state.AccountId, (tx, ct) =>
+        {
+            acquired = true;
+            Assert.True(tx.Account.Gate.Stopped);
+            Assert.False(tx.Account.Gate.Armed);
+            return Task.FromResult(tx.Account.Snapshot.CashBalance);
+        }, deadline.Token);
+        try
+        {
+            await Task.Delay(TimeSpan.FromSeconds(31), deadline.Token);
+            Assert.False(acquired);
+            Assert.False(waiting.IsCompleted); // Old driver timeout faults here at 30 seconds.
+        }
+        finally { release.TrySetResult(); await holder; }
+
+        Assert.Equal(1000m, await waiting);
+        Assert.True(acquired);
+        Assert.Empty((await store.ReadAccountAsync(state.AccountId)).Orders);
+    }
+
+    [Fact]
+    public async Task Cancelled_lease_wait_never_enters_callback_and_does_not_leave_ownership_behind()
+    {
+        var (store, state, _) = await Setup();
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var holder = store.WithAccountLockAsync(state.AccountId, async (_, ct) =>
+        { entered.TrySetResult(); await release.Task.WaitAsync(ct); return 0; });
+        await entered.Task.WaitAsync(TimeSpan.FromSeconds(3));
+        using var cancellation = new CancellationTokenSource(TimeSpan.FromMilliseconds(300));
+        var enteredWaiting = false;
+        try
+        {
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(() => store.WithAccountLockAsync(state.AccountId, (_, ct) =>
+            { enteredWaiting = true; return Task.FromResult(0); }, cancellation.Token));
+            Assert.False(enteredWaiting);
+        }
+        finally { release.TrySetResult(); await holder; }
+        using var fresh = new CancellationTokenSource(TimeSpan.FromSeconds(3));
+        Assert.Equal(1000m, await store.WithAccountLockAsync(state.AccountId, (tx, ct) =>
+            Task.FromResult(tx.Account.Snapshot.CashBalance), fresh.Token));
+        Assert.Empty((await store.ReadAccountAsync(state.AccountId)).Orders);
+    }
+
+    [Fact]
     public async Task Pre_budget_account_can_commit_without_rewriting_immutable_intent_evidence()
     {
         var (store, state, intent) = await Setup();
