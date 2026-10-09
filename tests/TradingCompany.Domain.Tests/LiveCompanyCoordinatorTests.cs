@@ -1257,6 +1257,7 @@ public sealed class LiveCompanyCoordinatorTests : IDisposable
         await coordinator.TickAsync();
         Assert.Equal(2, client.SaveCalls);
         Assert.Equal(2, client.Meetings.Count);
+        Assert.Equal(DateOnly.FromDateTime(LiveRiskTests.Now.Date), client.Meetings[^1].BusinessDate);
         Assert.Empty(client.Intents);
     }
 

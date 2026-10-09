@@ -45,7 +45,7 @@ public sealed class LiveCompanyCoordinator(ILiveCompanyClient client, IHistorica
             // normal meeting proceed. A large historical backlog must not starve
             // today's decision or hold the coordinator in replay for minutes.
             var completed = journal.ReadAll().Where(a => a.Status != "STARTED")
-                .TakeLast(31).FirstOrDefault(a => !published.Contains(a.AttemptId));
+                .TakeLast(31).Reverse().FirstOrDefault(a => !published.Contains(a.AttemptId));
             if (completed is not null)
             {
                 await client.SaveMeetingAsync(completed, cancellationToken);
