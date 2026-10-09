@@ -8,8 +8,11 @@ namespace TradingCompany.Api;
 
 public sealed class LiveCompanyCoordinator(ILiveCompanyClient client, IHistoricalMarketEvidenceProvider markets,
     IAiCompanyMeetingRunner meeting, IDailyMeetingJournal journal, TimeProvider clock, LiveAccountId accountId, bool continuousReviews = false,
-    ICoinResearchProvider? research = null, CompanyLearningService? learning = null)
+    ICoinResearchProvider? research = null, CompanyLearningService? learning = null, int reviewIntervalMinutes = 60)
 {
+    private readonly int reviewIntervalMinutes = reviewIntervalMinutes is 15 or 60
+        ? reviewIntervalMinutes : throw new ArgumentOutOfRangeException(nameof(reviewIntervalMinutes));
+    private int effectiveReviewIntervalMinutes = reviewIntervalMinutes;
     private readonly SemaphoreSlim tick = new(1, 1);
     private readonly TradingAccountContext context = new(TradingMode.Live, accountId.Value.ToString("N"));
     private readonly HashSet<Guid> published = [];
@@ -34,14 +37,21 @@ public sealed class LiveCompanyCoordinator(ILiveCompanyClient client, IHistorica
             var now = clock.GetUtcNow();
             if (journal.AccountContext != context) { Status = "JOURNAL_ACCOUNT_MISMATCH"; return; }
             var day = DateOnly.FromDateTime(now.ToOffset(TimeSpan.FromHours(7)).DateTime);
-            // Replay saved reports after restart, never replay financial requests.
-            foreach (var completed in journal.ReadAll().Where(a => a.Status != "STARTED").TakeLast(31))
-                if (!published.Contains(completed.AttemptId))
-                { await client.SaveMeetingAsync(completed, cancellationToken); published.Add(completed.AttemptId); }
-            journal.EnsureReconciled();
             if (retryAfter > now) return;
             retryAfter = null;
             NextRetryAt = null;
+            // Replay saved reports after restart, never replay financial requests.
+            // Bound restart work: publish one saved report per tick, then let the
+            // normal meeting proceed. A large historical backlog must not starve
+            // today's decision or hold the coordinator in replay for minutes.
+            var completed = journal.ReadAll().Where(a => a.Status != "STARTED")
+                .TakeLast(31).FirstOrDefault(a => !published.Contains(a.AttemptId));
+            if (completed is not null)
+            {
+                await client.SaveMeetingAsync(completed, cancellationToken);
+                published.Add(completed.AttemptId);
+            }
+            journal.EnsureReconciled();
             var saved = journal.Read(day);
             if (!continuousReviews && saved is not null && saved.Status != "STARTED")
             {
@@ -50,15 +60,18 @@ public sealed class LiveCompanyCoordinator(ILiveCompanyClient client, IHistorica
             var dailyDue = saved is null && now.ToOffset(TimeSpan.FromHours(7)).Hour >= 9;
             var latest = journal.ReadAll().Where(a => a.Status != "STARTED")
                 .OrderBy(a => a.BusinessDate).ThenBy(a => a.ReviewSnapshot?.ObservedAt ??
-                    new DateTimeOffset(a.BusinessDate.ToDateTime(new TimeOnly(a.ReviewHour ?? 9, 0)), TimeSpan.FromHours(7))).LastOrDefault();
+                    new DateTimeOffset(a.BusinessDate.ToDateTime(new TimeOnly(a.ReviewHour ?? 9, a.ReviewMinute)), TimeSpan.FromHours(7))).LastOrDefault();
             Issues = latest?.Summary?.Issues ?? [];
             if (!dailyDue && (!continuousReviews || latest is null) && research is null) { Status = "BEFORE_MEETING"; return; }
             int? reviewHour = continuousReviews && !dailyDue ? now.ToOffset(TimeSpan.FromHours(7)).Hour : null;
+            var reviewMinute = ReviewMinute(now);
             if (!meeting.Enabled || string.IsNullOrWhiteSpace(meeting.Model)) { Status = "MODEL_UNAVAILABLE"; return; }
             unavailableCode = "LIVE_READ_UNAVAILABLE";
             var packet = await client.ReadAsync(accountId, cancellationToken);
             now = clock.GetUtcNow();
             if (!ValidPacket(packet, now)) { Retry("LIVE_BLOCKED", [new("ACCOUNT_STATE_INVALID")]); return; }
+            effectiveReviewIntervalMinutes = Math.Max(reviewIntervalMinutes, packet.MinimumReviewIntervalMinutes);
+            reviewMinute = ReviewMinute(now);
             var executionPaused = !packet.Armed || packet.Stopped;
             ResearchUniverse = ResearchSymbols(packet).Where(s => Issues.All(i => i.Symbol != s)).ToArray();
             TradingUniverse = packet.Armed && !packet.Stopped ? packet.Limits.AllowedSymbols.Where(ResearchUniverse.Contains).ToArray() : [];
@@ -83,14 +96,16 @@ public sealed class LiveCompanyCoordinator(ILiveCompanyClient client, IHistorica
                 if (DateOnly.FromDateTime(now.ToOffset(TimeSpan.FromHours(7)).DateTime) != day) { Status = "BEFORE_MEETING"; return; }
                 dailyDue = saved is null && now.ToOffset(TimeSpan.FromHours(7)).Hour >= 9;
                 reviewHour = continuousReviews && !dailyDue ? now.ToOffset(TimeSpan.FromHours(7)).Hour : null;
+                reviewMinute = ReviewMinute(now);
             }
             if (!dailyDue && (!continuousReviews || latest is null)) { Status = "BEFORE_MEETING"; return; }
             unavailableCode = "JOURNAL_UNAVAILABLE";
-            if (reviewHour is { } hour && journal.Read(day, hour) is not null)
-            { Status = "ALREADY_ATTEMPTED"; NextRetryAt = NextHour(now); return; }
+            if (reviewHour is { } hour && journal.Read(day, hour, reviewMinute) is not null)
+            { Status = "ALREADY_ATTEMPTED"; NextRetryAt = NextReview(now); return; }
             if (reviewHour is { } currentHour && saved?.ReviewSnapshot is { } dailySnapshot &&
-                dailySnapshot.ObservedAt.ToOffset(TimeSpan.FromHours(7)).Hour == currentHour)
-            { Status = "ALREADY_ATTEMPTED"; NextRetryAt = NextHour(now); return; }
+                dailySnapshot.ObservedAt.ToOffset(TimeSpan.FromHours(7)).Hour == currentHour &&
+                ReviewMinute(dailySnapshot.ObservedAt) == reviewMinute)
+            { Status = "ALREADY_ATTEMPTED"; NextRetryAt = NextReview(now); return; }
             journal.EnsureReconciled();
             unavailableCode = "LIVE_READ_UNAVAILABLE";
             var checkpoint = packet.Snapshot with { Quotes = ResearchQuotes(packet) };
@@ -148,12 +163,15 @@ public sealed class LiveCompanyCoordinator(ILiveCompanyClient client, IHistorica
             var refreshed = await client.ReadAsync(accountId, cancellationToken);
             now = clock.GetUtcNow();
             if (!ValidPacket(refreshed, now) || refreshed.MandateVersion != packet.MandateVersion ||
+                refreshed.MinimumReviewIntervalMinutes != packet.MinimumReviewIntervalMinutes ||
                 JsonSerializer.Serialize(refreshed.Limits) != JsonSerializer.Serialize(packet.Limits) ||
                 !SameOwnedMoney(packet.Snapshot, refreshed.Snapshot))
             { Retry("LIVE_BLOCKED", [new("ACCOUNT_STATE_INVALID")]); return; }
             if (DateOnly.FromDateTime(now.ToOffset(TimeSpan.FromHours(7)).DateTime) != day)
             { Status = "BEFORE_MEETING"; return; }
             packet = refreshed;
+            reviewHour = continuousReviews && !dailyDue ? now.ToOffset(TimeSpan.FromHours(7)).Hour : null;
+            reviewMinute = ReviewMinute(now);
             executionPaused |= !packet.Armed || packet.Stopped;
             checkpoint = packet.Snapshot with { Quotes = ResearchQuotes(packet) };
             candidates = candidates.Where(c => checkpoint.Quotes.Any(q => q.Symbol == c.Symbol.Value))
@@ -175,8 +193,9 @@ public sealed class LiveCompanyCoordinator(ILiveCompanyClient client, IHistorica
                 latest.ReviewSnapshot is { } previous && !NeedsReview(previous, checkpoint))
             { Status = advisoryOnly ? "READ_ONLY" : "WATCHING"; NextRetryAt = clock.GetUtcNow().AddSeconds(30); return; }
             unavailableCode = "JOURNAL_UNAVAILABLE";
-            var begun = continuousReviews ? journal.TryBegin(day, decisionId, reviewHour, checkpoint) : journal.TryBegin(day, decisionId);
-            if (!begun) { Status = "ALREADY_ATTEMPTED"; NextRetryAt = NextHour(clock.GetUtcNow()); return; }
+            var begun = continuousReviews ? journal.TryBegin(day, decisionId, reviewHour, checkpoint, reviewHour is null ? 0 : reviewMinute)
+                : journal.TryBegin(day, decisionId);
+            if (!begun) { Status = "ALREADY_ATTEMPTED"; NextRetryAt = NextReview(clock.GetUtcNow()); return; }
             claimedDay = day;
             unavailableCode = "MEETING_FAILED";
             summary = new(0, 0, 0, []) { Issues = problems.Count == 0 ? null : Issues, AdvisoryOnly = advisoryOnly, Research = brief };
@@ -288,7 +307,7 @@ public sealed class LiveCompanyCoordinator(ILiveCompanyClient client, IHistorica
         void Finish(string status)
         {
             Status = status;
-            NextRetryAt = NextHour(clock.GetUtcNow());
+            NextRetryAt = NextReview(clock.GetUtcNow());
             if (status is not ("READ_ONLY" or "HOLD" or "ORDER_PENDING" or "RISK_REJECTED" or "PLAN_REGISTERED" or "PLAN_REJECTED"))
             {
                 Issues = [.. Issues, new("MEETING_FAILED")];
@@ -317,7 +336,8 @@ public sealed class LiveCompanyCoordinator(ILiveCompanyClient client, IHistorica
     private bool ValidPacket(LiveResearchPacket? packet, DateTimeOffset now)
     {
         if (packet is null || packet.AccountContext != context || !TradingAccountContext.IsValid(context) ||
-            packet.MandateVersion <= 0 || packet.Snapshot is not { } s || packet.Limits is not { } m ||
+            packet.MandateVersion <= 0 || packet.MinimumReviewIntervalMinutes is not (15 or 60) ||
+            packet.Snapshot is not { } s || packet.Limits is not { } m ||
             s.AccountId != accountId || s.Version <= 0 || !s.Reconciled || s.ObservedAt > now || now - s.ObservedAt > TimeSpan.FromSeconds(30) ||
             s.Equity <= 0 || s.CashBalance < 0 || s.CashReserved < 0 || s.CashReserved > s.CashBalance ||
             m.CapitalAllocation <= 0 || m.MaximumPositionWeight is <= 0 or > 1m || m.MaximumOpenPositions <= 0 ||
@@ -361,10 +381,14 @@ public sealed class LiveCompanyCoordinator(ILiveCompanyClient client, IHistorica
         retryAfter = clock.GetUtcNow().AddMinutes(5); NextRetryAt = retryAfter;
     }
 
-    private static DateTimeOffset NextHour(DateTimeOffset now)
+    private int ReviewMinute(DateTimeOffset now) => now.ToOffset(TimeSpan.FromHours(7)).Minute /
+        effectiveReviewIntervalMinutes * effectiveReviewIntervalMinutes;
+
+    private DateTimeOffset NextReview(DateTimeOffset now)
     {
         var local = now.ToOffset(TimeSpan.FromHours(7));
-        return new DateTimeOffset(local.Year, local.Month, local.Day, local.Hour, 0, 0, local.Offset).AddHours(1);
+        return new DateTimeOffset(local.Year, local.Month, local.Day, local.Hour, ReviewMinute(now), 0, local.Offset)
+            .AddMinutes(effectiveReviewIntervalMinutes);
     }
 
     private static IReadOnlyList<string> ResearchSymbols(LiveResearchPacket packet) =>

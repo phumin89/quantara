@@ -133,7 +133,7 @@ public static class LiveEndpoints
             return Results.Ok(new { accountContext = new TradingAccountContext(TradingMode.Live, account.AccountId.Value.ToString("N")),
                 availableDates = reports.Select(m => m.BusinessDate).Distinct().ToArray(), selectedDate,
                 meetings = (selectedDate is { } chosen ? reports.Where(m => m.BusinessDate == chosen) : reports.Take(31)).Select(m => new
-                { m.BusinessDate, m.AttemptId, m.Status, m.Summary, m.AccountContext, m.ReviewHour }) });
+                { m.BusinessDate, m.AttemptId, m.Status, m.Summary, m.AccountContext, m.ReviewHour, m.ReviewMinute }) });
         });
         ownerControls.MapPost("/preflight", async (HttpContext context) =>
         {

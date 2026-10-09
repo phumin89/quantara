@@ -59,7 +59,7 @@ public static class LiveCoordinatorEndpoints
                     OrderSizing = context.RequestServices.GetService<BitkubConfiguredAccount>()?.Verification.Rules.Pairs
                         .Where(p => mandate.AllowedSymbols.Contains(p.Symbol))
                         .Select(p => new LiveOrderSizing(p.Symbol, p.PriceStep, p.SellBaseStep, p.BuyQuoteStep, p.MinimumQuoteSize)).ToArray() ?? []
-                }, ready, account.Gate.Stopped) { ResearchQuotes = researchQuotes,
+                }, ready, account.Gate.Stopped) { ResearchQuotes = researchQuotes, MinimumReviewIntervalMinutes = 15,
                     TradePlans = LiveTradePlans.Views(account, now, context.RequestServices.GetService<BitkubConfiguredAccount>()?.Verification.Rules.Pairs
                         .Select(p => new LiveOrderSizing(p.Symbol, p.PriceStep, p.SellBaseStep, p.BuyQuoteStep, p.MinimumQuoteSize)).ToArray())
                         .Where(LiveTradePlans.Active).ToArray() });

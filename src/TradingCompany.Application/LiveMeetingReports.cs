@@ -14,7 +14,8 @@ public static class LiveMeetingReports
             string.IsNullOrWhiteSpace(attempt.Status) || attempt.Status.Length > 100 || attempt.Status == "STARTED" ||
             attempt.Status.Any(c => !(char.IsAsciiLetterUpper(c) || c == '_')) ||
             attempt.ReviewHour is < 0 or > 23 ||
-            (attempt.ReviewHour is { } hour && new DateTimeOffset(attempt.BusinessDate.ToDateTime(new TimeOnly(hour, 0)),
+            attempt.ReviewMinute is not (0 or 15 or 30 or 45) || (attempt.ReviewHour is null && attempt.ReviewMinute != 0) ||
+            (attempt.ReviewHour is { } hour && new DateTimeOffset(attempt.BusinessDate.ToDateTime(new TimeOnly(hour, attempt.ReviewMinute)),
                 TimeSpan.FromHours(7)) > now) ||
             (attempt.ReviewSnapshot is { } checkpoint && (checkpoint.AccountId != account || !checkpoint.Reconciled ||
                 checkpoint.ObservedAt > now || DateOnly.FromDateTime(checkpoint.ObservedAt.ToOffset(TimeSpan.FromHours(7)).DateTime) != attempt.BusinessDate)) ||
@@ -45,7 +46,7 @@ public static class LiveMeetingReports
     public static IReadOnlyList<DailyMeetingAttempt> Read(LiveAccountState account) => account.Audit
         .Where(a => a.Kind == AuditKind).Select(a => JsonSerializer.Deserialize<DailyMeetingAttempt>(a.Detail)
             ?? throw new InvalidDataException("Invalid saved meeting.")).OrderByDescending(a => a.BusinessDate)
-            .ThenByDescending(a => a.ReviewHour ?? 9).ToArray();
+            .ThenByDescending(a => a.ReviewHour ?? 9).ThenByDescending(a => a.ReviewMinute).ToArray();
 }
 
 public sealed partial class LiveAccountTransaction
@@ -55,7 +56,8 @@ public sealed partial class LiveAccountTransaction
         LiveMeetingReports.Validate(attempt, Account.AccountId, now);
         var detail = JsonSerializer.Serialize(attempt);
         var existing = LiveMeetingReports.Read(Account).SingleOrDefault(a =>
-            (a.BusinessDate == attempt.BusinessDate && a.ReviewHour == attempt.ReviewHour) || a.AttemptId == attempt.AttemptId);
+            (a.BusinessDate == attempt.BusinessDate && a.ReviewHour == attempt.ReviewHour && a.ReviewMinute == attempt.ReviewMinute) ||
+            a.AttemptId == attempt.AttemptId);
         if (existing is not null)
         {
             if (JsonSerializer.Serialize(existing) != detail) throw new InvalidDataException("Meeting identity conflict.");

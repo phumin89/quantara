@@ -32,10 +32,14 @@ public sealed class JsonDailyMeetingJournal : IDailyMeetingJournal
     }
 
     public DailyMeetingAttempt? Read(DateOnly businessDate, int reviewHour)
+        => Read(businessDate, reviewHour, 0);
+
+    public DailyMeetingAttempt? Read(DateOnly businessDate, int reviewHour, int reviewMinute)
     {
         if (businessDate == default) throw new ArgumentException("Business date is required.");
         ValidateHour(reviewHour);
-        return Load(false).SingleOrDefault(x => x.BusinessDate == businessDate && x.ReviewHour == reviewHour);
+        ValidateMinute(reviewHour, reviewMinute);
+        return Load(false).SingleOrDefault(x => x.BusinessDate == businessDate && x.ReviewHour == reviewHour && x.ReviewMinute == reviewMinute);
     }
 
     public IReadOnlyList<DailyMeetingAttempt> ReadAll() => Load(false);
@@ -50,21 +54,25 @@ public sealed class JsonDailyMeetingJournal : IDailyMeetingJournal
         => TryBegin(businessDate, attemptId, null, null);
 
     public bool TryBegin(DateOnly businessDate, Guid attemptId, int? reviewHour, LiveSnapshot? reviewSnapshot)
+        => TryBegin(businessDate, attemptId, reviewHour, reviewSnapshot, 0);
+
+    public bool TryBegin(DateOnly businessDate, Guid attemptId, int? reviewHour, LiveSnapshot? reviewSnapshot, int reviewMinute)
     {
         if (businessDate == default || attemptId == Guid.Empty) throw new ArgumentException("Meeting identity required.");
-        ValidateReview(reviewHour, reviewSnapshot);
+        ValidateReview(reviewHour, reviewSnapshot, reviewMinute);
         Directory.CreateDirectory(Path.GetDirectoryName(path)!);
         using var lease = Acquire(out var created);
         var attempts = Load(created);
         if (attempts.Any(x => x.AttemptId == attemptId)) return false;
-        if (attempts.Any(x => x.BusinessDate == businessDate && x.ReviewHour == reviewHour)) return false;
+        if (attempts.Any(x => x.BusinessDate == businessDate && x.ReviewHour == reviewHour && x.ReviewMinute == reviewMinute)) return false;
         if (attempts.Any(x => x.BusinessDate > businessDate)) throw new InvalidOperationException("Clock moved behind recorded meetings.");
-        if (reviewHour is { } currentHour && attempts.Any(x => x.BusinessDate == businessDate && x.ReviewHour is { } priorHour && priorHour > currentHour))
+        if (reviewHour is { } currentHour && attempts.Any(x => x.BusinessDate == businessDate && x.ReviewHour is { } priorHour &&
+            (priorHour > currentHour || (priorHour == currentHour && x.ReviewMinute > reviewMinute))))
             throw new InvalidOperationException("Review clock moved behind recorded meetings.");
         if (reviewSnapshot is not null && attempts.Any(x => x.ReviewSnapshot is { } previous && previous.ObservedAt > reviewSnapshot.ObservedAt))
             throw new InvalidOperationException("Review clock moved behind recorded snapshots.");
         if (attempts.Any(x => x.Status == "STARTED")) throw new InvalidDataException("An interrupted meeting requires reconciliation.");
-        Save([.. attempts, new DailyMeetingAttempt(businessDate, attemptId, "STARTED", ReviewHour: reviewHour, ReviewSnapshot: reviewSnapshot) { AccountContext = AccountContext }]);
+        Save([.. attempts, new DailyMeetingAttempt(businessDate, attemptId, "STARTED", ReviewHour: reviewHour, ReviewSnapshot: reviewSnapshot) { ReviewMinute = reviewMinute, AccountContext = AccountContext }]);
         return true;
     }
 
@@ -98,13 +106,14 @@ public sealed class JsonDailyMeetingJournal : IDailyMeetingJournal
             var attempts = envelope.Attempts;
             if (attempts.Any(x => x is null || x.BusinessDate == default || x.AttemptId == Guid.Empty || string.IsNullOrWhiteSpace(x.Status)) ||
                 attempts.Any(x => x.ReviewHour is < 0 or > 23) ||
-                attempts.GroupBy(x => (x.BusinessDate, x.ReviewHour)).Any(g => g.Count() > 1) ||
+                attempts.Any(x => x.ReviewMinute is < 0 or > 59) ||
+                attempts.GroupBy(x => (x.BusinessDate, x.ReviewHour, x.ReviewMinute)).Any(g => g.Count() > 1) ||
                 attempts.Select(x => x.AttemptId).Distinct().Count() != attempts.Length)
                 throw new InvalidDataException("Journal contains invalid meeting identities.");
             foreach (var attempt in attempts)
             {
                 if (attempt.AccountContext != AccountContext) throw new InvalidDataException("Meeting journal belongs to a different account.");
-                ValidateReview(attempt.ReviewHour, attempt.ReviewSnapshot);
+                ValidateReview(attempt.ReviewHour, attempt.ReviewSnapshot, attempt.ReviewMinute);
                 ValidateSummary(attempt.Summary, attempt.BusinessDate);
             }
             return attempts;
@@ -149,8 +158,9 @@ public sealed class JsonDailyMeetingJournal : IDailyMeetingJournal
     private static string Hash(DailyMeetingAttempt[] attempts) =>
         Convert.ToHexStringLower(SHA256.HashData(JsonSerializer.SerializeToUtf8Bytes(attempts, Json)));
 
-    private void ValidateReview(int? hour, LiveSnapshot? snapshot)
+    private void ValidateReview(int? hour, LiveSnapshot? snapshot, int minute)
     {
+        ValidateMinute(hour, minute);
         if (hour is null && snapshot is null) return;
         if (AccountContext?.Mode != TradingMode.Live) throw new InvalidOperationException("Review meetings require a live account context.");
         if (hour is { } value) ValidateHour(value);
@@ -185,5 +195,11 @@ public sealed class JsonDailyMeetingJournal : IDailyMeetingJournal
     private static void ValidateHour(int reviewHour)
     {
         if (reviewHour is < 0 or > 23) throw new ArgumentOutOfRangeException(nameof(reviewHour));
+    }
+
+    private static void ValidateMinute(int? reviewHour, int reviewMinute)
+    {
+        if (reviewHour is null && reviewMinute != 0) throw new ArgumentException("Review minute requires a review hour.");
+        if (reviewMinute is not (0 or 15 or 30 or 45)) throw new ArgumentOutOfRangeException(nameof(reviewMinute));
     }
 }

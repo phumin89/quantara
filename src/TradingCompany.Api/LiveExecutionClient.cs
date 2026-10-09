@@ -21,7 +21,9 @@ public sealed class LiveExecutionClient : ILiveCompanyClient
         this.coordinatorToken = coordinatorToken;
         this.boundAccount = boundAccount;
         this.clock = clock ?? TimeProvider.System;
-        transport.Timeout = TimeSpan.FromSeconds(10);
+        // Saved reports share the account lease with complete broker scans. Other
+        // requests keep their own 10-second deadline, especially financial mutations.
+        transport.Timeout = TimeSpan.FromSeconds(75);
         transport.MaxResponseContentBufferSize = 1024 * 1024;
     }
 
@@ -69,31 +71,39 @@ public sealed class LiveExecutionClient : ILiveCompanyClient
         using var request = new HttpRequestMessage(HttpMethod.Post, "https://localhost:7443/internal/live/meetings");
         request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", coordinatorToken);
         request.Content = JsonContent.Create(attempt, options: Json);
-        using var response = await transport.SendAsync(request, cancellationToken);
-        if (response.StatusCode != HttpStatusCode.OK) throw Unavailable();
+        try
+        {
+            using var response = await transport.SendAsync(request, cancellationToken);
+            if (response.StatusCode != HttpStatusCode.OK) throw Unavailable();
+        }
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested) { throw Unavailable(); }
     }
 
     public async Task SaveActivityAsync(LiveCompanyActivity activity, CancellationToken cancellationToken)
     {
+        using var deadline = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        deadline.CancelAfter(TimeSpan.FromSeconds(10));
         EnsureBinding(boundAccount);
         if (!LiveActivityValidation.IsValid(activity, boundAccount, clock.GetUtcNow())) throw Unavailable();
         using var request = new HttpRequestMessage(HttpMethod.Post, "https://localhost:7443/internal/live/activity");
         request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", coordinatorToken);
         request.Content = JsonContent.Create(activity, options: Json);
-        using var response = await transport.SendAsync(request, cancellationToken);
+        using var response = await transport.SendAsync(request, deadline.Token);
         if (response.StatusCode != HttpStatusCode.OK) throw Unavailable();
     }
 
     private async Task<T> Send<T>(HttpMethod method, string path, object? intent, CancellationToken cancellationToken)
     {
+        using var deadline = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        deadline.CancelAfter(TimeSpan.FromSeconds(10));
         try
         {
             using var request = new HttpRequestMessage(method, "https://localhost:7443/internal/live/" + path);
             request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", coordinatorToken);
             if (intent is not null) request.Content = JsonContent.Create(intent, options: Json);
-            using var response = await transport.SendAsync(request, cancellationToken);
+            using var response = await transport.SendAsync(request, deadline.Token);
             if (response.StatusCode != HttpStatusCode.OK) throw Unavailable();
-            return await response.Content.ReadFromJsonAsync<T>(Json, cancellationToken) ?? throw Unavailable();
+            return await response.Content.ReadFromJsonAsync<T>(Json, deadline.Token) ?? throw Unavailable();
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
         catch (Exception) { throw Unavailable(); }

@@ -29,17 +29,18 @@ public sealed class LiveMeetingReportPersistenceTests(PostgresFixture database)
     }
 
     [Fact]
-    public async Task Same_day_review_slots_persist_replay_idempotently_and_reject_conflicts()
+    public async Task Same_hour_quarter_review_slots_persist_replay_idempotently_and_reject_conflicts()
     {
         var (store, account) = await Setup();
-        var first = Report(account.AccountId) with { ReviewHour = 9 };
-        var second = Report(account.AccountId) with { ReviewHour = 10 };
+        var first = Report(account.AccountId) with { ReviewHour = 9, ReviewMinute = 15 };
+        var second = Report(account.AccountId) with { ReviewHour = 9, ReviewMinute = 30 };
         await store.WithAccountLockAsync(account.AccountId, async (tx, ct) =>
         {
             tx.RecordMeeting(first, Now.AddHours(2)); tx.RecordMeeting(second, Now.AddHours(2)); await tx.CommitAsync(ct); return 0;
         });
         var restored = await new LiveTradingStore(database.ConnectionString).ReadAccountAsync(account.AccountId);
-        Assert.Equal(new[] { 10, 9 }, LiveMeetingReports.Read(restored).Select(x => x.ReviewHour!.Value));
+        Assert.All(LiveMeetingReports.Read(restored), report => Assert.Equal(9, report.ReviewHour));
+        Assert.Equal(new[] { 30, 15 }, LiveMeetingReports.Read(restored).Select(x => x.ReviewMinute));
         await store.WithAccountLockAsync(account.AccountId, async (tx, ct) => { tx.RecordMeeting(first, Now.AddHours(2)); await tx.CommitAsync(ct); return 0; });
         Assert.Equal(2, LiveMeetingReports.Read(await store.ReadAccountAsync(account.AccountId)).Count);
         var conflict = first with { AttemptId = Guid.NewGuid() };

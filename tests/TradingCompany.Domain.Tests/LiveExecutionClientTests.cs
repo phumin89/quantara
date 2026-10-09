@@ -87,6 +87,45 @@ public sealed class LiveExecutionClientTests
         Assert.DoesNotContain("intent", wire.Body!, StringComparison.OrdinalIgnoreCase);
     }
 
+    [Fact]
+    public async Task Saved_meeting_allows_slow_account_lease_once()
+    {
+        var wire = new DelayedWire(TimeSpan.FromSeconds(11), (_, _) => new(HttpStatusCode.OK));
+        using var http = new HttpClient(wire) { BaseAddress = new("https://ignored.invalid") };
+        var client = new LiveExecutionClient(http, Token, LiveRiskTests.Account);
+        var attempt = new DailyMeetingAttempt(new(2026, 9, 12), Guid.NewGuid(), "COMPLETED")
+        { AccountContext = new(TradingMode.Live, LiveRiskTests.Account.Value.ToString("N")) };
+
+        await client.SaveMeetingAsync(attempt, default);
+
+        Assert.Equal(1, wire.Calls);
+    }
+
+    [Fact]
+    public async Task Caller_cancellation_stops_saved_meeting_without_retry()
+    {
+        var wire = new DelayedWire(TimeSpan.FromSeconds(1), (_, _) => new(HttpStatusCode.OK));
+        using var http = new HttpClient(wire);
+        var client = new LiveExecutionClient(http, Token, LiveRiskTests.Account);
+        var attempt = new DailyMeetingAttempt(new(2026, 9, 12), Guid.NewGuid(), "COMPLETED")
+        { AccountContext = new(TradingMode.Live, LiveRiskTests.Account.Value.ToString("N")) };
+        using var cancellation = new CancellationTokenSource(TimeSpan.FromMilliseconds(50));
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => client.SaveMeetingAsync(attempt, cancellation.Token));
+        Assert.Equal(1, wire.Calls);
+    }
+
+    [Fact]
+    public async Task Financial_submission_keeps_short_deadline_and_never_inherits_report_wait_budget()
+    {
+        var wire = new DelayedWire(TimeSpan.FromSeconds(11), (_, _) => new(HttpStatusCode.OK)
+        { Content = JsonContent.Create(new LiveIntentReceipt(LiveRiskTests.Intent, LiveOrderState.Acknowledged, [])) });
+        using var http = new HttpClient(wire);
+        var client = new LiveExecutionClient(http, Token, LiveRiskTests.Account);
+        await Assert.ThrowsAsync<InvalidDataException>(() => client.SubmitAsync(LiveRiskTests.Intent, default));
+        Assert.Equal(1, wire.Calls);
+    }
+
     private sealed class Clock : TimeProvider { public override DateTimeOffset GetUtcNow() => LiveRiskTests.Now; }
 
     private sealed class Wire(Func<HttpRequestMessage, int, HttpResponseMessage> response) : HttpMessageHandler
@@ -100,6 +139,17 @@ public sealed class LiveExecutionClientTests
             Tokens.Add(request.Headers.Authorization?.Parameter);
             if (request.Content is not null) Body = await request.Content.ReadAsStringAsync(cancellationToken);
             return response(request, Uris.Count);
+        }
+    }
+
+    private sealed class DelayedWire(TimeSpan delay, Func<HttpRequestMessage, int, HttpResponseMessage> response) : HttpMessageHandler
+    {
+        public int Calls { get; private set; }
+        protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            Calls++;
+            await Task.Delay(delay, cancellationToken);
+            return response(request, Calls);
         }
     }
 }

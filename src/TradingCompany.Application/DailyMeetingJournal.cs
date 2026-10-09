@@ -54,6 +54,8 @@ public sealed record DailyMeetingAttempt(
     [property: System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
     LiveSnapshot? ReviewSnapshot = null)
 {
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingDefault)]
+    public int ReviewMinute { get; init; }
     [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
     public TradingAccountContext? AccountContext { get; init; }
 }
@@ -64,8 +66,12 @@ public interface IDailyMeetingJournal
     void EnsureReconciled();
     DailyMeetingAttempt? Read(DateOnly businessDate);
     DailyMeetingAttempt? Read(DateOnly businessDate, int reviewHour) => throw new NotSupportedException();
+    DailyMeetingAttempt? Read(DateOnly businessDate, int reviewHour, int reviewMinute)
+        => reviewMinute == 0 ? Read(businessDate, reviewHour) : throw new NotSupportedException();
     IReadOnlyList<DailyMeetingAttempt> ReadAll();
     bool TryBegin(DateOnly businessDate, Guid attemptId);
     bool TryBegin(DateOnly businessDate, Guid attemptId, int? reviewHour, LiveSnapshot? reviewSnapshot) => throw new NotSupportedException();
+    bool TryBegin(DateOnly businessDate, Guid attemptId, int? reviewHour, LiveSnapshot? reviewSnapshot, int reviewMinute)
+        => reviewMinute == 0 ? TryBegin(businessDate, attemptId, reviewHour, reviewSnapshot) : throw new NotSupportedException();
     void Complete(DateOnly businessDate, Guid attemptId, string status, DailyMeetingSummary? summary = null);
 }

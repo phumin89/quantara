@@ -67,6 +67,33 @@ public sealed class LiveMeetingReportTests
         Assert.Empty(LiveMeetingReports.Read(tx.Account));
     }
 
+    [Fact]
+    public void Quarter_hour_reports_coexist_and_remain_idempotent_without_changing_financial_state()
+    {
+        var account = new LiveAccountState(LiveRiskTests.Account, LiveRiskTests.Mandate, LiveRiskTests.Gate,
+            LiveRiskTests.Snapshot, [], [], []);
+        var tx = new LiveAccountTransaction(account, (_, _) => Task.CompletedTask);
+        var first = Report() with { ReviewHour = 9, ReviewMinute = 15 };
+        var second = first with { AttemptId = Guid.NewGuid(), ReviewMinute = 30 };
+        tx.RecordMeeting(first, Now.AddHours(1)); tx.RecordMeeting(second, Now.AddHours(1));
+        tx.RecordMeeting(first, Now.AddHours(1));
+        Assert.Equal(new[] { 30, 15 }, LiveMeetingReports.Read(tx.Account).Select(a => a.ReviewMinute));
+        Assert.Equal(account.Gate, tx.Account.Gate); Assert.Equal(account.Mandate, tx.Account.Mandate);
+        Assert.Equal(account.Snapshot, tx.Account.Snapshot); Assert.Empty(tx.Account.Orders);
+        Assert.Throws<InvalidDataException>(() => tx.RecordMeeting(first with { AttemptId = Guid.NewGuid() }, Now.AddHours(1)));
+    }
+
+    [Fact]
+    public void Report_minute_cannot_be_future_or_detached_from_a_review_hour()
+    {
+        Assert.Throws<InvalidDataException>(() => LiveMeetingReports.Validate(Report() with
+            { ReviewHour = 9, ReviewMinute = 15 }, LiveRiskTests.Account, Now));
+        Assert.Throws<InvalidDataException>(() => LiveMeetingReports.Validate(Report() with
+            { ReviewMinute = 15 }, LiveRiskTests.Account, Now.AddHours(1)));
+        Assert.Throws<InvalidDataException>(() => LiveMeetingReports.Validate(Report() with
+            { ReviewHour = 9, ReviewMinute = 10 }, LiveRiskTests.Account, Now.AddHours(1)));
+    }
+
     private static DailyMeetingAttempt Report() => new(new(2026, 9, 27),
         Guid.Parse("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"), "ORDER_PENDING", new(8, 80, 40,
         Enumerable.Range(0, 8).Select(i => new SavedAiReport($"role-{i}", "summary", "test-model", 10, 5,

@@ -75,7 +75,8 @@ public static class LiveCompanyHost
         services.AddSingleton(sp => new LiveCompanyCoordinator(sp.GetRequiredService<ILiveCompanyClient>(),
             sp.GetRequiredService<IHistoricalMarketEvidenceProvider>(), sp.GetRequiredService<IAiCompanyMeetingRunner>(),
             sp.GetRequiredService<IDailyMeetingJournal>(), sp.GetRequiredService<TimeProvider>(), account, continuousReviews: true,
-            research: sp.GetRequiredService<ICoinResearchProvider>(), learning: sp.GetRequiredService<CompanyLearningService>()));
+            research: sp.GetRequiredService<ICoinResearchProvider>(), learning: sp.GetRequiredService<CompanyLearningService>(),
+            reviewIntervalMinutes: 15));
         services.AddHostedService<CompanyLearningWorker>();
         services.AddHostedService<LiveCompanyWorker>();
     }

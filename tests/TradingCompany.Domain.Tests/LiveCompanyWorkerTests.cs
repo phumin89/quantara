@@ -10,13 +10,17 @@ public sealed class LiveCompanyWorkerTests
     [Fact]
     public async Task Unexpected_journal_failure_does_not_kill_later_ticks_and_shutdown_cancels_the_wait()
     {
-        var clock = new Clock(); var journal = new BrokenJournal(); var client = new Client();
+        var clock = new Clock(); var journal = new BrokenJournal(); var client = new Client(clock);
         var coordinator = new LiveCompanyCoordinator(client, new Market(), new Meeting(), journal, clock, LiveRiskTests.Account);
         using var activity = new LiveCompanyActivityPublisher(client, clock, LiveRiskTests.Account);
         using var worker = new LiveCompanyWorker(coordinator, clock, activity);
         await worker.StartAsync(default);
         var timer = await clock.Created.Task.WaitAsync(TimeSpan.FromSeconds(2));
         await journal.Failed.Task.WaitAsync(TimeSpan.FromSeconds(2));
+        // The journal signal precedes the worker's catch. Wait for the actual
+        // backoff to be recorded before advancing virtual time.
+        Assert.True(SpinWait.SpinUntil(() => coordinator.NextRetryAt == clock.Now.AddMinutes(5), TimeSpan.FromSeconds(2)));
+        clock.Now = coordinator.NextRetryAt!.Value;
         timer.Fire();
         await journal.LaterTick.Task.WaitAsync(TimeSpan.FromSeconds(2));
         await worker.StopAsync(default);
@@ -48,11 +52,12 @@ public sealed class LiveCompanyWorkerTests
         public Task<AiCompanyMeetingResult> RunAsync(AiCompanyMeetingInput input, CancellationToken token) =>
             Task.FromResult(new AiCompanyMeetingResult("COMPLETED", [], [], 0, 0, 0, 0, Model) { AccountContext = Scope });
     }
-    private sealed class Client : ILiveCompanyClient
+    private sealed class Client(Clock clock) : ILiveCompanyClient
     {
         public bool Submitted { get; private set; }
         public Task<LiveResearchPacket> ReadAsync(LiveAccountId account, CancellationToken token) => Task.FromResult(
-            new LiveResearchPacket(Scope, 1, LiveRiskTests.Snapshot,
+            new LiveResearchPacket(Scope, 1, LiveRiskTests.Snapshot with
+                { ObservedAt = clock.Now, Quotes = [new("BTC-THB", 99900m, 100000m, clock.Now)] },
                 new(1000m, .2m, 3, .003m, .01m, ["BTC-THB"]) { OrderSizing = [new("BTC-THB", .01m, .00000001m, 1m, 10m)] }, true, false));
         public Task SaveMeetingAsync(DailyMeetingAttempt attempt, CancellationToken token) => Task.CompletedTask;
         public Task<LiveIntentReceipt> SubmitAsync(LiveIntent intent, CancellationToken token)
@@ -69,8 +74,9 @@ public sealed class LiveCompanyWorkerTests
     }
     private sealed class Clock : TimeProvider
     {
+        public DateTimeOffset Now { get; set; } = LiveRiskTests.Now;
         public TaskCompletionSource<ManualTimer> Created { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
-        public override DateTimeOffset GetUtcNow() => LiveRiskTests.Now;
+        public override DateTimeOffset GetUtcNow() => Now;
         public override ITimer CreateTimer(TimerCallback callback, object? state, TimeSpan dueTime, TimeSpan period)
         { var timer = new ManualTimer(callback, state); Created.SetResult(timer); return timer; }
     }

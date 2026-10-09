@@ -8,7 +8,7 @@ const roles: Record<string, string> = { ceo: "CEO", "chief-of-staff": "หัว
 const statuses: Record<string, string> = { PLAN_REGISTERED: "บันทึกแผนแล้ว · ระบบเฝ้าราคาเข้า–ออก", PLAN_REJECTED: "แผนยังไม่ผ่านเงื่อนไข", READ_ONLY: "รอบนี้วิเคราะห์เท่านั้น · ไม่ได้ส่งคำสั่ง", HOLD: "คงพอร์ต · ยังไม่ส่งคำสั่ง", ORDER_PENDING: "ส่งคำสั่งแล้ว · ยังรอยืนยันผลจากตลาด", RISK_REJECTED: "ระบบไม่อนุมัติคำสั่ง", RESEARCH_UNAVAILABLE: "ข้อมูลตลาดไม่ครบ จึงไม่มีคำสั่ง", SNAPSHOT_CHANGED: "บัญชีหรือสิทธิ์เปลี่ยนระหว่างประชุม จึงไม่มีคำสั่ง", PRICE_CHANGED: "ราคาเปลี่ยนเกินขอบเขต จึงไม่มีคำสั่ง", LIVE_UNAVAILABLE: "ยังยืนยันผลรอบนี้ไม่ได้ ตรวจรายการคำสั่งก่อนดำเนินการต่อ" };
 type Scope = { mode: 1; accountId: string };
 type Report = { role: string; summary: string; providerModel: string; inputTokens: number; outputTokens: number; artifactId: string; evidenceHash: string; dataCutoff: string };
-type Meeting = { businessDate: string; reviewHour?: number | null; attemptId: string; status: string; accountContext: Scope; summary: { modelCalls: number; inputTokens: number; outputTokens: number; reports: Report[]; research?: unknown; learning?: unknown; issues?: { code: string; symbol?: string | null }[] | null; advisoryOnly?: boolean; planRejectionReasons?: string[] | null } | null };
+type Meeting = { businessDate: string; reviewHour?: number | null; reviewMinute?: number | null; attemptId: string; status: string; accountContext: Scope; summary: { modelCalls: number; inputTokens: number; outputTokens: number; reports: Report[]; research?: unknown; learning?: unknown; issues?: { code: string; symbol?: string | null }[] | null; advisoryOnly?: boolean; planRejectionReasons?: string[] | null } | null };
 type Meetings = { accountContext: Scope; meetings: Meeting[]; availableDates: string[]; selectedDate: string | null; hasDateIndex: boolean };
 const object = (v: unknown): v is Record<string, unknown> => !!v && typeof v === "object" && !Array.isArray(v);
 const text = (v: unknown, max: number): v is string => typeof v === "string" && v.length > 0 && v.length <= max;
@@ -21,14 +21,15 @@ function ReportPlaceholder({ message, failed = false }: { message: string; faile
 export function readMeetings(value: unknown, now = Date.now()): Meetings | undefined {
   if (!object(value) || !object(value.accountContext)) return;
   const scope = value.accountContext;
-  if (scope.mode !== 1 || typeof scope.accountId !== "string" || !/^[0-9a-f]{32}$/i.test(scope.accountId) || /^0{32}$/.test(scope.accountId) || !Array.isArray(value.meetings) || value.meetings.length > 31) return;
+  if (scope.mode !== 1 || typeof scope.accountId !== "string" || !/^[0-9a-f]{32}$/i.test(scope.accountId) || /^0{32}$/.test(scope.accountId) || !Array.isArray(value.meetings) || value.meetings.length > 97) return;
   const slots = new Set(), ids = new Set();
   for (const m of value.meetings) {
     const hour = m && object(m) ? m.reviewHour : undefined;
-    if (!object(m) || !date(m.businessDate) || !uuid(m.attemptId) || (hour !== undefined && hour !== null && (typeof hour !== "number" || !Number.isInteger(hour) || hour < 0 || hour > 23)) || slots.has(`${m.businessDate}:${hour ?? "daily"}`) || ids.has(m.attemptId) ||
+    const minute = m && object(m) ? m.reviewMinute : undefined;
+    if (!object(m) || !date(m.businessDate) || !uuid(m.attemptId) || (hour !== undefined && hour !== null && (typeof hour !== "number" || !Number.isInteger(hour) || hour < 0 || hour > 23)) || (minute !== undefined && minute !== null && (typeof minute !== "number" || !Number.isInteger(minute) || ![0, 15, 30, 45].includes(minute))) || (minute != null && minute !== 0 && (hour == null || typeof hour !== "number" || !Number.isInteger(hour) || hour < 0 || hour > 23)) || slots.has(`${m.businessDate}:${hour ?? "daily"}:${minute ?? 0}`) || ids.has(m.attemptId) ||
         !text(m.status, 100) || !/^[A-Z_]+$/.test(m.status) || m.status === "STARTED" || !object(m.accountContext) ||
         m.accountContext.mode !== scope.mode || m.accountContext.accountId !== scope.accountId) return;
-    slots.add(`${m.businessDate}:${hour ?? "daily"}`); ids.add(m.attemptId);
+    slots.add(`${m.businessDate}:${hour ?? "daily"}:${minute ?? 0}`); ids.add(m.attemptId);
     if (m.summary == null) continue;
     const s = m.summary;
     if (!object(s) || !count(s.modelCalls) || s.modelCalls > 8 || !count(s.inputTokens) || !count(s.outputTokens) || !Array.isArray(s.reports) || s.reports.length > 8 || (s.issues !== undefined && s.issues !== null && !validLiveIssues(s.issues)) || (s.advisoryOnly !== undefined && typeof s.advisoryOnly !== "boolean")) return;
@@ -43,7 +44,7 @@ export function readMeetings(value: unknown, now = Date.now()): Meetings | undef
       seen.add(r.role);
     }
   }
-  const meetings = (value.meetings as Meeting[]).slice().sort((a, b) => b.businessDate.localeCompare(a.businessDate) || (b.reviewHour ?? 9) - (a.reviewHour ?? 9));
+  const meetings = (value.meetings as Meeting[]).slice().sort((a, b) => b.businessDate.localeCompare(a.businessDate) || (b.reviewHour ?? 9) - (a.reviewHour ?? 9) || (b.reviewMinute ?? 0) - (a.reviewMinute ?? 0));
   const derived = Array.from(new Set(meetings.map(m => m.businessDate))).sort().reverse();
   if (value.availableDates !== undefined && (!Array.isArray(value.availableDates) || value.availableDates.length > 10000 || value.availableDates.some(d => !date(d)) || new Set(value.availableDates).size !== value.availableDates.length || [...value.availableDates].sort().reverse().join() !== [...value.availableDates].join())) return;
   const availableDates = (value.availableDates as string[] | undefined) ?? derived;
@@ -125,7 +126,8 @@ export function LiveMeetingView({ meetings, selected, onSelect, availableDates, 
   const historyGaps = meeting.summary?.issues?.filter(i => i.code === "MARKET_HISTORY_UNAVAILABLE");
   const issues = meeting.summary?.issues?.filter(i => i.code !== "MARKET_HISTORY_UNAVAILABLE").map(i => issueText[i.code]);
   if (historyGaps?.length) issues?.unshift(`${issueText.MARKET_HISTORY_UNAVAILABLE} ${historyGaps.map(i => `(${i.symbol})`).join(" · ")}`);
-  return <><DatePicker availableDates={availableDates} selectedDate={chosenDate} onDateSelect={onDateSelect} /><p className="report-update-state" role={failed ? "alert" : "status"}>{failed ? "อัปเดตรายงานไม่สำเร็จ กำลังใช้รายงานที่บันทึกไว้" : pending ? "กำลังอัปเดตรายงาน · แสดงรายงานที่บันทึกไว้" : ""}</p>{dayMeetings.length > 1 ? <label className="team-meeting-date">รอบประชุม<select value={meeting.attemptId} onChange={e => onSelect(e.target.value)}>{dayMeetings.map(m => <option key={m.attemptId} value={m.attemptId}>{m.reviewHour == null ? "ประชุมประจำวัน" : `ทบทวน ${String(m.reviewHour).padStart(2, "0")}:00`}</option>)}</select></label> : <p className="team-meeting-date-label">รอบประชุม · {meeting.reviewHour == null ? "ประชุมประจำวัน" : `ทบทวน ${String(meeting.reviewHour).padStart(2, "0")}:00`}</p>}
+  const meetingLabel = meeting.reviewHour == null ? "ประชุมประจำวัน" : `ทบทวน ${String(meeting.reviewHour).padStart(2, "0")}:${String(meeting.reviewMinute ?? 0).padStart(2, "0")}`;
+  return <><DatePicker availableDates={availableDates} selectedDate={chosenDate} onDateSelect={onDateSelect} /><p className="report-update-state" role={failed ? "alert" : "status"}>{failed ? "อัปเดตรายงานไม่สำเร็จ กำลังใช้รายงานที่บันทึกไว้" : pending ? "กำลังอัปเดตรายงาน · แสดงรายงานที่บันทึกไว้" : ""}</p>{dayMeetings.length > 1 ? <label className="team-meeting-date">รอบประชุม<select value={meeting.attemptId} onChange={e => onSelect(e.target.value)}>{dayMeetings.map(m => <option key={m.attemptId} value={m.attemptId}>{m.reviewHour == null ? "ประชุมประจำวัน" : `ทบทวน ${String(m.reviewHour).padStart(2, "0")}:${String(m.reviewMinute ?? 0).padStart(2, "0")}`}</option>)}</select></label> : <p className="team-meeting-date-label">รอบประชุม · {meetingLabel}</p>}
     <p className="team-meeting-outcome">{meeting.summary?.advisoryOnly ? "รอบนี้วิเคราะห์เท่านั้น · ไม่ได้ส่งคำสั่ง" : statuses[meeting.status] ?? "รอบสิ้นสุดโดยยังไม่มีข้อเสนอที่นำไปใช้ได้"}</p>
     {!!issues?.length && <p className="team-meeting-issues">{issues.join(" · ")}</p>}
     {!!meeting.summary?.planRejectionReasons?.length && <p className="team-meeting-issues">{Array.from(new Set(meeting.summary.planRejectionReasons.map(r => ({ PLAN_ALREADY_ACTIVE: "มีแผนเหรียญนี้อยู่แล้ว", PLAN_ROUND_TRIP_TURNOVER_EXCEEDED: "วงเงินวันนี้ไม่พอทั้งซื้อและขาย", PLAN_EXIT_BELOW_MINIMUM: "จำนวนขายต่ำกว่าขั้นต่ำตลาด", PLAN_TARGET_BELOW_COSTS: "เป้าขายยังไม่คุ้มค่าธรรมเนียม", PLAN_CASH_OVERCOMMITTED: "เงินสดไม่พอรวมแผนที่รออยู่", PLAN_EXIT_ORDER_LIMIT: "ยอดขายเกินวงเงินต่อคำสั่ง", UNRESOLVED_ORDER: "ยังมีคำสั่งรอยืนยัน", OPEN_POSITION_LIMIT: "จำนวนเหรียญเกินสิทธิ์ที่เปิดไว้", NOT_ARMED: "ยังไม่เปิดสิทธิ์ส่งคำสั่ง", STOPPED: "เจ้าของพักส่งคำสั่งแล้ว" } as Record<string, string>)[r] ?? "แผนไม่ผ่านการตรวจบัญชีหรือความเสี่ยง"))).join(" · ")}</p>}

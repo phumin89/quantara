@@ -171,6 +171,52 @@ public sealed class DailyMeetingJournalTests : IDisposable
         Assert.Throws<ArgumentOutOfRangeException>(() => store.Read(Day, 24));
     }
 
+    [Fact]
+    public void Quarter_hour_slots_are_distinct_and_survive_restart()
+    {
+        var account = new TradingAccountContext(TradingMode.Live, "11111111111111111111111111111111");
+        var store = new JsonDailyMeetingJournal(StatePath, account);
+        foreach (var minute in new[] { 0, 15, 30 })
+        {
+            Assert.True(store.TryBegin(Day, Guid.NewGuid(), 9, null, minute));
+            store.Complete(Day, store.Read(Day, 9, minute)!.AttemptId, "COMPLETED");
+        }
+        Assert.False(store.TryBegin(Day, Guid.NewGuid(), 9, null, 15));
+        var restarted = new JsonDailyMeetingJournal(StatePath, account);
+        Assert.Equal(0, restarted.Read(Day, 9, 0)!.ReviewMinute);
+        Assert.Equal(15, restarted.Read(Day, 9, 15)!.ReviewMinute);
+        Assert.Equal(30, restarted.Read(Day, 9, 30)!.ReviewMinute);
+    }
+
+    [Fact]
+    public void Quarter_hour_clock_rollback_is_rejected()
+    {
+        var account = new TradingAccountContext(TradingMode.Live, "11111111111111111111111111111111");
+        var store = new JsonDailyMeetingJournal(StatePath, account);
+        Assert.True(store.TryBegin(Day, Guid.NewGuid(), 9, null, 30));
+        store.Complete(Day, store.Read(Day, 9, 30)!.AttemptId, "COMPLETED");
+        Assert.Throws<InvalidOperationException>(() => store.TryBegin(Day, Guid.NewGuid(), 9, null, 15));
+    }
+
+    [Fact]
+    public void Invalid_quarter_hour_inputs_are_rejected()
+    {
+        var account = new TradingAccountContext(TradingMode.Live, "11111111111111111111111111111111");
+        var store = new JsonDailyMeetingJournal(StatePath, account);
+        Assert.Throws<ArgumentOutOfRangeException>(() => store.TryBegin(Day, Guid.NewGuid(), 9, null, 10));
+        Assert.Throws<ArgumentException>(() => store.TryBegin(Day, Guid.NewGuid(), null, null, 15));
+        Assert.Throws<ArgumentOutOfRangeException>(() => store.Read(Day, 9, 60));
+    }
+
+    [Fact]
+    public void Interrupted_quarter_hour_still_blocks_later_slot()
+    {
+        var account = new TradingAccountContext(TradingMode.Live, "11111111111111111111111111111111");
+        var store = new JsonDailyMeetingJournal(StatePath, account);
+        Assert.True(store.TryBegin(Day, Guid.NewGuid(), 9, null, 15));
+        Assert.Throws<InvalidDataException>(() => store.TryBegin(Day, Guid.NewGuid(), 9, null, 30));
+    }
+
     private static string Hash(DailyMeetingAttempt[] attempts) =>
         Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(
             System.Text.Json.JsonSerializer.SerializeToUtf8Bytes(attempts,

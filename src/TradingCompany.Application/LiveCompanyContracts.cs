@@ -15,6 +15,8 @@ public sealed record LiveResearchLimits(decimal CapitalAllocation, decimal Maxim
 public sealed record LiveResearchPacket(TradingAccountContext AccountContext, long MandateVersion,
     LiveSnapshot Snapshot, LiveResearchLimits Limits, bool Armed, bool Stopped)
 {
+    // Old executors omit this field and accept hourly report identities only.
+    public int MinimumReviewIntervalMinutes { get; init; } = 60;
     // Public quotes for comparison do not enlarge the owner's execution mandate.
     public IReadOnlyList<LiveQuote> ResearchQuotes { get; init; } = [];
     public IReadOnlyList<LiveTradePlanView> TradePlans { get; init; } = [];

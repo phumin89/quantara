@@ -1141,13 +1141,134 @@ public sealed class LiveCompanyCoordinatorTests : IDisposable
         return client;
     }
 
-    private LiveCompanyCoordinator Coordinator(Client client, Gateway gateway, Market? market = null, bool continuous = false, ICoinResearchProvider? research = null)
+    [Fact]
+    public async Task Quarter_hour_reviews_allow_two_changed_rounds_in_one_hour_without_replaying_the_slot()
+    {
+        var client = new Client(); var gateway = new Gateway { Scenario = "hold" };
+        client.Packet = client.Packet with { MinimumReviewIntervalMinutes = 15 };
+        var coordinator = Coordinator(client, gateway, continuous: true, reviewMinutes: 15);
+        await coordinator.TickAsync(); Assert.Equal(8, gateway.Inputs.Count);
+        clock.Now = clock.Now.AddMinutes(14); Refresh(1.02m);
+        await coordinator.TickAsync(); Assert.Equal(8, gateway.Inputs.Count);
+        clock.Now = clock.Now.AddMinutes(1); Refresh(1m);
+        await coordinator.TickAsync(); Assert.Equal(11, gateway.Inputs.Count);
+        clock.Now = clock.Now.AddMinutes(14); Refresh(1.02m);
+        await coordinator.TickAsync(); Assert.Equal(11, gateway.Inputs.Count);
+        clock.Now = clock.Now.AddMinutes(1); Refresh(1m);
+        await coordinator.TickAsync(); Assert.Equal(14, gateway.Inputs.Count);
+        await coordinator.TickAsync(); Assert.Equal(14, gateway.Inputs.Count);
+        var attempts = new JsonDailyMeetingJournal(Path.Combine(root, "live-meetings.json"), Scope).ReadAll();
+        Assert.Equal(new[] { 15, 30 }, attempts.Where(a => a.ReviewHour is not null).Select(a => a.ReviewMinute));
+        Assert.Empty(client.Intents); Assert.Empty(client.Plans);
+        Assert.Equal(clock.Now.AddMinutes(15), coordinator.NextRetryAt);
+        void Refresh(decimal factor) => client.Packet = client.Packet with { Snapshot = client.Packet.Snapshot with
+        { ObservedAt = clock.Now, Quotes = client.Packet.Snapshot.Quotes.Select(q => q with
+            { ObservedAt = clock.Now, Bid = q.Bid * factor, Ask = q.Ask * factor }).ToArray() } };
+    }
+
+    [Fact]
+    public async Task Quarter_hour_with_unchanged_evidence_does_not_repeat_model_work()
+    {
+        var client = new Client(); var gateway = new Gateway { Scenario = "hold" };
+        client.Packet = client.Packet with { MinimumReviewIntervalMinutes = 15 };
+        var coordinator = Coordinator(client, gateway, continuous: true, reviewMinutes: 15);
+        await coordinator.TickAsync();
+        clock.Now = clock.Now.AddMinutes(15);
+        client.Packet = client.Packet with { Snapshot = client.Packet.Snapshot with { ObservedAt = clock.Now,
+            Quotes = client.Packet.Snapshot.Quotes.Select(q => q with { ObservedAt = clock.Now }).ToArray() } };
+        await coordinator.TickAsync();
+        Assert.Equal(8, gateway.Inputs.Count); Assert.Equal("WATCHING", coordinator.Status);
+        Assert.Single(new JsonDailyMeetingJournal(Path.Combine(root, "live-meetings.json"), Scope).ReadAll());
+        Assert.Empty(client.Intents);
+    }
+
+    [Fact]
+    public async Task Slow_research_crossing_quarter_boundary_claims_the_refreshed_slot()
+    {
+        var client = new Client(); var gateway = new Gateway { Scenario = "hold" }; var research = new Research(clock);
+        client.Packet = client.Packet with { MinimumReviewIntervalMinutes = 15 };
+        var coordinator = Coordinator(client, gateway, continuous: true, research: research, reviewMinutes: 15);
+        await coordinator.TickAsync();
+        clock.Now = clock.Now.AddMinutes(14); Refresh(); research.Key = new string('b', 64);
+        research.BeforeRead = () => { clock.Now = clock.Now.AddMinutes(2); Refresh(); };
+        await coordinator.TickAsync();
+        var review = new JsonDailyMeetingJournal(Path.Combine(root, "live-meetings.json"), Scope).ReadAll()
+            .Single(a => a.ReviewHour is not null);
+        Assert.Equal(15, review.ReviewMinute); Assert.Equal(clock.Now, review.ReviewSnapshot!.ObservedAt);
+        Assert.Equal(13, gateway.Inputs.Count); Assert.Empty(client.Intents);
+        void Refresh() => client.Packet = client.Packet with { Snapshot = client.Packet.Snapshot with { ObservedAt = clock.Now,
+            Quotes = client.Packet.Snapshot.Quotes.Select(q => q with { ObservedAt = clock.Now }).ToArray() } };
+    }
+
+    [Fact]
+    public async Task Older_executor_keeps_hourly_report_keys_until_its_quarter_hour_support_is_installed()
+    {
+        var client = new Client(); var gateway = new Gateway { Scenario = "hold" };
+        Assert.Equal(60, client.Packet.MinimumReviewIntervalMinutes);
+        var coordinator = Coordinator(client, gateway, continuous: true, reviewMinutes: 15);
+        await coordinator.TickAsync();
+        clock.Now = clock.Now.AddMinutes(15); Refresh(); await coordinator.TickAsync();
+        Assert.Equal(8, gateway.Inputs.Count);
+        clock.Now = clock.Now.AddMinutes(45); Refresh(); await coordinator.TickAsync();
+        Assert.Equal(11, gateway.Inputs.Count);
+        var review = new JsonDailyMeetingJournal(Path.Combine(root, "live-meetings.json"), Scope).ReadAll()
+            .Single(a => a.ReviewHour is not null);
+        Assert.Equal(0, review.ReviewMinute); Assert.Empty(client.Intents);
+        void Refresh() => client.Packet = client.Packet with { Snapshot = client.Packet.Snapshot with { ObservedAt = clock.Now,
+            Quotes = client.Packet.Snapshot.Quotes.Select(q => q with { ObservedAt = clock.Now, Bid = q.Bid * 1.02m,
+                Ask = q.Ask * 1.02m }).ToArray() } };
+    }
+
+    [Fact]
+    public async Task Saved_report_replay_failure_obeys_retry_backoff_before_replaying_again()
+    {
+        var client = new Client(); var gateway = new Gateway { Scenario = "hold" };
+        var coordinator = Coordinator(client, gateway, continuous: true);
+        await coordinator.TickAsync(); client.SaveFailures = 1;
+        await coordinator.TickAsync();
+        Assert.Equal("LIVE_UNAVAILABLE", coordinator.Status); Assert.Equal(1, client.SaveCalls);
+        await coordinator.TickAsync(); Assert.Equal(1, client.SaveCalls); Assert.Equal(8, gateway.Inputs.Count);
+        clock.Now = clock.Now.AddMinutes(5);
+        client.Packet = client.Packet with { Snapshot = client.Packet.Snapshot with { ObservedAt = clock.Now,
+            Quotes = client.Packet.Snapshot.Quotes.Select(q => q with { ObservedAt = clock.Now }).ToArray() } };
+        await coordinator.TickAsync(); Assert.Equal(2, client.SaveCalls); Assert.Single(client.Meetings);
+        Assert.Empty(client.Intents);
+    }
+
+    [Fact]
+    public async Task Historical_report_replay_is_bounded_to_one_per_tick_before_today_meeting()
+    {
+        var client = new Client(); var gateway = new Gateway { Scenario = "hold" };
+        var journal = new JsonDailyMeetingJournal(Path.Combine(root, "live-meetings.json"), Scope);
+        foreach (var date in new[] { LiveRiskTests.Now.Date.AddDays(-2), LiveRiskTests.Now.Date.AddDays(-1) })
+        {
+            var day = DateOnly.FromDateTime(date);
+            var id = Guid.NewGuid();
+            Assert.True(journal.TryBegin(day, id));
+            journal.Complete(day, id, "HOLD");
+        }
+
+        var coordinator = Coordinator(client, gateway, continuous: true);
+        await coordinator.TickAsync();
+        Assert.Equal(1, client.SaveCalls);
+        Assert.Single(client.Meetings);
+        Assert.Contains(journal.ReadAll(), attempt => attempt.BusinessDate == DateOnly.FromDateTime(LiveRiskTests.Now.Date) && attempt.Status == "HOLD");
+
+        await coordinator.TickAsync();
+        Assert.Equal(2, client.SaveCalls);
+        Assert.Equal(2, client.Meetings.Count);
+        Assert.Empty(client.Intents);
+    }
+
+    private LiveCompanyCoordinator Coordinator(Client client, Gateway gateway, Market? market = null, bool continuous = false,
+        ICoinResearchProvider? research = null, int reviewMinutes = 60)
     {
         var runner = new AiCompanyMeetingRunner(gateway,
             new JsonAgentDecisionArtifactStore(Path.Combine(root, "artifacts")),
             new(true, "test-model", "medium", "company-v1", "live-v1", 600, 8, 20000, TimeSpan.FromSeconds(30)));
         return new(client, market ?? new Market(), runner,
-            new JsonDailyMeetingJournal(Path.Combine(root, "live-meetings.json"), Scope), clock, LiveRiskTests.Account, continuous, research);
+            new JsonDailyMeetingJournal(Path.Combine(root, "live-meetings.json"), Scope), clock, LiveRiskTests.Account, continuous, research,
+            reviewIntervalMinutes: reviewMinutes);
     }
 
     [Fact]
@@ -1203,8 +1324,14 @@ public sealed class LiveCompanyCoordinatorTests : IDisposable
         public List<DailyMeetingAttempt> Meetings { get; } = [];
         public Action? AfterSubmit { get; set; }
         public int ReadFailures { get; set; }
+        public int SaveFailures { get; set; }
+        public int SaveCalls { get; private set; }
         public Task SaveMeetingAsync(DailyMeetingAttempt attempt, CancellationToken cancellationToken)
-        { Meetings.Add(attempt); return Task.CompletedTask; }
+        {
+            SaveCalls++;
+            if (SaveFailures-- > 0) return Task.FromException(new IOException("Synthetic report transport failure"));
+            Meetings.Add(attempt); return Task.CompletedTask;
+        }
         public Task<LiveResearchPacket> ReadAsync(LiveAccountId accountId, CancellationToken cancellationToken) => ReadFailures-- > 0
             ? Task.FromException<LiveResearchPacket>(new IOException("fixture unavailable")) : Task.FromResult(Packet);
         public Task<LiveIntentReceipt> SubmitAsync(LiveIntent intent, CancellationToken cancellationToken)
