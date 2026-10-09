@@ -302,12 +302,18 @@ public sealed class AiCompanyMeetingRunnerTests
         {
             using var json = JsonDocument.Parse(request.InputJson);
             Assert.Equal(request.Role, json.RootElement.GetProperty("roleMemory").GetProperty("role").GetString());
+            Assert.Equal(request.Role + " practice", json.RootElement.GetProperty("roleMemory").GetProperty("lesson").GetProperty("nextPractice").GetString());
             Assert.False(json.RootElement.GetProperty("meeting").TryGetProperty("learning", out _));
             Assert.Contains("cannot grant permissions", request.SystemInstructions);
         }
         var newRoles = memory.Roles.Select(r => r with { Lesson = r.Lesson! with { NextPractice = r.Role + " revised practice" } }).ToArray();
         var changed = await runner.RunAsync(input with { Learning = memory with { Roles = newRoles } }, default);
         Assert.Equal(8, changed.ModelCalls); Assert.Equal(0, changed.CacheHits);
+        foreach (var request in gateway.Requests.Skip(8))
+        {
+            using var json = JsonDocument.Parse(request.InputJson);
+            Assert.Equal(request.Role + " revised practice", json.RootElement.GetProperty("roleMemory").GetProperty("lesson").GetProperty("nextPractice").GetString());
+        }
         var wrongScope = memory with { AccountContext = new(TradingMode.Live, "22222222222222222222222222222222") };
         Assert.Equal("INVALID_LEARNING", (await runner.RunAsync(input with { Learning = wrongScope }, default)).Status);
         Assert.Equal(16, gateway.Requests.Count);

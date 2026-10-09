@@ -23,7 +23,8 @@ public sealed partial class CoinSourceReader(HttpClient client, string directory
         ("XRP-THB", "XRP Ledger consensus", "https://xrpl.org/docs/concepts/consensus-protocol"),
         ("ADA-THB", "Cardano Foundation consensus/staking", "https://raw.githubusercontent.com/cardano-foundation/developer-portal/main/docs/operators/basics/consensus-staking.md"),
         ("USDT-THB", "Tether historical whitepaper notice", "https://tether.to/en/whitepaper/"),
-        ("NEAR-THB", "NEAR Nightshade paper (documentation archive)", "https://raw.githubusercontent.com/near/docs/master/papers/Nightshade.pdf")
+        ("NEAR-THB", "NEAR Nightshade paper (documentation archive)", "https://raw.githubusercontent.com/near/docs/master/papers/Nightshade.pdf"),
+        ("CRV-THB", "Curve current CRV token documentation", "https://raw.githubusercontent.com/curvefi/docs/main/docs/user/curve-tokens/crv.md")
     ]);
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
     private const int ByteLimit = 4 * 1024 * 1024;

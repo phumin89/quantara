@@ -86,6 +86,29 @@ public sealed class CoinResearchProviderTests
     }
 
     [Fact]
+    public async Task Shortlisted_crv_is_sourced_and_cached_without_expanding_execution_authority()
+    {
+        using var fixture = new Fixture { Symbols = ["BTC", "CRV"] };
+        var brief = await fixture.Provider.ReadAsync(fixture.Packet, default);
+        Assert.False(Assert.Single(brief.Watchlist, c => c.Symbol == "CRV-THB").ExecutionAllowed);
+        var source = Assert.Single(brief.Sources, s => s.Symbol == "CRV-THB");
+        Assert.Equal("https://raw.githubusercontent.com/curvefi/docs/main/docs/user/curve-tokens/crv.md", source.Url);
+        var finding = Assert.Single(brief.Findings, f => f.Symbol == "CRV-THB");
+        Assert.All(finding.Claims, claim => { Assert.Equal(source.Id, claim.SourceId); Assert.Equal("PROJECT_CLAIM", claim.Assessment); });
+        Assert.DoesNotContain(brief.Gaps, gap => gap.Contains("CRV-THB", StringComparison.Ordinal));
+        Assert.True(CoinResearchValidation.IsValid(brief, fixture.Clock.Now));
+        Assert.Equal(2, fixture.Model.Calls);
+
+        fixture.Clock.Now += TimeSpan.FromHours(25);
+        var refreshed = await fixture.Provider.ReadAsync(fixture.Packet, default);
+        Assert.Equal(source.Id, Assert.Single(refreshed.Sources, s => s.Symbol == "CRV-THB").Id);
+        Assert.Equal(brief.ChangeKey, refreshed.ChangeKey);
+        Assert.Equal(2, fixture.Model.Calls);
+        Assert.False(Assert.Single(refreshed.Watchlist, c => c.Symbol == "CRV-THB").ExecutionAllowed);
+        Assert.Equal(["BTC-THB"], fixture.Packet.Limits.AllowedSymbols);
+    }
+
+    [Fact]
     public async Task ObserveMarketsAsync_reads_public_bitkub_shape_and_filters_non_spot_markets()
     {
         var handler = new Handler((request, _) =>
