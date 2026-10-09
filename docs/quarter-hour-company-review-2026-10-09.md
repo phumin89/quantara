@@ -28,6 +28,8 @@ The actual daily round subsequently ended with `TOKEN_BUDGET`: six model calls r
 
 The subsequent 18:00 review recorded `INVALID_PORTFOLIO-INITIAL`. The role runner emitted hyphens in a status that the report API accepts only with underscores. This caused report publication to fail and retry, independently of the model's invalid proposal. New role failures use underscores. The company transport normalizes only the six known legacy hyphenated role failures on the wire, preserving their journal records and identity; unknown hyphenated statuses still fail before transport. Regression checks verify both generation and compatibility. The 2026-10-09 daily report was observed in the owner audit after deployment; this is report-delivery evidence, not successful portfolio advice or an order.
 
+After the compatibility deployment, the owner audit also contained the 18:00 report with `INVALID_PORTFOLIO_INITIAL`, and the coordinator advanced to `ALREADY_ATTEMPTED` rather than failing publication. The active owner's gate remained Armed=true, Stop=false, cash 4,999.12 THB and one existing order. The next eligible review was still 19:00 Bangkok because the active executor remained the older hourly-capability binary.
+
 ## Rollback
 
 Keep the current journal reader when reverting scheduling or UI changes. Once nonzero review minutes are written, the old reader cannot verify their checksum or distinguish same-hour slots. Preserve the journal and audit data; do not delete reports or reset financial state to obtain a rollback. The default hourly fallback covers an older executor only before quarter-hour reports are accepted.
