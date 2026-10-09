@@ -56,8 +56,11 @@ public sealed class LiveOwnerControlFlowTests(PostgresFixture database)
         Assert.False(strict.Allowed);
         Assert.Contains("STALE_APPROVAL", strict.Violations);
 
+        var reconciliation = new LiveReconciliation(store, new Source(Evidence(state)),
+            new LiveExecutionFlowTests.TestClock(state.Snapshot.ObservedAt));
+
         var result = await controls.ArmCurrentSnapshotForOwnerCommandAsync(state.AccountId,
-            "test-owner-account", state.Mandate.Version);
+            "test-owner-account", state.Mandate.Version, reconciliation);
 
         Assert.True(result.Allowed, string.Join(",", result.Violations));
         var restored = await store.ReadAccountAsync(state.AccountId);
@@ -78,8 +81,11 @@ public sealed class LiveOwnerControlFlowTests(PostgresFixture database)
             { Version = state.Mandate.Version + 1, MaximumOrderNotional = 300m })).Allowed);
         if (defect == "stop") await controls.StopAsync();
 
+        var reconciliation = new LiveReconciliation(store, new Source(Evidence(state)),
+            new LiveExecutionFlowTests.TestClock(state.Snapshot.ObservedAt));
+
         var result = await controls.ArmCurrentSnapshotForOwnerCommandAsync(state.AccountId,
-            defect == "binding" ? "different-account" : "test-owner-account", state.Mandate.Version);
+            defect == "binding" ? "different-account" : "test-owner-account", state.Mandate.Version, reconciliation);
 
         Assert.False(result.Allowed);
         var restored = await store.ReadAccountAsync(state.AccountId);
@@ -88,6 +94,92 @@ public sealed class LiveOwnerControlFlowTests(PostgresFixture database)
         Assert.Equal(defect == "mandate" ? 300m : state.Mandate.MaximumOrderNotional, restored.Mandate.MaximumOrderNotional);
         Assert.Equal(1000m, restored.Snapshot.CashBalance);
         Assert.Empty(restored.Orders);
+    }
+
+    [Fact]
+    public async Task Current_snapshot_owner_command_reconciles_stale_unreconciled_snapshot_before_arm()
+    {
+        var (store, state, _) = await Setup();
+        await store.WithAccountLockAsync(state.AccountId, async (tx, ct) =>
+        { tx.FailReconciliation("EARLIER_BACKGROUND_FAILURE", state.Snapshot.ObservedAt); await tx.CommitAsync(ct); return 0; });
+        var now = state.Snapshot.ObservedAt.AddSeconds(60);
+        var clock = new LiveExecutionFlowTests.TestClock(now);
+        var controls = new LiveOwnerControls(store, new Preflight(false), clock, state.AccountId);
+        var strict = await controls.ArmAsync(Request(await store.ReadAccountAsync(state.AccountId)));
+        Assert.Contains("STALE_SNAPSHOT", strict.Violations);
+        Assert.Contains("RECONCILIATION_REQUIRED", strict.Violations);
+        var fresh = Evidence(state) with { ObservedAt = now,
+            Quotes = state.Snapshot.Quotes.Select(q => q with { ObservedAt = now }).ToArray() };
+        var reconciliation = new LiveReconciliation(store, new Source(fresh), clock);
+
+        var result = await controls.ArmCurrentSnapshotForOwnerCommandAsync(state.AccountId,
+            "test-owner-account", state.Mandate.Version, reconciliation);
+
+        Assert.True(result.Allowed, string.Join(",", result.Violations));
+        var restored = await store.ReadAccountAsync(state.AccountId);
+        Assert.True(restored.Snapshot.Reconciled);
+        Assert.Equal(now, restored.Snapshot.ObservedAt);
+        Assert.True(restored.Gate.Armed);
+        Assert.Equal(state.Mandate.Version, restored.Mandate.Version);
+        Assert.Equal(1000m, restored.Snapshot.CashBalance);
+        Assert.Empty(restored.Orders);
+    }
+
+    [Fact]
+    public async Task Owner_reconciliation_holds_lease_through_arm_before_queued_failure_can_disarm()
+    {
+        var (store, state, controls) = await Setup();
+        using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(20));
+        var callbackEntered = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var queuedFailure = new Source(Evidence(state), async () =>
+        {
+            await store.WithAccountLockAsync(state.AccountId, async (tx, ct) =>
+            {
+                callbackEntered.TrySetResult(tx.Account.Gate.Armed);
+                tx.FailReconciliation("QUEUED_FAILURE", state.Snapshot.ObservedAt);
+                await tx.CommitAsync(ct);
+                return 0;
+            }, deadline.Token);
+        });
+        var reconciliation = new LiveReconciliation(store, queuedFailure,
+            new LiveExecutionFlowTests.TestClock(state.Snapshot.ObservedAt));
+
+        var result = await controls.ArmCurrentSnapshotForOwnerCommandAsync(state.AccountId,
+            "test-owner-account", state.Mandate.Version, reconciliation, deadline.Token);
+        await queuedFailure.Callback.WaitAsync(deadline.Token);
+
+        Assert.True(result.Allowed);
+        Assert.True(await callbackEntered.Task.WaitAsync(deadline.Token));
+        var restored = await store.ReadAccountAsync(state.AccountId);
+        Assert.False(restored.Gate.Armed);
+        Assert.False(restored.Snapshot.Reconciled);
+        Assert.Equal(1000m, restored.Snapshot.CashBalance);
+        Assert.Equal(state.Mandate.Version, restored.Mandate.Version);
+        Assert.Empty(restored.Orders);
+    }
+
+    [Fact]
+    public async Task Failed_owner_evidence_rejects_and_preserves_stop_money_mandate_and_orders()
+    {
+        var (store, state, controls) = await Setup();
+        var before = await store.ReadAccountAsync(state.AccountId);
+        var reconciliation = new LiveReconciliation(store, new Source(Evidence(state), fail: true),
+            new LiveExecutionFlowTests.TestClock(state.Snapshot.ObservedAt));
+
+        var result = await controls.ArmCurrentSnapshotForOwnerCommandAsync(state.AccountId,
+            "test-owner-account", state.Mandate.Version, reconciliation);
+
+        Assert.False(result.Allowed);
+        Assert.Contains("BROKER_EVIDENCE_UNAVAILABLE", result.Violations);
+        var restored = await store.ReadAccountAsync(state.AccountId);
+        Assert.Equal(before.Gate.Stopped, restored.Gate.Stopped);
+        Assert.False(restored.Gate.Armed);
+        Assert.Equal(before.Mandate.Version, restored.Mandate.Version);
+        Assert.Equal(before.Mandate.MaximumOrderNotional, restored.Mandate.MaximumOrderNotional);
+        Assert.Equal(before.Mandate.CredentialFingerprint, restored.Mandate.CredentialFingerprint);
+        Assert.Equal(before.Snapshot.CashBalance, restored.Snapshot.CashBalance);
+        Assert.Equal(before.Snapshot.CashReserved, restored.Snapshot.CashReserved);
+        Assert.Equal(before.Orders, restored.Orders);
     }
 
     [Fact]
@@ -135,6 +227,22 @@ public sealed class LiveOwnerControlFlowTests(PostgresFixture database)
 
     private static LiveArmRequest Request(LiveAccountState state)
         => new(state.AccountId, "test-owner-account", state.Mandate.Version, state.Snapshot.Version, true, false);
+
+    private static LiveBrokerEvidence Evidence(LiveAccountState state)
+        => new(state.AccountId, state.Mandate.CredentialFingerprint, state.Snapshot.ObservedAt, true,
+            state.Snapshot.CashBalance, state.Snapshot.CashReserved, [], [], [], state.Snapshot.Quotes);
+
+    private sealed class Source(LiveBrokerEvidence evidence, Func<Task>? callback = null, bool fail = false) : ILiveReconciliationSource
+    {
+        private bool started;
+        public Task Callback { get; private set; } = Task.CompletedTask;
+
+        public Task<LiveBrokerEvidence> ReadAsync(LiveAccountId accountId, CancellationToken cancellationToken)
+        {
+            if (!started) { started = true; Callback = callback?.Invoke() ?? Task.CompletedTask; }
+            return fail ? throw new IOException("synthetic evidence failure") : Task.FromResult(evidence);
+        }
+    }
 
     private sealed class Preflight(bool fail, bool permissions = true) : ILiveActivationSource
     {

@@ -59,18 +59,34 @@ public sealed class LiveOwnerControls(ILiveTradingStore store, ILiveActivationSo
     // Approve the freshly verified snapshot under its lease, while pinning the mandate
     // and binding. This cannot clear Stop or accept changed owner limits.
     public Task<LiveGateDecision> ArmCurrentSnapshotForOwnerCommandAsync(LiveAccountId requestedAccount,
-        string brokerAccountReference, long mandateVersion, CancellationToken cancellationToken = default)
+        string brokerAccountReference, long mandateVersion, LiveReconciliation reconciliation,
+        CancellationToken cancellationToken = default)
         => ArmCoreAsync(new(requestedAccount, brokerAccountReference, mandateVersion, 0, true, false),
-            cancellationToken, currentSnapshot: true);
+            cancellationToken, reconciliation);
 
     private Task<LiveGateDecision> ArmCoreAsync(LiveArmRequest request, CancellationToken cancellationToken,
-        bool currentSnapshot = false)
+        LiveReconciliation? ownerReconciliation = null)
         => store.WithAccountLockAsync(accountId, async (tx, ct) =>
         {
+            if (ownerReconciliation is not null)
+            {
+                if (request.AccountId != tx.Account.AccountId) return new LiveGateDecision(false, ["ACCOUNT_MISMATCH"]);
+                if (request.MandateVersion != tx.Account.Mandate.Version) return new LiveGateDecision(false, ["STALE_APPROVAL"]);
+                if (tx.Account.Gate.Stopped) return new LiveGateDecision(false, ["STOPPED"]);
+                if (tx.Account.BrokerAccountReference is { } binding && request.BrokerAccountReference != binding)
+                    return new LiveGateDecision(false, ["ACCOUNT_BINDING_CHANGED"]);
+                var reconciled = await ownerReconciliation.PrepareOwnerActivationUnderLeaseAsync(tx, ct);
+                if (!reconciled.Complete)
+                {
+                    using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+                    await tx.CommitAsync(timeout.Token);
+                    return new LiveGateDecision(false, reconciled.Violations);
+                }
+            }
             var evidence = await ReadPreflight(tx, ct);
             if (evidence is null) return new LiveGateDecision(false, ["PREFLIGHT_UNAVAILABLE"]);
             await tx.VerifyLeaseAsync(ct);
-            var approved = currentSnapshot ? request with { SnapshotVersion = tx.Account.Snapshot.Version } : request;
+            var approved = ownerReconciliation is not null ? request with { SnapshotVersion = tx.Account.Snapshot.Version } : request;
             var result = tx.Arm(approved, evidence, clock.GetUtcNow());
             await tx.CommitAsync(ct);
             return result;

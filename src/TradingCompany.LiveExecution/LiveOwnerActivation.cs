@@ -60,42 +60,10 @@ public sealed class LiveOwnerActivation(BitkubConfiguredAccount configured, Live
             account = await controls.ReadAsync(token);
         }
         var approvedMandate = account.Mandate.Version;
-        if (account.PerformanceBaseline is null)
-        {
-            var baseline = await reconciliation.InitializeBaselineForOwnerCommandAsync(configured.AccountId,
-                approvedMandate, token);
-            if (!baseline.Complete) return new(false, baseline.Violations);
-        }
-        else
-        {
-            var today = DateOnly.FromDateTime(clock.GetUtcNow().ToOffset(TimeSpan.FromHours(7)).DateTime);
-            // Manual rollover performs its own complete two-read reconciliation. Settled
-            // old-day accounts need that proof once, not a second identical scan first.
-            var settledOldDay = account.PerformanceBaseline.BangkokDate < today && account.Orders.All(o => o.State is
-                TradingCompany.Domain.LiveOrderState.Filled or TradingCompany.Domain.LiveOrderState.Cancelled or
-                TradingCompany.Domain.LiveOrderState.Rejected);
-            var refreshed = settledOldDay
-                ? await reconciliation.RollDailyBaselineForOwnerCommandAsync(configured.AccountId, approvedMandate, token)
-                : await reconciliation.ReconcileAsync(configured.AccountId, token);
-            if (!refreshed.Complete && refreshed.Violations.SequenceEqual(new[] { "DAILY_BASELINE_REQUIRED" }))
-            {
-                account = await controls.ReadAsync(token);
-                if (account.Gate.Stopped) return new(false, ["OWNER_STOP_ACTIVE"]);
-                // This explicit owner command may establish today's risk frame after downtime.
-                // Only verified, settled money qualifies; high-water equity is never reset.
-                if (account.Snapshot.Reconciled && account.PerformanceBaseline is { } baseline &&
-                    baseline.BangkokDate < today && account.Orders.All(o => o.State is
-                        TradingCompany.Domain.LiveOrderState.Filled or TradingCompany.Domain.LiveOrderState.Cancelled or
-                        TradingCompany.Domain.LiveOrderState.Rejected))
-                    refreshed = await reconciliation.RollDailyBaselineForOwnerCommandAsync(configured.AccountId,
-                        approvedMandate, token);
-            }
-            if (!refreshed.Complete) return new(false, refreshed.Violations);
-        }
-        account = await controls.ReadAsync(token);
-        if (account.Mandate.Version != approvedMandate) return new(false, ["STALE_APPROVAL"]);
+        // The complete two-read recovery, preflight and Arm share one account lease.
+        // A queued background failure cannot invalidate evidence between these steps.
         var activated = await controls.ArmCurrentSnapshotForOwnerCommandAsync(configured.AccountId,
-            configured.Verification.BrokerAccountReference, approvedMandate, token);
+            configured.Verification.BrokerAccountReference, approvedMandate, reconciliation, token);
         return new(activated.Allowed, activated.Violations);
     }
 

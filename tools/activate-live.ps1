@@ -29,8 +29,8 @@ function Invoke-ActivationDocker {
     # Windows PowerShell wraps native stderr in ErrorRecord objects. Render the
     # original text; progress must not look like a PowerShell exception.
     $lines = @($output | ForEach-Object {
-        if ($_ -is [System.Management.Automation.ErrorRecord] -and $_.Exception -and $_.Exception.Message) {
-            $_.Exception.Message
+        if ($_ -is [System.Management.Automation.ErrorRecord]) {
+            if ($_.Exception -and $_.Exception.Message) { $_.Exception.Message }
         } else {
             $_.ToString()
         }

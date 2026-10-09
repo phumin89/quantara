@@ -48,9 +48,9 @@ public sealed class LiveReconciliationWorker(LiveExecutionService? execution, Li
                 try
                 {
                     using var deadline = CancellationTokenSource.CreateLinkedTokenSource(stoppingToken);
-                    // Two independently bounded 25-second broker reads plus DB work.
-                    // One-read timeout here used to cancel large catalogs mid-reconciliation.
-                    deadline.CancelAfter(TimeSpan.FromSeconds(60));
+                    // Up to 60 seconds waiting for the account lease, then two bounded
+                    // 25-second reads plus DB work. Queue time cannot consume scan time.
+                    deadline.CancelAfter(TimeSpan.FromSeconds(120));
                     if (durableStore is not null && !await durableStore.ExistsAsync(accountId, deadline.Token))
                     { Status = "ACCOUNT_NOT_PROVISIONED"; continue; }
                     if (!recovered)

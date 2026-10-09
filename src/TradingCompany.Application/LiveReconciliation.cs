@@ -60,26 +60,48 @@ public sealed class LiveReconciliation(ILiveTradingStore store, ILiveReconciliat
         {
             if (currentSnapshot && initialization is not null)
                 initialization = initialization with { SnapshotVersion = tx.Account.Snapshot.Version };
-            LiveBrokerEvidence first;
-            LiveBrokerEvidence second;
-            try
-            {
-                first = Freeze(await source.ReadAsync(accountId, ct));
-                second = Freeze(await source.ReadAsync(accountId, ct));
-            }
-            catch (Exception)
-            {
-                var blocked = tx.FailReconciliation("BROKER_EVIDENCE_UNAVAILABLE", clock.GetUtcNow());
-                await Persist(tx);
-                return blocked;
-            }
-            if (initialization is not null) await tx.VerifyLeaseAsync(ct);
-            var result = manualDay ? tx.RollDailyBaseline(initialization!, first, second, clock.GetUtcNow()) : initialization is null
-                ? tx.Reconcile(first, second, clock.GetUtcNow())
-                : tx.InitializeBaseline(initialization, first, second, clock.GetUtcNow());
+            var result = await ReadUnderLease(tx, accountId, initialization, ct, manualDay);
             await Persist(tx);
             return result;
         }, cancellationToken);
+
+    // Owner activation keeps reconciliation and Arm in this same lease. No nested
+    // acquisition or intermediate commit lets a failed background read intervene.
+    internal async Task<LiveReconciliationResult> PrepareOwnerActivationUnderLeaseAsync(ILiveAccountTransaction tx,
+        CancellationToken cancellationToken)
+    {
+        var account = tx.Account;
+        var today = DateOnly.FromDateTime(clock.GetUtcNow().ToOffset(TimeSpan.FromHours(7)).DateTime);
+        var manualDay = account.PerformanceBaseline is { } baseline && baseline.BangkokDate < today &&
+            account.Orders.All(o => o.State is LiveOrderState.Filled or LiveOrderState.Cancelled or LiveOrderState.Rejected);
+        var request = account.PerformanceBaseline is null || manualDay
+            ? new LiveBaselineRequest(account.AccountId, account.Mandate.Version, account.Snapshot.Version) : null;
+        var result = await ReadUnderLease(tx, account.AccountId, request, cancellationToken, manualDay);
+        if (!result.Complete && result.Violations.SequenceEqual(new[] { "DAILY_BASELINE_REQUIRED" }) &&
+            tx.Account.Snapshot.Reconciled && tx.Account.PerformanceBaseline is { } recovered && recovered.BangkokDate < today &&
+            tx.Account.Orders.All(o => o.State is LiveOrderState.Filled or LiveOrderState.Cancelled or LiveOrderState.Rejected))
+            result = await ReadUnderLease(tx, account.AccountId,
+                new(account.AccountId, account.Mandate.Version, tx.Account.Snapshot.Version), cancellationToken, manualDay: true);
+        return result;
+    }
+
+    private async Task<LiveReconciliationResult> ReadUnderLease(ILiveAccountTransaction tx, LiveAccountId accountId,
+        LiveBaselineRequest? initialization, CancellationToken cancellationToken, bool manualDay = false)
+    {
+        LiveBrokerEvidence first;
+        LiveBrokerEvidence second;
+        try
+        {
+            first = Freeze(await source.ReadAsync(accountId, cancellationToken));
+            second = Freeze(await source.ReadAsync(accountId, cancellationToken));
+        }
+        catch (Exception)
+        { return tx.FailReconciliation("BROKER_EVIDENCE_UNAVAILABLE", clock.GetUtcNow()); }
+        if (initialization is not null) await tx.VerifyLeaseAsync(cancellationToken);
+        return manualDay ? tx.RollDailyBaseline(initialization!, first, second, clock.GetUtcNow()) : initialization is null
+            ? tx.Reconcile(first, second, clock.GetUtcNow())
+            : tx.InitializeBaseline(initialization, first, second, clock.GetUtcNow());
+    }
 
     private static LiveBrokerEvidence Freeze(LiveBrokerEvidence evidence)
         => evidence with { Positions = evidence.Positions.ToArray(), Orders = evidence.Orders.ToArray(),
