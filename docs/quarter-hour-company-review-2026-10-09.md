@@ -22,6 +22,8 @@ All three runtime images were built. Company and frontend were updated without r
 
 The running owner binary still supports hourly report identities. After the current meeting finishes, the owner can run `Enable Auto Trading.cmd` to load the built executor through the existing reconciliation and activation path; only then can the production company use quarter-hour identities. Ordinary app startup does not change saved financial authority. At 17:51 Bangkok the 2026-10-09 daily meeting was STARTED: CEO and chief-of-staff were completed, and market-research was working. This proves the company advanced beyond historical replay; it does not prove a completed quarter-hour round, a new trade or profitable performance.
 
+The actual daily round subsequently ended with `TOKEN_BUDGET`: six model calls reported 246,291 input tokens and 10,695 output tokens (256,986 total); five role artifacts were saved. No final portfolio decision or new order was recorded. The bounded-publication image was deployed only after the meeting ended. The token-budget failure remains a separate blocker for completing the full daily meeting; its ceiling was not raised, and the failed meeting was not rerun. Missing history was also recorded for XRP-THB, DOGE-THB and SOL-THB. Passing synthetic checks does not remove these real runtime limitations.
+
 ## Rollback
 
 Keep the current journal reader when reverting scheduling or UI changes. Once nonzero review minutes are written, the old reader cannot verify their checksum or distinguish same-hour slots. Preserve the journal and audit data; do not delete reports or reset financial state to obtain a rollback. The default hourly fallback covers an older executor only before quarter-hour reports are accepted.
