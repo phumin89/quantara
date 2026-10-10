@@ -120,7 +120,7 @@ public sealed class CompanyLearningService(ITradingAgentGateway gateway, IAgentD
 
     private IReadOnlyList<DailyMeetingAttempt> Reports(DateOnly day, TradingAccountContext context) => journal.ReadAll()
         .Where(a => a.AccountContext == context && a.Status != "STARTED" && a.BusinessDate <= day && a.BusinessDate >= day.AddDays(-7))
-        .OrderByDescending(a => a.BusinessDate).ThenByDescending(a => a.ReviewHour ?? 9).ToArray();
+        .OrderByDescending(a => a.BusinessDate).ThenByDescending(a => a.ReviewHour ?? 9).ThenByDescending(a => a.ReviewMinute).ToArray();
 
     private IReadOnlyList<History> HistoryFor(DateOnly day, TradingAccountContext context)
     {

@@ -55,6 +55,31 @@ public sealed class CompanyLearningServiceTests
         Assert.Equal(6, report.Roles.Count(r => r.Status == "NO_HISTORY"));
     }
 
+    [Fact]
+    public async Task Shared_critic_uses_latest_completed_quarter_within_same_review_hour()
+    {
+        using var f = new Fixture();
+        f.History(Day.AddDays(-1), 9);
+        f.HistoryAt(Day.AddDays(-1), 9, 15);
+        f.HistoryAt(Day.AddDays(-1), 9, 45);
+        f.StartedHistoryAt(Day.AddDays(-1), 10, 0);
+        f.Clock.Now = At(Day, 9);
+
+        var report = await f.Service().RefreshAsync(default);
+
+        Assert.All(report!.Roles, role => Assert.Equal("ACCEPTED", role.Status));
+        Assert.Equal(CompanyLearningValidation.Roles, report.Roles.Select(role => role.Role));
+        Assert.All(report.Roles, role =>
+        {
+            var source = f.ReportAt(Day.AddDays(-1), 9, 45, role.Role);
+            Assert.Equal(source.ArtifactId, role.Lesson!.ArtifactId);
+            Assert.Equal(source.Summary[..40], role.Lesson.Quote);
+        });
+        using var context = JsonDocument.Parse(f.Gateway.Requests.Single().InputJson);
+        Assert.Equal(f.CriticArtifactIdAt(Day.AddDays(-1), 9, 45),
+            context.RootElement.GetProperty("sharedCritic").GetProperty("id").GetString());
+    }
+
     [Theory]
     [InlineData("quote-pair")]
     [InlineData("other-role")]
@@ -157,6 +182,21 @@ public sealed class CompanyLearningServiceTests
             if (hour is { } h) Journal.TryBegin(d, id, h, null); else Journal.TryBegin(d, id);
             Journal.Complete(d, id, "HOLD", new(reports.Length, reports.Length, reports.Length, reports));
         }
+        public void HistoryAt(DateOnly day, int hour, int minute)
+        {
+            var id = Guid.NewGuid();
+            var reports = CompanyLearningValidation.Roles.Select(r => new SavedAiReport(r,
+                $"{r}: distinct historical reasoning for the saved meeting with reproducible evidence.", "fixture", 1, 1,
+                Guid.NewGuid().ToString(), new string('a', 64), day)).ToArray();
+            Journal.TryBegin(day, id, hour, null, minute);
+            Journal.Complete(day, id, "HOLD", new(reports.Length, reports.Length, reports.Length, reports));
+        }
+        public void StartedHistoryAt(DateOnly day, int hour, int minute)
+            => Journal.TryBegin(day, Guid.NewGuid(), hour, null, minute);
+        public SavedAiReport ReportAt(DateOnly day, int hour, int minute, string role) => Journal.ReadAll()
+            .Single(a => a.BusinessDate == day && a.ReviewHour == hour && a.ReviewMinute == minute)
+            .Summary!.Reports.Single(r => r.Role == role);
+        public string CriticArtifactIdAt(DateOnly day, int hour, int minute) => ReportAt(day, hour, minute, "risk-critic").ArtifactId;
         public void Dispose() { foreach (var store in stores) store.Dispose(); Directory.Delete(Root, true); }
     }
 }
