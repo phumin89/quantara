@@ -70,7 +70,7 @@ test('saved advisory reports validate issues and render one truthful status befo
 test('saved market history issue stays symbol-specific and historical',()=>{
  const x=fixture(); x.meetings[0].status='READ_ONLY'; x.meetings[0].summary={...x.meetings[0].summary,advisoryOnly:true,issues:[{code:'MARKET_HISTORY_UNAVAILABLE',symbol:'SOL-THB'}]};
  const html=renderToStaticMarkup(React.createElement(LiveMeetingView,{meetings:readMeetings(x).meetings,selected:'',onSelect(){}}));
- assert.ok(html.includes('กราฟประวัติตลาดของรอบนี้ไม่ครบ (SOL-THB)')); assert.ok(html.includes('รอบนี้วิเคราะห์เท่านั้น · ไม่ได้ส่งคำสั่ง')); assert.ok(!html.includes('ตลาดทั้งหมดไม่พร้อม')); assert.ok(!html.includes('ส่งคำสั่งแล้ว'));
+ assert.ok(html.includes('กราฟที่ยังใช้วิเคราะห์ไม่ได้ (SOL-THB)')); assert.ok(html.includes('รอบนี้วิเคราะห์เท่านั้น · ไม่ได้ส่งคำสั่ง')); assert.ok(!html.includes('ตลาดทั้งหมดไม่พร้อม')); assert.ok(!html.includes('ส่งคำสั่งแล้ว'));
 });
 test('saved reports retain eight distinct native market history gaps',()=>{
  const x=fixture(); x.meetings[0].status='READ_ONLY';
@@ -79,7 +79,7 @@ test('saved reports retain eight distinct native market history gaps',()=>{
  const parsed=readMeetings(x); assert.ok(parsed); assert.equal(parsed.meetings[0].summary.issues.length,8);
  const html=renderToStaticMarkup(React.createElement(LiveMeetingView,{meetings:parsed.meetings,selected:'',onSelect(){}}));
  for(const symbol of symbols) assert.ok(html.includes(`(${symbol})`));
- assert.equal(html.split('กราฟประวัติตลาดของรอบนี้ไม่ครบ').length-1,1);
+ assert.equal(html.split('กราฟที่ยังใช้วิเคราะห์ไม่ได้').length-1,1);
 });
 
 test('report reads require fixed HTTPS and never confuse unauthorized with an empty report',async()=>{

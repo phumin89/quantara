@@ -527,6 +527,36 @@ public sealed class LiveCompanyCoordinatorTests : IDisposable
         var saved = Assert.Single(client.Meetings);
         Assert.Equal(paused, saved.Summary!.AdvisoryOnly);
         Assert.Equal(coordinator.Issues, saved.Summary.Issues);
+        Assert.Contains("Market-history gaps exclude only their named symbols", gateway.Inputs[0].Mandate);
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task Two_unowned_history_gaps_keep_healthy_candidate_scoped(bool armed)
+    {
+        var basis = new Client().Packet;
+        var symbols = new[] { "BTC-THB", "USDT-THB", "XRP-THB" };
+        var quotes = symbols.Select(s => new LiveQuote(s, 100000, 100000, clock.Now)).ToArray();
+        var client = new Client { Packet = basis with
+        {
+            Armed = armed,
+            Limits = basis.Limits with { AllowedSymbols = ["BTC-THB"], ResearchSymbols = symbols,
+                OrderSizing = [new("BTC-THB", .01m, .00000001m, 1m, 10m)] },
+            Snapshot = basis.Snapshot with { Quotes = quotes }, ResearchQuotes = quotes
+        }};
+        var gateway = new Gateway();
+        var coordinator = Coordinator(client, gateway, new Market { FailedSymbols = ["USDT-THB", "XRP-THB"] });
+        await coordinator.TickAsync();
+
+        Assert.Equal(armed ? "PLAN_REGISTERED" : "READ_ONLY", coordinator.Status);
+        Assert.Equal(armed ? 1 : 0, client.Plans.Count);
+        Assert.Equal(symbols.Skip(1).Select(s => new LiveMeetingIssue("MARKET_HISTORY_UNAVAILABLE", s)),
+            coordinator.Issues);
+        Assert.All(gateway.CandidateSymbols, candidates => Assert.Equal("BTC-THB", Assert.Single(candidates)));
+        Assert.All(gateway.Inputs, input => Assert.Contains("Market-history gaps exclude only their named symbols", input.Mandate));
+        if (armed) Assert.DoesNotContain("advisory only", gateway.Inputs[0].Mandate);
+        else Assert.Contains("owner execution permission was unavailable", gateway.Inputs[0].Mandate);
     }
 
     [Fact]
@@ -546,6 +576,7 @@ public sealed class LiveCompanyCoordinatorTests : IDisposable
         Assert.Equal("READ_ONLY", coordinator.Status);
         Assert.Equal(8, gateway.Inputs.Count);
         Assert.Empty(client.Intents);
+        Assert.Contains("a held asset is missing verified history", gateway.Inputs[0].Mandate);
     }
 
     [Fact]
@@ -1397,12 +1428,13 @@ public sealed class LiveCompanyCoordinatorTests : IDisposable
     {
         public string Scenario { get; set; } = "normal";
         public string? FailedSymbol { get; init; }
+        public string[] FailedSymbols { get; init; } = [];
         public Action? AfterRead { get; init; }
         public Task<IReadOnlyList<HistoricalBar>> GetAsync(Symbol symbol, DateOnly start, DateOnly end, CancellationToken cancellationToken)
             => throw new NotSupportedException();
         public Task<HistoricalMarketEvidence> GetEvidenceAsync(Symbol symbol, DateOnly start, DateOnly end, CancellationToken cancellationToken)
         {
-            if (symbol.Value == FailedSymbol) throw new InvalidDataException("fixture conflicting history");
+            if (symbol.Value == FailedSymbol || FailedSymbols.Contains(symbol.Value)) throw new InvalidDataException("fixture conflicting history");
             var count = Scenario == "missing" ? 10 : 250;
             var bars = Enumerable.Range(0, count).Select(i => new HistoricalBar(end.AddDays(i - count + 1), symbol,
                 75000m + i, 76000m + i, 74000m + i, 75500m + i, 1000)).ToArray();

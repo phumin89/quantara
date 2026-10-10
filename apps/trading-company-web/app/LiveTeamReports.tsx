@@ -124,7 +124,7 @@ export function LiveMeetingView({ meetings, selected, onSelect, availableDates, 
   if (pending && !meeting) return <>{picker}<ReportPlaceholder message="กำลังอ่านรายงาน…" /></>;
   if (!meeting) return <>{picker}<p>{availableDates.length ? "ยังไม่มีรายงานในวันที่เลือก" : "ยังไม่มีรายงานประชุม"}</p></>;
   const reports = meeting.summary?.reports ?? [], final = reports.find(r => r.role === "portfolio-final"), initial = reports.find(r => r.role === "portfolio-initial");
-  const issueText: Record<string, string> = { MARKET_HISTORY_UNAVAILABLE: "กราฟประวัติตลาดของรอบนี้ไม่ครบ", PUBLIC_RESEARCH_UNAVAILABLE: "ข้อมูลวิจัยสาธารณะไม่พร้อม", LIVE_READ_UNAVAILABLE: "อ่านสถานะ Live ไม่ได้", ACCOUNT_STATE_INVALID: "สถานะบัญชีไม่ถูกต้อง", JOURNAL_UNAVAILABLE: "บันทึกการประชุมไม่พร้อม", MEETING_FAILED: "การประชุมรอบนี้ไม่สำเร็จ" };
+  const issueText: Record<string, string> = { MARKET_HISTORY_UNAVAILABLE: "กราฟที่ยังใช้วิเคราะห์ไม่ได้", PUBLIC_RESEARCH_UNAVAILABLE: "ข้อมูลวิจัยสาธารณะไม่พร้อม", LIVE_READ_UNAVAILABLE: "อ่านสถานะ Live ไม่ได้", ACCOUNT_STATE_INVALID: "สถานะบัญชีไม่ถูกต้อง", JOURNAL_UNAVAILABLE: "บันทึกการประชุมไม่พร้อม", MEETING_FAILED: "การประชุมรอบนี้ไม่สำเร็จ" };
   const historyGaps = meeting.summary?.issues?.filter(i => i.code === "MARKET_HISTORY_UNAVAILABLE");
   const issues = meeting.summary?.issues?.filter(i => i.code !== "MARKET_HISTORY_UNAVAILABLE").map(i => issueText[i.code]);
   if (historyGaps?.length) issues?.unshift(`${issueText.MARKET_HISTORY_UNAVAILABLE} ${historyGaps.map(i => `(${i.symbol})`).join(" · ")}`);

@@ -200,6 +200,14 @@ public sealed class LiveCompanyCoordinator(ILiveCompanyClient client, IHistorica
             unavailableCode = "MEETING_FAILED";
             summary = new(0, 0, 0, []) { Issues = problems.Count == 0 ? null : Issues, AdvisoryOnly = advisoryOnly, Research = brief };
 
+            var advisoryCauses = new List<string>();
+            if (executionPaused) advisoryCauses.Add("owner execution permission was unavailable at some point during preparation");
+            if (missingHeldEvidence) advisoryCauses.Add("a held asset is missing verified history");
+            if (problems.Any(i => i.Code == "PUBLIC_RESEARCH_UNAVAILABLE")) advisoryCauses.Add("public research was unavailable");
+            if (continuousReviews && (packet.Snapshot.CashReserved > 0 || packet.Snapshot.PendingBuyNotional > 0 ||
+                packet.Snapshot.PendingSellNotional > 0 || packet.Snapshot.Positions.Any(p => p.ReservedQuantity > 0)))
+                advisoryCauses.Add("pending or reserved funds/quantity are present");
+
             var hash = Convert.ToHexStringLower(SHA256.HashData(JsonSerializer.SerializeToUtf8Bytes(new { packet, candidates, brief })));
             var snapshot = packet.Snapshot;
             var input = new AiCompanyMeetingInput(cutoff, hash,
@@ -208,8 +216,10 @@ public sealed class LiveCompanyCoordinator(ILiveCompanyClient client, IHistorica
                     snapshot.DailyLoss, snapshot.Drawdown, snapshot.Positions.Count), candidates,
                 "Live account advisory meeting. Use supplied actual balances, completed bars and separately timestamped public research only. No leverage or borrowing. " +
                 "Unrealized P&L is unavailable; its zero field is a placeholder. All proposals require independent executor risk validation. " +
-                (advisoryOnly ? "This meeting is advisory only. Execution is paused; no proposal from this round will be submitted. " : "") +
-                (problems.Count == 0 ? "" : "Evidence gaps: " + JsonSerializer.Serialize(problems) + ". Discuss these gaps; do not invent missing data. "),
+                (advisoryOnly ? "This meeting is advisory only. No proposal from this round will be submitted. Causes: " +
+                    string.Join("; ", advisoryCauses) + ". " : "") +
+                (problems.Count == 0 ? "" : "Market-history gaps exclude only their named symbols. Evidence gaps: " + JsonSerializer.Serialize(problems) +
+                    ". Continue evaluating verified candidates; do not attribute unowned-symbol gaps to a whole-round pause or claim the data is complete. Do not invent missing data. "),
                 packet.Limits.MaximumPositionWeight, packet.Limits.MaximumOpenPositions)
             {
                 AccountContext = context, PortfolioReview = reviewHour is not null && latest?.Summary?.Reports.Count > 0,
