@@ -26,6 +26,7 @@ public static class LiveCoordinatorEndpoints
             var account = await controls.ReadAsync(context.RequestAborted);
             if (account.AccountId.Value != accountId) return Results.StatusCode(403);
             var mandate = account.Mandate;
+            var portfolioLimits = LiveRiskPolicy.PortfolioLimits(mandate, account.Snapshot);
             var now = clock.GetUtcNow();
             var baseline = account.PerformanceBaseline;
             var broker = context.RequestServices.GetService<BitkubLiveBroker>();
@@ -50,11 +51,12 @@ public static class LiveCoordinatorEndpoints
                     (o.CancellationRequestedAt is not null && o.State is not (LiveOrderState.Rejected or LiveOrderState.Filled or LiveOrderState.Cancelled) &&
                      o.CancellationOutcome != BrokerSubmissionState.Rejected));
             return Results.Ok(new LiveResearchPacket(new(TradingMode.Live, accountId.ToString("N")), mandate.Version,
-                account.Snapshot, new(mandate.CapitalAllocation, mandate.MaximumPortfolioExposure,
+                account.Snapshot, new(portfolioLimits.CapitalAllocation, mandate.MaximumPortfolioExposure,
                     mandate.MaximumOpenPositions, mandate.FeeReserveRate, mandate.MaximumSlippage, mandate.AllowedSymbols)
                 {
-                    MaximumOrderNotional = mandate.MaximumOrderNotional,
-                    MaximumDailyTurnover = mandate.MaximumDailyTurnover,
+                    MaximumOrderNotional = portfolioLimits.MaximumOrderNotional,
+                    MaximumDailyTurnover = mandate.UseFullPortfolio ? null : mandate.MaximumDailyTurnover,
+                    UseFullPortfolio = mandate.UseFullPortfolio,
                     ResearchSymbols = researchSymbols,
                     OrderSizing = context.RequestServices.GetService<BitkubConfiguredAccount>()?.Verification.Rules.Pairs
                         .Where(p => mandate.AllowedSymbols.Contains(p.Symbol))

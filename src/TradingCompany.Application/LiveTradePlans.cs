@@ -94,13 +94,13 @@ public static class LiveTradePlans
         if (reserved + budget * (1 + fee) > a.Snapshot.CashBalance - a.Snapshot.CashReserved) errors.Add("PLAN_CASH_OVERCOMMITTED");
         var occupied = a.Snapshot.Positions.Select(x => x.Symbol).Concat(waiting.Select(x => x.Symbol)).Append(p.Symbol).Distinct().Count();
         if (occupied > a.Mandate.MaximumOpenPositions) errors.Add("OPEN_POSITION_LIMIT");
-        // Keep room for the planned sell as well as the buy under the unchanged daily cap.
+        // Fixed mandates keep room for both legs. Full-portfolio grants permit capital reuse.
         var roundTrips = waiting.Sum(v => v.Plan.Quantity * (v.Plan.EntryPrice + v.Plan.TakeProfitPrice) * (1 + fee));
         roundTrips += active.Where(v => v.AcquiredQuantity > v.SoldQuantity).Sum(v =>
             (v.AcquiredQuantity - v.SoldQuantity) * v.Plan.TakeProfitPrice * (1 + fee));
-        if (roundTrips + plan.Quantity * (plan.EntryPrice + plan.TakeProfitPrice) * (1 + fee) + a.Snapshot.DailyTurnover > a.Mandate.MaximumDailyTurnover)
+        if (!a.Mandate.UseFullPortfolio && roundTrips + plan.Quantity * (plan.EntryPrice + plan.TakeProfitPrice) * (1 + fee) + a.Snapshot.DailyTurnover > a.Mandate.MaximumDailyTurnover)
             errors.Add("PLAN_ROUND_TRIP_TURNOVER_EXCEEDED");
-        if (plan.Quantity * plan.TakeProfitPrice * (1 + fee) > a.Mandate.MaximumOrderNotional) errors.Add("PLAN_EXIT_ORDER_LIMIT");
+        if (!a.Mandate.UseFullPortfolio && plan.Quantity * plan.TakeProfitPrice * (1 + fee) > a.Mandate.MaximumOrderNotional) errors.Add("PLAN_EXIT_ORDER_LIMIT");
         return errors.Distinct().ToArray();
     }
 

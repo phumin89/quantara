@@ -38,7 +38,7 @@ public static class LiveEndpoints
                 var wallet = await context.RequestServices.GetRequiredService<BitkubLiveBroker>().GetWalletAsync(deadline.Token);
                 capital = wallet.Single(b => b.Currency == "THB").Total;
             }
-            else capital = account.Mandate.CapitalAllocation;
+            else capital = account.Snapshot.Equity;
             var now = clock.GetUtcNow();
             var today = DateOnly.FromDateTime(now.ToOffset(TimeSpan.FromHours(7)).DateTime);
             return Results.Ok(new { configured = true, canControl, reasons = Array.Empty<string>(),
@@ -101,7 +101,7 @@ public static class LiveEndpoints
                 snapshot = account.Snapshot,
                 mandate = new { m.Version, m.CapitalAllocation, m.MaximumOrderNotional, m.MaximumDailyTurnover,
                     m.MaximumDailyLoss, m.MaximumDrawdown, m.MaximumPortfolioExposure, m.MaximumOpenPositions,
-                    m.MaximumSlippage, m.FeeReserveRate, m.AllowedSymbols, m.ExpiresAt },
+                    m.MaximumSlippage, m.FeeReserveRate, m.AllowedSymbols, m.ExpiresAt, m.UseFullPortfolio },
                 tradePlans = plans.Where(LiveTradePlans.Active).Concat(plans.Where(p => !LiveTradePlans.Active(p)).TakeLast(100)),
                 orders = account.Orders.Select(o => new { intentId = o.Intent.Id, symbol = o.Intent.Symbol,
                     side = o.Intent.Side.ToString(), state = o.State.ToString(), o.Intent.Quantity, o.FilledQuantity,
@@ -229,6 +229,6 @@ public static class LiveEndpoints
     private static LiveOwnerControls? Controls(HttpContext context) => context.RequestServices.GetService<LiveOwnerControls>();
     private static object OwnerMandate(LiveMandate m) => new { m.Version, m.CapitalAllocation, m.MaximumOrderNotional,
         m.MaximumDailyTurnover, m.MaximumDailyLoss, m.MaximumDrawdown, m.MaximumPortfolioExposure,
-        m.MaximumOpenPositions, m.MaximumSlippage, m.FeeReserveRate, m.AllowedSymbols, m.ExpiresAt, m.AutomaticDailyRollover };
+        m.MaximumOpenPositions, m.MaximumSlippage, m.FeeReserveRate, m.AllowedSymbols, m.ExpiresAt, m.AutomaticDailyRollover, m.UseFullPortfolio };
     private static IResult Unconfigured() => Results.Json(new { code = "LIVE_ACCOUNT_NOT_CONFIGURED" }, statusCode: 503);
 }

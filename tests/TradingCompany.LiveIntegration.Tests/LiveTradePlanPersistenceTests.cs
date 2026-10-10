@@ -12,6 +12,32 @@ public sealed class LiveTradePlanPersistenceTests(PostgresFixture database)
     private static readonly LiveOrderSizing Rules = new("BTC-THB", .01m, .00000001m, 1, 10);
 
     [Fact]
+    public async Task Explicit_full_portfolio_policy_survives_store_restart_without_activation_or_balance_reset()
+    {
+        var f = await Setup();
+        var before = await f.Store.ReadAccountAsync(f.Plan.AccountId);
+        await f.Store.WithAccountLockAsync(f.Plan.AccountId, async (tx, ct) =>
+        {
+            var capital = tx.Account.Snapshot.Equity;
+            var result = tx.SaveMandate(tx.Account.Mandate with { Version = tx.Account.Mandate.Version + 1,
+                UseFullPortfolio = true, CapitalAllocation = capital, MaximumOrderNotional = capital,
+                MaximumDailyTurnover = capital, MaximumDailyLoss = capital, MaximumPortfolioExposure = 1,
+                MaximumDrawdown = 1 }, f.Clock.Now);
+            Assert.True(result.Allowed);
+            await tx.CommitAsync(ct);
+            return true;
+        });
+        var after = await new LiveTradingStore(database.ConnectionString).ReadAccountAsync(f.Plan.AccountId);
+        Assert.True(after.Mandate.UseFullPortfolio);
+        Assert.False(after.Gate.Armed);
+        Assert.False(after.Snapshot.Reconciled);
+        Assert.Equal(before.Snapshot.CashBalance, after.Snapshot.CashBalance);
+        Assert.Equal(before.Snapshot.DailyLoss, after.Snapshot.DailyLoss);
+        Assert.Equal(before.PerformanceBaseline, after.PerformanceBaseline);
+        Assert.Equal(0, f.Broker.PlacementCount);
+    }
+
+    [Fact]
     public async Task Immutable_plan_survives_restart_and_conflicting_replay_preserves_authority()
     {
         var f = await Setup();

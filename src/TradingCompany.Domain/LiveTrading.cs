@@ -11,6 +11,8 @@ public sealed record LiveMandate(LiveAccountId AccountId, long Version, string C
     IReadOnlyList<string> AllowedSymbols, DateTimeOffset? ExpiresAt)
 {
     public bool AutomaticDailyRollover { get; init; }
+    // Owner-only policy. Legacy records retain their fixed baht limits.
+    public bool UseFullPortfolio { get; init; }
 }
 public sealed record LiveIntent(LiveAccountId AccountId, Guid DecisionId, Guid Id, TradingMode Mode,
     string Symbol, OrderSide Side, decimal Quantity, decimal LimitPrice, long MandateVersion,
@@ -39,6 +41,15 @@ public sealed record LiveGateDecision(bool Allowed, IReadOnlyList<string> Violat
 
 public static class LiveRiskPolicy
 {
+    public static LiveMandate PortfolioLimits(LiveMandate mandate, LiveSnapshot snapshot) => !mandate.UseFullPortfolio
+        ? mandate : mandate with
+        {
+            CapitalAllocation = snapshot.Equity,
+            MaximumOrderNotional = snapshot.Equity,
+            // Keep incurred losses; the remaining portfolio can still be put at risk.
+            MaximumDailyLoss = checked(snapshot.DailyLoss + snapshot.Equity)
+        };
+
     public static LiveGateDecision Evaluate(LiveIntent intent, LiveSnapshot snapshot, LiveMandate? mandate,
         LiveGateState gate, DateTimeOffset now)
     {
@@ -91,13 +102,15 @@ public static class LiveRiskPolicy
 
             if (errors.Contains("INVALID_INTENT")) return new(false, errors.Distinct().ToArray());
             var notional = intent.Quantity * intent.LimitPrice;
+            var limits = PortfolioLimits(mandate, snapshot);
             var withFee = notional * (1 + mandate.FeeReserveRate);
             var exposure = snapshot.Positions.Sum(p => p.Quantity * p.MarketPrice);
             var available = snapshot.CashBalance - snapshot.CashReserved;
-            if (withFee > mandate.MaximumOrderNotional) errors.Add("MAX_ORDER_NOTIONAL_EXCEEDED");
-            if (snapshot.DailyTurnover + (snapshot.PendingBuyNotional + snapshot.PendingSellNotional) * (1 + mandate.FeeReserveRate) + withFee > mandate.MaximumDailyTurnover)
+            var orderCeiling = limits.MaximumOrderNotional * (mandate.UseFullPortfolio && intent.Side == OrderSide.Sell ? 1 + mandate.FeeReserveRate : 1);
+            if (withFee > orderCeiling) errors.Add("MAX_ORDER_NOTIONAL_EXCEEDED");
+            if (!mandate.UseFullPortfolio && snapshot.DailyTurnover + (snapshot.PendingBuyNotional + snapshot.PendingSellNotional) * (1 + mandate.FeeReserveRate) + withFee > mandate.MaximumDailyTurnover)
                 errors.Add("DAILY_TURNOVER_EXCEEDED");
-            if (intent.Side == OrderSide.Buy && exposure + snapshot.CashReserved + withFee > mandate.CapitalAllocation)
+            if (intent.Side == OrderSide.Buy && exposure + snapshot.CashReserved + withFee > limits.CapitalAllocation)
                 errors.Add("CAPITAL_ALLOCATION_EXCEEDED");
             var position = snapshot.Positions.SingleOrDefault(p => p.Symbol == intent.Symbol);
             if (intent.Side == OrderSide.Sell && (position is null || intent.Quantity > position.Quantity - position.ReservedQuantity))
@@ -107,9 +120,9 @@ public static class LiveRiskPolicy
             var proposal = new TradeProposal(intent.Id, new Symbol(intent.Symbol), intent.Side, intent.Quantity,
                 intent.LimitPrice * (1 + mandate.FeeReserveRate), new Percentage(0), Guid.Empty, !occupiedSymbols.Contains(intent.Symbol));
             var risk = new RiskEngine().Evaluate(proposal,
-                new(Math.Min(snapshot.Equity, mandate.CapitalAllocation), available, exposure + snapshot.PendingBuyNotional,
+                new(Math.Min(snapshot.Equity, limits.CapitalAllocation), available, exposure + snapshot.PendingBuyNotional,
                     snapshot.DailyLoss, snapshot.Drawdown, occupiedSymbols.Length),
-                new(mandate.MaximumOrderNotional, new(mandate.MaximumPortfolioExposure), mandate.MaximumDailyLoss,
+                new(limits.MaximumOrderNotional, new(mandate.MaximumPortfolioExposure), limits.MaximumDailyLoss,
                     new(mandate.MaximumDrawdown), mandate.MaximumOpenPositions, gate.Stopped));
             errors.AddRange(risk.Violations.Select(v => v.Code));
         }
@@ -125,5 +138,8 @@ public static class LiveRiskPolicy
         mandate.MaximumPortfolioExposure is > 0 and <= 1 && mandate.MaximumOpenPositions > 0 &&
         mandate.MaximumSlippage is >= 0 and <= .02m && mandate.FeeReserveRate is > 0 and <= .1m &&
         mandate.AllowedSymbols is { Count: > 0 and <= LiveMarketSymbol.MaximumPayloadMarkets } && mandate.AllowedSymbols.All(LiveMarketSymbol.IsValid) &&
-        mandate.AllowedSymbols.Distinct().Count() == mandate.AllowedSymbols.Count;
+        mandate.AllowedSymbols.Distinct().Count() == mandate.AllowedSymbols.Count &&
+        (!mandate.UseFullPortfolio || mandate.MaximumPortfolioExposure == 1 && mandate.MaximumDrawdown == 1 &&
+            mandate.MaximumOrderNotional == mandate.CapitalAllocation && mandate.MaximumDailyLoss == mandate.CapitalAllocation &&
+            mandate.MaximumDailyTurnover == mandate.CapitalAllocation);
 }

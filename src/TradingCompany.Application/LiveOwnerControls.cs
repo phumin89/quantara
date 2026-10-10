@@ -11,6 +11,7 @@ public sealed record LiveMandateUpdate(LiveAccountId AccountId, long ExpectedVer
     IReadOnlyList<string> AllowedSymbols, DateTimeOffset? ExpiresAt)
 {
     public bool AutomaticDailyRollover { get; init; }
+    public bool UseFullPortfolio { get; init; }
 }
 public sealed record LivePreflightResult(bool Ready, long MandateVersion, long SnapshotVersion,
     string? BrokerAccountReference, IReadOnlyList<string> Violations);
@@ -114,7 +115,7 @@ public sealed class LiveOwnerControls(ILiveTradingStore store, ILiveActivationSo
                 update.CapitalAllocation, update.MaximumOrderNotional, update.MaximumDailyTurnover, update.MaximumDailyLoss,
                 update.MaximumDrawdown, update.MaximumPortfolioExposure, update.MaximumOpenPositions,
                 update.MaximumSlippage, update.FeeReserveRate, update.AllowedSymbols, update.ExpiresAt)
-                { AutomaticDailyRollover = update.AutomaticDailyRollover };
+                { AutomaticDailyRollover = update.AutomaticDailyRollover, UseFullPortfolio = update.UseFullPortfolio };
             var result = tx.SaveMandate(mandate, clock.GetUtcNow());
             if (result.Allowed) await tx.CommitAsync(ct);
             return result;

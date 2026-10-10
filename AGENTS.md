@@ -10,6 +10,8 @@ This repository follows the engineering rules in the source instructions: clean,
 
 ## Execution safety rules
 
+- Owner direction on 2026-10-11: support an explicit full-portfolio grant rather than fixing funding to the initial baht amount. With that owner-only grant, buying power and per-order limits follow reconciled portfolio equity, verified trading gains can be reused, and turnover does not restrict settled capital to one cycle per day. Preserve incurred losses, account binding, Stop, fees, reservations, owned-quantity validation and RiskEngine. Legacy grants stay fixed until the owner changes policy; code deployment and model output never migrate actual authority. Unexplained deposits or withdrawals still require reconciliation evidence and cannot be treated as trading profit.
+
 - Owner direction on 2026-10-10: remove repeated browser-control confirmation from normal use. Offer an explicit 30-day remembered-control option during fresh local owner pairing. Existing viewing-only sessions stay viewing-only; logout, new local pairing and expiry revoke the grant. Pairing never activates trading or changes account limits, binding, Stop, or RiskEngine.
 
 - Owner direction on 2026-10-08: owner supplies funding; CEO and team plan allocation and trades to pursue evidence-supported net profit after costs. Funding activation may restore the per-order ceiling to existing authorized capital only when the owner explicitly runs it. Models cannot increase authority or bypass RiskEngine; startup/UI updates do not change actual limits. The 100-THB trial remains separate. No claimed profitability without real execution and reproducible performance evidence.

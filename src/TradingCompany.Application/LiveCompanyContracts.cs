@@ -10,6 +10,7 @@ public sealed record LiveResearchLimits(decimal CapitalAllocation, decimal Maxim
     public IReadOnlyList<LiveOrderSizing> OrderSizing { get; init; } = [];
     public decimal? MaximumOrderNotional { get; init; }
     public decimal? MaximumDailyTurnover { get; init; }
+    public bool UseFullPortfolio { get; init; }
     public IReadOnlyList<string> ResearchSymbols { get; init; } = [];
 }
 public sealed record LiveResearchPacket(TradingAccountContext AccountContext, long MandateVersion,

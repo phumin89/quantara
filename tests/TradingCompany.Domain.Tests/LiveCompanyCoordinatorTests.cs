@@ -376,6 +376,27 @@ public sealed class LiveCompanyCoordinatorTests : IDisposable
     }
 
     [Fact]
+    public async Task Full_portfolio_research_recycles_capital_and_sells_all_verified_owned_quantity()
+    {
+        var client = HoldingsClient(quantity: .02m);
+        client.Packet = client.Packet with
+        {
+            Snapshot = client.Packet.Snapshot with { DailyTurnover = 10000 },
+            Limits = client.Packet.Limits with { UseFullPortfolio = true, CapitalAllocation = 2000,
+                MaximumOrderNotional = 2000, MaximumDailyTurnover = null, MaximumPositionWeight = 1 }
+        };
+        var gateway = new Gateway { Action = "SELL" };
+        await Coordinator(client, gateway).TickAsync();
+        var intent = Assert.Single(client.Intents);
+        Assert.Equal(.02m, intent.Quantity);
+        Assert.All(gateway.Inputs, input => Assert.Contains("capital can be recycled", input.Mandate));
+        Assert.True(LiveRiskPolicy.Evaluate(intent, client.Packet.Snapshot,
+            LiveRiskTests.Mandate with { UseFullPortfolio = true, MaximumOrderNotional = 1000,
+                MaximumDailyTurnover = 1000, MaximumDailyLoss = 1000, MaximumPortfolioExposure = 1,
+                MaximumDrawdown = 1 }, LiveRiskTests.Gate, clock.Now).Allowed);
+    }
+
+    [Fact]
     public async Task Sell_clips_owned_unreserved_coins_and_floors_to_base_step()
     {
         var client = HoldingsClient(reservedQuantity: .009876543m);

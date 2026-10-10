@@ -11,6 +11,30 @@ namespace TradingCompany.LiveIntegration.Tests;
 public sealed class LiveOwnerActivationRecoveryTests(PostgresFixture database)
 {
     [Fact]
+    public async Task Explicit_small_order_trial_reduces_full_portfolio_authority_without_resetting_losses()
+    {
+        var f = await Setup();
+        using var broker = f.Broker;
+        await f.Store.WithAccountLockAsync(f.Id, async (tx, ct) =>
+        {
+            var capital = tx.Account.Mandate.CapitalAllocation;
+            Assert.True(tx.SaveMandate(tx.Account.Mandate with { Version = tx.Account.Mandate.Version + 1,
+                UseFullPortfolio = true, MaximumOrderNotional = capital, MaximumDailyTurnover = capital,
+                MaximumDailyLoss = capital, MaximumPortfolioExposure = 1, MaximumDrawdown = 1 }, f.Clock.Now).Allowed);
+            await tx.CommitAsync(ct);
+            return true;
+        });
+        var result = await f.Activation.ActivateFullSpotAsync(default, maximumOrderNotional: 100);
+        Assert.True(result.Activated, string.Join(",", result.Reasons));
+        var after = await new LiveTradingStore(database.ConnectionString).ReadAccountAsync(f.Id);
+        Assert.False(after.Mandate.UseFullPortfolio);
+        Assert.Equal(100, after.Mandate.MaximumOrderNotional);
+        Assert.Equal(929.12m, after.Snapshot.CashBalance);
+        Assert.Equal(1000, after.PerformanceBaseline!.HighWaterEquity);
+        Assert.Equal(1, f.Handler.PlacementCount);
+    }
+
+    [Fact]
     public async Task Explicit_owner_activation_recovers_rounded_sell_and_old_day_before_funding_update_without_new_order()
     {
         var f = await Setup();

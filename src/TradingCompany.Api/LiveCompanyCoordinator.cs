@@ -216,6 +216,8 @@ public sealed class LiveCompanyCoordinator(ILiveCompanyClient client, IHistorica
                     snapshot.DailyLoss, snapshot.Drawdown, snapshot.Positions.Count), candidates,
                 "Live account advisory meeting. Use supplied actual balances, completed bars and separately timestamped public research only. No leverage or borrowing. " +
                 "Unrealized P&L is unavailable; its zero field is a placeholder. All proposals require independent executor risk validation. " +
+                (packet.Limits.UseFullPortfolio ? "Owner delegated 100% of the reconciled portfolio, including verified trading gains. " +
+                    "Use current equity and unreserved cash, including fees; capital can be recycled after verified settlement. No fixed initial-baht or cumulative turnover ceiling applies. " : "") +
                 (advisoryOnly ? "This meeting is advisory only. No proposal from this round will be submitted. Causes: " +
                     string.Join("; ", advisoryCauses) + ". " : "") +
                 (problems.Count == 0 ? "" : "Market-history gaps exclude only their named symbols. Evidence gaps: " + JsonSerializer.Serialize(problems) +
@@ -278,9 +280,11 @@ public sealed class LiveCompanyCoordinator(ILiveCompanyClient client, IHistorica
                 var quantity = proposal.Action == PortfolioAction.Sell ? held?.Quantity ?? 0
                     : (held?.Quantity ?? 0) - proposal.TargetWeight * equity / price;
                 var fees = 1 + current.Limits.FeeReserveRate;
-                var turnoverLeft = (current.Limits.MaximumDailyTurnover ?? current.Limits.CapitalAllocation) -
+                var turnoverLeft = current.Limits.UseFullPortfolio ? current.Snapshot.Equity * fees :
+                    (current.Limits.MaximumDailyTurnover ?? current.Limits.CapitalAllocation) -
                     current.Snapshot.DailyTurnover - (current.Snapshot.PendingBuyNotional + current.Snapshot.PendingSellNotional) * fees;
-                var orderCeiling = Math.Max(0, Math.Min(current.Limits.MaximumOrderNotional ?? current.Limits.CapitalAllocation,
+                var orderCeiling = Math.Max(0, Math.Min((current.Limits.MaximumOrderNotional ?? current.Limits.CapitalAllocation) *
+                    (current.Limits.UseFullPortfolio ? fees : 1),
                     turnoverLeft)) / fees;
                 quantity = Math.Min(quantity, orderCeiling / price);
                 quantity = Math.Min(quantity, (held?.Quantity ?? 0) - (held?.ReservedQuantity ?? 0));

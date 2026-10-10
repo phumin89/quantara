@@ -94,11 +94,11 @@ export function LiveOwnerSetup({ onChanged }: { onChanged?: () => void }) {
         <p>CEO เลือกเหรียญและขนาดคำสั่งได้ภายในทุนนี้ ซื้อขายเฉพาะ Spot เงินที่ใช้และค่าธรรมเนียมต้องไม่เกินยอดจริง</p>
         <label className="owner-setup-confirm"><input type="checkbox" checked={fullCapital} onChange={e => setFullCapital(e.target.checked)} disabled={disabled} />
           <span>อนุญาตใช้ทุนทั้งหมด และรับขีดจำกัดขาดทุนสูงสุดเท่าทุนที่อนุญาต</span></label>
-        <p className="owner-setup-note">วงเงินซื้อขายรวมต่อวันเท่าทุนหนึ่งรอบ ตรวจยอดเมื่อเปลี่ยนวันโดยเก็บยอดสูงสุดสะสมไว้ การบันทึกนี้ยังไม่เปิดการเทรด</p>
+        <p className="owner-setup-note">รวมกำไรที่ตรวจยอดแล้ว หมุนทุนซื้อ–ขายซ้ำได้ รับความเสี่ยงสูญเสียทุนทั้งหมด การบันทึกนี้ยังไม่เปิดการเทรด</p>
         <button type="submit" disabled={disabled || !fullCapital || !fullSpotMandate(setup)}>{busy ? "กำลังบันทึก…" : "บันทึกวงเงินสำหรับ CEO"}</button>
         {(setup.availableCapital ?? 0) <= 0 && <p>ต้องมี THB ในบัญชีที่ตรวจแล้วก่อนตั้งวงเงินจริง</p>}
       </form> : <>
-        <dl className="money-breakdown"><div><dt>ทุนที่อนุญาต</dt><dd>{cash(setup.mandate!.capitalAllocation)}</dd></div><div><dt>สูงสุดต่อคำสั่ง</dt><dd>{cash(setup.mandate!.maximumOrderNotional)}</dd></div><div><dt>ขาดทุนสูงสุดต่อวัน</dt><dd>{cash(setup.mandate!.maximumDailyLoss)}</dd></div></dl>
+        {setup.mandate?.useFullPortfolio ? <div className="owner-setup-note"><strong>ใช้ 100% ของพอร์ต</strong><p>มูลค่าพอร์ตล่าสุด {cash(setup.availableCapital ?? 0)} รวมกำไรที่ตรวจยอดแล้ว หมุนทุนซ้ำได้ โดยหักค่าธรรมเนียมและเงินกันไว้</p></div> : <><p>วงเงินเดิมที่บันทึกไว้</p><dl className="money-breakdown"><div><dt>ทุนที่อนุญาต</dt><dd>{cash(setup.mandate!.capitalAllocation)}</dd></div><div><dt>สูงสุดต่อคำสั่ง</dt><dd>{cash(setup.mandate!.maximumOrderNotional)}</dd></div><div><dt>ขาดทุนสูงสุดต่อวัน</dt><dd>{cash(setup.mandate!.maximumDailyLoss)}</dd></div></dl></>}
         <div className="owner-setup-actions">
           {!setup.baselineEstablished && <button disabled={disabled} onClick={() => void act("/live/baseline")}>ตรวจและบันทึกยอดเริ่มต้น</button>}
           {setup.needsDailyBaseline && <button disabled={disabled || setup.armed} onClick={() => void act("/live/day-baseline")}>ตรวจยอดเริ่มวันใหม่</button>}
@@ -106,7 +106,8 @@ export function LiveOwnerSetup({ onChanged }: { onChanged?: () => void }) {
         </div>
         {!setup.armed && <>
           <label className="owner-setup-confirm"><input type="checkbox" checked={confirmLive} onChange={e => setConfirmLive(e.target.checked)} disabled={disabled} />
-            <span>อนุญาตให้ CEO ส่งคำสั่งเงินจริงตามวงเงินที่บันทึก{setup.stopped ? " และยกเลิกคำสั่งหยุดเดิม" : ""}</span></label>
+            <span>{setup.mandate?.useFullPortfolio ? "อนุญาตให้ CEO ส่งคำสั่งเงินจริงภายในนโยบายใช้ 100% ของพอร์ต" : "อนุญาตให้ CEO ส่งคำสั่งเงินจริงตามวงเงินที่บันทึก"}{setup.stopped ? " และยกเลิกคำสั่งหยุดเดิม" : ""}</span></label>
+          {!setup.mandate?.useFullPortfolio && <><p className="owner-setup-note">เปลี่ยนเป็น 100% รวมกำไรที่ตรวจยอดแล้ว หมุนทุนซื้อ–ขายซ้ำได้ และรับความเสี่ยงสูญเสียทุนทั้งหมด</p><button type="button" disabled={disabled || !fullSpotMandate(setup)} onClick={() => void act("/live/mandate")}>ใช้ 100% ของพอร์ต</button></>}
           <button disabled={disabled || !confirmLive || !setup.reconciled || !setup.baselineEstablished || setup.needsDailyBaseline || expired}
             onClick={() => void act("/live/arm")}>{busy ? "กำลังตรวจและเปิดสิทธิ์…" : "เปิดสิทธิ์ซื้อขายเงินจริง"}</button>
           {expired && <p>คำอนุมัติวงเงินหมดอายุ ต้องบันทึกวงเงินใหม่ก่อนเปิดสิทธิ์</p>}

@@ -77,7 +77,7 @@ test('malformed setup metadata refuses consent and missing or zero capital canno
 
 test('full spot policy uses actual capital, object account id, verified symbols, and daily rollover', () => {
   const policy = fullSpotMandate(base());
-  assert.deepEqual(policy, { accountId, expectedVersion: 0, capitalAllocation: 12500, maximumOrderNotional: 12500, maximumDailyTurnover: 12500, maximumDailyLoss: 12500, maximumDrawdown: 1, maximumPortfolioExposure: 1, maximumOpenPositions: 2, maximumSlippage: .02, feeReserveRate: .001, allowedSymbols: ['BTC-THB', 'ETH-THB'], expiresAt: null, automaticDailyRollover: true });
+  assert.deepEqual(policy, { accountId, expectedVersion: 0, useFullPortfolio: true, capitalAllocation: 12500, maximumOrderNotional: 12500, maximumDailyTurnover: 12500, maximumDailyLoss: 12500, maximumDrawdown: 1, maximumPortfolioExposure: 1, maximumOpenPositions: 2, maximumSlippage: .02, feeReserveRate: .001, allowedSymbols: ['BTC-THB', 'ETH-THB'], expiresAt: null, automaticDailyRollover: true });
 });
 
 test('setup and existing mandate accept canonical verified THB spot markets up to the defensive limit', () => {
@@ -127,4 +127,31 @@ test('capital changes and a new Stop require renewed displayed owner consent',()
   const current=base();
   assert.equal(sameOwnerConsent(current,{...current,snapshotVersion:5}),true);
   for(const changed of [{availableCapital:13000},{stopped:true},{mandateVersion:2},{brokerAccountReference:'other'},{minimumFeeReserveRate:.003},{verifiedSymbols:['BTC-THB']}])assert.equal(sameOwnerConsent(current,{...current,...changed}),false);
+});
+
+test('full portfolio mandates tolerate equity ticks while legacy mandates do not',()=>{
+  const {sameOwnerConsent}=require('./load-component.cjs')(path.join(__dirname,'../app/ownerSetupClient.ts'));
+  const full={...base(),provisioned:true,mandate:{...fullSpotMandate(base()),version:1,useFullPortfolio:true},mandateVersion:1};
+  assert.equal(sameOwnerConsent(full,{...full,availableCapital:999}),true);
+  assert.equal(sameOwnerConsent(full,{...full,brokerAccountReference:'other'}),false);
+  assert.equal(sameOwnerConsent(full,{...full,mandate:{...full.mandate,useFullPortfolio:false}}),false);
+  assert.equal(sameOwnerConsent({...full,mandate:{...full.mandate,useFullPortfolio:false}},full),false);
+  assert.equal(sameOwnerConsent(base(),{...base(),availableCapital:999}),false);
+  assert.equal(sameOwnerConsent({...base(),availableCapital:12500},{...base(),mandate:{...fullSpotMandate(base()),version:1},mandateVersion:1}),false);
+  assert.equal(readOwnerSetup({...full,mandate:{...full.mandate,useFullPortfolio:'yes'}}),undefined);
+});
+
+test('legacy setup grants full portfolio with one mandate mutation and no automatic trading actions',async()=>{
+  const fs=require('node:fs'),ts=require('typescript'),React=require('react');
+  const state=[],effects=[];let cursor=0;
+  const hooks={...React,useState(initial){const i=cursor++;if(!(i in state))state[i]=initial;return[state[i],value=>{state[i]=typeof value==='function'?value(state[i]):value;}]},useRef(initial){const i=cursor++;state[i]??={current:initial};return state[i]},useEffect(effect){if(!effects.length)effects.push(effect)}};
+  const file=path.join(__dirname,'../app/LiveOwnerSetup.tsx'),module={exports:{}};
+  const compiled=ts.transpileModule(fs.readFileSync(file,'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,jsx:ts.JsxEmit.ReactJSX}}).outputText;
+  new Function('require','module','exports',compiled)(name=>name==='react'?hooks:name.startsWith('.')?require('./load-component.cjs')(path.join(path.dirname(file),name)+(name==='./OwnerPairingForm'?'.tsx':'.ts')):require(name),module,module.exports);
+  const render=()=>{cursor=0;return module.exports.LiveOwnerSetup({})};
+  const find=(element,predicate)=>{if(!element||typeof element!=='object')return;if(predicate(element))return element;for(const child of [element.props?.children].flat(Infinity)){const match=find(child,predicate);if(match)return match}};
+  const legacy={...base(),provisioned:true,baselineEstablished:true,reconciled:true,snapshotVersion:1,mandateVersion:1,observedAt:'2026-10-10T02:00:00Z',mandate:{...fullSpotMandate(base()),version:1,useFullPortfolio:false}};
+  const calls=[];let current=legacy;const savedFetch=global.fetch,savedWindow=global.window;global.window={location:{origin:'https://localhost:3000'}};
+  global.fetch=async(url,options)=>{calls.push([url,options]);if(url.endsWith('/live/setup'))return Response.json(current);if(url.endsWith('/owner/csrf'))return Response.json({token:'csrf'});if(url.endsWith('/live/mandate')){current={...current,mandate:{...fullSpotMandate(current),version:2},mandateVersion:2};return new Response(null,{status:204})}throw Error('unexpected request')};
+  try {render();const cleanup=effects[0]();await new Promise(setImmediate);const button=find(render(),e=>e.type==='button'&&e.props.children==='ใช้ 100% ของพอร์ต');assert.ok(button);button.props.onClick();await new Promise(setImmediate);assert.deepEqual(calls.map(c=>new URL(c[0]).pathname),['/live/setup','/live/setup','/owner/csrf','/live/mandate','/live/setup']);assert.equal(JSON.parse(calls[3][1].body).useFullPortfolio,true);assert.equal(calls.some(c=>String(c[0]).endsWith('/live/arm')||String(c[0]).endsWith('/live/reconcile')),false);cleanup()} finally {global.fetch=savedFetch;global.window=savedWindow}
 });

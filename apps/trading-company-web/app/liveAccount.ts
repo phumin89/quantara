@@ -5,7 +5,7 @@ export type LiveAccount = {
   snapshot: { accountId: { value: string }; version: number; observedAt: string; reconciled: boolean;
     cashBalance: number; cashReserved: number; equity: number;
     positions: { symbol: string; quantity: number; reservedQuantity: number; marketPrice: number }[] };
-  mandate: { version: number; capitalAllocation: number; maximumOrderNotional: number; maximumDailyLoss: number };
+  mandate: { version: number; useFullPortfolio?: boolean; capitalAllocation: number; maximumOrderNotional: number; maximumDailyLoss: number };
   orders: { intentId: string; symbol: string; side: "Buy" | "Sell"; state: string;
     quantity: number; filledQuantity: number; reservedCash: number; reservedQuantity: number; updatedAt: string }[];
   tradePlans?: TradePlan[];
@@ -39,7 +39,7 @@ export function validLiveAccount(v: unknown, authority: AccountAuthority, now = 
     !version(s.version) || s.version !== authority.snapshotVersion || s.reconciled !== true || !timestamp(s.observedAt) ||
     Date.parse(s.observedAt) > now || now - Date.parse(s.observedAt) >= 30000 ||
     ![s.cashBalance, s.cashReserved, s.equity].every(amount) || s.cashReserved > s.cashBalance ||
-    !object(m) || !version(m.version) || m.version !== authority.mandateVersion ||
+    !object(m) || (m.useFullPortfolio !== undefined && typeof m.useFullPortfolio !== "boolean") || !version(m.version) || m.version !== authority.mandateVersion ||
     ![m.capitalAllocation, m.maximumOrderNotional, m.maximumDailyLoss].every(positive) ||
     !Array.isArray(s.positions) || !s.positions.every((p: unknown) => object(p) && supported(p.symbol) &&
       positive(p.quantity) && amount(p.reservedQuantity) && p.reservedQuantity <= p.quantity && positive(p.marketPrice)) ||

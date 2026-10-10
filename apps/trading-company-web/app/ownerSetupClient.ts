@@ -1,7 +1,7 @@
 import { requestJson } from "./requestJson";
 export const ownerOrigin = "https://localhost:3000";
 export const executorOrigin = "https://localhost:7443";
-export type OwnerMandate = { version: number; capitalAllocation: number; maximumOrderNotional: number; maximumDailyTurnover: number; maximumDailyLoss: number; maximumDrawdown: number; maximumPortfolioExposure: number; maximumOpenPositions: number; maximumSlippage: number; feeReserveRate: number; allowedSymbols: string[]; expiresAt: string | null; automaticDailyRollover: boolean };
+export type OwnerMandate = { version: number; useFullPortfolio?: boolean; capitalAllocation: number; maximumOrderNotional: number; maximumDailyTurnover: number; maximumDailyLoss: number; maximumDrawdown: number; maximumPortfolioExposure: number; maximumOpenPositions: number; maximumSlippage: number; feeReserveRate: number; allowedSymbols: string[]; expiresAt: string | null; automaticDailyRollover: boolean };
 export type OwnerSetup = { configured: boolean; canControl: boolean; reasons: string[]; accountId?: { value: string }; brokerAccountReference?: string; verifiedSymbols?: string[]; availableCapital?: number; fullSpotCapitalAllowed?: boolean; minimumFeeReserveRate?: number; provisioned?: boolean; mandate?: OwnerMandate | null; snapshotVersion?: number | null; mandateVersion?: number | null; baselineEstablished?: boolean; needsDailyBaseline?: boolean; armed?: boolean; stopped?: boolean; reconciled?: boolean; observedAt?: string | null };
 const amount = (x: unknown): x is number => typeof x === "number" && Number.isFinite(x) && x >= 0 && x <= 1e10;
 const version = (x: unknown): x is number => typeof x === "number" && Number.isSafeInteger(x) && x > 0;
@@ -16,7 +16,7 @@ export function readOwnerSetup(x: unknown): OwnerSetup | undefined {
       ["provisioned", "baselineEstablished", "needsDailyBaseline", "armed", "stopped", "reconciled"].some(k => typeof x[k] !== "boolean")) return;
   if (x.provisioned) {
     const m = x.mandate;
-    if (!version(x.snapshotVersion) || !version(x.mandateVersion) || !object(m) || m.version !== x.mandateVersion || !symbols(m.allowedSymbols) ||
+    if (!version(x.snapshotVersion) || !version(x.mandateVersion) || !object(m) || (m.useFullPortfolio !== undefined && typeof m.useFullPortfolio !== "boolean") || m.version !== x.mandateVersion || !symbols(m.allowedSymbols) ||
         ["capitalAllocation", "maximumOrderNotional", "maximumDailyTurnover", "maximumDailyLoss", "maximumDrawdown", "maximumPortfolioExposure", "feeReserveRate"].some(k => !amount(m[k]) || (m[k] as number) <= 0) ||
         (m.maximumDrawdown as number) > 1 || (m.maximumPortfolioExposure as number) > 1 || (m.feeReserveRate as number) > .1 || !version(m.maximumOpenPositions) ||
         !amount(m.maximumSlippage) || m.maximumSlippage > .02 || typeof m.automaticDailyRollover !== "boolean" ||
@@ -29,7 +29,7 @@ export function fullSpotMandate(setup: OwnerSetup) {
   if (!setup.configured || !setup.canControl || setup.fullSpotCapitalAllowed !== true || !setup.accountId || !amount(setup.availableCapital) || setup.availableCapital <= 0 ||
       !symbols(setup.verifiedSymbols) || !setup.minimumFeeReserveRate) return;
   const capital = setup.availableCapital;
-  return { accountId: setup.accountId, expectedVersion: setup.provisioned ? setup.mandateVersion : 0, capitalAllocation: capital,
+  return { accountId: setup.accountId, expectedVersion: setup.provisioned ? setup.mandateVersion : 0, useFullPortfolio: true, capitalAllocation: capital,
     maximumOrderNotional: capital, maximumDailyTurnover: capital, maximumDailyLoss: capital, maximumDrawdown: 1, maximumPortfolioExposure: 1,
     maximumOpenPositions: setup.verifiedSymbols.length, maximumSlippage: .02, feeReserveRate: setup.minimumFeeReserveRate,
     allowedSymbols: setup.verifiedSymbols, expiresAt: null, automaticDailyRollover: true };
@@ -38,7 +38,8 @@ export function sameOwnerConsent(before: OwnerSetup, after: OwnerSetup) {
   return before.configured === after.configured && before.canControl === after.canControl &&
     before.accountId?.value === after.accountId?.value && before.brokerAccountReference === after.brokerAccountReference &&
     before.provisioned === after.provisioned && before.mandateVersion === after.mandateVersion && before.stopped === after.stopped &&
-    before.availableCapital === after.availableCapital && before.minimumFeeReserveRate === after.minimumFeeReserveRate &&
+    (before.mandate?.useFullPortfolio === true) === (after.mandate?.useFullPortfolio === true) &&
+    (before.mandate?.useFullPortfolio === true || before.availableCapital === after.availableCapital) && before.minimumFeeReserveRate === after.minimumFeeReserveRate &&
     JSON.stringify(before.verifiedSymbols) === JSON.stringify(after.verifiedSymbols);
 }
 const actions = new Set(["/live/provision", "/live/mandate", "/live/baseline", "/live/day-baseline", "/live/reconcile", "/live/arm"]);

@@ -348,7 +348,7 @@ export function LiveAccountView({ account }: { account: LiveAccount }) {
     <div className="cfo-metrics portfolio-metrics"><div><span>มูลค่าบัญชี</span><strong>{cash(s.equity)}</strong></div><div><span>เงินสดที่ใช้ได้</span><strong>{cash(s.cashBalance - s.cashReserved)}</strong></div><div><span>เงินที่กันไว้</span><strong>{cash(s.cashReserved)}</strong></div></div>
     <h3>สินทรัพย์ที่ถืออยู่</h3>
     {s.positions.length ? s.positions.map(p => <div className="position-row" key={p.symbol}><div><strong>{p.symbol}</strong><span>ถือ {p.quantity} · กันขาย {p.reservedQuantity}</span></div><div><strong>{cash(p.quantity * p.marketPrice)}</strong><span>ประเมินด้วยราคาเสนอซื้อ</span></div></div>) : <p>ไม่มีสินทรัพย์ที่ถืออยู่ในบัญชีที่ตรวจยอดนี้</p>}
-    <details className="transaction-details"><summary>วงเงินที่เจ้าของกำหนด</summary><dl className="money-breakdown"><div><dt>เงินที่อนุญาตให้ลงทุน</dt><dd>{cash(account.mandate.capitalAllocation)}</dd></div><div><dt>สูงสุดต่อคำสั่ง</dt><dd>{cash(account.mandate.maximumOrderNotional)}</dd></div><div><dt>ขาดทุนสูงสุดต่อวัน</dt><dd>{cash(account.mandate.maximumDailyLoss)}</dd></div></dl></details>
+    <details className="transaction-details"><summary>วงเงินที่เจ้าของกำหนด</summary>{account.mandate.useFullPortfolio ? <p>ใช้ 100% ของพอร์ต · มูลค่าพอร์ตล่าสุด {cash(s.equity)} · หักค่าธรรมเนียมและเงินกันไว้ตามยอดที่ตรวจได้</p> : <dl className="money-breakdown"><div><dt>เงินที่อนุญาตให้ลงทุน</dt><dd>{cash(account.mandate.capitalAllocation)}</dd></div><div><dt>สูงสุดต่อคำสั่ง</dt><dd>{cash(account.mandate.maximumOrderNotional)}</dd></div><div><dt>ขาดทุนสูงสุดต่อวัน</dt><dd>{cash(account.mandate.maximumDailyLoss)}</dd></div></dl>}</details>
   </section>;
 }
 

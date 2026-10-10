@@ -70,6 +70,15 @@ test('account and trading views preserve amounts, unknown outcome and reservatio
   assert.doesNotMatch(orders, /เงินเดือน|iframe|เปิดเทรดเลย|test-only-account/);
 });
 
+test('full portfolio view reports current equity once and rejects malformed policy metadata', () => {
+  const account=fixture(); account.mandate.useFullPortfolio=true;
+  assert.equal(validLiveAccount(account,authority,now),true);
+  const html=renderToStaticMarkup(React.createElement(LiveAccountView,{account}));
+  assert.match(html,/ใช้ 100% ของพอร์ต/); assert.match(html,/มูลค่าพอร์ตล่าสุด ฿1,100\.00/);
+  assert.doesNotMatch(html,/สูงสุดต่อคำสั่ง|ขาดทุนสูงสุดต่อวัน/);
+  account.mandate.useFullPortfolio='true';assert.equal(validLiveAccount(account,authority,now),false);
+});
+
 const planFixture = () => ({ id: '00000000-0000-0000-0000-000000000005', symbol: 'ETH-THB',
   plan: { entryPrice: 100000, quantity: .004, takeProfitPrice: 110000, stopLossPrice: 95000, expiresAt: '2026-10-02T12:00:00Z' },
   status: 'WAITING_ENTRY', acquiredQuantity: 0, soldQuantity: 0 });

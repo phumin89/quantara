@@ -73,7 +73,7 @@ public sealed class BitkubAccountProvisioner(LiveTradingStore store, BitkubLiveB
             update.MaximumOrderNotional, update.MaximumDailyTurnover, update.MaximumDailyLoss,
             update.MaximumDrawdown, update.MaximumPortfolioExposure, update.MaximumOpenPositions,
             update.MaximumSlippage, update.FeeReserveRate, update.AllowedSymbols, update.ExpiresAt)
-            { AutomaticDailyRollover = update.AutomaticDailyRollover };
+            { AutomaticDailyRollover = update.AutomaticDailyRollover, UseFullPortfolio = update.UseFullPortfolio };
 
         bool Valid(LiveMandate value) => LiveRiskPolicy.IsValidMandate(value) && (value.ExpiresAt is null || value.ExpiresAt > clock.GetUtcNow()) &&
             value.FeeReserveRate >= verified.Rules.MaximumCashFeeRate &&

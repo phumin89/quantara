@@ -208,6 +208,28 @@ public sealed class LiveOwnerEndpointTests
     }
 
     [Fact]
+    public async Task Explicit_owner_full_portfolio_grant_is_saved_disarmed_and_keeps_performance_history()
+    {
+        await using var factory = new Factory();
+        using var client = await factory.Owner();
+        var before = factory.Store.Account;
+        var update = new LiveMandateUpdate(LiveRiskTests.Account, 1, 1000, 1000, 1000, 1000, 1, 1, 3,
+            .01m, .003m, ["BTC-THB", "ETH-THB", "SOL-THB"], null) { UseFullPortfolio = true, AutomaticDailyRollover = true };
+        Assert.Equal(HttpStatusCode.OK, (await client.PostAsJsonAsync("/live/mandate", update)).StatusCode);
+        var after = factory.Store.Account;
+        Assert.True(after.Mandate.UseFullPortfolio);
+        Assert.Equal(2, after.Mandate.Version);
+        Assert.False(after.Gate.Armed);
+        Assert.False(after.Snapshot.Reconciled);
+        Assert.Equal(before.PerformanceBaseline, after.PerformanceBaseline);
+        Assert.Equal(before.Snapshot.DailyLoss, after.Snapshot.DailyLoss);
+        Assert.Equal(before.Fills, after.Fills);
+        var account = await client.GetFromJsonAsync<JsonElement>("/live/account");
+        Assert.True(account.GetProperty("mandate").GetProperty("useFullPortfolio").GetBoolean());
+        Assert.Equal(HttpStatusCode.Conflict, (await client.PostAsJsonAsync("/live/mandate", update)).StatusCode);
+    }
+
+    [Fact]
     public async Task Owner_meetings_supports_date_filtering_and_preserves_history_index()
     {
         await using var factory = new Factory();
