@@ -9,7 +9,7 @@ test('history preserves selection, avoids empty-day queries, and cancels stale r
   // No DOM package, wall-clock wait, owner session or actual network is needed.
   const state=[], refs=[], effects=[], jobs=new Map(), calls=[], replies=[];
   let s=0, r=0, e=0, dirty=true, tree, renders=0, enabled=true, id=0;
-  let availableDates=['2026-10-06','2026-10-04'], fetchFailure=false;
+  let availableDates=['2026-10-06','2026-10-04'], fetchFailure=true;
   t.mock.method(React, 'useState', initial => {
     const i=s++; if (!(i in state)) state[i]=initial;
     return [state[i], value => { const next=typeof value === 'function' ? value(state[i]) : value; if (!Object.is(next,state[i])) {state[i]=next; dirty=true;} }];
@@ -38,13 +38,20 @@ test('history preserves selection, avoids empty-day queries, and cancels stale r
       await new Promise(setImmediate);
     }
   }
-  function view(node=tree) {
-    if (node?.type?.name==='LiveMeetingView') return node;
-    for (const child of React.Children.toArray(node?.props?.children)) {const found=view(child); if (found) return found;}
+  function component(name,node=tree) {
+    if (node?.type?.name===name) return node;
+    for (const child of React.Children.toArray(node?.props?.children)) {const found=component(name,child); if (found) return found;}
   }
+  const view=()=>component('LiveMeetingView');
   function poll() {const entry=[...jobs].find(([,job])=>job.delay===30000); assert.ok(entry); jobs.delete(entry[0]); entry[1].run();}
   await flush(); assert.equal(calls.length,1);
-  replies.shift()(); await flush(); assert.equal(calls.length,1,'initial date must not issue a duplicate fetch');
+  const failedHtml=renderToStaticMarkup(tree); assert.match(failedHtml,/role="alert"/); assert.match(failedHtml,/<button[^>]*type="button"[^>]*>ลองใหม่<\/button>/);
+  assert.doesNotMatch(failedHtml,/skeleton-line/);
+  fetchFailure=false; component('ReportPlaceholder').props.onRetry(); await flush();
+  assert.equal(calls.length,2,'manual retry must issue exactly one bounded GET');
+  assert.equal([...jobs.values()].filter(job=>job.delay===30000).length,0,'retry cancels the previous poll timer');
+  assert.match(renderToStaticMarkup(tree),/skeleton-line/);
+  replies.shift()(); await flush(); assert.equal(calls.length,2,'initial date must not issue a duplicate fetch');
   assert.equal(view().props.selectedDate,'2026-10-06');
   availableDates=['2026-10-07',...availableDates];
   poll(); await flush(); assert.ok(!calls.at(-1).includes('?date='),'automatic latest view must poll the latest feed');
@@ -62,6 +69,12 @@ test('history preserves selection, avoids empty-day queries, and cancels stale r
   replies.shift()(); await flush(); assert.equal(view().props.selectedDate,'2026-10-06'); assert.equal(view().props.pending,true);
   replies.shift()(); await flush(); assert.equal(view().props.pending,false); assert.equal(view().props.meetings[0].businessDate,'2026-10-06');
   fetchFailure=true; poll(); await flush(); assert.equal(view().props.failed,true); assert.ok(renderToStaticMarkup(tree).includes('กำลังใช้รายงานที่บันทึกไว้'));
-  fetchFailure=false; poll(); await flush(); replies.shift()(); await flush(); assert.equal(view().props.failed,false); assert.equal(view().props.meetings[0].businessDate,'2026-10-06');
+  const selectedAttempt=view().props.meetings[0].attemptId; view().props.onSelect(selectedAttempt); await flush();
+  fetchFailure=false; const callsBeforeRetry=calls.length; view().props.onRetry(); await flush();
+  assert.equal(calls.length,callsBeforeRetry+1); assert.ok(calls.at(-1).endsWith('?date=2026-10-06'));
+  assert.equal(view().props.selected,selectedAttempt); assert.equal(view().props.selectedDate,'2026-10-06');
+  assert.equal(view().props.meetings[0].businessDate,'2026-10-06','retry must retain the saved report');
+  replies.shift()(); await flush(); assert.equal(view().props.failed,false); assert.equal(view().props.meetings[0].businessDate,'2026-10-06');
+  assert.equal([...jobs.values()].filter(job=>job.delay===30000).length,1,'successful retry leaves one polling timer');
   enabled=false; dirty=true; await flush(); assert.equal(tree,null); assert.equal(jobs.size,0);
 });

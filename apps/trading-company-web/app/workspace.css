@@ -55,6 +55,7 @@
 .team-report-state { padding-top: 24px; margin-top: 24px; border-top: 1px solid var(--line); }
 .report-update-state { min-height: 3.4em; margin: 0; font-size: 14px; }
 .report-skeleton { display: grid; align-content: start; gap: 18px; min-height: 260px; padding: 12px 0; }
+.team-report-retry { justify-self: start; min-height: 44px; padding: 9px 17px; border: 1px solid var(--ink); border-radius: 6px; background: var(--white); font: inherit; cursor: pointer; }
 .skeleton-line { display: block; height: 16px; width: min(100%, 36rem); border-radius: 4px; background: var(--line); }
 .skeleton-heading { width: 45%; height: 24px; }
 .skeleton-value { width: 70%; height: 32px; }

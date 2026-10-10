@@ -15,8 +15,8 @@ const text = (v: unknown, max: number): v is string => typeof v === "string" && 
 const count = (v: unknown): v is number => typeof v === "number" && Number.isSafeInteger(v) && v >= 0 && v <= 10_000_000;
 const uuid = (v: unknown) => typeof v === "string" && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(v) && !/^0{8}-0{4}-0{4}-0{4}-0{12}$/.test(v);
 const date = (v: unknown): v is string => typeof v === "string" && /^\d{4}-\d{2}-\d{2}$/.test(v) && Number.isFinite(Date.parse(v)) && new Date(v).toISOString().startsWith(v);
-function ReportPlaceholder({ message, failed = false }: { message: string; failed?: boolean }) {
-  return <div className="report-skeleton" role={failed ? "alert" : "status"} aria-label={message}><p>{message}</p><span className="skeleton-line" /><span className="skeleton-line" /><span className="skeleton-line" /></div>;
+function ReportPlaceholder({ message, failed = false, onRetry }: { message: string; failed?: boolean; onRetry?: () => void }) {
+  return <div className="report-skeleton" role={failed ? "alert" : "status"} aria-label={message}><p>{message}</p>{failed ? onRetry && <button className="team-report-retry" type="button" onClick={onRetry}>ลองใหม่</button> : <><span className="skeleton-line" /><span className="skeleton-line" /><span className="skeleton-line" /></>}</div>;
 }
 export function readMeetings(value: unknown, now = Date.now()): Meetings | undefined {
   if (!object(value) || !object(value.accountContext)) return;
@@ -71,6 +71,7 @@ export function LiveTeamReports({ enabled }: { enabled: boolean }) {
   const [selected, setSelected] = useState("");
   const [selectedDate, setSelectedDate] = useState<string | undefined>();
   const [pending, setPending] = useState(false);
+  const [retry, setRetry] = useState(0);
   const current = useRef<Meetings | undefined>(undefined);
   useEffect(() => {
     current.current = undefined;
@@ -97,28 +98,29 @@ export function LiveTeamReports({ enabled }: { enabled: boolean }) {
     }
     if (emptyDate) timer = setTimeout(load, 30000); else void load();
     return () => { controller.abort(); clearTimeout(timer); };
-  }, [enabled, selectedDate]);
+  }, [enabled, selectedDate, retry]);
   if (!enabled) return null;
   const day = selectedDate ?? data?.availableDates[0];
   const dayLoaded = data?.selectedDate === day || (data?.selectedDate === null && data.availableDates[0] === day);
   return <section className="team-report-state"><h3>รายงานประชุม Live</h3>
-    {!data ? <ReportPlaceholder message={bad ? "ยังอ่านรายงานไม่ได้ กรุณาลองอีกครั้ง" : "กำลังอ่านรายงาน…"} failed={bad} /> :
+    {!data ? <ReportPlaceholder message={bad ? "ยังอ่านรายงานไม่ได้" : "กำลังอ่านรายงาน…"} failed={bad} onRetry={() => setRetry(value => value + 1)} /> :
       <LiveMeetingView meetings={data.meetings} selected={selected} onSelect={setSelected} availableDates={data.availableDates}
         selectedDate={day} pending={pending || (!!day && data.hasDateIndex && data.availableDates.includes(day) && !dayLoaded)}
         failed={bad || (!!selectedDate && !data.hasDateIndex && !data.availableDates.includes(selectedDate))}
+        onRetry={() => setRetry(value => value + 1)}
         onDateSelect={day => { if (date(day)) { setSelectedDate(day); setSelected(""); } }} />}
   </section>;
 }
-export function LiveMeetingView({ meetings, selected, onSelect, availableDates, selectedDate, onDateSelect, pending = false, failed = false }: {
+export function LiveMeetingView({ meetings, selected, onSelect, availableDates, selectedDate, onDateSelect, onRetry, pending = false, failed = false }: {
   meetings: Meeting[]; selected: string; onSelect: (value: string) => void; availableDates?: string[]; selectedDate?: string;
-  onDateSelect?: (value: string) => void; pending?: boolean; failed?: boolean;
+  onDateSelect?: (value: string) => void; onRetry?: () => void; pending?: boolean; failed?: boolean;
 }) {
   availableDates ??= Array.from(new Set(meetings.map(m => m.businessDate))).sort().reverse();
   const chosenDate = selectedDate ?? availableDates[0] ?? meetings[0]?.businessDate;
   const dayMeetings = chosenDate ? meetings.filter(m => m.businessDate === chosenDate) : meetings;
   const meeting = dayMeetings.find(m => m.attemptId === selected) ?? dayMeetings[0];
   const picker = <DatePicker availableDates={availableDates} selectedDate={chosenDate} onDateSelect={onDateSelect} />;
-  if (failed && !meeting) return <>{picker}<ReportPlaceholder message="ยังอ่านรายงานวันที่เลือกไม่ได้ ระบบจะลองใหม่อัตโนมัติ" failed /> </>;
+  if (failed && !meeting) return <>{picker}<ReportPlaceholder message="ยังอ่านรายงานวันที่เลือกไม่ได้" failed onRetry={onRetry} /> </>;
   if (pending && !meeting) return <>{picker}<ReportPlaceholder message="กำลังอ่านรายงาน…" /></>;
   if (!meeting) return <>{picker}<p>{availableDates.length ? "ยังไม่มีรายงานในวันที่เลือก" : "ยังไม่มีรายงานประชุม"}</p></>;
   const reports = meeting.summary?.reports ?? [], final = reports.find(r => r.role === "portfolio-final"), initial = reports.find(r => r.role === "portfolio-initial");
@@ -127,7 +129,9 @@ export function LiveMeetingView({ meetings, selected, onSelect, availableDates, 
   const issues = meeting.summary?.issues?.filter(i => i.code !== "MARKET_HISTORY_UNAVAILABLE").map(i => issueText[i.code]);
   if (historyGaps?.length) issues?.unshift(`${issueText.MARKET_HISTORY_UNAVAILABLE} ${historyGaps.map(i => `(${i.symbol})`).join(" · ")}`);
   const meetingLabel = meeting.reviewHour == null ? "ประชุมประจำวัน" : `ทบทวน ${String(meeting.reviewHour).padStart(2, "0")}:${String(meeting.reviewMinute ?? 0).padStart(2, "0")}`;
-  return <><DatePicker availableDates={availableDates} selectedDate={chosenDate} onDateSelect={onDateSelect} /><p className="report-update-state" role={failed ? "alert" : "status"}>{failed ? "อัปเดตรายงานไม่สำเร็จ กำลังใช้รายงานที่บันทึกไว้" : pending ? "กำลังอัปเดตรายงาน · แสดงรายงานที่บันทึกไว้" : ""}</p>{dayMeetings.length > 1 ? <label className="team-meeting-date">รอบประชุม<select value={meeting.attemptId} onChange={e => onSelect(e.target.value)}>{dayMeetings.map(m => <option key={m.attemptId} value={m.attemptId}>{m.reviewHour == null ? "ประชุมประจำวัน" : `ทบทวน ${String(m.reviewHour).padStart(2, "0")}:${String(m.reviewMinute ?? 0).padStart(2, "0")}`}</option>)}</select></label> : <p className="team-meeting-date-label">รอบประชุม · {meetingLabel}</p>}
+  return <><DatePicker availableDates={availableDates} selectedDate={chosenDate} onDateSelect={onDateSelect} /><p className="report-update-state" role={failed ? "alert" : "status"}>{failed ? "อัปเดตรายงานไม่สำเร็จ กำลังใช้รายงานที่บันทึกไว้" : pending ? "กำลังอัปเดตรายงาน · แสดงรายงานที่บันทึกไว้" : ""}</p>
+    {failed && onRetry && <button className="team-report-retry" type="button" onClick={onRetry}>ลองใหม่</button>}
+    {dayMeetings.length > 1 ? <label className="team-meeting-date">รอบประชุม<select value={meeting.attemptId} onChange={e => onSelect(e.target.value)}>{dayMeetings.map(m => <option key={m.attemptId} value={m.attemptId}>{m.reviewHour == null ? "ประชุมประจำวัน" : `ทบทวน ${String(m.reviewHour).padStart(2, "0")}:${String(m.reviewMinute ?? 0).padStart(2, "0")}`}</option>)}</select></label> : <p className="team-meeting-date-label">รอบประชุม · {meetingLabel}</p>}
     <p className="team-meeting-outcome">{meeting.summary?.advisoryOnly ? "รอบนี้วิเคราะห์เท่านั้น · ไม่ได้ส่งคำสั่ง" : statuses[meeting.status] ?? "รอบสิ้นสุดโดยยังไม่มีข้อเสนอที่นำไปใช้ได้"}</p>
     {!!issues?.length && <p className="team-meeting-issues">{issues.join(" · ")}</p>}
     {!!meeting.summary?.planRejectionReasons?.length && <p className="team-meeting-issues">{Array.from(new Set(meeting.summary.planRejectionReasons.map(r => ({ PLAN_ALREADY_ACTIVE: "มีแผนเหรียญนี้อยู่แล้ว", PLAN_ROUND_TRIP_TURNOVER_EXCEEDED: "วงเงินวันนี้ไม่พอทั้งซื้อและขาย", PLAN_EXIT_BELOW_MINIMUM: "จำนวนขายต่ำกว่าขั้นต่ำตลาด", PLAN_TARGET_BELOW_COSTS: "เป้าขายยังไม่คุ้มค่าธรรมเนียม", PLAN_CASH_OVERCOMMITTED: "เงินสดไม่พอรวมแผนที่รออยู่", PLAN_EXIT_ORDER_LIMIT: "ยอดขายเกินวงเงินต่อคำสั่ง", UNRESOLVED_ORDER: "ยังมีคำสั่งรอยืนยัน", OPEN_POSITION_LIMIT: "จำนวนเหรียญเกินสิทธิ์ที่เปิดไว้", NOT_ARMED: "ยังไม่เปิดสิทธิ์ส่งคำสั่ง", STOPPED: "เจ้าของพักส่งคำสั่งแล้ว" } as Record<string, string>)[r] ?? "แผนไม่ผ่านการตรวจบัญชีหรือความเสี่ยง"))).join(" · ")}</p>}
