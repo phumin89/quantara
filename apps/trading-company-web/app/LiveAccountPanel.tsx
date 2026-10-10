@@ -13,6 +13,8 @@ import { readBitkubWallet } from "./bitkubWallet";
 import type { BitkubWallet } from "./bitkubWallet";
 import { activityLifetime, readLiveActivity } from "./liveActivity";
 import type { LiveActivity } from "./liveActivity";
+import { OwnerPairingForm } from "./OwnerPairingForm";
+import { pairOwner } from "./ownerSetupClient";
 
 const ownerOrigin = "https://localhost:3000";
 const executor = "https://localhost:7443";
@@ -53,8 +55,9 @@ export async function readLiveStatus(origin: string, fetcher: typeof fetch = fet
 }
 // No arm or order-submission action in this readiness client. Never retry a mutation.
 export async function postOwnerAction(origin: string, action: "pair" | "stop" | "logout", code?: string,
-  fetcher: typeof fetch = fetch, signal?: AbortSignal, rememberBrowser = false): Promise<{ ok: boolean }> {
+  fetcher: typeof fetch = fetch, signal?: AbortSignal, rememberBrowser = false, rememberControl = false): Promise<{ ok: boolean }> {
   if (origin !== ownerOrigin || !["pair", "stop", "logout"].includes(action)) return { ok: false };
+  if (action === "pair") return pairOwner(origin, code ?? "", rememberBrowser, rememberControl, fetcher, signal);
   try {
     const csrf = await requestJson(`${executor}/owner/csrf`, { credentials: "include", signal }, fetcher);
     if (csrf.status !== 200) return { ok: false };
@@ -63,15 +66,15 @@ export async function postOwnerAction(origin: string, action: "pair" | "stop" | 
     const response = await requestJson(`${executor}/${action === "stop" ? "live/stop" : `owner/${action}`}`, {
       method: "POST", credentials: "include", cache: "no-store", signal,
       headers: { "Content-Type": "application/json", "X-CSRF-TOKEN": token },
-      body: action === "pair" ? JSON.stringify({ code, rememberBrowser }) : undefined,
+      body: undefined,
     }, fetcher);
     return { ok: response.status >= 200 && response.status < 300 };
   } catch { return { ok: false }; }
 }
 
-export function LiveReadinessView({ state, code, busy, rememberBrowser = true, accountOnly = false, onCodeChange, onRememberBrowserChange, onPair }: {
-  state: Connection; code?: string; busy?: boolean; rememberBrowser?: boolean; onCodeChange?: (value: string) => void;
-  onRememberBrowserChange?: (value: boolean) => void; onPair?: () => void; accountOnly?: boolean;
+export function LiveReadinessView({ state, code, busy, rememberBrowser = true, rememberControl = false, accountOnly = false, onCodeChange, onRememberBrowserChange, onRememberControlChange, onPair }: {
+  state: Connection; code?: string; busy?: boolean; rememberBrowser?: boolean; rememberControl?: boolean; onCodeChange?: (value: string) => void;
+  onRememberBrowserChange?: (value: boolean) => void; onRememberControlChange?: (value: boolean) => void; onPair?: () => void; accountOnly?: boolean;
 }) {
   const title = state.kind === "connected" ? labels[state.status.state] :
     state.kind === "loading" ? "กำลังตรวจระบบเงินจริง" : state.kind === "pair-required" ? "ยืนยันเจ้าของก่อนดูบัญชี" :
@@ -84,16 +87,10 @@ export function LiveReadinessView({ state, code, busy, rememberBrowser = true, a
     {state.kind === "unavailable" && <p>ยังยืนยันสถานะและยอดเงินไม่ได้ ตรวจบริการเจ้าของบัญชีและใบรับรอง HTTPS แล้วลองตรวจอีกครั้ง อย่าถือว่าการขาดการเชื่อมต่อคือคำสั่งหยุดสำเร็จ</p>}
     {state.kind === "pair-required" && <>
       <p>วางรหัสจากหน้าต่าง Quantara - Bitkub pairing ภายใน 5 นาที</p>
-      <form className="live-owner-form" onSubmit={event => { event.preventDefault(); onPair?.(); }}>
-        <label htmlFor="owner-code">รหัสจับคู่เจ้าของบัญชี</label>
-        <input id="owner-code" type="password" autoComplete="off" value={code ?? ""} onChange={event => onCodeChange?.(event.target.value)} required maxLength={64} disabled={busy} aria-describedby="owner-code-help" />
-        <p id="owner-code-help" className="live-form-help">รหัสนี้ใช้เข้าแอปบนเครื่องนี้ ไม่ใช่ API key หรือ Secret</p>
-        <label className="live-remember-browser"><input type="checkbox" checked={rememberBrowser} onChange={event => onRememberBrowserChange?.(event.target.checked)} disabled={busy} />จำเบราว์เซอร์นี้สำหรับดูบัญชี 30 วัน</label>
-        <p className="live-form-help">ใช้สำหรับดูข้อมูลเท่านั้น การควบคุมเงินต้องยืนยันใหม่ และควรยกเลิกบนเครื่องที่ใช้ร่วมกัน</p>
-        <div className="live-owner-form-actions">
-          <button disabled={busy || !(code ?? "").trim()} type="submit">{busy ? "กำลังยืนยัน…" : "ยืนยันเจ้าของ"}</button>
-        </div>
-      </form>
+      <OwnerPairingForm code={code ?? ""} busy={busy ?? false} rememberBrowser={rememberBrowser}
+        rememberControl={rememberControl} onCodeChange={onCodeChange ?? (() => undefined)}
+        onRememberBrowserChange={onRememberBrowserChange ?? (() => undefined)}
+        onRememberControlChange={onRememberControlChange ?? (() => undefined)} onPair={onPair ?? (() => undefined)} />
     </>}
     {state.kind === "connected" && state.status.state !== "DISABLED" && state.status.reasons.length > 0 && <ul>{state.status.reasons.map((r, i) =>
       <li key={`${r}-${i}`}>{reasons[r] ?? "มีเงื่อนไขที่ต้องตรวจสอบจากระบบเจ้าของบัญชี"}</li>)}</ul>}
@@ -115,8 +112,8 @@ export async function readLiveObservation(origin: string, fetcher: typeof fetch 
 }
 
 type LiveWorkspace = Observation & {
-  refreshing: boolean; busy: boolean; code: string; rememberBrowser: boolean; message: string;
-  setCode: (code: string) => void; setRememberBrowser: (remember: boolean) => void;
+  refreshing: boolean; busy: boolean; code: string; rememberBrowser: boolean; rememberControl: boolean; message: string;
+  setCode: (code: string) => void; setRememberBrowser: (remember: boolean) => void; setRememberControl: (remember: boolean) => void;
   refresh: () => void; act: (action: "pair" | "stop" | "logout") => Promise<void>;
 };
 const LiveContext = createContext<LiveWorkspace | null>(null);
@@ -130,6 +127,7 @@ export function LiveAccountProvider({ children }: { children: ReactNode }) {
   const [state, setState] = useState<Connection>({ kind: "loading" });
   const [code, setCode] = useState("");
   const [rememberBrowser, setRememberBrowser] = useState(true);
+  const [rememberControl, setRememberControl] = useState(false);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
   const [revision, setRevision] = useState(0);
@@ -183,28 +181,28 @@ export function LiveAccountProvider({ children }: { children: ReactNode }) {
     setWallet(undefined);
     setActivity(undefined);
     const pairingCode = code; setCode("");
-    const result = await postOwnerAction(window.location.origin, action, pairingCode, fetch, controller.signal, rememberBrowser);
+    const result = await postOwnerAction(window.location.origin, action, pairingCode, fetch, controller.signal, rememberBrowser, rememberControl);
     actionAbort.current = null;
     if (controller.signal.aborted) return;
     setBusy(false);
     // Clear cached authority after any mutation, including an ambiguous outcome.
     setState({ kind: "loading" });
     setMessage(result.ok ? action === "stop" ? "บันทึกคำสั่งหยุดแล้ว ไม่ได้ขายสินทรัพย์หรือยกเลิกคำสั่งค้างอัตโนมัติ" :
-      action === "pair" ? (rememberBrowser ? "จับคู่แล้ว จดจำเบราว์เซอร์นี้เพื่อดูบัญชีได้ 30 วัน การจับคู่ไม่เปิดการเทรด" : "จับคู่แล้ว การจับคู่ไม่เปิดการเทรด") : "ออกจากระบบแล้ว การออกจากระบบไม่ใช่คำสั่งหยุดเทรด" :
+      action === "pair" ? (rememberControl ? "จับคู่แล้ว จดจำสิทธิ์ควบคุมไว้ 30 วัน การจับคู่ไม่เปิดการเทรด" : rememberBrowser ? "จับคู่แล้ว จดจำเบราว์เซอร์นี้เพื่อดูบัญชีได้ 30 วัน การจับคู่ไม่เปิดการเทรด" : "จับคู่แล้ว การจับคู่ไม่เปิดการเทรด") : "ออกจากระบบแล้ว การออกจากระบบไม่ใช่คำสั่งหยุดเทรด" :
       action === "stop" ? "ยังยืนยันการหยุดไม่ได้ ตรวจสถานะจากบริการเจ้าของบัญชี ห้ามถือว่าหยุดสำเร็จ" : "ดำเนินการไม่สำเร็จ ตรวจการเชื่อมต่อหรือขอรหัสจับคู่ใหม่ ไม่มีการลองซ้ำอัตโนมัติ");
     setRevision(r => r + 1);
   }
-  return <LiveContext.Provider value={{ state, account, wallet, activity, refreshing, busy, code, rememberBrowser, message,
-    setCode, setRememberBrowser, refresh: () => setRevision(r => r + 1), act }}>
+  return <LiveContext.Provider value={{ state, account, wallet, activity, refreshing, busy, code, rememberBrowser, rememberControl, message,
+    setCode, setRememberBrowser: value => { setRememberBrowser(value); if (!value) setRememberControl(false); }, setRememberControl, refresh: () => setRevision(r => r + 1), act }}>
     {children}
     <CompanyChat compact={state.kind !== "connected" || state.status.state === "DISABLED"}><LiveTeamSummary /></CompanyChat>
   </LiveContext.Provider>;
 }
 
 function OwnerAccess({ accountOnly = false }: { accountOnly?: boolean }) {
-  const { state, code, busy, rememberBrowser, setCode, setRememberBrowser, act } = useLiveAccount();
+  const { state, code, busy, rememberBrowser, rememberControl, setCode, setRememberBrowser, setRememberControl, act } = useLiveAccount();
   return <LiveReadinessView state={busy ? { kind: "loading" } : state} code={code} busy={busy}
-    rememberBrowser={rememberBrowser} accountOnly={accountOnly} onCodeChange={setCode} onRememberBrowserChange={setRememberBrowser}
+    rememberBrowser={rememberBrowser} rememberControl={rememberControl} accountOnly={accountOnly} onCodeChange={setCode} onRememberBrowserChange={setRememberBrowser} onRememberControlChange={setRememberControl}
     onPair={() => void act("pair")} />;
 }
 

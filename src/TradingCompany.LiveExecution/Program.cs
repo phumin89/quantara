@@ -218,7 +218,7 @@ public class LiveProgram
         app.MapPost("/owner/pair", async (PairRequest request, OwnerSession sessions, HttpContext context) =>
         {
             (int Status, string? SessionId) result;
-            try { result = sessions.TryPair(request.Code, request.RememberBrowser); }
+            try { result = sessions.TryPair(request.Code, request.RememberBrowser, request.RememberControl); }
             catch { return Results.StatusCode(503); }
             if (result.Status != 204) return Results.StatusCode(result.Status);
             var claims = new[]
@@ -247,5 +247,5 @@ public class LiveProgram
         app.Run();
     }
 
-    public sealed record PairRequest(string? Code, bool RememberBrowser = false);
+    public sealed record PairRequest(string? Code, bool RememberBrowser = false, bool RememberControl = false);
 }

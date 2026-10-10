@@ -42,6 +42,19 @@ export function sameOwnerConsent(before: OwnerSetup, after: OwnerSetup) {
     JSON.stringify(before.verifiedSymbols) === JSON.stringify(after.verifiedSymbols);
 }
 const actions = new Set(["/live/provision", "/live/mandate", "/live/baseline", "/live/day-baseline", "/live/reconcile", "/live/arm"]);
+export async function pairOwner(origin: string, code: string, rememberBrowser: boolean, rememberControl: boolean,
+  fetcher: typeof fetch = fetch, signal?: AbortSignal): Promise<{ ok: boolean }> {
+  if (origin !== ownerOrigin || !code || rememberControl && !rememberBrowser) return { ok: false };
+  try {
+    const csrf = await requestJson(`${executorOrigin}/owner/csrf`, { credentials: "include", signal }, fetcher);
+    if (csrf.status !== 200 || !object(csrf.data) || typeof csrf.data.token !== "string" || !csrf.data.token) return { ok: false };
+    const result = await requestJson(`${executorOrigin}/owner/pair`, {
+      method: "POST", credentials: "include", signal, headers: { "Content-Type": "application/json", "X-CSRF-TOKEN": csrf.data.token },
+      body: JSON.stringify({ code, rememberBrowser, ...(rememberControl ? { rememberControl: true } : {}) }),
+    }, fetcher);
+    return { ok: result.status >= 200 && result.status < 300 };
+  } catch { return { ok: false }; }
+}
 export async function ownerMutation(origin: string, path: string, body: unknown, fetcher: typeof fetch = fetch, signal?: AbortSignal) {
   if (origin !== ownerOrigin || !actions.has(path)) return { status: 0, data: undefined };
   const csrf = await requestJson(`${executorOrigin}/owner/csrf`, { credentials: "include", signal }, fetcher);

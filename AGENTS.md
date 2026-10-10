@@ -10,6 +10,8 @@ This repository follows the engineering rules in the source instructions: clean,
 
 ## Execution safety rules
 
+- Owner direction on 2026-10-10: remove repeated browser-control confirmation from normal use. Offer an explicit 30-day remembered-control option during fresh local owner pairing. Existing viewing-only sessions stay viewing-only; logout, new local pairing and expiry revoke the grant. Pairing never activates trading or changes account limits, binding, Stop, or RiskEngine.
+
 - Owner direction on 2026-10-08: owner supplies funding; CEO and team plan allocation and trades to pursue evidence-supported net profit after costs. Funding activation may restore the per-order ceiling to existing authorized capital only when the owner explicitly runs it. Models cannot increase authority or bypass RiskEngine; startup/UI updates do not change actual limits. The 100-THB trial remains separate. No claimed profitability without real execution and reproducible performance evidence.
 
 - Product direction approved on 2026-09-27: support separate Sandbox and Live modes. Existing V1 remains paper-only until the live implementation is verified; do not describe design work as working live execution.

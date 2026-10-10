@@ -5,7 +5,7 @@ using Microsoft.AspNetCore.DataProtection;
 
 namespace TradingCompany.LiveExecution;
 
-/// <summary>Remembered viewing may survive restart; control authority never does.</summary>
+/// <summary>Remembered control requires explicit consent during local owner pairing.</summary>
 public sealed class OwnerSession
 {
     public static readonly TimeSpan ViewingLifetime = TimeSpan.FromDays(30);
@@ -20,7 +20,6 @@ public sealed class OwnerSession
     private int attempts;
     private byte[]? sessionHash;
     private DateTimeOffset sessionExpires;
-    private string? controlSessionId;
     private DateTimeOffset controlExpires;
 
     public OwnerSession(TimeProvider clock, IDataProtectionProvider? provider = null, string? stateDirectory = null)
@@ -40,6 +39,8 @@ public sealed class OwnerSession
             if (saved is null || saved.Expires <= now || saved.Expires > now.Add(ViewingLifetime) || saved.Hash is not { Length: 64 }) return;
             sessionHash = Convert.FromHexString(saved.Hash);
             sessionExpires = saved.Expires;
+            if (saved.ControlExpires is { } control && control > now && control <= saved.Expires)
+                controlExpires = control;
         }
         catch (Exception error) when (error is IOException or UnauthorizedAccessException or CryptographicException or JsonException or FormatException)
         {
@@ -59,14 +60,14 @@ public sealed class OwnerSession
             attemptWindow = clock.GetUtcNow();
             attempts = 0;
             sessionHash = null;
-            controlSessionId = null;
+            controlExpires = default;
             var text = Convert.ToHexString(code);
             CryptographicOperations.ZeroMemory(code);
             return text;
         }
     }
 
-    public (int Status, string? SessionId) TryPair(string? code, bool rememberBrowser = false)
+    public (int Status, string? SessionId) TryPair(string? code, bool rememberBrowser = false, bool rememberControl = false)
     {
         lock (sync)
         {
@@ -77,6 +78,7 @@ public sealed class OwnerSession
                 attempts = 0;
             }
             if (++attempts > 5) return (429, null);
+            if (rememberControl && !rememberBrowser) return (400, null);
             if (pairingHash is null || now >= pairingExpires || code is null || code.Length != 64)
                 return (401, null);
             byte[] bytes;
@@ -89,12 +91,12 @@ public sealed class OwnerSession
             var id = Guid.NewGuid().ToString("N");
             var hash = Hash(id);
             var expires = now.Add(rememberBrowser ? ViewingLifetime : ControlLifetime);
-            SaveViewing(rememberBrowser ? new(Convert.ToHexString(hash), expires) : null);
+            var control = now.Add(rememberControl ? ViewingLifetime : ControlLifetime);
+            SaveViewing(rememberBrowser ? new(Convert.ToHexString(hash), expires, rememberControl ? control : null) : null);
             pairingHash = null;
             sessionHash = hash;
             sessionExpires = expires;
-            controlSessionId = id;
-            controlExpires = now.Add(ControlLifetime);
+            controlExpires = control;
             return (204, id);
         }
     }
@@ -106,7 +108,7 @@ public sealed class OwnerSession
 
     public bool CanControl(string? id)
     {
-        lock (sync) return id is not null && id == controlSessionId && Matches(id) &&
+        lock (sync) return Matches(id) &&
             clock.GetUtcNow() < controlExpires && clock.GetUtcNow() < sessionExpires;
     }
 
@@ -117,7 +119,7 @@ public sealed class OwnerSession
             if (!Matches(id)) return;
             SaveViewing(null);
             sessionHash = null;
-            controlSessionId = null;
+            controlExpires = default;
         }
     }
 
@@ -140,5 +142,7 @@ public sealed class OwnerSession
         File.Move(temporary, sessionFile, overwrite: true);
     }
 
-    private sealed record SavedViewing(string Hash, DateTimeOffset Expires);
+    private sealed record SavedViewing(string Hash, DateTimeOffset Expires,
+        [property: System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+        DateTimeOffset? ControlExpires = null);
 }

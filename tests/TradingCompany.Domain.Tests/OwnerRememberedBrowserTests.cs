@@ -81,6 +81,84 @@ public sealed class OwnerRememberedBrowserTests : IDisposable
     }
 
     [Fact]
+    public async Task Explicit_remembered_control_survives_eight_hours_and_restart_without_arming_trading()
+    {
+        var clock = new Clock();
+        string cookie;
+        await using (var first = new Factory(clock, directory, Provider()))
+        {
+            using var client = first.Client();
+            cookie = OwnerCookie(await Pair(first, client, true, rememberControl: true)).Split(';')[0];
+            clock.Now += TimeSpan.FromHours(9);
+            var setup = await client.GetFromJsonAsync<JsonElement>("/live/setup");
+            Assert.True(setup.GetProperty("canControl").GetBoolean());
+        }
+        await using var restarted = new Factory(clock, directory, Provider());
+        using var restored = restarted.Client(cookie);
+        var setupAfterRestart = await restored.GetFromJsonAsync<JsonElement>("/live/setup");
+        Assert.True(setupAfterRestart.GetProperty("canControl").GetBoolean());
+        var state = await restored.GetFromJsonAsync<JsonElement>("/live/status");
+        Assert.False(state.GetProperty("armed").GetBoolean());
+        Assert.Equal("DISABLED", state.GetProperty("state").GetString());
+        clock.Now += TimeSpan.FromDays(30) - TimeSpan.FromHours(9);
+        Assert.Equal(HttpStatusCode.Unauthorized, (await restored.GetAsync("/live/setup")).StatusCode);
+    }
+
+    [Fact]
+    public async Task Remembered_control_requires_explicit_browser_remembering()
+    {
+        await using var app = new Factory(new Clock(), directory, Provider());
+        using var client = app.Client();
+        var result = await Pair(app, client, false, rememberControl: true);
+        Assert.Equal(HttpStatusCode.BadRequest, result.StatusCode);
+        Assert.Equal(HttpStatusCode.Unauthorized, (await client.GetAsync("/live/setup")).StatusCode);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Logout_or_new_local_pairing_revokes_persisted_control(bool newPairing)
+    {
+        var clock = new Clock();
+        string cookie;
+        await using (var app = new Factory(clock, directory, Provider()))
+        {
+            using var client = app.Client();
+            cookie = OwnerCookie(await Pair(app, client, true, rememberControl: true)).Split(';')[0];
+            clock.Now += TimeSpan.FromHours(9);
+            if (newPairing) app.Services.GetRequiredService<OwnerSession>().IssuePairingCode();
+            else
+            {
+                await Token(client);
+                Assert.Equal(HttpStatusCode.NoContent, (await client.PostAsync("/owner/logout", null)).StatusCode);
+            }
+        }
+        await using var restarted = new Factory(clock, directory, Provider());
+        using var copy = restarted.Client(cookie);
+        Assert.Equal(HttpStatusCode.Unauthorized, (await copy.GetAsync("/live/setup")).StatusCode);
+    }
+
+    [Fact]
+    public void Protected_control_grant_contains_no_session_token_and_rejects_invalid_expiry()
+    {
+        var clock = new Clock();
+        var provider = Provider();
+        var sessions = new OwnerSession(clock, provider, directory);
+        var paired = sessions.TryPair(sessions.IssuePairingCode(), true, true);
+        var file = Path.Combine(directory, "session.bin");
+        Assert.DoesNotContain(paired.SessionId!, System.Text.Encoding.UTF8.GetString(File.ReadAllBytes(file)));
+        Assert.True(new OwnerSession(clock, provider, directory).CanControl(paired.SessionId));
+        Assert.False(new OwnerSession(clock, provider, directory).CanControl(Guid.NewGuid().ToString("N")));
+        var protector = provider.CreateProtector("Quantara.RememberedViewing.v1");
+        var saved = System.Text.Json.Nodes.JsonNode.Parse(protector.Unprotect(File.ReadAllBytes(file)))!;
+        saved["ControlExpires"] = clock.Now.AddDays(31).ToString("O");
+        File.WriteAllBytes(file, protector.Protect(JsonSerializer.SerializeToUtf8Bytes(saved)));
+        var rejected = new OwnerSession(clock, provider, directory);
+        Assert.True(rejected.IsActive(paired.SessionId));
+        Assert.False(rejected.CanControl(paired.SessionId));
+    }
+
+    [Fact]
     public async Task Logout_after_eight_hours_forgets_browser_and_revokes_copied_cookie_after_restart()
     {
         var clock = new Clock();
@@ -153,11 +231,11 @@ public sealed class OwnerRememberedBrowserTests : IDisposable
     private static string OwnerCookie(HttpResponseMessage response) =>
         Assert.Single(response.Headers.GetValues("Set-Cookie"), value => value.StartsWith("__Host-QuantaraOwner="));
 
-    private static async Task<HttpResponseMessage> Pair(Factory factory, HttpClient client, bool rememberBrowser)
+    private static async Task<HttpResponseMessage> Pair(Factory factory, HttpClient client, bool rememberBrowser, bool rememberControl = false)
     {
         var code = factory.Services.GetRequiredService<OwnerSession>().IssuePairingCode();
         await Token(client);
-        return await client.PostAsJsonAsync("/owner/pair", new { code, rememberBrowser });
+        return await client.PostAsJsonAsync("/owner/pair", new { code, rememberBrowser, rememberControl });
     }
 
     private static async Task Token(HttpClient client)

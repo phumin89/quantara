@@ -2,7 +2,8 @@
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { requestJson } from "./requestJson";
-import { executorOrigin, fullSpotMandate, ownerMutation, ownerOrigin, readOwnerSetup, sameOwnerConsent } from "./ownerSetupClient";
+import { OwnerPairingForm } from "./OwnerPairingForm";
+import { executorOrigin, fullSpotMandate, ownerMutation, ownerOrigin, pairOwner, readOwnerSetup, sameOwnerConsent } from "./ownerSetupClient";
 import type { OwnerSetup } from "./ownerSetupClient";
 const cash = (n: number) => new Intl.NumberFormat("th-TH", { style: "currency", currency: "THB" }).format(n);
 export function LiveOwnerSetup({ onChanged }: { onChanged?: () => void }) {
@@ -11,6 +12,9 @@ export function LiveOwnerSetup({ onChanged }: { onChanged?: () => void }) {
   const [busy, setBusy] = useState(false);
   const [fullCapital, setFullCapital] = useState(false);
   const [confirmLive, setConfirmLive] = useState(false);
+  const [pairCode, setPairCode] = useState("");
+  const [rememberBrowser, setRememberBrowser] = useState(true);
+  const [rememberControl, setRememberControl] = useState(false);
   const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
   const inFlight = useRef(false);
@@ -59,6 +63,17 @@ export function LiveOwnerSetup({ onChanged }: { onChanged?: () => void }) {
     finally { inFlight.current = false; if (!controller.signal.aborted) setBusy(false); }
   }
   async function refresh() { if (inFlight.current) return; setLoading(true); setError(""); try { await load(abort.current?.signal); } catch (e) { setError(e instanceof Error ? e.message : "อ่านสถานะไม่ได้"); } finally { setLoading(false); } }
+  async function pair() {
+    if (inFlight.current) return;
+    inFlight.current = true; setBusy(true); setError(""); setNotice("");
+    const code = pairCode; setPairCode(""); const controller = new AbortController(); abort.current?.abort(); abort.current = controller;
+    try {
+      const result = await pairOwner(window.location.origin, code, rememberBrowser, rememberControl, fetch, controller.signal);
+      if (!result.ok) throw new Error("จับคู่ไม่สำเร็จ ตรวจรหัสและลองใหม่");
+      await load(controller.signal); onChanged?.(); setNotice(rememberControl ? "จับคู่แล้ว จดจำสิทธิ์ควบคุมไว้ 30 วัน การจับคู่ไม่เปิดการเทรด" : "จับคู่แล้ว การจับคู่ไม่เปิดการเทรด");
+    } catch (e) { if (!controller.signal.aborted) setError(e instanceof Error ? e.message : "จับคู่ไม่สำเร็จ"); }
+    finally { inFlight.current = false; if (!controller.signal.aborted) setBusy(false); }
+  }
   const disabled = busy || !setup?.canControl;
   const expired = !!setup?.mandate?.expiresAt && Date.parse(setup.mandate.expiresAt) <= Date.now();
   return <section className="owner-setup" aria-labelledby="owner-setup-title">
@@ -70,7 +85,10 @@ export function LiveOwnerSetup({ onChanged }: { onChanged?: () => void }) {
         <p>เมื่อผลผ่านการตรวจ ระบบจะแสดงวงเงินและปุ่มเปิดซื้อขายที่นี่ <Link href="/account">ดูบัญชี</Link></p>
       </details>
     </> : <>
-      {!setup.canControl && <p className="owner-setup-alert">สิทธิ์ดูบัญชียังใช้ได้ กรุณายืนยันสิทธิ์ควบคุมจากตัวเปิดแอพก่อนเปิดการเทรด</p>}
+      {!setup.canControl && <><p className="owner-setup-alert">สิทธิ์ดูบัญชียังใช้ได้ กรุณาเปิด Pair Owner Browser.cmd แล้วนำรหัสมาวางเพื่อยืนยันสิทธิ์ควบคุม</p>
+        <OwnerPairingForm code={pairCode} busy={busy} rememberBrowser={rememberBrowser} rememberControl={rememberControl}
+          onCodeChange={setPairCode} onRememberBrowserChange={value => { setRememberBrowser(value); if (!value) setRememberControl(false); }}
+          onRememberControlChange={setRememberControl} onPair={() => void pair()} idPrefix="setup-owner" /></>}
       {!setup.provisioned ? <form onSubmit={e => { e.preventDefault(); if (fullCapital && fullSpotMandate(setup)) void act("/live/provision"); }}>
         <p>ทุนจากบัญชีที่ตรวจแล้ว <strong>{cash(setup.availableCapital ?? 0)}</strong></p>
         <p>CEO เลือกเหรียญและขนาดคำสั่งได้ภายในทุนนี้ ซื้อขายเฉพาะ Spot เงินที่ใช้และค่าธรรมเนียมต้องไม่เกินยอดจริง</p>
