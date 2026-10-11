@@ -198,15 +198,19 @@ public sealed class LiveCompanyCoordinator(ILiveCompanyClient client, IHistorica
             if (!begun) { Status = "ALREADY_ATTEMPTED"; NextRetryAt = NextReview(clock.GetUtcNow()); return; }
             claimedDay = day;
             unavailableCode = "MEETING_FAILED";
-            summary = new(0, 0, 0, []) { Issues = problems.Count == 0 ? null : Issues, AdvisoryOnly = advisoryOnly, Research = brief };
-
             var advisoryCauses = new List<string>();
-            if (executionPaused) advisoryCauses.Add("owner execution permission was unavailable at some point during preparation");
-            if (missingHeldEvidence) advisoryCauses.Add("a held asset is missing verified history");
-            if (problems.Any(i => i.Code == "PUBLIC_RESEARCH_UNAVAILABLE")) advisoryCauses.Add("public research was unavailable");
+            var advisoryReasons = new List<string>();
+            if (executionPaused)
+            { advisoryCauses.Add("executor readiness was unavailable at some point during preparation"); advisoryReasons.Add("EXECUTION_UNAVAILABLE"); }
+            if (missingHeldEvidence)
+            { advisoryCauses.Add("a held asset is missing verified history"); advisoryReasons.Add("OWNED_MARKET_HISTORY_UNAVAILABLE"); }
+            if (problems.Any(i => i.Code == "PUBLIC_RESEARCH_UNAVAILABLE"))
+            { advisoryCauses.Add("public research was unavailable"); advisoryReasons.Add("PUBLIC_RESEARCH_UNAVAILABLE"); }
             if (continuousReviews && (packet.Snapshot.CashReserved > 0 || packet.Snapshot.PendingBuyNotional > 0 ||
                 packet.Snapshot.PendingSellNotional > 0 || packet.Snapshot.Positions.Any(p => p.ReservedQuantity > 0)))
-                advisoryCauses.Add("pending or reserved funds/quantity are present");
+            { advisoryCauses.Add("pending or reserved funds/quantity are present"); advisoryReasons.Add("FUNDS_RESERVED"); }
+            summary = new(0, 0, 0, []) { Issues = problems.Count == 0 ? null : Issues, AdvisoryOnly = advisoryOnly,
+                AdvisoryReasons = advisoryReasons.Count == 0 ? null : advisoryReasons, Research = brief };
 
             var hash = Convert.ToHexStringLower(SHA256.HashData(JsonSerializer.SerializeToUtf8Bytes(new { packet, candidates, brief })));
             var snapshot = packet.Snapshot;
@@ -233,7 +237,7 @@ public sealed class LiveCompanyCoordinator(ILiveCompanyClient client, IHistorica
             };
             var result = await meeting.RunAsync(input, cancellationToken);
             summary = Summarize(result) with { TradePlanPolicy = "entry-exit-v1", Research = brief, Issues = problems.Count == 0 ? null : Issues,
-                AdvisoryOnly = advisoryOnly, Learning = learningReport };
+                AdvisoryOnly = advisoryOnly, AdvisoryReasons = advisoryReasons.Count == 0 ? null : advisoryReasons, Learning = learningReport };
             if (result.Status != "COMPLETED") { Finish(result.Status); return; }
             if (result.AccountContext != context || !ValidProposals(result.Proposals, packet.Limits) ||
                 result.Proposals.Any(p => candidates.All(c => c.Symbol != p.Symbol))) { Finish("INVALID_FINAL"); return; }

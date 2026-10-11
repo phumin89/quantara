@@ -55,6 +55,8 @@ public interface ILiveTradingStore
 {
     Task<LiveSnapshot> ReadAsync(LiveAccountId id, CancellationToken cancellationToken = default);
     Task<LiveAccountState> ReadAccountAsync(LiveAccountId id, CancellationToken cancellationToken = default);
+    async Task<IReadOnlyList<DailyMeetingAttempt>> ReadMeetingsAsync(LiveAccountId id, CancellationToken cancellationToken = default)
+        => LiveMeetingReports.Read(await ReadAccountAsync(id, cancellationToken));
     Task<T> WithAccountLockAsync<T>(LiveAccountId id, Func<ILiveAccountTransaction, CancellationToken, Task<T>> action, CancellationToken cancellationToken = default);
 }
 

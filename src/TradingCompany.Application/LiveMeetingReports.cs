@@ -22,6 +22,10 @@ public static class LiveMeetingReports
             JsonSerializer.SerializeToUtf8Bytes(attempt).Length > 60 * 1024)
             throw new InvalidDataException("Invalid meeting report.");
         if (attempt.Summary is not { } summary) return;
+        if (summary.AdvisoryReasons is { } advisoryReasons && (!summary.AdvisoryOnly || advisoryReasons.Count is 0 or > 4 ||
+            advisoryReasons.Distinct().Count() != advisoryReasons.Count || advisoryReasons.Any(r => r is not
+                ("EXECUTION_UNAVAILABLE" or "OWNED_MARKET_HISTORY_UNAVAILABLE" or "PUBLIC_RESEARCH_UNAVAILABLE" or "FUNDS_RESERVED"))))
+            throw new InvalidDataException("Invalid saved advisory reasons.");
         if (summary.TradePlanPolicy is not (null or "entry-exit-v1") || summary.PlanRejectionReasons is { } reasons &&
             (reasons.Count is 0 or > 20 || reasons.Any(r => string.IsNullOrEmpty(r) || r.Length > 100 ||
                 r.Any(c => !char.IsAsciiLetterUpper(c) && c != '_')) || reasons.Distinct().Count() != reasons.Count))
@@ -47,6 +51,17 @@ public static class LiveMeetingReports
         .Where(a => a.Kind == AuditKind).Select(a => JsonSerializer.Deserialize<DailyMeetingAttempt>(a.Detail)
             ?? throw new InvalidDataException("Invalid saved meeting.")).OrderByDescending(a => a.BusinessDate)
             .ThenByDescending(a => a.ReviewHour ?? 9).ThenByDescending(a => a.ReviewMinute).ToArray();
+
+    public static bool IsRecorded(IReadOnlyList<DailyMeetingAttempt> reports, DailyMeetingAttempt attempt)
+    {
+        var existing = reports.SingleOrDefault(a =>
+            (a.BusinessDate == attempt.BusinessDate && a.ReviewHour == attempt.ReviewHour && a.ReviewMinute == attempt.ReviewMinute) ||
+            a.AttemptId == attempt.AttemptId);
+        if (existing is null) return false;
+        if (JsonSerializer.Serialize(existing) != JsonSerializer.Serialize(attempt))
+            throw new InvalidDataException("Meeting identity conflict.");
+        return true;
+    }
 }
 
 public sealed partial class LiveAccountTransaction
@@ -54,15 +69,7 @@ public sealed partial class LiveAccountTransaction
     public void RecordMeeting(DailyMeetingAttempt attempt, DateTimeOffset now)
     {
         LiveMeetingReports.Validate(attempt, Account.AccountId, now);
-        var detail = JsonSerializer.Serialize(attempt);
-        var existing = LiveMeetingReports.Read(Account).SingleOrDefault(a =>
-            (a.BusinessDate == attempt.BusinessDate && a.ReviewHour == attempt.ReviewHour && a.ReviewMinute == attempt.ReviewMinute) ||
-            a.AttemptId == attempt.AttemptId);
-        if (existing is not null)
-        {
-            if (JsonSerializer.Serialize(existing) != detail) throw new InvalidDataException("Meeting identity conflict.");
-            return;
-        }
-        Audit(now, LiveMeetingReports.AuditKind, attempt.AttemptId, detail);
+        if (LiveMeetingReports.IsRecorded(LiveMeetingReports.Read(Account), attempt)) return;
+        Audit(now, LiveMeetingReports.AuditKind, attempt.AttemptId, JsonSerializer.Serialize(attempt));
     }
 }

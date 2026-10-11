@@ -31,6 +31,9 @@ public interface ILiveActivationSource
 
 public sealed class LiveOwnerControls(ILiveTradingStore store, ILiveActivationSource preflight, TimeProvider clock, LiveAccountId accountId)
 {
+    public LiveAccountId AccountId => accountId;
+    public Task<IReadOnlyList<DailyMeetingAttempt>> ReadMeetingsAsync(CancellationToken cancellationToken = default)
+        => store.ReadMeetingsAsync(accountId, cancellationToken);
     public Task<LiveAccountState> ReadAsync(CancellationToken cancellationToken = default)
         => store.ReadAccountAsync(accountId, cancellationToken);
 

@@ -521,6 +521,7 @@ public sealed class LiveCompanyCoordinatorTests : IDisposable
         await coordinator.TickAsync();
         var saved = Assert.Single(client.Meetings);
         Assert.True(saved.Summary!.AdvisoryOnly);
+        Assert.Equal(new[] { "EXECUTION_UNAVAILABLE" }, saved.Summary.AdvisoryReasons);
         Assert.Equal(8, saved.Summary.Reports.Count);
         Assert.Empty(client.Intents);
     }
@@ -547,6 +548,8 @@ public sealed class LiveCompanyCoordinatorTests : IDisposable
         await coordinator.TickAsync();
         var saved = Assert.Single(client.Meetings);
         Assert.Equal(paused, saved.Summary!.AdvisoryOnly);
+        if (paused) Assert.Equal(new[] { "EXECUTION_UNAVAILABLE" }, saved.Summary.AdvisoryReasons);
+        else Assert.Null(saved.Summary.AdvisoryReasons);
         Assert.Equal(coordinator.Issues, saved.Summary.Issues);
         Assert.Contains("Market-history gaps exclude only their named symbols", gateway.Inputs[0].Mandate);
     }
@@ -577,7 +580,11 @@ public sealed class LiveCompanyCoordinatorTests : IDisposable
         Assert.All(gateway.CandidateSymbols, candidates => Assert.Equal("BTC-THB", Assert.Single(candidates)));
         Assert.All(gateway.Inputs, input => Assert.Contains("Market-history gaps exclude only their named symbols", input.Mandate));
         if (armed) Assert.DoesNotContain("advisory only", gateway.Inputs[0].Mandate);
-        else Assert.Contains("owner execution permission was unavailable", gateway.Inputs[0].Mandate);
+        else Assert.Contains("executor readiness was unavailable", gateway.Inputs[0].Mandate);
+        await coordinator.TickAsync();
+        var saved = Assert.Single(client.Meetings).Summary!;
+        if (armed) Assert.Null(saved.AdvisoryReasons);
+        else Assert.Equal(new[] { "EXECUTION_UNAVAILABLE" }, saved.AdvisoryReasons);
     }
 
     [Fact]
@@ -598,6 +605,8 @@ public sealed class LiveCompanyCoordinatorTests : IDisposable
         Assert.Equal(8, gateway.Inputs.Count);
         Assert.Empty(client.Intents);
         Assert.Contains("a held asset is missing verified history", gateway.Inputs[0].Mandate);
+        await coordinator.TickAsync();
+        Assert.Equal(new[] { "OWNED_MARKET_HISTORY_UNAVAILABLE" }, Assert.Single(client.Meetings).Summary!.AdvisoryReasons);
     }
 
     [Fact]
@@ -984,6 +993,8 @@ public sealed class LiveCompanyCoordinatorTests : IDisposable
         Assert.All(gateway.Inputs, input => Assert.Equal(8, input.Candidates.Count));
         Assert.Empty(client.Intents);
         Assert.Empty(client.Plans);
+        await coordinator.TickAsync();
+        Assert.Equal(new[] { "PUBLIC_RESEARCH_UNAVAILABLE" }, Assert.Single(client.Meetings).Summary!.AdvisoryReasons);
     }
 
     [Fact]
@@ -1055,6 +1066,8 @@ public sealed class LiveCompanyCoordinatorTests : IDisposable
         await coordinator.TickAsync();
         Assert.Equal("READ_ONLY", coordinator.Status);
         Assert.Equal(8, gateway.Inputs.Count);
+        await coordinator.TickAsync();
+        Assert.Equal(new[] { "FUNDS_RESERVED" }, Assert.Single(client.Meetings).Summary!.AdvisoryReasons);
     }
 
     [Fact]

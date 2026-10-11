@@ -12,6 +12,39 @@ public sealed class LiveTradingStoreTests(PostgresFixture database)
 {
     private static readonly DateTimeOffset Now = new(2026, 9, 27, 2, 0, 0, TimeSpan.Zero);
 
+    [Theory]
+    [InlineData("rewrite")]
+    [InlineData("delete")]
+    [InlineData("reorder")]
+    public async Task Large_audit_prefix_remains_immutable_when_appending_new_evidence(string defect)
+    {
+        var (store, state, _) = await Setup();
+        var audit = Enumerable.Range(0, 1000).Select(i => new LiveAuditEvent(Now, "ReconciliationEvidence", null,
+            i + ":" + new string('x', 8000))).ToArray();
+        await using var connection = new NpgsqlConnection(database.ConnectionString);
+        await connection.OpenAsync();
+        async Task Update(LiveAccountState next)
+        {
+            await using var command = new NpgsqlCommand("UPDATE live.accounts SET document=@document::jsonb,revision=revision+1 WHERE id=@id", connection);
+            command.Parameters.AddWithValue("id", state.AccountId.Value);
+            command.Parameters.AddWithValue("document", JsonSerializer.Serialize(next));
+            await command.ExecuteNonQueryAsync();
+        }
+        await Update(state with { Audit = audit });
+        var appended = audit.Append(new LiveAuditEvent(Now, "synthetic-append", null, "retained")).ToArray();
+        await Update(state with { Audit = appended });
+        var bad = appended.ToArray();
+        if (defect == "rewrite") bad[500] = bad[500] with { Detail = "tampered" };
+        else if (defect == "delete") bad = bad.Take(999).ToArray();
+        else (bad[500], bad[501]) = (bad[501], bad[500]);
+        var error = await Assert.ThrowsAsync<PostgresException>(() => Update(state with { Audit = bad }));
+        Assert.Equal("23514", error.SqlState);
+        var restored = await store.ReadAccountAsync(state.AccountId);
+        Assert.Equal(appended, restored.Audit);
+        Assert.Equal(state.Gate, restored.Gate);
+        Assert.Equal(state.Snapshot.CashBalance, restored.Snapshot.CashBalance);
+    }
+
     [Fact]
     public async Task Healthy_lease_wait_over_thirty_seconds_preserves_serialization_and_observes_owner_stop()
     {

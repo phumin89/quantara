@@ -71,12 +71,14 @@ public sealed class LiveCoordinatorAccessTests
         { AccountContext = new(TradingMode.Live, LiveRiskTests.Account.Value.ToString("N")) };
         foreach (var replay in Enumerable.Range(0, 2))
             Assert.Equal(HttpStatusCode.OK, (await client.PostAsJsonAsync("/internal/live/meetings", report)).StatusCode);
+        Assert.Equal(1, factory.Store.LockCalls);
         Assert.Single(LiveMeetingReports.Read(factory.Store.Account));
         Assert.Equal(before.Snapshot, factory.Store.Account.Snapshot);
         Assert.Equal(before.Gate, factory.Store.Account.Gate);
         Assert.Equal(0, factory.Broker.PlaceCalls);
         var conflict = report with { Status = "ORDER_PENDING" };
         Assert.Equal(HttpStatusCode.ServiceUnavailable, (await client.PostAsJsonAsync("/internal/live/meetings", conflict)).StatusCode);
+        Assert.Equal(1, factory.Store.LockCalls);
         Assert.Single(LiveMeetingReports.Read(factory.Store.Account));
         var foreign = report with { AccountContext = new(TradingMode.Live, Guid.NewGuid().ToString("N")) };
         Assert.Equal(HttpStatusCode.Forbidden, (await client.PostAsJsonAsync("/internal/live/meetings", foreign)).StatusCode);
@@ -265,12 +267,16 @@ public sealed class LiveCoordinatorAccessTests
     { public Task<LiveActivationEvidence> CheckAsync(LiveAccountState account, CancellationToken cancellationToken) => throw new InvalidOperationException(); }
     private sealed class Store : ILiveTradingStore
     {
+        public int LockCalls { get; private set; }
         public LiveAccountState Account { get; set; } = new(LiveRiskTests.Account, LiveRiskTests.Mandate, LiveRiskTests.Gate,
             LiveRiskTests.Snapshot, [], [], []) { PerformanceBaseline = new(new(2026, 9, 27), 1000, 1000) };
         public Task<LiveAccountState> ReadAccountAsync(LiveAccountId id, CancellationToken cancellationToken = default) => Task.FromResult(Account);
         public Task<LiveSnapshot> ReadAsync(LiveAccountId id, CancellationToken cancellationToken = default) => Task.FromResult(Account.Snapshot);
         public Task<T> WithAccountLockAsync<T>(LiveAccountId id, Func<ILiveAccountTransaction, CancellationToken, Task<T>> action, CancellationToken cancellationToken = default)
-            => action(new LiveAccountTransaction(Account, (state, _) => { Account = state; return Task.CompletedTask; }, _ => Task.CompletedTask), cancellationToken);
+        {
+            LockCalls++;
+            return action(new LiveAccountTransaction(Account, (state, _) => { Account = state; return Task.CompletedTask; }, _ => Task.CompletedTask), cancellationToken);
+        }
     }
     private sealed class Broker : ILiveBroker
     {

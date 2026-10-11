@@ -128,9 +128,8 @@ public static class LiveEndpoints
             }
             var controls = Controls(context);
             if (controls is null) return Unconfigured();
-            var account = await controls.ReadAsync(context.RequestAborted);
-            var reports = LiveMeetingReports.Read(account);
-            return Results.Ok(new { accountContext = new TradingAccountContext(TradingMode.Live, account.AccountId.Value.ToString("N")),
+            var reports = await controls.ReadMeetingsAsync(context.RequestAborted);
+            return Results.Ok(new { accountContext = new TradingAccountContext(TradingMode.Live, controls.AccountId.Value.ToString("N")),
                 availableDates = reports.Select(m => m.BusinessDate).Distinct().ToArray(), selectedDate,
                 meetings = (selectedDate is { } chosen ? reports.Where(m => m.BusinessDate == chosen) : reports.Take(31)).Select(m => new
                 { m.BusinessDate, m.AttemptId, m.Status, m.Summary, m.AccountContext, m.ReviewHour, m.ReviewMinute }) });

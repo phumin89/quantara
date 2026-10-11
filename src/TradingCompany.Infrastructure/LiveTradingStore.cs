@@ -48,6 +48,26 @@ public sealed class LiveTradingStore(string connectionString) : ILiveTradingStor
         return (await Load(connection, id, cancellationToken)).Account;
     }
 
+    public async Task<IReadOnlyList<DailyMeetingAttempt>> ReadMeetingsAsync(LiveAccountId id, CancellationToken cancellationToken = default)
+    {
+        await using var connection = await Connect(cancellationToken);
+        await using var command = new NpgsqlCommand("""
+            SELECT COALESCE((SELECT jsonb_agg(event->>'Detail')
+                FROM jsonb_array_elements(document->'Audit') event WHERE event->>'Kind'=@kind), '[]'::jsonb)::text
+            FROM live.accounts WHERE id=@id
+                AND lower(document#>>'{AccountId,Value}')=@id::text
+                AND lower(document#>>'{Snapshot,AccountId,Value}')=@id::text
+                AND lower(document#>>'{Mandate,AccountId,Value}')=@id::text
+            """, connection);
+        command.Parameters.AddWithValue("id", id.Value);
+        command.Parameters.AddWithValue("kind", LiveMeetingReports.AuditKind);
+        var json = (string?)await command.ExecuteScalarAsync(cancellationToken)
+            ?? throw new InvalidDataException("Live account is not initialized.");
+        return JsonSerializer.Deserialize<string[]>(json)!.Select(detail => JsonSerializer.Deserialize<DailyMeetingAttempt>(detail)
+            ?? throw new InvalidDataException("Invalid saved meeting.")).OrderByDescending(a => a.BusinessDate)
+            .ThenByDescending(a => a.ReviewHour ?? 9).ThenByDescending(a => a.ReviewMinute).ToArray();
+    }
+
     public async Task<T> WithAccountLockAsync<T>(LiveAccountId id, Func<ILiveAccountTransaction, CancellationToken, Task<T>> action, CancellationToken cancellationToken = default)
     {
         // ponytail: one serialized writer per account; scale to multiple accounts, not concurrent money writers.
@@ -65,8 +85,11 @@ public sealed class LiveTradingStore(string connectionString) : ILiveTradingStor
         }
         var loaded = await Load(connection, id, cancellationToken);
         var revision = loaded.Revision;
+        var committed = loaded.Account;
         var account = new LiveAccountTransaction(loaded.Account, async (state, ct) =>
         {
+            ct.ThrowIfCancellationRequested();
+            if (ReferenceEquals(state, committed)) return;
             await using var transaction = await connection.BeginTransactionAsync(ct);
             await using var command = new NpgsqlCommand("UPDATE live.accounts SET document=@document::jsonb,revision=revision+1 WHERE id=@id AND revision=@revision", connection, transaction);
             command.Parameters.AddWithValue("document", JsonSerializer.Serialize(state));
@@ -74,6 +97,7 @@ public sealed class LiveTradingStore(string connectionString) : ILiveTradingStor
             if (await command.ExecuteNonQueryAsync(ct) != 1) throw new InvalidDataException("Live account changed outside its lease.");
             await transaction.CommitAsync(ct);
             revision++;
+            committed = state;
         }, async ct =>
         {
             // Never reconnect this connection: losing its session also loses account ownership.

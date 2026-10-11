@@ -9,6 +9,34 @@ public sealed class LiveMeetingReportTests
     private static readonly DateTimeOffset Now = LiveRiskTests.Now;
 
     [Fact]
+    public void Advisory_reasons_are_saved_exactly_and_legacy_reports_remain_readable()
+    {
+        var account = new LiveAccountState(LiveRiskTests.Account, LiveRiskTests.Mandate, LiveRiskTests.Gate,
+            LiveRiskTests.Snapshot, [], [], []);
+        var tx = new LiveAccountTransaction(account, (_, _) => Task.CompletedTask);
+        var report = Report() with { Status = "READ_ONLY", Summary = Report().Summary! with
+            { AdvisoryOnly = true, AdvisoryReasons = ["EXECUTION_UNAVAILABLE"] } };
+        tx.RecordMeeting(report, Now);
+        Assert.Equal(new[] { "EXECUTION_UNAVAILABLE" }, Assert.Single(LiveMeetingReports.Read(tx.Account)).Summary!.AdvisoryReasons);
+        Assert.Equal(account.Snapshot, tx.Account.Snapshot);
+        Assert.Equal(account.Gate, tx.Account.Gate);
+        LiveMeetingReports.Validate(Report(), LiveRiskTests.Account, Now);
+    }
+
+    [Theory]
+    [InlineData("unknown")]
+    [InlineData("duplicate")]
+    [InlineData("empty")]
+    [InlineData("contradiction")]
+    public void Advisory_reason_metadata_rejects_invented_or_contradictory_causes(string defect)
+    {
+        var reasons = defect switch { "unknown" => new[] { "UNKNOWN" }, "duplicate" => new[] { "EXECUTION_UNAVAILABLE", "EXECUTION_UNAVAILABLE" },
+            "empty" => Array.Empty<string>(), _ => new[] { "EXECUTION_UNAVAILABLE" } };
+        var report = Report() with { Summary = Report().Summary! with { AdvisoryOnly = defect != "contradiction", AdvisoryReasons = reasons } };
+        Assert.Throws<InvalidDataException>(() => LiveMeetingReports.Validate(report, LiveRiskTests.Account, Now));
+    }
+
+    [Fact]
     public void RecordMeeting_persists_bounded_roles_without_mutating_account_money_or_gate()
     {
         var account = new LiveAccountState(LiveRiskTests.Account, LiveRiskTests.Mandate, LiveRiskTests.Gate,

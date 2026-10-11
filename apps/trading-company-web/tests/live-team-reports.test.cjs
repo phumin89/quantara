@@ -64,13 +64,31 @@ test('saved advisory reports validate issues and render one truthful status befo
  assert.equal((html.match(/ไม่ได้ส่งคำสั่ง/g)||[]).length,1); assert.ok(html.indexOf('ข้อมูลวิจัยสาธารณะไม่พร้อม')<html.indexOf('เก็บเงินสด'));
  delete x.meetings[0].summary.advisoryOnly;
  const legacy=renderToStaticMarkup(React.createElement(LiveMeetingView,{meetings:readMeetings(x).meetings,selected:'',onSelect(){}}));
- assert.ok(legacy.includes('รอบนี้วิเคราะห์เท่านั้น · ไม่ได้ส่งคำสั่ง'));
+ assert.ok(legacy.includes('รอบนี้วิเคราะห์เท่านั้น · ไม่ได้ส่งคำสั่ง')); assert.ok(legacy.includes('รายงานนี้ไม่ได้บันทึกเหตุที่พักคำสั่ง')); assert.ok(!legacy.includes('ระบบส่งคำสั่งไม่พร้อม'));
+ const duplicate=fixture(); duplicate.meetings[0].status='READ_ONLY'; duplicate.meetings[0].summary={...duplicate.meetings[0].summary,advisoryOnly:true,advisoryReasons:['PUBLIC_RESEARCH_UNAVAILABLE'],issues:[{code:'PUBLIC_RESEARCH_UNAVAILABLE'},{code:'LIVE_READ_UNAVAILABLE'}]};
+ const duplicateHtml=renderToStaticMarkup(React.createElement(LiveMeetingView,{meetings:readMeetings(duplicate).meetings,selected:'',onSelect(){}})); assert.equal((duplicateHtml.match(/ข้อมูลวิจัยไม่พร้อม/g)||[]).length,1); assert.ok(!duplicateHtml.includes('ข้อมูลวิจัยสาธารณะไม่พร้อม')); assert.ok(duplicateHtml.includes('อ่านสถานะ Live ไม่ได้'));
  for(const issues of [[{code:'UNKNOWN'}],[{code:'MARKET_HISTORY_UNAVAILABLE'}]]) { const bad=fixture(); bad.meetings[0].summary.issues=issues; assert.equal(readMeetings(bad),undefined); }
 });
 test('saved market history issue stays symbol-specific and historical',()=>{
  const x=fixture(); x.meetings[0].status='READ_ONLY'; x.meetings[0].summary={...x.meetings[0].summary,advisoryOnly:true,issues:[{code:'MARKET_HISTORY_UNAVAILABLE',symbol:'SOL-THB'}]};
  const html=renderToStaticMarkup(React.createElement(LiveMeetingView,{meetings:readMeetings(x).meetings,selected:'',onSelect(){}}));
- assert.ok(html.includes('กราฟที่ยังใช้วิเคราะห์ไม่ได้ (SOL-THB)')); assert.ok(html.includes('รอบนี้วิเคราะห์เท่านั้น · ไม่ได้ส่งคำสั่ง')); assert.ok(!html.includes('ตลาดทั้งหมดไม่พร้อม')); assert.ok(!html.includes('ส่งคำสั่งแล้ว'));
+ assert.ok(html.includes('กราฟที่ยังใช้วิเคราะห์ไม่ได้: (SOL-THB)')); assert.ok(html.includes('รอบนี้วิเคราะห์เท่านั้น · ไม่ได้ส่งคำสั่ง')); assert.ok(!html.includes('ตลาดทั้งหมดไม่พร้อม')); assert.ok(!html.includes('ส่งคำสั่งแล้ว'));
+});
+test('saved advisory causes stay prominent while unowned history gaps stay collapsed',()=>{
+ const x=fixture(); x.meetings[0].status='READ_ONLY'; x.meetings[0].summary={...x.meetings[0].summary,advisoryOnly:true,advisoryReasons:['EXECUTION_UNAVAILABLE'],issues:[{code:'MARKET_HISTORY_UNAVAILABLE',symbol:'USDT-THB'},{code:'MARKET_HISTORY_UNAVAILABLE',symbol:'XRP-THB'}]};
+ const parsed=readMeetings(JSON.parse(JSON.stringify(x))); assert.deepEqual(parsed.meetings[0].summary.advisoryReasons,['EXECUTION_UNAVAILABLE']);
+ const html=renderToStaticMarkup(React.createElement(LiveMeetingView,{meetings:parsed.meetings,selected:'',onSelect(){}}));
+ assert.ok(html.indexOf('ระบบส่งคำสั่งไม่พร้อมในรอบนี้') < html.indexOf('เก็บเงินสด')); assert.ok(!html.includes('ข้อมูลเหรียญที่ถือไม่ครบ'));
+ assert.ok(html.includes('<summary>เหรียญที่ยังวิเคราะห์ไม่ได้</summary>')); assert.ok(html.includes('(USDT-THB)')); assert.ok(html.includes('(XRP-THB)'));
+ assert.ok(html.indexOf('<summary>เหรียญที่ยังวิเคราะห์ไม่ได้</summary>') < html.indexOf('(USDT-THB)'));
+ assert.equal(JSON.stringify(parsed.meetings[0].summary),JSON.stringify(x.meetings[0].summary));
+});
+test('legacy advisory reports never invent a cause and advisory reasons are strict',()=>{
+ const legacy=fixture(); legacy.meetings[0].status='READ_ONLY'; legacy.meetings[0].summary={...legacy.meetings[0].summary,advisoryOnly:true};
+ const html=renderToStaticMarkup(React.createElement(LiveMeetingView,{meetings:readMeetings(legacy).meetings,selected:'',onSelect(){}}));
+ assert.ok(html.includes('รายงานนี้ไม่ได้บันทึกเหตุที่พักคำสั่ง')); assert.ok(!html.includes('ระบบส่งคำสั่งไม่พร้อม'));
+ for(const reasons of [[],['EXECUTION_UNAVAILABLE','EXECUTION_UNAVAILABLE'],['UNKNOWN'],['EXECUTION_UNAVAILABLE','PUBLIC_RESEARCH_UNAVAILABLE','FUNDS_RESERVED','OWNED_MARKET_HISTORY_UNAVAILABLE','EXECUTION_UNAVAILABLE']]) { const bad=fixture(); bad.meetings[0].summary={...bad.meetings[0].summary,advisoryOnly:true,advisoryReasons:reasons}; assert.equal(readMeetings(bad),undefined); }
+ for(const mutate of [s=>{s.advisoryReasons='EXECUTION_UNAVAILABLE';},s=>{s.advisoryReasons=['EXECUTION_UNAVAILABLE'];},s=>{s.advisoryOnly=false;s.advisoryReasons=['EXECUTION_UNAVAILABLE'];}]) { const bad=fixture(); bad.meetings[0].summary={...bad.meetings[0].summary}; mutate(bad.meetings[0].summary); assert.equal(readMeetings(bad),undefined); }
 });
 test('saved reports retain eight distinct native market history gaps',()=>{
  const x=fixture(); x.meetings[0].status='READ_ONLY';

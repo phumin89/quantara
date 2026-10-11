@@ -77,9 +77,12 @@ BEGIN
            NULLIF(NEW.document->'OpeningBalance', 'null'::jsonb) THEN
             RAISE EXCEPTION 'Opening wallet cannot be rewritten' USING ERRCODE = '23514';
         END IF;
+        -- Expand each audit once; indexed extraction would copy the full new array per prior event.
         IF EXISTS (
             SELECT 1 FROM jsonb_array_elements(OLD.document->'Audit') WITH ORDINALITY a(value, ordinal)
-            WHERE a.value IS DISTINCT FROM (NEW.document->'Audit')->(a.ordinal::int - 1)
+            LEFT JOIN jsonb_array_elements(NEW.document->'Audit') WITH ORDINALITY b(value, ordinal)
+                ON a.ordinal = b.ordinal
+            WHERE a.value IS DISTINCT FROM b.value
         ) THEN
             RAISE EXCEPTION 'Live audit cannot be rewritten' USING ERRCODE = '23514';
         END IF;

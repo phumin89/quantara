@@ -91,6 +91,9 @@ public static class LiveCoordinatorEndpoints
             if (attempt.AccountContext?.Mode != TradingMode.Live || !Guid.TryParse(attempt.AccountContext.AccountId, out var account) || !Bound(context, account)) return Results.StatusCode(403);
             var store = context.RequestServices.GetService<ILiveTradingStore>();
             if (store is null) return Results.StatusCode(503);
+            LiveMeetingReports.Validate(attempt, new(account), clock.GetUtcNow());
+            if (LiveMeetingReports.IsRecorded(await store.ReadMeetingsAsync(new(account), context.RequestAborted), attempt))
+                return Results.Ok(new { saved = true });
             await store.WithAccountLockAsync(new(account), async (tx, token) =>
             {
                 tx.RecordMeeting(attempt, clock.GetUtcNow());

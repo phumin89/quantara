@@ -2,30 +2,93 @@ using TradingCompany.Application;
 using TradingCompany.Domain;
 using TradingCompany.Infrastructure;
 using Xunit;
+using Npgsql;
 
 namespace TradingCompany.LiveIntegration.Tests;
 
 [Collection("Live database")]
 public sealed class LiveMeetingReportPersistenceTests(PostgresFixture database)
 {
-    [Fact]
-    public async Task Meeting_report_survives_fresh_store_restart_and_replay_is_idempotent()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Meeting_report_survives_fresh_store_restart_and_replay_is_idempotent(bool advisory)
     {
         var (store, account) = await Setup();
         var report = Report(account.AccountId);
+        if (advisory) report = report with { Status = "READ_ONLY", Summary = new(0, 0, 0, [])
+            { AdvisoryOnly = true, AdvisoryReasons = ["EXECUTION_UNAVAILABLE", "FUNDS_RESERVED"] } };
         await store.WithAccountLockAsync(account.AccountId, async (tx, ct) => { tx.RecordMeeting(report, Now); await tx.CommitAsync(ct); return 0; });
 
         var restarted = new LiveTradingStore(database.ConnectionString);
         var restored = await restarted.ReadAccountAsync(account.AccountId);
-        Assert.Equal(report, Assert.Single(LiveMeetingReports.Read(restored)));
+        Assert.Equal(System.Text.Json.JsonSerializer.Serialize(report),
+            System.Text.Json.JsonSerializer.Serialize(Assert.Single(LiveMeetingReports.Read(restored))));
         Assert.Equal(account.Snapshot.CashBalance, restored.Snapshot.CashBalance);
         Assert.Equal(account.Gate, restored.Gate);
+        var revision = await Revision(account.AccountId);
 
         await restarted.WithAccountLockAsync(account.AccountId, async (tx, ct) => { tx.RecordMeeting(report, Now); await tx.CommitAsync(ct); return 0; });
         var replayed = await restarted.ReadAccountAsync(account.AccountId);
         Assert.Single(LiveMeetingReports.Read(replayed));
         Assert.Equal(System.Text.Json.JsonSerializer.Serialize(restored.Snapshot), System.Text.Json.JsonSerializer.Serialize(replayed.Snapshot));
         Assert.Equal(restored.Gate, replayed.Gate);
+        Assert.Equal(revision, await Revision(account.AccountId));
+        Assert.Equal(System.Text.Json.JsonSerializer.Serialize(LiveMeetingReports.Read(replayed)),
+            System.Text.Json.JsonSerializer.Serialize(await restarted.ReadMeetingsAsync(account.AccountId)));
+    }
+
+    [Fact]
+    public async Task Report_projection_remains_account_scoped_and_does_not_wait_for_the_financial_lease()
+    {
+        var (store, account) = await Setup();
+        Assert.Empty(await store.ReadMeetingsAsync(account.AccountId));
+        await Assert.ThrowsAsync<InvalidDataException>(() => store.ReadMeetingsAsync(new(Guid.NewGuid())));
+        var report = Report(account.AccountId);
+        await store.WithAccountLockAsync(account.AccountId, async (tx, ct) =>
+        { tx.RecordMeeting(report, Now); await tx.CommitAsync(ct); return 0; });
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var holder = store.WithAccountLockAsync(account.AccountId, async (_, ct) =>
+        { entered.SetResult(); await release.Task.WaitAsync(ct); return 0; });
+        await entered.Task;
+        try
+        {
+            using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+            Assert.Equal(report, Assert.Single(await store.ReadMeetingsAsync(account.AccountId, deadline.Token)));
+            var (_, other) = await Setup();
+            Assert.Empty(await store.ReadMeetingsAsync(other.AccountId));
+        }
+        finally { release.SetResult(); await holder; }
+    }
+
+    [Theory]
+    [InlineData("AccountId")]
+    [InlineData("Snapshot")]
+    [InlineData("Mandate")]
+    public async Task Report_projection_rejects_a_document_with_another_account_identity(string field)
+    {
+        var (store, account) = await Setup();
+        await using var connection = new NpgsqlConnection(database.ConnectionString);
+        await connection.OpenAsync();
+        await using var command = new NpgsqlCommand("""
+            UPDATE live.accounts SET document=jsonb_set(document,@path,to_jsonb(@other::text)),revision=revision+1 WHERE id=@id
+            """, connection);
+        command.Parameters.AddWithValue("path", field == "AccountId" ? new[] { field, "Value" } : new[] { field, "AccountId", "Value" });
+        command.Parameters.AddWithValue("other", Guid.NewGuid().ToString());
+        command.Parameters.AddWithValue("id", account.AccountId.Value);
+        Assert.Equal(1, await command.ExecuteNonQueryAsync());
+        await Assert.ThrowsAsync<InvalidDataException>(() => store.ReadAccountAsync(account.AccountId));
+        await Assert.ThrowsAsync<InvalidDataException>(() => store.ReadMeetingsAsync(account.AccountId));
+    }
+
+    private async Task<long> Revision(LiveAccountId id)
+    {
+        await using var connection = new NpgsqlConnection(database.ConnectionString);
+        await connection.OpenAsync();
+        await using var command = new NpgsqlCommand("SELECT revision FROM live.accounts WHERE id=@id", connection);
+        command.Parameters.AddWithValue("id", id.Value);
+        return (long)(await command.ExecuteScalarAsync())!;
     }
 
     [Fact]
