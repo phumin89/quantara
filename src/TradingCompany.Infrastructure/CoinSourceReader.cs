@@ -26,6 +26,7 @@ public sealed partial class CoinSourceReader(HttpClient client, string directory
         ("USDT-THB", "Tether historical whitepaper notice", "https://tether.to/en/whitepaper/"),
         ("NEAR-THB", "NEAR Nightshade paper (documentation archive)", "https://raw.githubusercontent.com/near/docs/master/papers/Nightshade.pdf"),
         ("CRV-THB", "Curve current CRV token documentation", "https://raw.githubusercontent.com/curvefi/docs/main/docs/user/curve-tokens/crv.md"),
+        ("WLD-THB", "World official WLD unlock update (2026-04-10)", "https://world.org/blog/foundational-topics/tokenomics-milestone-wld-unlock-rate-to-decrease-by-43-in-july"),
         ("KUB-THB", "KUB Chain whitepaper V5.2 (2026)", KubPaperUrl)
     ]);
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);

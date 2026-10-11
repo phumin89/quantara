@@ -35,7 +35,8 @@ public static partial class CoinResearchValidation
     public static bool PublicSourceUrl(string? value) => Uri.TryCreate(value, UriKind.Absolute, out var u) &&
         u.Scheme == "https" && u.IsDefaultPort && u.UserInfo.Length == 0 && u.Query.Length == 0 && u.Fragment.Length == 0 &&
         (u.Host is "bitcoin.org" or "raw.githubusercontent.com" or "ethereum.org" or "solana.com" or "xrpl.org" or "tether.to" ||
-         value == "https://www.kubchain.com/docs/EN_KUB_Chain_WhitePaper_V5.2.pdf");
+         value is "https://www.kubchain.com/docs/EN_KUB_Chain_WhitePaper_V5.2.pdf" or
+            "https://world.org/blog/foundational-topics/tokenomics-milestone-wld-unlock-rate-to-decrease-by-43-in-july");
     public static bool IsValid(CoinResearchBrief? value, DateTimeOffset now)
     {
         if (value is null || value.ObservedAt > now || now - value.ObservedAt > TimeSpan.FromMinutes(16) || !Hash(value.ChangeKey) ||

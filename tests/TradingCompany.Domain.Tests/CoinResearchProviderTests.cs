@@ -144,26 +144,35 @@ public sealed class CoinResearchProviderTests
         Assert.Equal(0, fixture.Model.Calls);
     }
 
-    [Fact]
-    public async Task Shortlisted_crv_is_sourced_and_cached_without_expanding_execution_authority()
+    [Theory]
+    [InlineData("CRV", "https://raw.githubusercontent.com/curvefi/docs/main/docs/user/curve-tokens/crv.md")]
+    [InlineData("WLD", "https://world.org/blog/foundational-topics/tokenomics-milestone-wld-unlock-rate-to-decrease-by-43-in-july")]
+    public async Task Shortlisted_catalog_coin_is_sourced_and_cached_without_expanding_execution_authority(string symbol, string expectedUrl)
     {
-        using var fixture = new Fixture { Symbols = ["BTC", "CRV"] };
+        using var fixture = new Fixture { Symbols = ["BTC", symbol] };
         var brief = await fixture.Provider.ReadAsync(fixture.Packet, default);
-        Assert.False(Assert.Single(brief.Watchlist, c => c.Symbol == "CRV-THB").ExecutionAllowed);
-        var source = Assert.Single(brief.Sources, s => s.Symbol == "CRV-THB");
-        Assert.Equal("https://raw.githubusercontent.com/curvefi/docs/main/docs/user/curve-tokens/crv.md", source.Url);
-        var finding = Assert.Single(brief.Findings, f => f.Symbol == "CRV-THB");
+        Assert.False(Assert.Single(brief.Watchlist, c => c.Symbol == symbol + "-THB").ExecutionAllowed);
+        var source = Assert.Single(brief.Sources, s => s.Symbol == symbol + "-THB");
+        Assert.Equal(expectedUrl, source.Url);
+        if (symbol == "WLD")
+        {
+            Assert.True(CoinResearchValidation.PublicSourceUrl(expectedUrl));
+            Assert.False(CoinResearchValidation.PublicSourceUrl("https://world.org/private"));
+            Assert.False(CoinResearchValidation.PublicSourceUrl(expectedUrl + "?utm=test"));
+            Assert.False(CoinResearchValidation.PublicSourceUrl("https://world.org.evil/blog/update"));
+        }
+        var finding = Assert.Single(brief.Findings, f => f.Symbol == symbol + "-THB");
         Assert.All(finding.Claims, claim => { Assert.Equal(source.Id, claim.SourceId); Assert.Equal("PROJECT_CLAIM", claim.Assessment); });
-        Assert.DoesNotContain(brief.Gaps, gap => gap.Contains("CRV-THB", StringComparison.Ordinal));
+        Assert.DoesNotContain(brief.Gaps, gap => gap.Contains(symbol + "-THB", StringComparison.Ordinal));
         Assert.True(CoinResearchValidation.IsValid(brief, fixture.Clock.Now));
         Assert.Equal(2, fixture.Model.Calls);
 
         fixture.Clock.Now += TimeSpan.FromHours(25);
         var refreshed = await fixture.Provider.ReadAsync(fixture.Packet, default);
-        Assert.Equal(source.Id, Assert.Single(refreshed.Sources, s => s.Symbol == "CRV-THB").Id);
+        Assert.Equal(source.Id, Assert.Single(refreshed.Sources, s => s.Symbol == symbol + "-THB").Id);
         Assert.Equal(brief.ChangeKey, refreshed.ChangeKey);
         Assert.Equal(2, fixture.Model.Calls);
-        Assert.False(Assert.Single(refreshed.Watchlist, c => c.Symbol == "CRV-THB").ExecutionAllowed);
+        Assert.False(Assert.Single(refreshed.Watchlist, c => c.Symbol == symbol + "-THB").ExecutionAllowed);
         Assert.Equal(["BTC-THB"], fixture.Packet.Limits.AllowedSymbols);
     }
 
