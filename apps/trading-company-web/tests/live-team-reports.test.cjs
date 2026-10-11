@@ -6,19 +6,24 @@ const scope={mode:1,accountId:'1'.repeat(32)};
 const role=(name)=>({role:name,summary:name==='portfolio-final'?'เก็บเงินสดไว้รอข้อมูลครบ':'เหตุผลจากข้อมูลที่ตรวจแล้ว',providerModel:'fixture',inputTokens:2,outputTokens:2,artifactId:'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',evidenceHash:'a'.repeat(64),dataCutoff:'2026-10-05'});
 const fixture=()=>({accountContext:scope,meetings:[{businessDate:'2026-10-06',attemptId:'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',status:'HOLD',accountContext:scope,summary:{modelCalls:8,inputTokens:16,outputTokens:16,reports:[role('portfolio-final'),role('risk-critic'),role('portfolio-initial')]}}]});
 
-test('saved KUB research keeps Live reports readable and accepts only the exact official paper URL',async()=>{
+test('saved KUB and WLD research keep Live reports readable with only exact official URLs',async()=>{
  const paper='https://www.kubchain.com/docs/EN_KUB_Chain_WhitePaper_V5.2.pdf', hash='c'.repeat(64);
+ const wld='https://world.org/blog/foundational-topics/tokenomics-milestone-wld-unlock-rate-to-decrease-by-43-in-july', wldHash='d'.repeat(64);
  const x=fixture(); x.meetings[0].summary.research={observedAt:'2026-10-06T02:00:00Z',changeKey:'a'.repeat(64),
-  watchlist:[],sources:[{id:'doc-'+hash,symbol:'KUB-THB',title:'KUB Chain Whitepaper V5.2',url:paper,contentHash:hash,retrievedAt:'2026-10-06T01:00:00Z'}],
-  findings:[{symbol:'KUB-THB',summary:'หลักฐานโครงการ KUB',claims:[{statement:'ตรวจเอกสารโครงการ',assessment:'PROJECT_CLAIM',sourceId:'doc-'+hash,quote:'Exact official project quotation for source evidence.'}]}],gaps:[]};
- assert.ok(readMeetings(x),'a valid KUB source must not hide the entire report feed');
+  watchlist:[],sources:[{id:'doc-'+hash,symbol:'KUB-THB',title:'KUB Chain Whitepaper V5.2',url:paper,contentHash:hash,retrievedAt:'2026-10-06T01:00:00Z'},{id:'doc-'+wldHash,symbol:'WLD-THB',title:'World official WLD unlock update',url:wld,contentHash:wldHash,retrievedAt:'2026-10-06T01:00:00Z'}],
+  findings:[{symbol:'KUB-THB',summary:'หลักฐานโครงการ KUB',claims:[{statement:'ตรวจเอกสารโครงการ',assessment:'PROJECT_CLAIM',sourceId:'doc-'+hash,quote:'Exact official project quotation for source evidence.'}]},{symbol:'WLD-THB',summary:'หลักฐานโครงการ WLD',claims:[{statement:'ตรวจการปลดล็อก WLD',assessment:'PROJECT_CLAIM',sourceId:'doc-'+wldHash,quote:'Exact official WLD unlock quotation for source evidence.'}]}],gaps:[]};
+ assert.ok(readMeetings(x),'valid KUB and WLD sources must not hide the entire report feed');
  assert.ok(await readLiveMeetings('https://localhost:3000',async()=>Response.json(x)));
  const html=renderToStaticMarkup(React.createElement(LiveMeetingView,{meetings:readMeetings(x).meetings,selected:'',onSelect(){}}));
- assert.ok(html.includes('เก็บเงินสด')); assert.ok(html.includes(paper));
+ assert.ok(html.includes('เก็บเงินสด')); assert.ok(html.includes(paper)); assert.ok(html.includes(wld));
  for(const invalid of [paper+'?tracking=1',paper+'#section',paper.replace('.pdf','_other.pdf'),paper.replace('www.kubchain.com','kubchain.com'),
   paper.replace('https:','http:'),paper.replace('www.kubchain.com','www.kubchain.com.evil.example'),paper.replace('www.kubchain.com','user@www.kubchain.com')]) {
   const bad=structuredClone(x); bad.meetings[0].summary.research.sources[0].url=invalid;
   assert.equal(readMeetings(bad),undefined,'unapproved source variant must remain rejected: '+invalid);
+ }
+ for(const invalid of [wld+'?tracking=1',wld+'#section','https://world.org/private','https://world.org.evil.example/blog/update','http://world.org/blog/update','https://user@world.org/blog/update']) {
+  const bad=structuredClone(x); bad.meetings[0].summary.research.sources[1].url=invalid;
+  assert.equal(readMeetings(bad),undefined,'unapproved WLD source variant must remain rejected: '+invalid);
  }
 });
 

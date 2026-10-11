@@ -13,7 +13,7 @@ const text = (v: unknown, max: number): v is string => typeof v === "string" && 
 const hash = (v: unknown): v is string => typeof v === "string" && /^[0-9a-f]{64}$/i.test(v);
 const number = (v: unknown, max = 1e18): v is number => typeof v === "number" && Number.isFinite(v) && v >= 0 && v <= max;
 const isoTime = (v: unknown): v is string => typeof v === "string" && /^\d{4}-\d{2}-\d{2}T/.test(v) && Number.isFinite(Date.parse(v));
-const url = (v: unknown): v is string => { try { const u = new URL(String(v)); return u.protocol === "https:" && u.port === "" && !u.username && !u.password && !u.search && !u.hash && (["bitcoin.org", "raw.githubusercontent.com", "ethereum.org", "solana.com", "xrpl.org", "tether.to"].includes(u.hostname) || v === "https://www.kubchain.com/docs/EN_KUB_Chain_WhitePaper_V5.2.pdf"); } catch { return false; } };
+const url = (v: unknown): v is string => { try { const u = new URL(String(v)); return u.protocol === "https:" && u.port === "" && !u.username && !u.password && !u.search && !u.hash && (["bitcoin.org", "raw.githubusercontent.com", "ethereum.org", "solana.com", "xrpl.org", "tether.to"].includes(u.hostname) || v === "https://www.kubchain.com/docs/EN_KUB_Chain_WhitePaper_V5.2.pdf" || v === "https://world.org/blog/foundational-topics/tokenomics-milestone-wld-unlock-rate-to-decrease-by-43-in-july"); } catch { return false; } };
 const newsKinds: Record<string, NewsItem["kind"]> = { CoinDesk: "REPORT", Ethereum: "OFFICIAL", "Federal Reserve": "OFFICIAL", Bitkub: "OFFICIAL" };
 const newsText = (v: unknown, max: number): v is string => text(v, max) && !/[\u0000-\u001f\u007f-\u009f]/.test(v);
 const newsHash = (v: unknown): v is string => typeof v === "string" && /^[0-9a-f]{64}$/.test(v);
