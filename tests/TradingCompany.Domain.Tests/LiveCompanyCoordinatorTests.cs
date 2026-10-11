@@ -646,6 +646,48 @@ public sealed class LiveCompanyCoordinatorTests : IDisposable
         Assert.Empty(client.Intents);
     }
 
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(true, false)]
+    [InlineData(false, true)]
+    [InlineData(true, true)]
+    public async Task Stale_reconciled_data_retries_in_thirty_seconds_without_consuming_the_meeting_or_arming(bool staleQuotesOnly, bool afterHistory)
+    {
+        var client = new Client { Packet = new Client().Packet with { Armed = false } };
+        var gateway = new Gateway();
+        Freshen(client);
+        var stalePacket = client.Packet with { Snapshot = client.Packet.Snapshot with
+        {
+            ObservedAt = staleQuotesOnly ? clock.Now : clock.Now.AddSeconds(-31),
+            Quotes = client.Packet.Snapshot.Quotes.Select(q => q with
+                { ObservedAt = staleQuotesOnly ? clock.Now.AddSeconds(-31) : clock.Now }).ToArray()
+        } };
+        if (afterHistory)
+        {
+            var reads = 0;
+            client.BeforeRead = () => { if (++reads == 2) client.Packet = stalePacket; };
+        }
+        else client.Packet = stalePacket;
+        var limits = JsonSerializer.Serialize(client.Packet.Limits);
+        var coordinator = Coordinator(client, gateway, continuous: true);
+        await coordinator.TickAsync();
+        Assert.Equal("LIVE_BLOCKED", coordinator.Status);
+        Assert.Equal(clock.Now.AddSeconds(30), coordinator.NextRetryAt);
+        Assert.Empty(gateway.Inputs);
+        Assert.Empty(new JsonDailyMeetingJournal(Path.Combine(root, "live-meetings.json"), Scope).ReadAll());
+        client.BeforeRead = null;
+        clock.Now += TimeSpan.FromSeconds(29); Freshen(client);
+        await coordinator.TickAsync();
+        Assert.Empty(gateway.Inputs);
+        clock.Now += TimeSpan.FromSeconds(1); Freshen(client);
+        await coordinator.TickAsync();
+        Assert.Equal("READ_ONLY", coordinator.Status);
+        Assert.Equal(8, gateway.Inputs.Count);
+        Assert.False(client.Packet.Armed);
+        Assert.Equal(limits, JsonSerializer.Serialize(client.Packet.Limits));
+        Assert.Empty(client.Plans); Assert.Empty(client.Intents);
+    }
+
     private void Freshen(Client client) => client.Packet = client.Packet with { Snapshot = client.Packet.Snapshot with
     { ObservedAt = clock.Now, Quotes = client.Packet.Snapshot.Quotes.Select(q => q with { ObservedAt = clock.Now }).ToArray() } };
 
@@ -1390,6 +1432,7 @@ public sealed class LiveCompanyCoordinatorTests : IDisposable
         public List<DailyMeetingAttempt> Meetings { get; } = [];
         public Action? AfterSubmit { get; set; }
         public int ReadFailures { get; set; }
+        public Action? BeforeRead { get; set; }
         public int SaveFailures { get; set; }
         public int SaveCalls { get; private set; }
         public Task SaveMeetingAsync(DailyMeetingAttempt attempt, CancellationToken cancellationToken)
@@ -1398,8 +1441,11 @@ public sealed class LiveCompanyCoordinatorTests : IDisposable
             if (SaveFailures-- > 0) return Task.FromException(new IOException("Synthetic report transport failure"));
             Meetings.Add(attempt); return Task.CompletedTask;
         }
-        public Task<LiveResearchPacket> ReadAsync(LiveAccountId accountId, CancellationToken cancellationToken) => ReadFailures-- > 0
-            ? Task.FromException<LiveResearchPacket>(new IOException("fixture unavailable")) : Task.FromResult(Packet);
+        public Task<LiveResearchPacket> ReadAsync(LiveAccountId accountId, CancellationToken cancellationToken)
+        {
+            BeforeRead?.Invoke();
+            return ReadFailures-- > 0 ? Task.FromException<LiveResearchPacket>(new IOException("fixture unavailable")) : Task.FromResult(Packet);
+        }
         public Task<LiveIntentReceipt> SubmitAsync(LiveIntent intent, CancellationToken cancellationToken)
         {
             Intents.Add(intent);

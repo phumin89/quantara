@@ -69,7 +69,7 @@ public sealed class LiveCompanyCoordinator(ILiveCompanyClient client, IHistorica
             unavailableCode = "LIVE_READ_UNAVAILABLE";
             var packet = await client.ReadAsync(accountId, cancellationToken);
             now = clock.GetUtcNow();
-            if (!ValidPacket(packet, now)) { Retry("LIVE_BLOCKED", [new("ACCOUNT_STATE_INVALID")]); return; }
+            if (!ValidPacket(packet, now)) { RetryInvalidPacket(packet, now); return; }
             effectiveReviewIntervalMinutes = Math.Max(reviewIntervalMinutes, packet.MinimumReviewIntervalMinutes);
             reviewMinute = ReviewMinute(now);
             var executionPaused = !packet.Armed || packet.Stopped;
@@ -91,7 +91,7 @@ public sealed class LiveCompanyCoordinator(ILiveCompanyClient client, IHistorica
                 // Public document retrieval may be slow. Do not advise against an expired financial snapshot.
                 packet = await client.ReadAsync(accountId, cancellationToken);
                 now = clock.GetUtcNow();
-                if (!ValidPacket(packet, now)) { Retry("LIVE_BLOCKED", [new("ACCOUNT_STATE_INVALID")]); return; }
+                if (!ValidPacket(packet, now)) { RetryInvalidPacket(packet, now); return; }
                 executionPaused |= !packet.Armed || packet.Stopped;
                 if (DateOnly.FromDateTime(now.ToOffset(TimeSpan.FromHours(7)).DateTime) != day) { Status = "BEFORE_MEETING"; return; }
                 dailyDue = saved is null && now.ToOffset(TimeSpan.FromHours(7)).Hour >= 9;
@@ -162,7 +162,8 @@ public sealed class LiveCompanyCoordinator(ILiveCompanyClient client, IHistorica
             // Slow evidence retrieval cannot make old balances or quotes current.
             var refreshed = await client.ReadAsync(accountId, cancellationToken);
             now = clock.GetUtcNow();
-            if (!ValidPacket(refreshed, now) || refreshed.MandateVersion != packet.MandateVersion ||
+            if (!ValidPacket(refreshed, now)) { RetryInvalidPacket(refreshed, now); return; }
+            if (refreshed.MandateVersion != packet.MandateVersion ||
                 refreshed.MinimumReviewIntervalMinutes != packet.MinimumReviewIntervalMinutes ||
                 JsonSerializer.Serialize(refreshed.Limits) != JsonSerializer.Serialize(packet.Limits) ||
                 !SameOwnedMoney(packet.Snapshot, refreshed.Snapshot))
@@ -393,10 +394,21 @@ public sealed class LiveCompanyCoordinator(ILiveCompanyClient client, IHistorica
         quote is not null && LiveMarketSymbol.IsValid(quote.Symbol) && research.Contains(quote.Symbol) &&
         quote.Bid > 0 && quote.Ask >= quote.Bid && quote.ObservedAt <= now && now - quote.ObservedAt <= TimeSpan.FromSeconds(30);
 
-    private void Retry(string status, IReadOnlyList<LiveMeetingIssue> problems)
+    private void RetryInvalidPacket(LiveResearchPacket? packet, DateTimeOffset now)
+    {
+        // A periodic reconciler can briefly leave a valid account's timestamps old.
+        // Poll again without consuming a meeting slot or accepting stale evidence.
+        var stale = packet?.Snapshot is { Reconciled: true } snapshot &&
+            (now - snapshot.ObservedAt > TimeSpan.FromSeconds(30) ||
+             snapshot.Quotes?.Any(q => q is not null && now - q.ObservedAt > TimeSpan.FromSeconds(30)) == true ||
+             packet.ResearchQuotes?.Any(q => q is not null && now - q.ObservedAt > TimeSpan.FromSeconds(30)) == true);
+        Retry("LIVE_BLOCKED", [new("ACCOUNT_STATE_INVALID")], stale ? TimeSpan.FromSeconds(30) : null);
+    }
+
+    private void Retry(string status, IReadOnlyList<LiveMeetingIssue> problems, TimeSpan? delay = null)
     {
         Status = status; Issues = problems.ToArray(); TradingUniverse = [];
-        retryAfter = clock.GetUtcNow().AddMinutes(5); NextRetryAt = retryAfter;
+        retryAfter = clock.GetUtcNow().Add(delay ?? TimeSpan.FromMinutes(5)); NextRetryAt = retryAfter;
     }
 
     private int ReviewMinute(DateTimeOffset now) => now.ToOffset(TimeSpan.FromHours(7)).Minute /
