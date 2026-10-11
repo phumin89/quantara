@@ -1,7 +1,63 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const path = require('node:path');
-const { readOwnerSetup, fullSpotMandate, ownerMutation, pairOwner } = require('./load-component.cjs')(path.join(__dirname, '../app/ownerSetupClient.ts'));
+const { readOwnerSetup, fullSpotMandate, ownerMutation, ownerMutationRejection, pairOwner } = require('./load-component.cjs')(path.join(__dirname, '../app/ownerSetupClient.ts'));
+
+test('maps only bounded owner rejection codes and never exposes server text', () => {
+  assert.match(ownerMutationRejection({code:'STALE_SNAPSHOT'}), /ข้อมูลบัญชีเก่าเกินไป/);
+  assert.match(ownerMutationRejection({violations:['RECONCILIATION_REQUIRED']}), /ตรวจยอด/);
+  assert.match(ownerMutationRejection({violations:['UNKNOWN', 'STALE_SNAPSHOT']}), /ข้อมูลบัญชีเก่าเกินไป/);
+  assert.match(ownerMutationRejection({code:'secret server text'}), /เงื่อนไขบัญชีเปลี่ยน/);
+  assert.doesNotMatch(ownerMutationRejection({code:'secret server text'}), /secret/);
+  for(const code of ['constructor','toString','__proto__']) assert.equal(typeof ownerMutationRejection({code}), 'string');
+  assert.match(ownerMutationRejection({violations:Array(33).fill('STALE_SNAPSHOT')}), /เงื่อนไขบัญชีเปลี่ยน/);
+  assert.match(ownerMutationRejection({code:'PERMISSION_VERIFICATION_REQUIRED'}), /สิทธิ์ซื้อขาย Bitkub/);
+});
+
+test('a rejected arm explains its exact cause, clears consent and never retries the financial request',async()=>{
+  const fs=require('node:fs'),ts=require('typescript'),React=require('react');
+  const state=[],effects=[];let cursor=0;
+  const hooks={...React,useState(initial){const i=cursor++;if(!(i in state))state[i]=initial;return[state[i],value=>{state[i]=typeof value==='function'?value(state[i]):value;}];},
+    useRef(initial){const i=cursor++;state[i]??={current:initial};return state[i];},useEffect(effect){if(!effects.length)effects.push(effect);}};
+  const file=path.join(__dirname,'../app/LiveOwnerSetup.tsx'),module={exports:{}};
+  const compiled=ts.transpileModule(fs.readFileSync(file,'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,jsx:ts.JsxEmit.ReactJSX}}).outputText;
+  new Function('require','module','exports',compiled)(name=>name==='react'?hooks:name.startsWith('.')?
+    require('./load-component.cjs')(path.join(path.dirname(file),name)+(name==='./OwnerPairingForm'?'.tsx':'.ts')):require(name),module,module.exports);
+  const render=()=>{cursor=0;return module.exports.LiveOwnerSetup({});};
+  const find=(element,predicate)=>{if(!element||typeof element!=='object')return;if(predicate(element))return element;
+    for(const child of [element.props?.children].flat(Infinity)){const match=find(child,predicate);if(match)return match;}};
+  const fixture={...base(),provisioned:true,baselineEstablished:true,reconciled:true,snapshotVersion:1,mandateVersion:1,
+    observedAt:'2026-10-11T02:00:00Z',mandate:{...fullSpotMandate(base()),version:1}};
+  const savedFetch=global.fetch,savedWindow=global.window,calls=[];
+  global.window={location:{origin:'https://localhost:3000'}};
+  global.fetch=async(url,options)=>{calls.push([url,options]);if(url.endsWith('/live/setup'))return Response.json(fixture);
+    if(url.endsWith('/owner/csrf'))return Response.json({token:'csrf'});
+    if(url.endsWith('/live/arm'))return Response.json({allowed:false,violations:['UNRESOLVED_ORDER']},{status:409});
+    throw Error('unexpected financial request');};
+  try {
+    render();const cleanup=effects[0]();await new Promise(setImmediate);
+    let tree=render(),arm=find(tree,e=>e.type==='button'&&e.props.children==='เปิดสิทธิ์ซื้อขายเงินจริง');
+    assert.ok(arm.props.disabled);assert.equal(arm.props['aria-describedby'],'arm-disabled-reason');
+    assert.equal(find(tree,e=>e.props?.id==='arm-disabled-reason').props.children,'ต้องยืนยันการใช้เงินจริงก่อน');
+    find(tree,e=>e.type==='input'&&e.props.type==='checkbox').props.onChange({target:{checked:true}});
+    tree=render();arm=find(tree,e=>e.type==='button'&&e.props.children==='เปิดสิทธิ์ซื้อขายเงินจริง');assert.equal(arm.props.disabled,false);
+    await arm.props.onClick();await new Promise(setImmediate);await new Promise(setImmediate);
+    tree=render();assert.equal(find(tree,e=>e.props?.role==='alert').props.children,'มีคำสั่งที่ยังตรวจสอบไม่เสร็จ');
+    assert.equal(find(tree,e=>e.type==='input'&&e.props.type==='checkbox').props.checked,false);
+    assert.ok(find(tree,e=>e.type==='button'&&e.props.children==='เปิดสิทธิ์ซื้อขายเงินจริง').props.disabled);
+    assert.deepEqual(calls.map(c=>new URL(c[0]).pathname),['/live/setup','/live/setup','/owner/csrf','/live/arm','/live/setup']);
+    assert.equal(JSON.parse(calls[3][1].body).confirmLive,true);cleanup();
+  } finally {global.fetch=savedFetch;global.window=savedWindow;}
+});
+
+test('arm blocker gives one prioritized accessible reason', () => {
+  const fs=require('node:fs'),ts=require('typescript'),React=require('react');
+  const file=path.join(__dirname,'../app/LiveOwnerSetup.tsx'),module={exports:{}};
+  const compiled=ts.transpileModule(fs.readFileSync(file,'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,jsx:ts.JsxEmit.ReactJSX}}).outputText;
+  new Function('require','module','exports',compiled)(name=>name==='react'?React:name.startsWith('.')?require('./load-component.cjs')(path.join(path.dirname(file),name)+(name==='./OwnerPairingForm'?'.tsx':'.ts')):require(name),module,module.exports);
+  const setup={canControl:true,baselineEstablished:false,needsDailyBaseline:true,reconciled:false};
+  assert.equal(module.exports.armDisabledReason(setup,false,false),'ต้องตรวจและบันทึกยอดเริ่มต้นก่อน');
+});
 
 test('remembered control pairing sends explicit consent once and never arms trading', async () => {
   const calls=[];

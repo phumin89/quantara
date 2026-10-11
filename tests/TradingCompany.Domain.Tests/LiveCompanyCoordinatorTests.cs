@@ -633,17 +633,28 @@ public sealed class LiveCompanyCoordinatorTests : IDisposable
     public async Task Failed_account_read_is_visible_and_research_recovers_without_arming()
     {
         var client = new Client { ReadFailures = 1, Packet = new Client().Packet with { Armed = false } };
+        var reads = 0;
+        client.BeforeRead = () => reads++;
         var gateway = new Gateway(); var coordinator = Coordinator(client, gateway, continuous: true);
         await coordinator.TickAsync();
         Assert.Equal("LIVE_UNAVAILABLE", coordinator.Status);
         Assert.Equal(new LiveMeetingIssue("LIVE_READ_UNAVAILABLE"), Assert.Single(coordinator.Issues));
-        Assert.Equal(clock.Now.AddMinutes(5), coordinator.NextRetryAt);
-        clock.Now = clock.Now.AddMinutes(5); Freshen(client);
+        Assert.Equal(clock.Now.AddSeconds(30), coordinator.NextRetryAt);
+        Assert.Empty(gateway.Inputs);
+        Assert.Empty(client.Meetings);
+        Assert.Empty(client.Plans);
+        clock.Now = clock.Now.AddSeconds(29); Freshen(client);
+        await coordinator.TickAsync();
+        Assert.Equal(1, reads);
+        Assert.Empty(gateway.Inputs);
+        clock.Now = clock.Now.AddSeconds(1); Freshen(client);
         await coordinator.TickAsync();
         Assert.Equal("READ_ONLY", coordinator.Status);
         Assert.Equal(8, gateway.Inputs.Count);
         Assert.False(client.Packet.Armed);
         Assert.Empty(client.Intents);
+        Assert.Empty(client.Plans);
+        Assert.Single(new JsonDailyMeetingJournal(Path.Combine(root, "live-meetings.json"), Scope).ReadAll());
     }
 
     [Theory]

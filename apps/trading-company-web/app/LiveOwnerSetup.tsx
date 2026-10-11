@@ -3,9 +3,19 @@ import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { requestJson } from "./requestJson";
 import { OwnerPairingForm } from "./OwnerPairingForm";
-import { executorOrigin, fullSpotMandate, ownerMutation, ownerOrigin, pairOwner, readOwnerSetup, sameOwnerConsent } from "./ownerSetupClient";
+import { executorOrigin, fullSpotMandate, ownerMutation, ownerMutationRejection, ownerOrigin, pairOwner, readOwnerSetup, sameOwnerConsent } from "./ownerSetupClient";
 import type { OwnerSetup } from "./ownerSetupClient";
 const cash = (n: number) => new Intl.NumberFormat("th-TH", { style: "currency", currency: "THB" }).format(n);
+export function armDisabledReason(setup: OwnerSetup | undefined, confirmLive: boolean, expired: boolean, busy = false) {
+  if (!setup?.canControl) return "ต้องยืนยันสิทธิ์ควบคุมก่อน";
+  if (busy) return "กำลังตรวจสอบข้อมูล";
+  if (!setup.baselineEstablished) return "ต้องตรวจและบันทึกยอดเริ่มต้นก่อน";
+  if (setup.needsDailyBaseline) return "ต้องตรวจยอดเริ่มวันใหม่ก่อน";
+  if (!setup.reconciled) return "ต้องตรวจยอดและคำสั่งกับ Bitkub ก่อน";
+  if (expired) return "คำอนุมัติวงเงินหมดอายุ ต้องบันทึกวงเงินใหม่ก่อน";
+  if (!confirmLive) return "ต้องยืนยันการใช้เงินจริงก่อน";
+  return "";
+}
 export function LiveOwnerSetup({ onChanged }: { onChanged?: () => void }) {
   const [setup, setSetup] = useState<OwnerSetup>();
   const [loading, setLoading] = useState(true);
@@ -55,7 +65,7 @@ export function LiveOwnerSetup({ onChanged }: { onChanged?: () => void }) {
       setFullCapital(false); setConfirmLive(false);
       if (result.status < 200 || result.status >= 300) {
         setError(result.status === 403 ? "สิทธิ์ควบคุมหมดอายุ ยืนยันสิทธิ์จากตัวเปิดแอพใหม่ได้ โดยยังดูบัญชีต่อได้" :
-          result.status === 409 ? "เงื่อนไขบัญชีเปลี่ยนหรือยอดยังไม่ครบ ระบบไม่เปิดสิทธิ์เพิ่ม ตรวจสถานะด้านล่างก่อน" :
+          result.status === 409 ? ownerMutationRejection(result.data) :
           "ยังยืนยันผลไม่ได้ กำลังอ่านสถานะใหม่ ไม่มีการส่งคำขอซ้ำอัตโนมัติ");
       } else setNotice(path === "/live/arm" ? "รับคำขอเปิดสิทธิ์แล้ว ตรวจสถานะการเทรดด้านบน" : "บันทึกขั้นตอนแล้ว การบันทึกวงเงินหรือยอดไม่เปิดการเทรด");
       await load(controller.signal); onChanged?.();
@@ -108,9 +118,9 @@ export function LiveOwnerSetup({ onChanged }: { onChanged?: () => void }) {
           <label className="owner-setup-confirm"><input type="checkbox" checked={confirmLive} onChange={e => setConfirmLive(e.target.checked)} disabled={disabled} />
             <span>{setup.mandate?.useFullPortfolio ? "อนุญาตให้ CEO ส่งคำสั่งเงินจริงภายในนโยบายใช้ 100% ของพอร์ต" : "อนุญาตให้ CEO ส่งคำสั่งเงินจริงตามวงเงินที่บันทึก"}{setup.stopped ? " และยกเลิกคำสั่งหยุดเดิม" : ""}</span></label>
           {!setup.mandate?.useFullPortfolio && <><p className="owner-setup-note">เปลี่ยนเป็น 100% รวมกำไรที่ตรวจยอดแล้ว หมุนทุนซื้อ–ขายซ้ำได้ และรับความเสี่ยงสูญเสียทุนทั้งหมด</p><button type="button" disabled={disabled || !fullSpotMandate(setup)} onClick={() => void act("/live/mandate")}>ใช้ 100% ของพอร์ต</button></>}
-          <button disabled={disabled || !confirmLive || !setup.reconciled || !setup.baselineEstablished || setup.needsDailyBaseline || expired}
+          <p id="arm-disabled-reason" role="status">{armDisabledReason(setup, confirmLive, expired, busy)}</p>
+          <button aria-describedby="arm-disabled-reason" disabled={disabled || !confirmLive || !setup.reconciled || !setup.baselineEstablished || setup.needsDailyBaseline || expired}
             onClick={() => void act("/live/arm")}>{busy ? "กำลังตรวจและเปิดสิทธิ์…" : "เปิดสิทธิ์ซื้อขายเงินจริง"}</button>
-          {expired && <p>คำอนุมัติวงเงินหมดอายุ ต้องบันทึกวงเงินใหม่ก่อนเปิดสิทธิ์</p>}
         </>}
       </>}
     </>}

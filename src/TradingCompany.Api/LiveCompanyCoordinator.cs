@@ -319,7 +319,8 @@ public sealed class LiveCompanyCoordinator(ILiveCompanyClient client, IHistorica
         catch (Exception)
         {
             if (claimedDay is not null) Finish("LIVE_UNAVAILABLE");
-            else Retry("LIVE_UNAVAILABLE", [new(unavailableCode)]);
+            else Retry("LIVE_UNAVAILABLE", [new(unavailableCode)],
+                unavailableCode == "LIVE_READ_UNAVAILABLE" ? TimeSpan.FromSeconds(30) : null);
         }
         finally { tick.Release(); }
 

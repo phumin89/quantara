@@ -14,6 +14,20 @@ namespace TradingCompany.Domain.Tests;
 
 public sealed class LiveOwnerEndpointTests
 {
+    [Fact]
+    public async Task Owner_status_does_not_claim_armed_when_receipt_stream_is_unavailable()
+    {
+        await using var factory = new Factory(receiptUnavailable: true);
+        using var client = await factory.Owner();
+        factory.Store.Account = factory.Store.Account with { Gate = LiveRiskTests.Gate };
+        var status = await client.GetFromJsonAsync<JsonElement>("/live/status");
+        Assert.Equal("BLOCKED", status.GetProperty("state").GetString());
+        Assert.False(status.GetProperty("armed").GetBoolean());
+        Assert.Contains("RECEIPT_STREAM_UNAVAILABLE", status.GetProperty("reasons").EnumerateArray().Select(x => x.GetString()));
+        Assert.True(factory.Store.Account.Gate.Armed);
+        Assert.Empty(factory.Store.Account.Orders);
+    }
+
     [Theory]
     [InlineData("expired", "MANDATE_EXPIRED")]
     [InlineData("isolation", "ISOLATION_REQUIRED")]
@@ -389,7 +403,7 @@ public sealed class LiveOwnerEndpointTests
             return Task.FromResult(new BrokerCancellation(BrokerSubmissionState.Accepted, "cancel-accepted"));
         }
     }
-    private sealed class Factory : WebApplicationFactory<LiveProgram>
+    private sealed class Factory(bool receiptUnavailable = false) : WebApplicationFactory<LiveProgram>
     {
         public Store Store { get; } = new();
         public Source Source { get; } = new();
@@ -405,6 +419,7 @@ public sealed class LiveOwnerEndpointTests
                 services.AddSingleton(new LiveOwnerControls(Store, Source, new Clock(), LiveRiskTests.Account));
                 services.AddSingleton(new LiveExecutionService(Store, Broker, new Clock()));
                 services.AddSingleton(new LiveReconciliation(Store, Evidence, new Clock()));
+                if (receiptUnavailable) services.AddSingleton(new BitkubReceiptObserver(null!, null!));
             });
         }
         public HttpClient Client()

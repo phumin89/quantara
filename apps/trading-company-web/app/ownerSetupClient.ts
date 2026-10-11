@@ -43,6 +43,25 @@ export function sameOwnerConsent(before: OwnerSetup, after: OwnerSetup) {
     JSON.stringify(before.verifiedSymbols) === JSON.stringify(after.verifiedSymbols);
 }
 const actions = new Set(["/live/provision", "/live/mandate", "/live/baseline", "/live/day-baseline", "/live/reconcile", "/live/arm"]);
+const rejectionMessages: Record<string, string> = {
+  STALE_APPROVAL: "คำอนุมัติเปลี่ยนแล้ว อ่านสถานะและยืนยันใหม่",
+  STALE_SNAPSHOT: "ข้อมูลบัญชีเก่าเกินไป อ่านสถานะและยืนยันใหม่",
+  RECONCILIATION_REQUIRED: "ต้องตรวจยอดและคำสั่งกับ Bitkub ก่อน",
+  DAILY_BASELINE_REQUIRED: "ต้องตรวจยอดเริ่มวันใหม่ก่อน",
+  UNRESOLVED_ORDER: "มีคำสั่งที่ยังตรวจสอบไม่เสร็จ",
+  PERMISSION_VERIFICATION_REQUIRED: "สิทธิ์ซื้อขาย Bitkub ยังไม่ผ่านการตรวจ",
+  PREFLIGHT_UNAVAILABLE: "ตรวจสอบก่อนเปิดสิทธิ์ยังไม่พร้อม",
+  OWNER_CONFIRMATION_REQUIRED: "ต้องยืนยันการใช้เงินจริงก่อน",
+  STOPPED: "บัญชีถูกหยุดไว้ ต้องตรวจสถานะก่อน",
+  MANDATE_EXPIRED: "คำอนุมัติวงเงินหมดอายุ ต้องบันทึกใหม่",
+  ACCOUNT_BINDING_CHANGED: "บัญชีที่ผูกไว้เปลี่ยนแล้ว ต้องตรวจสอบใหม่",
+};
+export function ownerMutationRejection(data: unknown) {
+  const known = Object.keys(rejectionMessages);
+  const candidates = object(data) && typeof data.code === "string" && data.code.length <= 64 ? [data.code] : object(data) && Array.isArray(data.violations) && data.violations.length > 0 && data.violations.length <= 32 ? data.violations.filter((code): code is string => typeof code === "string" && code.length <= 64) : [];
+  const code = known.find(candidate => candidates.includes(candidate));
+  return code && Object.hasOwn(rejectionMessages, code) ? rejectionMessages[code] : "เงื่อนไขบัญชีเปลี่ยนหรือยอดยังไม่ครบ ระบบไม่เปิดสิทธิ์เพิ่ม ตรวจสถานะด้านล่างก่อน";
+}
 export async function pairOwner(origin: string, code: string, rememberBrowser: boolean, rememberControl: boolean,
   fetcher: typeof fetch = fetch, signal?: AbortSignal): Promise<{ ok: boolean }> {
   if (origin !== ownerOrigin || !code || rememberControl && !rememberBrowser) return { ok: false };
@@ -60,5 +79,5 @@ export async function ownerMutation(origin: string, path: string, body: unknown,
   if (origin !== ownerOrigin || !actions.has(path)) return { status: 0, data: undefined };
   const csrf = await requestJson(`${executorOrigin}/owner/csrf`, { credentials: "include", signal }, fetcher);
   if (csrf.status !== 200 || !object(csrf.data) || typeof csrf.data.token !== "string" || !csrf.data.token) return { status: csrf.status, data: undefined };
-  return requestJson(`${executorOrigin}${path}`, { method: "POST", credentials: "include", signal, headers: { "Content-Type": "application/json", "X-CSRF-TOKEN": csrf.data.token }, body: JSON.stringify(body) }, fetcher);
+  return requestJson(`${executorOrigin}${path}`, { method: "POST", credentials: "include", signal, headers: { "Content-Type": "application/json", "X-CSRF-TOKEN": csrf.data.token }, body: JSON.stringify(body) }, fetcher, 8000, true);
 }

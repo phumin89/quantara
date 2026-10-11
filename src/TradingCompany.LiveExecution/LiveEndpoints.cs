@@ -68,6 +68,8 @@ public static class LiveEndpoints
             var now = clock.GetUtcNow();
             var reasons = new List<string>();
             if (!account.Gate.IsolationVerified) reasons.Add("ISOLATION_REQUIRED");
+            if (context.RequestServices.GetService<BitkubReceiptObserver>() is { Ready: false })
+                reasons.Add("RECEIPT_STREAM_UNAVAILABLE");
             if (!LiveRiskPolicy.IsValidMandate(account.Mandate)) reasons.Add("INVALID_MANDATE");
             if (account.Mandate.ExpiresAt <= now) reasons.Add("MANDATE_EXPIRED");
             if (account.Mandate.CredentialFingerprint != account.Gate.CredentialFingerprint) reasons.Add("ACCOUNT_BINDING_CHANGED");

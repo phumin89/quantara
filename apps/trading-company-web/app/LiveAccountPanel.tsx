@@ -35,6 +35,7 @@ const reasons: Record<string, string> = {
   STALE_SNAPSHOT: "ข้อมูลบัญชีไม่สด ต้องตรวจยอดใหม่",
   DAILY_BASELINE_REQUIRED: "ต้องยืนยันยอดต้นวันก่อนตรวจความเสี่ยง",
   UNRESOLVED_ORDER: "มีคำสั่งที่ยังยืนยันผลไม่ได้ ต้องตรวจจากตลาด",
+  RECEIPT_STREAM_UNAVAILABLE: "การเชื่อมต่อรับผลคำสั่ง Bitkub ไม่พร้อม ระบบยังส่งคำสั่งไม่ได้",
 };
 function validStatus(value: unknown): value is Status {
   if (!value || typeof value !== "object") return false;

@@ -9,6 +9,12 @@ const loaded = { exports: require('./load-component.cjs')(path.join(__dirname, '
 const { readLiveStatus, readLiveObservation, postOwnerAction, LiveReadinessView, LiveAccountSkeleton } = loaded.exports;
 const render = props => renderToStaticMarkup(React.createElement(LiveReadinessView, props));
 
+test('receipt stream failure explains blocked execution without pretending browser consent is missing',()=>{
+  const html=render({state:{kind:'connected',status:{state:'BLOCKED',armed:false,reasons:['RECEIPT_STREAM_UNAVAILABLE']}},busy:false});
+  assert.match(html,/การเชื่อมต่อรับผลคำสั่ง Bitkub ไม่พร้อม/);
+  assert.doesNotMatch(html,/ระบบรายงานว่าเปิดสิทธิ์ส่งคำสั่ง/);
+});
+
 test('initial account placeholder announces loading without fabricated amounts or controls', () => {
   const html = renderToStaticMarkup(React.createElement(LiveAccountSkeleton));
   assert.match(html, /aria-busy="true" role="status" aria-label="กำลังอ่านบัญชี"/);
