@@ -1,9 +1,10 @@
-import { z } from "zod";
+import { z } from 'zod';
+import { TradeSide } from './TradeSide';
 
 export const tradeSchema = z.object({
   transactionId: z.string(),
   symbol: z.string(),
-  side: z.enum(["buy", "sell"]),
+  side: z.enum(TradeSide),
   quantity: z.number(),
   price: z.number(),
   fee: z.number(),

@@ -1,9 +1,9 @@
-"use client";
+'use client';
 
-import { useCallback, useEffect, useRef, useState } from "react";
-import { getPortfolio } from "../api/getPortfolio";
-import { syncPortfolio } from "../api/syncPortfolio";
-import type { PortfolioResponse } from "../contracts/PortfolioResponse";
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { getPortfolio } from '../api/getPortfolio';
+import { syncPortfolio } from '../api/syncPortfolio';
+import type { PortfolioResponse } from '../contracts/PortfolioResponse';
 
 export function usePortfolio() {
   const [data, setData] = useState<PortfolioResponse | null>(null);
@@ -16,9 +16,9 @@ export function usePortfolio() {
       setData(next);
       setError(next.error);
     } catch (cause) {
-      if (!(cause instanceof Error && cause.name === "AbortError")) {
+      if (!(cause instanceof Error && cause.name === 'AbortError')) {
         setError(
-          cause instanceof Error ? cause.message : "Unable to load portfolio.",
+          cause instanceof Error ? cause.message : 'Unable to load portfolio.',
         );
       }
     }
@@ -66,7 +66,7 @@ export function usePortfolio() {
       await load();
     } catch (cause) {
       setError(
-        cause instanceof Error ? cause.message : "Unable to sync Bitkub data.",
+        cause instanceof Error ? cause.message : 'Unable to sync Bitkub data.',
       );
     } finally {
       setRefreshing(false);

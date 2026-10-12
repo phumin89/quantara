@@ -51,6 +51,10 @@ Opt into real SQL verification with `-- --sql` on Portfolio.Checks. It uses a se
 
 Browser checks with frontend running: `npm run test:ui`, `npm run test:contracts`. Real-data `npm run test:crypto` also needs both services and configured credentials. Install Chromium with `npx playwright install chromium`, or use installed Edge via `$env:PLAYWRIGHT_CHANNEL = 'msedge'`. Test fixtures/failure injection remain confined to the isolated test browser.
 
+Use `npm run test:crypto -- --fixtures` for deterministic responsive Crypto
+checks without broker credentials; it intercepts requests only inside the test
+browser. CI uses this mode, never simulated portfolio data in the application.
+
 CI runs formatting, lint/type checks, builds, deterministic checks, architecture checks, dependency audit, isolated browser checks and Gitleaks scanning. It never needs broker credentials or starts real account imports. GitHub branch protection must require these checks to enforce merge gates; the workflow alone does not change remote branch policy.
 
 Project-owned Roslyn diagnostics QNT001/QNT002 enforce one type per matching
@@ -63,8 +67,8 @@ accept valid source without adding bad code to the application.
 ## Automatic formatting
 
 Run `npm run format` to fix the entire repository's frontend and C# formatting.
-It applies ESLint fixes and Prettier to the frontend, then Roslyn code fixes and
-`dotnet format` to C#. This includes QNT005 member spacing and multiline C#
+It applies ESLint fixes and Prettier to the frontend, then pinned CSharpier and
+Roslyn code fixes to C#. This includes QNT005 member spacing and readable C#
 blocks. Run `npm run format:check` for a non-writing CI check; both commands use
 the same rules. Formatting does not resolve architecture or business errors.
 The QNT005 code fix is also available from the C# editor's Quick Fix action.
@@ -75,3 +79,16 @@ compilation; editor design-time checks and formatter bootstrap projects are
 excluded. Formatter failures stop the build. To explicitly skip C# autoformat,
 use `dotnet build Quantara.sln -p:QuantaraAutoFormat=false`. CI still runs the
 non-writing `format:check` gate before any build.
+
+Prettier uses width 80, semicolons, single-quoted TypeScript strings and
+double-quoted JSX attributes. CSharpier uses width 120, four spaces and LF.
+Widths guide wrapping rather than imposing a hard limit on string literals.
+JSON keeps double quotes; C# uses double quotes for strings and single quotes
+for characters. The CSharpier VS Code extension is the C# formatter.
+
+React UI uses function components and hooks. Named Props define component
+contracts; ConnectionStatusPresenter encapsulates connection-state decisions
+and appearance. Enums represent portfolio filters, position status, trade side
+and cost status. C# domain enums remain independent of JSON; API/SQL converters
+retain historical string spellings and reject unknown or numeric values.
+`npm run test:presentation` checks state priority and filtering without a browser.

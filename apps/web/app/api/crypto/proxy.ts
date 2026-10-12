@@ -1,1 +1,1 @@
-export { proxyCrypto } from "../../../shared/api/cryptoProxy";
+export { proxyCrypto } from '../../../shared/api/cryptoProxy';

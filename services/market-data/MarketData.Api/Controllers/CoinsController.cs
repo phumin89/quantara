@@ -16,6 +16,6 @@ public sealed class CoinsController : ControllerBase
     }
 
     [HttpGet]
-    public async Task<ActionResult<IReadOnlyList<MarketCoinResult>>> Get(CancellationToken cancellationToken)
-        => this.Ok(await this.mediator.Send(new GetMarketCoinsQuery(), cancellationToken));
+    public async Task<ActionResult<IReadOnlyList<MarketCoinResult>>> Get(CancellationToken cancellationToken) =>
+        this.Ok(await this.mediator.Send(new GetMarketCoinsQuery(), cancellationToken));
 }

@@ -1,6 +1,6 @@
-const assert = require("node:assert/strict");
-const fs = require("node:fs/promises");
-const { chromium } = require("playwright");
+const assert = require('node:assert/strict');
+const fs = require('node:fs/promises');
+const { chromium } = require('playwright');
 
 async function verifyCrypto() {
   const browser = await chromium.launch({
@@ -9,25 +9,90 @@ async function verifyCrypto() {
   });
   const page = await browser.newPage();
   const errors = [];
-  page.on("pageerror", (error) => errors.push(error.message));
-  await fs.mkdir(".impeccable/review", { recursive: true });
+  page.on('pageerror', (error) => errors.push(error.message));
+  await fs.mkdir('.impeccable/review', { recursive: true });
+  const fixture = process.argv.includes('--fixtures')
+    ? {
+        positions: [
+          {
+            symbol: 'TEST',
+            name: 'Fixture holding',
+            status: 'Holding',
+            quantity: 2,
+            averageCost: null,
+            currentPrice: 100,
+            value: 200,
+            unrealizedPnl: null,
+            realizedPnl: null,
+            costStatus: 'Unknown',
+          },
+          {
+            symbol: 'OLD',
+            name: 'Fixture closed',
+            status: 'Closed',
+            quantity: 0,
+            averageCost: null,
+            currentPrice: 50,
+            value: 0,
+            unrealizedPnl: null,
+            realizedPnl: null,
+            costStatus: 'Unknown',
+          },
+        ],
+        summary: { totalAssets: 200, availableThb: 1500, holdingCount: 1 },
+        updatedAt: '2026-01-01T00:00:00Z',
+        priceUpdatedAt: '2026-01-01T00:00:00Z',
+        historyUpdatedAt: '2026-01-01T00:00:00Z',
+        historyCoverage: 'Isolated test fixture',
+        syncing: false,
+        completedSymbols: 0,
+        totalSymbols: 0,
+        error: null,
+      }
+    : null;
+  const fulfillFixture = (route) => route.fulfill({ json: fixture });
+  const readSnapshot = async () =>
+    fixture ??
+    (
+      await page.request.get('http://127.0.0.1:3000/api/crypto/portfolio')
+    ).json();
+  if (fixture) {
+    await page.route('**/api/crypto/portfolio', fulfillFixture);
+    await page.route('**/api/crypto/history?*', (route) =>
+      route.fulfill({
+        json: {
+          trades: ['buy', 'sell'].map((side, index) => ({
+            transactionId: `fixture-${index}`,
+            symbol: 'TEST',
+            side,
+            quantity: 1,
+            price: 100,
+            fee: 0.1,
+            feeCredit: 0,
+            timestamp: '2026-01-01T00:00:00Z',
+          })),
+          coverage: 'Isolated test fixture',
+        },
+      }),
+    );
+  }
   try {
     for (const [name, width, height] of [
-      ["desktop", 1440, 900],
-      ["tablet", 768, 1024],
-      ["mobile", 390, 844],
+      ['desktop', 1440, 900],
+      ['tablet', 768, 1024],
+      ['mobile', 390, 844],
     ]) {
       await page.setViewportSize({ width, height });
-      await page.goto("http://127.0.0.1:3000/crypto");
+      await page.goto('http://127.0.0.1:3000/crypto');
       await page
-        .getByRole("columnheader", { name: "Coin", exact: true })
+        .getByRole('columnheader', { name: 'Coin', exact: true })
         .waitFor();
       if (width < 1040) {
-        const region = page.getByRole("region", {
-          name: "Crypto holdings and trading history",
+        const region = page.getByRole('region', {
+          name: 'Crypto holdings and trading history',
         });
         await region.focus();
-        await page.keyboard.press("ArrowRight");
+        await page.keyboard.press('ArrowRight');
         await page.waitForFunction(
           () =>
             document.querySelector(
@@ -44,33 +109,31 @@ async function verifyCrypto() {
         ),
         true,
       );
-      const snapshot = await (
-        await page.request.get("http://127.0.0.1:3000/api/crypto/portfolio")
-      ).json();
+      const snapshot = await readSnapshot();
       const formattedMoney = (value) =>
         value == null
-          ? "—"
-          : `฿${value.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+          ? '—'
+          : `฿${value.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
       await page
-        .getByRole("region", { name: "Portfolio summary", exact: true })
+        .getByRole('region', { name: 'Portfolio summary', exact: true })
         .waitFor();
       const expectedSummary = [
-        ["total-assets", formattedMoney(snapshot.summary.totalAssets)],
-        ["available-thb", formattedMoney(snapshot.summary.availableThb)],
+        ['total-assets', formattedMoney(snapshot.summary.totalAssets)],
+        ['available-thb', formattedMoney(snapshot.summary.availableThb)],
         [
-          "holding-count",
+          'holding-count',
           snapshot.summary.holdingCount == null
-            ? "—"
+            ? '—'
             : String(snapshot.summary.holdingCount),
         ],
       ];
-      for (const filter of ["Holding", "Closed", "All"]) {
-        await page.getByRole("button", { name: filter, exact: true }).click();
+      for (const filter of ['Holding', 'Closed', 'All']) {
+        await page.getByRole('button', { name: filter, exact: true }).click();
         const expected = snapshot.positions.filter(
-          (position) => filter === "All" || position.status === filter,
+          (position) => filter === 'All' || position.status === filter,
         ).length;
         assert.equal(
-          await page.getByRole("button", { name: /^View .* history$/ }).count(),
+          await page.getByRole('button', { name: /^View .* history$/ }).count(),
           expected,
         );
         for (const [id, value] of expectedSummary)
@@ -83,90 +146,93 @@ async function verifyCrypto() {
       if (snapshot.positions.length) {
         const symbol = snapshot.positions[0].symbol;
         await page
-          .getByRole("button", { name: `View ${symbol} history`, exact: true })
+          .getByRole('button', { name: `View ${symbol} history`, exact: true })
           .click();
         await page
-          .getByRole("columnheader", { name: "Date", exact: true })
+          .getByRole('columnheader', { name: 'Date', exact: true })
           .waitFor();
-        await page.locator(".MuiCollapse-entered").waitFor();
+        await page.locator('.MuiCollapse-entered').waitFor();
       }
       await page.mouse.move(0, 0);
       await page.evaluate(() => window.scrollTo(0, 0));
       await page.screenshot({ path: `.impeccable/review/crypto-${name}.png` });
-      console.log(`${name}: real data, filters, history and overflow passed`);
+      console.log(
+        `${name}: ${fixture ? 'isolated fixtures' : 'real data'}, filters, history and overflow passed`,
+      );
     }
     // Failure simulation is confined to this test browser, never the product.
-    await page.route("**/api/crypto/portfolio", (route) =>
+    await page.route('**/api/crypto/portfolio', (route) =>
       route.fulfill({
         status: 503,
-        contentType: "application/json",
-        body: JSON.stringify({ error: "Test: backend unavailable" }),
+        contentType: 'application/json',
+        body: JSON.stringify({ error: 'Test: backend unavailable' }),
       }),
     );
     await page.reload();
-    await page.getByRole("button", { name: "Retry", exact: true }).waitFor();
+    await page.getByRole('button', { name: 'Retry', exact: true }).waitFor();
     assert.equal(
-      await page.getByText("Test: backend unavailable").isVisible(),
+      await page.getByText('Test: backend unavailable').isVisible(),
       true,
     );
-    await page.unroute("**/api/crypto/portfolio");
-    await page.getByRole("button", { name: "Retry", exact: true }).click();
+    await page.unroute('**/api/crypto/portfolio');
+    if (fixture) {
+      await page.route('**/api/crypto/portfolio', fulfillFixture);
+    }
+    await page.getByRole('button', { name: 'Retry', exact: true }).click();
     await page
-      .getByRole("columnheader", { name: "Coin", exact: true })
+      .getByRole('columnheader', { name: 'Coin', exact: true })
       .waitFor();
-    const saved = await (
-      await page.request.get("http://127.0.0.1:3000/api/crypto/portfolio")
-    ).json();
+    const saved = await readSnapshot();
     let badgeSnapshot = { ...saved, syncing: false, error: null };
-    await page.route("**/api/crypto/portfolio", (route) =>
+    await page.route('**/api/crypto/portfolio', (route) =>
       route.fulfill({ json: badgeSnapshot }),
     );
     await page.reload();
-    const connected = page.getByRole("button", {
-      name: "Bitkub status: Connected",
+    const connected = page.getByRole('button', {
+      name: 'Bitkub status: Connected',
       exact: true,
     });
     await connected.click();
-    await page.getByRole("tooltip").waitFor();
-    assert.match(await page.getByRole("tooltip").textContent(), /Wallet/);
-    assert.match(await page.getByRole("tooltip").textContent(), /Prices/);
-    assert.match(await page.getByRole("tooltip").textContent(), /History/);
-    await page.keyboard.press("Escape");
-    await page.getByRole("tooltip").waitFor({ state: "hidden" });
+    await page.getByRole('tooltip').waitFor();
+    assert.match(await page.getByRole('tooltip').textContent(), /Wallet/);
+    assert.match(await page.getByRole('tooltip').textContent(), /Prices/);
+    assert.match(await page.getByRole('tooltip').textContent(), /History/);
+    await page.keyboard.press('Escape');
+    await page.getByRole('tooltip').waitFor({ state: 'hidden' });
     badgeSnapshot = { ...saved, syncing: true, error: null };
     await page.reload();
     await page
-      .getByRole("button", { name: "Bitkub status: Syncing", exact: true })
+      .getByRole('button', { name: 'Bitkub status: Syncing', exact: true })
       .waitFor();
     badgeSnapshot = {
       ...saved,
       syncing: false,
-      error: "Test: exchange sync failed",
+      error: 'Test: exchange sync failed',
     };
     await page.reload();
     await page
-      .getByRole("button", { name: "Bitkub status: Error", exact: true })
+      .getByRole('button', { name: 'Bitkub status: Error', exact: true })
       .waitFor();
-    await page.getByRole("button", { name: "Retry", exact: true }).waitFor();
+    await page.getByRole('button', { name: 'Retry', exact: true }).waitFor();
     assert.equal(
       await page
-        .getByRole("region", { name: "Portfolio summary", exact: true })
+        .getByRole('region', { name: 'Portfolio summary', exact: true })
         .isVisible(),
       true,
     );
-    await page.route("**/api/crypto/sync", (route) => {
+    await page.route('**/api/crypto/sync', (route) => {
       badgeSnapshot = { ...saved, syncing: false, error: null };
       return route.fulfill({ json: {} });
     });
-    await page.getByRole("button", { name: "Retry", exact: true }).click();
+    await page.getByRole('button', { name: 'Retry', exact: true }).click();
     await page
-      .getByRole("button", { name: "Bitkub status: Connected", exact: true })
+      .getByRole('button', { name: 'Bitkub status: Connected', exact: true })
       .waitFor();
     assert.deepEqual(errors, []);
     console.log(
-      "Connection badge, timestamps, Escape and saved-snapshot retry: passed",
+      'Connection badge, timestamps, Escape and saved-snapshot retry: passed',
     );
-    console.log("Backend failure/retry and browser errors: passed");
+    console.log('Backend failure/retry and browser errors: passed');
   } finally {
     await browser.close();
   }

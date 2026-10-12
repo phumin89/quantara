@@ -1,6 +1,6 @@
-import { proxyCrypto } from "../proxy";
+import { proxyCrypto } from '../proxy';
 
-export const dynamic = "force-dynamic";
+export const dynamic = 'force-dynamic';
 export function GET() {
-  return proxyCrypto("portfolio");
+  return proxyCrypto('portfolio');
 }

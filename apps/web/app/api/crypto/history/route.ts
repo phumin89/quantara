@@ -1,12 +1,12 @@
-import { NextRequest, NextResponse } from "next/server";
-import { proxyCrypto } from "../proxy";
+import { NextRequest, NextResponse } from 'next/server';
+import { proxyCrypto } from '../proxy';
 
-export const dynamic = "force-dynamic";
+export const dynamic = 'force-dynamic';
 export function GET(request: NextRequest) {
-  const coin = request.nextUrl.searchParams.get("coin");
+  const coin = request.nextUrl.searchParams.get('coin');
   if (!coin || !/^[a-zA-Z0-9]{1,30}$/.test(coin)) {
     return NextResponse.json(
-      { error: "Invalid coin symbol." },
+      { error: 'Invalid coin symbol.' },
       { status: 400 },
     );
   }

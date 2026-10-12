@@ -13,7 +13,9 @@ while (taskDirectory is not null && !File.Exists(Path.Combine(taskDirectory.Full
     taskDirectory = taskDirectory.Parent;
 }
 
-var environmentFile = builder.Configuration["Credentials:EnvironmentFile"] ?? Path.Combine(taskDirectory?.FullName ?? builder.Environment.ContentRootPath, ".env");
+var environmentFile =
+    builder.Configuration["Credentials:EnvironmentFile"]
+    ?? Path.Combine(taskDirectory?.FullName ?? builder.Environment.ContentRootPath, ".env");
 var settings = new Dictionary<string, string>();
 if (File.Exists(environmentFile))
 {
@@ -39,61 +41,71 @@ string Credential(string name) => Environment.GetEnvironmentVariable(name) ?? se
 var credentials = new BitkubCredentials(Credential("BITKUB_API_KEY"), Credential("BITKUB_API_SECRET"));
 var accountKey = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(credentials.Key))).ToLowerInvariant();
 var configuredConnection = builder.Configuration.GetConnectionString("Quantara");
-var connectionString = configuredConnection ?? "Server=(localdb)\\MSSQLLocalDB;Database=Quantara;Integrated Security=true;Encrypt=true;TrustServerCertificate=true;";
+var connectionString =
+    configuredConnection
+    ?? "Server=(localdb)\\MSSQLLocalDB;Database=Quantara;Integrated Security=true;Encrypt=true;TrustServerCertificate=true;";
 var store = new SqlPortfolioRepository(connectionString, accountKey);
 await store.Initialize(configuredConnection is null, CancellationToken.None);
 builder.Services.AddSingleton<IPortfolioRepository>(store);
 builder.Services.AddSingleton<IReadOnlyPortfolioRepository>(store);
 builder.Services.AddSingleton(credentials);
-builder.Services.AddHttpClient<BitkubAccountReader>(http =>
-{
-    http.BaseAddress = new Uri("https://api.bitkub.com");
-    http.Timeout = TimeSpan.FromSeconds(20);
-    http.DefaultRequestHeaders.Accept.ParseAdd("application/json");
-}).ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler { AllowAutoRedirect = false });
+builder
+    .Services.AddHttpClient<BitkubAccountReader>(http =>
+    {
+        http.BaseAddress = new Uri("https://api.bitkub.com");
+        http.Timeout = TimeSpan.FromSeconds(20);
+        http.DefaultRequestHeaders.Accept.ParseAdd("application/json");
+    })
+    .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler { AllowAutoRedirect = false });
 var marketDataUrl = new Uri(builder.Configuration["Services:MarketDataUrl"] ?? "http://127.0.0.1:5051");
 if (marketDataUrl.Scheme is not ("http" or "https") || !string.IsNullOrEmpty(marketDataUrl.UserInfo))
 {
     throw new InvalidOperationException("Configure a valid MarketData service URL without embedded credentials.");
 }
 
-builder.Services.AddHttpClient<IMarketDataClient, MarketDataClient>(http =>
-{
-    http.BaseAddress = marketDataUrl;
-    http.Timeout = TimeSpan.FromSeconds(20);
-}).ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler { AllowAutoRedirect = false });
+builder
+    .Services.AddHttpClient<IMarketDataClient, MarketDataClient>(http =>
+    {
+        http.BaseAddress = marketDataUrl;
+        http.Timeout = TimeSpan.FromSeconds(20);
+    })
+    .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler { AllowAutoRedirect = false });
 builder.Services.AddSingleton<PortfolioSync>();
 builder.Services.AddSingleton<IPortfolioSync>(services => services.GetRequiredService<PortfolioSync>());
 builder.Services.AddHostedService(services => services.GetRequiredService<PortfolioSync>());
 builder.Services.AddMediator(options => options.ServiceLifetime = ServiceLifetime.Scoped);
-builder.Services.AddControllers();
-var app = builder.Build();
-app.Use(async (context, next) =>
-{
-    context.Response.Headers.CacheControl = "no-store";
-    try
+builder
+    .Services.AddControllers()
+    .AddJsonOptions(options =>
     {
-        await next();
-    }
-    catch (OperationCanceledException) when (context.RequestAborted.IsCancellationRequested)
-    {
-    }
-    catch (Exception)
-    {
-        context.Response.StatusCode = 503;
-        await context.Response.WriteAsJsonAsync(new
-        {
-            error = "Portfolio storage is unavailable. Check the service and SQL Server connection."
-        });
-    }
-});
-app.MapGet("/health", async (CancellationToken cancellationToken) =>
-{
-    await store.Load(cancellationToken);
-    return Results.Ok(new
-    {
-        status = "ready"
+        PortfolioJson.ConfigureOptions(options.JsonSerializerOptions);
     });
-});
+var app = builder.Build();
+app.Use(
+    async (context, next) =>
+    {
+        context.Response.Headers.CacheControl = "no-store";
+        try
+        {
+            await next();
+        }
+        catch (OperationCanceledException) when (context.RequestAborted.IsCancellationRequested) { }
+        catch (Exception)
+        {
+            context.Response.StatusCode = 503;
+            await context.Response.WriteAsJsonAsync(
+                new { error = "Portfolio storage is unavailable. Check the service and SQL Server connection." }
+            );
+        }
+    }
+);
+app.MapGet(
+    "/health",
+    async (CancellationToken cancellationToken) =>
+    {
+        await store.Load(cancellationToken);
+        return Results.Ok(new { status = "ready" });
+    }
+);
 app.MapControllers();
 await app.RunAsync();

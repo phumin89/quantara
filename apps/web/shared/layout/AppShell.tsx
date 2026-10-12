@@ -1,20 +1,21 @@
-"use client";
+'use client';
 
-import { useState, type ReactNode } from "react";
-import MenuIcon from "@mui/icons-material/Menu";
+import { useState } from 'react';
+import MenuIcon from '@mui/icons-material/Menu';
 import {
   Box,
   Drawer,
   IconButton,
   useMediaQuery,
   useTheme,
-} from "@mui/material";
-import Navigation from "./Navigation";
+} from '@mui/material';
+import Navigation from './Navigation';
+import type { AppShellProps } from './AppShellProps';
 
 const drawerWidth = 240;
-export default function AppShell({ children }: { children: ReactNode }) {
+export default function AppShell({ children }: AppShellProps) {
   const theme = useTheme();
-  const isMobile = useMediaQuery(theme.breakpoints.down("md"));
+  const isMobile = useMediaQuery(theme.breakpoints.down('md'));
   const [open, setOpen] = useState(false);
   const navigation = (
     <Navigation
@@ -25,7 +26,7 @@ export default function AppShell({ children }: { children: ReactNode }) {
   );
 
   return (
-    <Box sx={{ display: "flex", minHeight: "100dvh", width: "100%" }}>
+    <Box sx={{ display: 'flex', minHeight: '100dvh', width: '100%' }}>
       {isMobile ? (
         <Drawer
           open={open}
@@ -35,9 +36,9 @@ export default function AppShell({ children }: { children: ReactNode }) {
           ModalProps={{ keepMounted: true }}
           aria-label="Navigation menu"
           sx={{
-            "& .MuiDrawer-paper": {
+            '& .MuiDrawer-paper': {
               width: drawerWidth,
-              boxSizing: "border-box",
+              boxSizing: 'border-box',
             },
           }}
         >
@@ -50,9 +51,9 @@ export default function AppShell({ children }: { children: ReactNode }) {
           sx={{
             width: drawerWidth,
             flexShrink: 0,
-            "& .MuiDrawer-paper": {
+            '& .MuiDrawer-paper': {
               width: drawerWidth,
-              boxSizing: "border-box",
+              boxSizing: 'border-box',
             },
           }}
         >
@@ -70,7 +71,7 @@ export default function AppShell({ children }: { children: ReactNode }) {
             }}
             aria-label="Open menu"
             aria-expanded={open}
-            sx={{ mb: 4, color: "text.primary", width: 44, height: 44 }}
+            sx={{ mb: 4, color: 'text.primary', width: 44, height: 44 }}
           >
             <MenuIcon />
           </IconButton>

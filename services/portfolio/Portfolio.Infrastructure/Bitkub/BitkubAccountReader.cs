@@ -12,7 +12,9 @@ public sealed class BitkubAccountReader(HttpClient http, BitkubCredentials crede
     public async Task<Balance[]> Balances(CancellationToken cancellationToken)
     {
         using var json = await this.Get("/api/v4/wallet/balances", true, cancellationToken);
-        var balances = json.RootElement.GetProperty("data").EnumerateArray()
+        var balances = json
+            .RootElement.GetProperty("data")
+            .EnumerateArray()
             .Select(item =>
             {
                 var total = Number(item, "total");
@@ -23,7 +25,8 @@ public sealed class BitkubAccountReader(HttpClient http, BitkubCredentials crede
                 }
 
                 return new Balance(Text(item, "currency"), total, available);
-            }).ToArray();
+            })
+            .ToArray();
         return balances;
     }
 
@@ -34,7 +37,8 @@ public sealed class BitkubAccountReader(HttpClient http, BitkubCredentials crede
         string? cursor = null;
         do
         {
-            var path = $"/api/v3/market/my-order-history?sym={Uri.EscapeDataString(symbol + "_THB")}&lmt=100&pagination_type=keyset";
+            var path =
+                $"/api/v3/market/my-order-history?sym={Uri.EscapeDataString(symbol + "_THB")}&lmt=100&pagination_type=keyset";
             if (cursor is not null)
             {
                 path += "&cursor=" + Uri.EscapeDataString(cursor);
@@ -55,12 +59,16 @@ public sealed class BitkubAccountReader(HttpClient http, BitkubCredentials crede
             cursor = Text(pagination, "cursor");
             if (string.IsNullOrEmpty(cursor) || !cursors.Add(cursor))
             {
-                throw new ExchangeReadException("Bitkub history pagination did not advance. Imported records are retained.");
+                throw new ExchangeReadException(
+                    "Bitkub history pagination did not advance. Imported records are retained."
+                );
             }
 
             if (cursors.Count >= 1000)
             {
-                throw new ExchangeReadException("Bitkub history exceeded the import limit. Imported records are retained.");
+                throw new ExchangeReadException(
+                    "Bitkub history exceeded the import limit. Imported records are retained."
+                );
             }
         } while (true);
         return trades.ToArray();
@@ -68,24 +76,36 @@ public sealed class BitkubAccountReader(HttpClient http, BitkubCredentials crede
 
     public static Trade ParseTrade(JsonElement item, string symbol)
     {
-        var side = Text(item, "side");
+        var side = Text(item, "side").ToLowerInvariant() switch
+        {
+            "buy" => TradeSide.Buy,
+            "sell" => TradeSide.Sell,
+            _ => throw new InvalidDataException("Unexpected Bitkub trade fields."),
+        };
         var price = Number(item, "rate");
         var amount = Number(item, "amount");
-        if (side is not ("buy" or "sell") || price <= 0 || amount < 0)
+        if (price <= 0 || amount < 0)
         {
             throw new InvalidDataException("Unexpected Bitkub trade fields.");
         }
         // Bitkub amount is THB for buys and coin quantity for sells.
-        var quantity = side == "buy" ? amount / price : amount;
+        var quantity = side == TradeSide.Buy ? amount / price : amount;
         var transactionId = Text(item, "txn_id");
         if (string.IsNullOrWhiteSpace(transactionId))
         {
             throw new InvalidDataException("Trade identifier is missing.");
         }
 
-        return new(transactionId, symbol, side, quantity, price,
-            Number(item, "fee"), Number(item, "credit"),
-            DateTimeOffset.FromUnixTimeMilliseconds(item.GetProperty("ts").GetInt64()));
+        return new(
+            transactionId,
+            symbol,
+            side,
+            quantity,
+            price,
+            Number(item, "fee"),
+            Number(item, "credit"),
+            DateTimeOffset.FromUnixTimeMilliseconds(item.GetProperty("ts").GetInt64())
+        );
     }
 
     private async Task<JsonDocument> Get(string path, bool signed, CancellationToken cancellationToken)
@@ -101,8 +121,11 @@ public sealed class BitkubAccountReader(HttpClient http, BitkubCredentials crede
         {
             var timestamp = (await http.GetStringAsync("/api/v3/servertime", cancellationToken)).Trim();
             var input = timestamp + "GET" + path;
-            var signature = Convert.ToHexString(HMACSHA256.HashData(
-                Encoding.UTF8.GetBytes(credentials.Secret), Encoding.UTF8.GetBytes(input))).ToLowerInvariant();
+            var signature = Convert
+                .ToHexString(
+                    HMACSHA256.HashData(Encoding.UTF8.GetBytes(credentials.Secret), Encoding.UTF8.GetBytes(input))
+                )
+                .ToLowerInvariant();
             request.Headers.Add("X-BTK-APIKEY", credentials.Key);
             request.Headers.Add("X-BTK-TIMESTAMP", timestamp);
             request.Headers.Add("X-BTK-SIGN", signature);
@@ -111,24 +134,31 @@ public sealed class BitkubAccountReader(HttpClient http, BitkubCredentials crede
         using var response = await http.SendAsync(request, cancellationToken);
         if (!response.IsSuccessStatusCode)
         {
-            throw new ExchangeReadException($"Bitkub read failed (HTTP {(int)response.StatusCode}). Check API permissions and IP access.");
+            throw new ExchangeReadException(
+                $"Bitkub read failed (HTTP {(int)response.StatusCode}). Check API permissions and IP access."
+            );
         }
 
         var json = JsonDocument.Parse(await response.Content.ReadAsStringAsync(cancellationToken));
         var root = json.RootElement;
-        var code = root.ValueKind == JsonValueKind.Object && root.TryGetProperty("error", out var error) ? error.ToString()
-            : root.ValueKind == JsonValueKind.Object && root.TryGetProperty("code", out var v4Code) ? v4Code.ToString() : "0";
+        var code =
+            root.ValueKind == JsonValueKind.Object && root.TryGetProperty("error", out var error) ? error.ToString()
+            : root.ValueKind == JsonValueKind.Object && root.TryGetProperty("code", out var v4Code) ? v4Code.ToString()
+            : "0";
         if (code == "0")
         {
             return json;
         }
 
         json.Dispose();
-        throw new ExchangeReadException($"Bitkub rejected a read request (code {code}). Check API permissions and IP access.", code);
+        throw new ExchangeReadException(
+            $"Bitkub rejected a read request (code {code}). Check API permissions and IP access.",
+            code
+        );
     }
 
     private static string Text(JsonElement item, string name) => item.GetProperty(name).ToString();
 
-    private static decimal Number(JsonElement item, string name) => decimal.Parse(Text(item, name), NumberStyles.Float, CultureInfo.InvariantCulture);
+    private static decimal Number(JsonElement item, string name) =>
+        decimal.Parse(Text(item, name), NumberStyles.Float, CultureInfo.InvariantCulture);
 }
-

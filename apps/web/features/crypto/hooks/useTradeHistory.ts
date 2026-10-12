@@ -1,8 +1,8 @@
-"use client";
+'use client';
 
-import { useEffect, useRef, useState } from "react";
-import { getTradeHistory } from "../api/getTradeHistory";
-import type { Trade } from "../contracts/Trade";
+import { useEffect, useRef, useState } from 'react';
+import { getTradeHistory } from '../api/getTradeHistory';
+import type { Trade } from '../contracts/Trade';
 
 export function useTradeHistory(historyUpdatedAt: string | null | undefined) {
   const [expanded, setExpanded] = useState<string | null>(null);
@@ -28,7 +28,8 @@ export function useTradeHistory(historyUpdatedAt: string | null | undefined) {
     setExpanded(null);
   }, [historyUpdatedAt]);
   const openHistory = async (symbol: string, force = false) => {
-    setExpanded(force ? symbol : expanded === symbol ? null : symbol);
+    const toggledSymbol = expanded === symbol ? null : symbol;
+    setExpanded(force ? symbol : toggledSymbol);
     if (!force && history[symbol]) {
       return;
     }
@@ -52,7 +53,7 @@ export function useTradeHistory(historyUpdatedAt: string | null | undefined) {
       setHistoryErrors((current) => ({
         ...current,
         [symbol]:
-          cause instanceof Error ? cause.message : "Unable to load history.",
+          cause instanceof Error ? cause.message : 'Unable to load history.',
       }));
     } finally {
       requests.current.delete(controller);

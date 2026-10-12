@@ -1,6 +1,7 @@
 using Mediator;
 using Microsoft.AspNetCore.Mvc;
 using Quantara.Portfolio.Application;
+
 namespace Quantara.Portfolio.Api;
 
 [ApiController]
@@ -15,7 +16,8 @@ public sealed class PortfolioController : ControllerBase
     }
 
     [HttpGet("portfolio")]
-    public Task<PortfolioView> Get(CancellationToken cancellationToken) => this.mediator.Send(new GetPortfolioQuery(), cancellationToken).AsTask();
+    public Task<PortfolioView> Get(CancellationToken cancellationToken) =>
+        this.mediator.Send(new GetPortfolioQuery(), cancellationToken).AsTask();
 
     [HttpPost("sync")]
     public async Task<IActionResult> Sync(CancellationToken cancellationToken)

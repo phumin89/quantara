@@ -1,6 +1,7 @@
 using Mediator;
 using Microsoft.AspNetCore.Mvc;
 using Quantara.Portfolio.Application;
+
 namespace Quantara.Portfolio.Api;
 
 [ApiController]
@@ -19,10 +20,7 @@ public sealed class HistoryController : ControllerBase
     {
         if (coin.Length is < 1 or > 30 || !coin.All(char.IsAsciiLetterOrDigit))
         {
-            return this.BadRequest(new
-            {
-                error = "Invalid coin symbol."
-            });
+            return this.BadRequest(new { error = "Invalid coin symbol." });
         }
 
         return this.Ok(await this.mediator.Send(new GetCoinHistoryQuery(coin.ToUpperInvariant()), cancellationToken));

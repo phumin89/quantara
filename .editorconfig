@@ -10,6 +10,7 @@ trim_trailing_whitespace = true
 
 [*.cs]
 indent_size = 4
+max_line_length = 120
 csharp_preserve_single_line_blocks = false
 csharp_preserve_single_line_statements = false
 dotnet_sort_system_directives_first = true
@@ -26,7 +27,8 @@ dotnet_style_allow_multiple_blank_lines_experimental = false:error
 dotnet_style_allow_statement_immediately_after_block_experimental = false:error
 dotnet_diagnostic.IDE2000.severity = error
 dotnet_diagnostic.IDE2003.severity = error
-dotnet_diagnostic.IDE0055.severity = error
+# CSharpier owns whitespace; Roslyn's formatter uses conflicting layouts.
+dotnet_diagnostic.IDE0055.severity = none
 dotnet_diagnostic.IDE0040.severity = error
 dotnet_diagnostic.IDE0009.severity = error
 dotnet_diagnostic.IDE0011.severity = error

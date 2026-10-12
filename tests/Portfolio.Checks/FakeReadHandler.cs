@@ -3,22 +3,16 @@ using System.Text;
 
 internal sealed class FakeReadHandler : HttpMessageHandler
 {
-    public bool InvalidWallet
-    {
-        get; set;
-    }
+    public bool InvalidWallet { get; set; }
 
-    public int HistoryCalls
-    {
-        get; private set;
-    }
+    public int HistoryCalls { get; private set; }
 
-    public int VerifiedSignatures
-    {
-        get; private set;
-    }
+    public int VerifiedSignatures { get; private set; }
 
-    protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+    protected override Task<HttpResponseMessage> SendAsync(
+        HttpRequestMessage request,
+        CancellationToken cancellationToken
+    )
     {
         if (request.Method != HttpMethod.Get)
         {
@@ -30,16 +24,24 @@ internal sealed class FakeReadHandler : HttpMessageHandler
         if (path.StartsWith("/api/v3/market/my-order-history", StringComparison.Ordinal))
         {
             this.HistoryCalls++;
-            var expected = Convert.ToHexString(HMACSHA256.HashData(Encoding.UTF8.GetBytes("test-secret"), Encoding.UTF8.GetBytes("1700000000000GET" + path))).ToLowerInvariant();
+            var expected = Convert
+                .ToHexString(
+                    HMACSHA256.HashData(
+                        Encoding.UTF8.GetBytes("test-secret"),
+                        Encoding.UTF8.GetBytes("1700000000000GET" + path)
+                    )
+                )
+                .ToLowerInvariant();
             if (request.Headers.GetValues("X-BTK-SIGN").Single() != expected)
             {
                 throw new InvalidOperationException("Signature mismatch");
             }
 
             this.VerifiedSignatures++;
-            json = this.HistoryCalls == 1
-                ? """{"error":0,"result":[{"txn_id":"a","side":"buy","rate":"10","amount":"20","fee":"0.05","credit":"0","ts":1700000000000}],"pagination":{"cursor":"next+page=","has_next":true}}"""
-                : """{"error":0,"result":[{"txn_id":"b","side":"sell","rate":"12","amount":"2","fee":"0.06","credit":"0","ts":1700000100000}],"pagination":{"cursor":null,"has_next":false}}""";
+            json =
+                this.HistoryCalls == 1
+                    ? """{"error":0,"result":[{"txn_id":"a","side":"buy","rate":"10","amount":"20","fee":"0.05","credit":"0","ts":1700000000000}],"pagination":{"cursor":"next+page=","has_next":true}}"""
+                    : """{"error":0,"result":[{"txn_id":"b","side":"sell","rate":"12","amount":"2","fee":"0.06","credit":"0","ts":1700000100000}],"pagination":{"cursor":null,"has_next":false}}""";
             if (this.HistoryCalls == 2 && !path.Contains("cursor=next%2Bpage%3D"))
             {
                 throw new InvalidOperationException("Cursor was not encoded.");
@@ -56,6 +58,8 @@ internal sealed class FakeReadHandler : HttpMessageHandler
             throw new InvalidOperationException("Unexpected endpoint.");
         }
 
-        return Task.FromResult(new HttpResponseMessage(System.Net.HttpStatusCode.OK) { Content = new StringContent(json) });
+        return Task.FromResult(
+            new HttpResponseMessage(System.Net.HttpStatusCode.OK) { Content = new StringContent(json) }
+        );
     }
 }

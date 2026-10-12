@@ -5,8 +5,10 @@
   </PropertyGroup>
 
   <Target Name="QuantaraAutoFormat" BeforeTargets="CoreCompile" Condition="'$(QuantaraAutoFormatProject)' == 'true'">
-    <Exec Command="dotnet format whitespace &quot;$(MSBuildProjectFullPath)&quot; --include ./ --no-restore" WorkingDirectory="$(MSBuildProjectDirectory)" EnvironmentVariables="QuantaraAutoFormat=false" />
+    <Exec Command="dotnet tool restore --tool-manifest &quot;$(MSBuildThisFileDirectory).config/dotnet-tools.json&quot;" WorkingDirectory="$(MSBuildProjectDirectory)" EnvironmentVariables="QuantaraAutoFormat=false" />
+    <Exec Command="dotnet csharpier format ." WorkingDirectory="$(MSBuildProjectDirectory)" EnvironmentVariables="QuantaraAutoFormat=false" />
     <Exec Command="dotnet format analyzers &quot;$(MSBuildProjectFullPath)&quot; --diagnostics QNT005 --include ./ --no-restore" WorkingDirectory="$(MSBuildProjectDirectory)" EnvironmentVariables="QuantaraAutoFormat=false" />
     <Exec Command="dotnet format style &quot;$(MSBuildProjectFullPath)&quot; --diagnostics IDE2000 IDE2003 --include ./ --no-restore" WorkingDirectory="$(MSBuildProjectDirectory)" EnvironmentVariables="QuantaraAutoFormat=false" />
+    <Exec Command="dotnet csharpier format ." WorkingDirectory="$(MSBuildProjectDirectory)" EnvironmentVariables="QuantaraAutoFormat=false" />
   </Target>
 </Project>

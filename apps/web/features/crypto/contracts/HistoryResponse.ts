@@ -1,5 +1,5 @@
-import { z } from "zod";
-import { tradeSchema } from "./Trade";
+import { z } from 'zod';
+import { tradeSchema } from './Trade';
 
 export const historyResponseSchema = z.object({
   trades: z.array(tradeSchema),

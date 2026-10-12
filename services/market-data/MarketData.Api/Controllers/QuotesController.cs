@@ -16,6 +16,6 @@ public sealed class QuotesController : ControllerBase
     }
 
     [HttpGet]
-    public async Task<ActionResult<IReadOnlyList<MarketQuoteResult>>> Get(CancellationToken cancellationToken)
-        => this.Ok(await this.mediator.Send(new GetMarketQuotesQuery(), cancellationToken));
+    public async Task<ActionResult<IReadOnlyList<MarketQuoteResult>>> Get(CancellationToken cancellationToken) =>
+        this.Ok(await this.mediator.Send(new GetMarketQuotesQuery(), cancellationToken));
 }

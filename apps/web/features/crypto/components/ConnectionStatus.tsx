@@ -1,46 +1,57 @@
-"use client";
+'use client';
 
-import { useState } from "react";
-import { Box, Button, Stack, Tooltip, Typography } from "@mui/material";
-import type { PortfolioResponse } from "../contracts/PortfolioResponse";
-import formatTime from "../utils/formatTime";
+import { useState } from 'react';
+import { Box, Button, Stack, Tooltip, Typography } from '@mui/material';
+import formatTime from '../utils/formatTime';
+import { ConnectionStatusPresenter } from '../presentation/ConnectionStatusPresenter';
+import type { ConnectionStatusProps } from './ConnectionStatusProps';
 
 export default function ConnectionStatus({
   data,
   error,
   refreshing,
-}: {
-  data: PortfolioResponse | null;
-  error: string | null;
-  refreshing: boolean;
-}) {
+}: ConnectionStatusProps) {
   const [statusOpen, setStatusOpen] = useState(false);
-  const status = error
-    ? { label: "Error", color: "#dc2626", background: "#fef2f2" }
-    : refreshing || data?.syncing
-      ? { label: "Syncing", color: "#b45309", background: "#fffbeb" }
-      : data?.updatedAt
-        ? { label: "Connected", color: "#15803d", background: "#f0fdf4" }
-        : { label: "Checking", color: "#525252", background: "#f3f3f3" };
+  const presenter = new ConnectionStatusPresenter(
+    error,
+    refreshing || Boolean(data?.syncing),
+    data?.updatedAt ?? null,
+  );
+  const status = presenter.appearance;
   const details = (
-    <Stack spacing={0.5} sx={{ fontSize: 12 }}>
+    <Stack
+      spacing={0.5}
+      sx={{ fontSize: 12 }}
+    >
       <Typography
         component="span"
-        sx={{ color: "inherit", fontSize: 12, fontWeight: 600 }}
+        sx={{ color: 'inherit', fontSize: 12, fontWeight: 600 }}
       >
         Last successful updates
       </Typography>
-      <Typography component="span" sx={{ color: "inherit", fontSize: 12 }}>
+      <Typography
+        component="span"
+        sx={{ color: 'inherit', fontSize: 12 }}
+      >
         Wallet: {formatTime(data?.updatedAt || null)}
       </Typography>
-      <Typography component="span" sx={{ color: "inherit", fontSize: 12 }}>
+      <Typography
+        component="span"
+        sx={{ color: 'inherit', fontSize: 12 }}
+      >
         Prices: {formatTime(data?.priceUpdatedAt || null)}
       </Typography>
-      <Typography component="span" sx={{ color: "inherit", fontSize: 12 }}>
+      <Typography
+        component="span"
+        sx={{ color: 'inherit', fontSize: 12 }}
+      >
         History: {formatTime(data?.historyUpdatedAt || null)}
       </Typography>
       {data?.syncing && data.totalSymbols > 0 && (
-        <Typography component="span" sx={{ color: "inherit", fontSize: 12 }}>
+        <Typography
+          component="span"
+          sx={{ color: 'inherit', fontSize: 12 }}
+        >
           Progress: {data.completedSymbols}/{data.totalSymbols} symbols
         </Typography>
       )}
@@ -76,7 +87,7 @@ export default function ConnectionStatus({
           setStatusOpen(false);
         }}
         onKeyDown={(event) => {
-          if (event.key === "Escape") {
+          if (event.key === 'Escape') {
             setStatusOpen(false);
           }
         }}
@@ -86,10 +97,10 @@ export default function ConnectionStatus({
           p: 0.5,
           gap: 0.75,
           color: status.color,
-          textTransform: "none",
+          textTransform: 'none',
           fontSize: 12,
           fontWeight: 600,
-          borderRadius: "6px",
+          borderRadius: '6px',
         }}
       >
         <Box
@@ -97,7 +108,7 @@ export default function ConnectionStatus({
           sx={{
             width: 8,
             height: 8,
-            borderRadius: "50%",
+            borderRadius: '50%',
             bgcolor: status.color,
           }}
         />
@@ -105,7 +116,7 @@ export default function ConnectionStatus({
           component="span"
           sx={{
             bgcolor: status.background,
-            borderRadius: "4px",
+            borderRadius: '4px',
             px: 0.75,
             py: 0.25,
           }}

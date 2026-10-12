@@ -16,14 +16,15 @@
     "test:ui": "node tools/verify-shell.cjs",
     "test:crypto": "node tools/verify-crypto.cjs",
     "test:contracts": "node tools/verify-contracts.cjs",
+    "test:presentation": "node tools/verify-presentation.cjs",
     "test:architecture": "dotnet run --project tests/Architecture.Checks/Architecture.Checks.csproj && node tools/verify-architecture.cjs",
     "format": "npm run format:web && npm run format:dotnet",
     "format:web": "npm exec --workspace @quantara/web -- eslint app features shared --fix && prettier --write apps/web tools .vscode package.json",
-    "format:prepare": "dotnet restore Quantara.sln --verbosity quiet && dotnet build tools/Quantara.Analyzers/Quantara.Analyzers.csproj --no-restore --verbosity quiet && dotnet build tools/Quantara.CodeFixes/Quantara.CodeFixes.csproj --no-restore --verbosity quiet",
-    "format:dotnet": "npm run format:prepare && dotnet format Quantara.sln whitespace --no-restore && dotnet format Quantara.sln analyzers --diagnostics QNT005 --no-restore && dotnet format Quantara.sln style --diagnostics IDE2000 IDE2003 --no-restore",
+    "format:prepare": "dotnet tool restore && dotnet restore Quantara.sln --verbosity quiet && dotnet build tools/Quantara.Analyzers/Quantara.Analyzers.csproj --no-restore --verbosity quiet && dotnet build tools/Quantara.CodeFixes/Quantara.CodeFixes.csproj --no-restore --verbosity quiet",
+    "format:dotnet": "npm run format:prepare && dotnet csharpier format services tests tools && dotnet format Quantara.sln analyzers --diagnostics QNT005 --no-restore && dotnet format Quantara.sln style --diagnostics IDE2000 IDE2003 --no-restore && dotnet csharpier format services tests tools",
     "format:check": "npm run format:web:check && npm run format:dotnet:check",
     "format:web:check": "prettier --check apps/web tools .vscode package.json && npm run lint",
-    "format:dotnet:check": "npm run format:prepare && dotnet format Quantara.sln analyzers --diagnostics QNT005 --verify-no-changes --no-restore && dotnet format Quantara.sln style --diagnostics IDE2000 IDE2003 --verify-no-changes --no-restore && dotnet format Quantara.sln whitespace --verify-no-changes --no-restore",
+    "format:dotnet:check": "npm run format:prepare && dotnet csharpier check services tests tools && dotnet format Quantara.sln analyzers --diagnostics QNT005 --verify-no-changes --no-restore && dotnet format Quantara.sln style --diagnostics IDE2000 IDE2003 --verify-no-changes --no-restore",
     "test:editor": "dotnet run --project tests/Analyzer.Checks/Analyzer.Checks.csproj && node tools/verify-editor-rules.cjs"
   },
   "devDependencies": {

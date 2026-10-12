@@ -1,5 +1,5 @@
-import { z } from "zod";
-import { positionSchema } from "./Position";
+import { z } from 'zod';
+import { positionSchema } from './Position';
 
 export const portfolioSchema = z.object({
   positions: z.array(positionSchema),

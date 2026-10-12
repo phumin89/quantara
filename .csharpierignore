@@ -1,0 +1,9 @@
+**/bin/**
+**/obj/**
+**/*.csproj
+**/*.props
+**/*.targets
+node_modules/**
+.next/**
+work/**
+.runtime/**

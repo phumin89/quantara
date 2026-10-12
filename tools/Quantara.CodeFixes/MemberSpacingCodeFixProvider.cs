@@ -33,7 +33,8 @@ public sealed class MemberSpacingCodeFixProvider : CodeFixProvider
 
         foreach (var diagnostic in context.Diagnostics)
         {
-            var member = documentRoot.FindNode(diagnostic.Location.SourceSpan, getInnermostNodeForTie: true)
+            var member = documentRoot
+                .FindNode(diagnostic.Location.SourceSpan, getInnermostNodeForTie: true)
                 .AncestorsAndSelf()
                 .OfType<MemberDeclarationSyntax>()
                 .FirstOrDefault();
@@ -43,12 +44,21 @@ public sealed class MemberSpacingCodeFixProvider : CodeFixProvider
             }
 
             context.RegisterCodeFix(
-                CodeAction.Create(title, cancellationToken => AddSpacingAsync(context.Document, member, cancellationToken), title),
-                diagnostic);
+                CodeAction.Create(
+                    title,
+                    cancellationToken => AddSpacingAsync(context.Document, member, cancellationToken),
+                    title
+                ),
+                diagnostic
+            );
         }
     }
 
-    private static async Task<Document> AddSpacingAsync(Document document, MemberDeclarationSyntax member, CancellationToken cancellationToken)
+    private static async Task<Document> AddSpacingAsync(
+        Document document,
+        MemberDeclarationSyntax member,
+        CancellationToken cancellationToken
+    )
     {
         var sourceText = await document.GetTextAsync(cancellationToken).ConfigureAwait(false);
         var lineEnding = sourceText.ToString().IndexOf("\r\n", StringComparison.Ordinal) >= 0 ? "\r\n" : "\n";

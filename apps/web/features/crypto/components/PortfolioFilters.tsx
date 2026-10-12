@@ -1,20 +1,51 @@
-import { ToggleButton, ToggleButtonGroup } from "@mui/material";
-import GridViewOutlinedIcon from "@mui/icons-material/GridViewOutlined";
-import AccountBalanceWalletOutlinedIcon from "@mui/icons-material/AccountBalanceWalletOutlined";
-import CheckCircleOutlinedIcon from "@mui/icons-material/CheckCircleOutlined";
+import { ToggleButton, ToggleButtonGroup } from '@mui/material';
+import GridViewOutlinedIcon from '@mui/icons-material/GridViewOutlined';
+import AccountBalanceWalletOutlinedIcon from '@mui/icons-material/AccountBalanceWalletOutlined';
+import CheckCircleOutlinedIcon from '@mui/icons-material/CheckCircleOutlined';
+import { PortfolioFilter } from '../contracts/PortfolioFilter';
+import type { PortfolioFiltersProps } from './PortfolioFiltersProps';
+
+const filterOptions = Object.values(PortfolioFilter);
+
+const filterStyles = {
+  [PortfolioFilter.All]: {
+    color: '#525252',
+    selected: {
+      bgcolor: '#fff',
+      color: '#141414',
+      boxShadow: 'inset 0 0 0 1px #bdbdbd',
+    },
+    icon: GridViewOutlinedIcon,
+  },
+  [PortfolioFilter.Holding]: {
+    color: '#166534',
+    selected: {
+      bgcolor: '#dcfce7',
+      color: '#166534',
+      boxShadow: 'inset 0 0 0 1px #166534',
+    },
+    icon: AccountBalanceWalletOutlinedIcon,
+  },
+  [PortfolioFilter.Closed]: {
+    color: '#6b21a8',
+    selected: {
+      bgcolor: '#f3e8ff',
+      color: '#6b21a8',
+      boxShadow: 'inset 0 0 0 1px #6b21a8',
+    },
+    icon: CheckCircleOutlinedIcon,
+  },
+} as const;
 
 export default function PortfolioFilters({
   filter,
   onChange,
-}: {
-  filter: "All" | "Holding" | "Closed";
-  onChange: (filter: "All" | "Holding" | "Closed") => void;
-}) {
+}: PortfolioFiltersProps) {
   return (
     <ToggleButtonGroup
       exclusive
       value={filter}
-      onChange={(_, value: "All" | "Holding" | "Closed" | null) => {
+      onChange={(_, value: PortfolioFilter | null) => {
         if (value) {
           onChange(value);
         }
@@ -22,68 +53,43 @@ export default function PortfolioFilters({
       aria-label="Portfolio filter"
       size="small"
       sx={{
-        bgcolor: "#f3f3f3",
-        borderRadius: "6px",
+        bgcolor: '#f3f3f3',
+        borderRadius: '6px',
         p: 0.5,
-        width: "fit-content",
-        "& .MuiToggleButtonGroup-grouped": {
+        width: 'fit-content',
+        '& .MuiToggleButtonGroup-grouped': {
           border: 0,
-          borderRadius: "6px",
+          borderRadius: '6px',
           minHeight: 44,
           px: 1.25,
           gap: 0.75,
-          textTransform: "none",
+          textTransform: 'none',
           fontSize: 14,
         },
       }}
     >
-      {(["All", "Holding", "Closed"] as const).map((value) => (
-        <ToggleButton
-          key={value}
-          value={value}
-          sx={{
-            border: 0,
-            ...(value === "All"
-              ? {
-                  color: "#525252",
-                  "&.Mui-selected": {
-                    bgcolor: "#fff",
-                    color: "#141414",
-                    boxShadow: "inset 0 0 0 1px #bdbdbd",
-                  },
-                }
-              : value === "Holding"
-                ? {
-                    color: "#166534",
-                    "&.Mui-selected": {
-                      bgcolor: "#dcfce7",
-                      color: "#166534",
-                      boxShadow: "inset 0 0 0 1px #166534",
-                    },
-                  }
-                : {
-                    color: "#6b21a8",
-                    "&.Mui-selected": {
-                      bgcolor: "#f3e8ff",
-                      color: "#6b21a8",
-                      boxShadow: "inset 0 0 0 1px #6b21a8",
-                    },
-                  }),
-          }}
-        >
-          {value === "All" ? (
-            <GridViewOutlinedIcon aria-hidden="true" sx={{ fontSize: 18 }} />
-          ) : value === "Holding" ? (
-            <AccountBalanceWalletOutlinedIcon
+      {filterOptions.map((value) => {
+        const option = filterStyles[value];
+        const Icon = option.icon;
+
+        return (
+          <ToggleButton
+            key={value}
+            value={value}
+            sx={{
+              border: 0,
+              color: option.color,
+              '&.Mui-selected': option.selected,
+            }}
+          >
+            <Icon
               aria-hidden="true"
               sx={{ fontSize: 18 }}
             />
-          ) : (
-            <CheckCircleOutlinedIcon aria-hidden="true" sx={{ fontSize: 18 }} />
-          )}
-          {value}
-        </ToggleButton>
-      ))}
+            {value}
+          </ToggleButton>
+        );
+      })}
     </ToggleButtonGroup>
   );
 }

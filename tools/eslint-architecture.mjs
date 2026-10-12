@@ -1,15 +1,15 @@
-import path from "node:path";
+import path from 'node:path';
 
 export default {
   rules: {
-    "file-ownership": {
+    'file-ownership': {
       meta: {
-        type: "problem",
+        type: 'problem',
         schema: [],
         messages: {
-          ownership: "Declare only one named type or React component per file.",
+          ownership: 'Declare only one named type or React component per file.',
           matchingName:
-            "Name the file {{name}} to match its owned type/component.",
+            'Name the file {{name}} to match its owned type/component.',
         },
       },
       create(context) {
@@ -32,7 +32,7 @@ export default {
           },
           FunctionDeclaration(node) {
             if (
-              filename.endsWith(".tsx") &&
+              filename.endsWith('.tsx') &&
               node.id &&
               /^[A-Z]/.test(node.id.name)
             ) {
@@ -41,31 +41,31 @@ export default {
           },
           VariableDeclarator(node) {
             if (
-              filename.endsWith(".tsx") &&
-              node.id.type === "Identifier" &&
+              filename.endsWith('.tsx') &&
+              node.id.type === 'Identifier' &&
               /^[A-Z]/.test(node.id.name) &&
-              ["ArrowFunctionExpression", "FunctionExpression"].includes(
+              ['ArrowFunctionExpression', 'FunctionExpression'].includes(
                 node.init?.type,
               )
             ) {
               owned.push(node.id);
             }
           },
-          "Program:exit"() {
+          'Program:exit'() {
             if (owned.length > 1) {
               for (const node of owned) {
-                context.report({ node, messageId: "ownership" });
+                context.report({ node, messageId: 'ownership' });
               }
             }
-            const basename = path.basename(filename).replace(/\.tsx?$/, "");
+            const basename = path.basename(filename).replace(/\.tsx?$/, '');
             for (const node of owned) {
               if (
-                !["page", "layout"].includes(basename) &&
+                !['page', 'layout'].includes(basename) &&
                 node.name !== basename
               ) {
                 context.report({
                   node,
-                  messageId: "matchingName",
+                  messageId: 'matchingName',
                   data: { name: `${node.name}${path.extname(filename)}` },
                 });
               }
