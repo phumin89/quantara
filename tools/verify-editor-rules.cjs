@@ -22,6 +22,15 @@ async function verify() {
     { filePath },
   );
   assert.equal(valid.errorCount, 0);
+  const [directService] = await eslint.lintText(
+    "import { PureComponent } from 'react';\nimport { RequestService } from '../../../../shared/services/RequestService';\n\nexport default class CryptoPage extends PureComponent {\n  public readonly service = new RequestService();\n\n  public override render() {\n    return null;\n  }\n}\n",
+    { filePath },
+  );
+  assert.ok(
+    directService.messages.some(
+      (message) => message.ruleId === 'quantara/injected-services',
+    ),
+  );
   assert.ok(
     invalid.messages.some(
       (message) => message.ruleId === 'quantara/class-based',

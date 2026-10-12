@@ -3,8 +3,9 @@ import {
   type HistoryResponse,
 } from '../contracts/HistoryResponse';
 import type { IRequestService } from '../../../shared/services/IRequestService';
+import type { IHistoryService } from './IHistoryService';
 
-export class HistoryService {
+export class HistoryService implements IHistoryService {
   private static readonly basePath: string = '/crypto/history';
 
   public constructor(private readonly requests: IRequestService) {}

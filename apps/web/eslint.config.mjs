@@ -30,6 +30,7 @@ export default defineConfig([
     rules: {
       'quantara/file-ownership': 'error',
       'quantara/class-based': 'error',
+      'quantara/injected-services': 'error',
       '@stylistic/lines-between-class-members': ['error', 'always'],
       '@stylistic/no-multiple-empty-lines': [
         'error',

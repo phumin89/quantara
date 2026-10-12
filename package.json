@@ -18,6 +18,7 @@
     "test:contracts": "node tools/verify-contracts.cjs",
     "test:presentation": "node tools/verify-presentation.cjs",
     "test:services": "node tools/verify-services.cjs",
+    "test:di": "node tools/verify-di.cjs",
     "test:lifecycle": "node tools/verify-lifecycle.cjs",
     "test:architecture": "dotnet run --project tests/Architecture.Checks/Architecture.Checks.csproj && node tools/verify-architecture.cjs",
     "format": "npm run format:web && npm run format:dotnet",

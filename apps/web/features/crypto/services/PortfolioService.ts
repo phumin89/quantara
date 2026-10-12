@@ -3,8 +3,9 @@ import {
   type PortfolioResponse,
 } from '../contracts/PortfolioResponse';
 import type { IRequestService } from '../../../shared/services/IRequestService';
+import type { IPortfolioService } from './IPortfolioService';
 
-export class PortfolioService {
+export class PortfolioService implements IPortfolioService {
   private static readonly basePath: string = '/crypto';
 
   public constructor(private readonly requests: IRequestService) {}

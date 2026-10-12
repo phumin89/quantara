@@ -2,6 +2,35 @@ import path from 'node:path';
 
 export default {
   rules: {
+    'injected-services': {
+      meta: {
+        type: 'problem',
+        schema: [],
+        messages: {
+          injected:
+            'Components must receive services through dependency injection. Create service instances in ServiceProvider.',
+        },
+      },
+      create(context) {
+        const filename = context.filename.replaceAll('\\', '/');
+        if (
+          !filename.endsWith('.tsx') ||
+          filename.includes('/app/providers/')
+        ) {
+          return {};
+        }
+        return {
+          NewExpression(node) {
+            if (
+              node.callee.type === 'Identifier' &&
+              /Service$/.test(node.callee.name)
+            ) {
+              context.report({ node, messageId: 'injected' });
+            }
+          },
+        };
+      },
+    },
     'class-based': {
       meta: {
         type: 'problem',

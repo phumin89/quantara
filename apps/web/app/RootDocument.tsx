@@ -1,5 +1,6 @@
 import Providers from '../shared/theme/Providers';
 import AppShell from '../shared/layout/AppShell';
+import ServiceProvider from './providers/service-provider/ServiceProvider';
 import type { RootLayoutProps } from './RootLayoutProps';
 
 export class RootDocument {
@@ -9,7 +10,9 @@ export class RootDocument {
       <html lang="en">
         <body>
           <Providers>
-            <AppShell>{children}</AppShell>
+            <ServiceProvider>
+              <AppShell>{children}</AppShell>
+            </ServiceProvider>
           </Providers>
         </body>
       </html>

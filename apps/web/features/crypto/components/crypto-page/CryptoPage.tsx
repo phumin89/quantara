@@ -10,9 +10,8 @@ import {
   Typography,
 } from '@mui/material';
 import RefreshOutlinedIcon from '@mui/icons-material/RefreshOutlined';
-import { RequestService } from '../../../../shared/services/RequestService';
-import { PortfolioService } from '../../services/PortfolioService';
-import { HistoryService } from '../../services/HistoryService';
+import { CryptoServiceContext } from '../../context/CryptoServiceContext';
+import type { ICryptoServices } from '../../context/ICryptoServices';
 import PositionFilter from '../../utils/PositionFilter';
 import { PortfolioFilter } from '../../contracts/PortfolioFilter';
 import ConnectionStatus from '../connection-status/ConnectionStatus';
@@ -22,11 +21,13 @@ import PortfolioTable from '../portfolio-table/PortfolioTable';
 import type { CryptoPageState } from './CryptoPageState';
 
 export default class CryptoPage extends Component<object, CryptoPageState> {
-  private readonly requestService = new RequestService();
+  public static override readonly contextType = CryptoServiceContext.value;
 
-  private readonly portfolioService = new PortfolioService(this.requestService);
+  public override context: ICryptoServices | null = null;
 
-  private readonly historyService = new HistoryService(this.requestService);
+  private get services(): ICryptoServices {
+    return CryptoServiceContext.require(this.context);
+  }
 
   public override state: CryptoPageState = {
     data: null,
@@ -279,7 +280,7 @@ export default class CryptoPage extends Component<object, CryptoPageState> {
     this.activePortfolioRequest = controller;
     this.requests.add(controller);
     try {
-      const next = await this.portfolioService.get(controller.signal);
+      const next = await this.services.portfolio.get(controller.signal);
       if (this.canUpdate(controller, requestGeneration)) {
         this.setState({ data: next, error: next.error });
       }
@@ -307,7 +308,7 @@ export default class CryptoPage extends Component<object, CryptoPageState> {
     const requestGeneration = this.generation;
     this.requests.add(controller);
     try {
-      await this.portfolioService.sync(controller.signal);
+      await this.services.portfolio.sync(controller.signal);
       if (!this.canUpdate(controller, requestGeneration)) {
         return;
       }
@@ -401,7 +402,10 @@ export default class CryptoPage extends Component<object, CryptoPageState> {
       ),
     }));
     try {
-      const response = await this.historyService.get(symbol, controller.signal);
+      const response = await this.services.history.get(
+        symbol,
+        controller.signal,
+      );
       if (this.canUpdate(controller, requestGeneration)) {
         this.setState((current) => ({
           history: { ...current.history, [symbol]: response.trades },

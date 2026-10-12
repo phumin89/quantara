@@ -93,11 +93,10 @@ for (const file of scan(root).filter(
       if (
         file.includes(path.sep + 'components' + path.sep) &&
         (resolved.includes(path.sep + 'api' + path.sep) ||
-          resolved.includes(path.sep + 'services' + path.sep)) &&
-        path.basename(file) !== 'CryptoPage.tsx'
+          resolved.includes(path.sep + 'services' + path.sep))
       )
         throw Error(
-          'Only the screen container can call feature API clients: ' + file,
+          'Components receive feature services through Context: ' + file,
         );
     }
   }
