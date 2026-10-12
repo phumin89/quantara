@@ -1,6 +1,7 @@
 import { JsonResponse } from '../api/JsonResponse';
+import type { IRequestService } from './IRequestService';
 
-export class RequestService {
+export class RequestService implements IRequestService {
   public constructor(private readonly transport: typeof fetch = fetch) {}
 
   public async get(

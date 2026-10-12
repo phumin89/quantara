@@ -2,10 +2,10 @@ import {
   portfolioSchema,
   type PortfolioResponse,
 } from '../contracts/PortfolioResponse';
-import { RequestService } from '../../../shared/services/RequestService';
+import type { IRequestService } from '../../../shared/services/IRequestService';
 
 export class PortfolioService {
-  public constructor(private readonly requests: RequestService) {}
+  public constructor(private readonly requests: IRequestService) {}
 
   public async get(signal?: AbortSignal): Promise<PortfolioResponse> {
     const body = await this.requests.get(

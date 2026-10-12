@@ -2,10 +2,10 @@ import {
   historyResponseSchema,
   type HistoryResponse,
 } from '../contracts/HistoryResponse';
-import { RequestService } from '../../../shared/services/RequestService';
+import type { IRequestService } from '../../../shared/services/IRequestService';
 
 export class HistoryService {
-  public constructor(private readonly requests: RequestService) {}
+  public constructor(private readonly requests: IRequestService) {}
 
   public async get(
     symbol: string,
