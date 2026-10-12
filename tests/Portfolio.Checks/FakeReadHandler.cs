@@ -3,11 +3,20 @@ using System.Text;
 
 internal sealed class FakeReadHandler : HttpMessageHandler
 {
-    public bool InvalidWallet { get; set; }
+    public bool InvalidWallet
+    {
+        get; set;
+    }
 
-    public int HistoryCalls { get; private set; }
+    public int HistoryCalls
+    {
+        get; private set;
+    }
 
-    public int VerifiedSignatures { get; private set; }
+    public int VerifiedSignatures
+    {
+        get; private set;
+    }
 
     protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
     {

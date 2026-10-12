@@ -71,7 +71,10 @@ var legacyBalance = JsonSerializer.Deserialize<Balance>("""{"Symbol":"THB","Quan
 Check(legacyBalance.Available is null && PortfolioProjection.Summary(summaryLedger with { Balances = [legacyBalance] }).AvailableThb is null, "legacy payload never substitutes total cash for available cash");
 exchangeHandler.InvalidWallet = true;
 var rejectedWallet = false;
-try { await reader.Balances(CancellationToken.None); }
+try
+{
+    await reader.Balances(CancellationToken.None);
+}
 catch (InvalidDataException) { rejectedWallet = true; }
 
 Check(rejectedWallet, "wallet rejects available cash exceeding the total");

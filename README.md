@@ -59,3 +59,12 @@ requires explicit sealed/abstract/static class intent. ESLint's
 `quantara/file-ownership` reports multiple components/types and mismatched names
 while typing. `npm run test:editor` proves these rules reject invalid probes and
 accept valid source without adding bad code to the application.
+
+## Automatic formatting
+
+Run `npm run format` to fix the entire repository's frontend and C# formatting.
+It applies ESLint fixes and Prettier to the frontend, then Roslyn code fixes and
+`dotnet format` to C#. This includes QNT005 member spacing and multiline C#
+blocks. Run `npm run format:check` for a non-writing CI check; both commands use
+the same rules. Formatting does not resolve architecture or business errors.
+The QNT005 code fix is also available from the C# editor's Quick Fix action.

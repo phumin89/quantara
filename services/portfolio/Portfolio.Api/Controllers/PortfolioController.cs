@@ -9,11 +9,18 @@ public sealed class PortfolioController : ControllerBase
 {
     private readonly IMediator mediator;
 
-    public PortfolioController(IMediator mediator) { this.mediator = mediator; }
+    public PortfolioController(IMediator mediator)
+    {
+        this.mediator = mediator;
+    }
 
     [HttpGet("portfolio")]
     public Task<PortfolioView> Get(CancellationToken cancellationToken) => this.mediator.Send(new GetPortfolioQuery(), cancellationToken).AsTask();
 
     [HttpPost("sync")]
-    public async Task<IActionResult> Sync(CancellationToken cancellationToken) { await this.mediator.Send(new RefreshPortfolioCommand(), cancellationToken); return this.Accepted(); }
+    public async Task<IActionResult> Sync(CancellationToken cancellationToken)
+    {
+        await this.mediator.Send(new RefreshPortfolioCommand(), cancellationToken);
+        return this.Accepted();
+    }
 }

@@ -39,6 +39,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Quantara.Analyzers", "tools
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Analyzer.Checks", "tests\Analyzer.Checks\Analyzer.Checks.csproj", "{8B094901-DBFD-4C73-9D93-4C77E5E9D554}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Quantara.CodeFixes", "tools\Quantara.CodeFixes\Quantara.CodeFixes.csproj", "{E0D34BB9-3F38-402D-AB64-B64566047B50}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -205,6 +207,18 @@ Global
 		{8B094901-DBFD-4C73-9D93-4C77E5E9D554}.Release|x64.Build.0 = Release|Any CPU
 		{8B094901-DBFD-4C73-9D93-4C77E5E9D554}.Release|x86.ActiveCfg = Release|Any CPU
 		{8B094901-DBFD-4C73-9D93-4C77E5E9D554}.Release|x86.Build.0 = Release|Any CPU
+		{E0D34BB9-3F38-402D-AB64-B64566047B50}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{E0D34BB9-3F38-402D-AB64-B64566047B50}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{E0D34BB9-3F38-402D-AB64-B64566047B50}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{E0D34BB9-3F38-402D-AB64-B64566047B50}.Debug|x64.Build.0 = Debug|Any CPU
+		{E0D34BB9-3F38-402D-AB64-B64566047B50}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{E0D34BB9-3F38-402D-AB64-B64566047B50}.Debug|x86.Build.0 = Debug|Any CPU
+		{E0D34BB9-3F38-402D-AB64-B64566047B50}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{E0D34BB9-3F38-402D-AB64-B64566047B50}.Release|Any CPU.Build.0 = Release|Any CPU
+		{E0D34BB9-3F38-402D-AB64-B64566047B50}.Release|x64.ActiveCfg = Release|Any CPU
+		{E0D34BB9-3F38-402D-AB64-B64566047B50}.Release|x64.Build.0 = Release|Any CPU
+		{E0D34BB9-3F38-402D-AB64-B64566047B50}.Release|x86.ActiveCfg = Release|Any CPU
+		{E0D34BB9-3F38-402D-AB64-B64566047B50}.Release|x86.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
@@ -225,5 +239,6 @@ Global
 		{FC3CC772-EC97-4763-94AF-BC55E7BEABC4} = {0AB3BF05-4346-4AA6-1389-037BE0695223}
 		{D3CACC69-620F-4D7F-985C-923B523A0C94} = {07C2787E-EAC7-C090-1BA3-A61EC2A24D84}
 		{8B094901-DBFD-4C73-9D93-4C77E5E9D554} = {0AB3BF05-4346-4AA6-1389-037BE0695223}
+		{E0D34BB9-3F38-402D-AB64-B64566047B50} = {07C2787E-EAC7-C090-1BA3-A61EC2A24D84}
 	EndGlobalSection
 EndGlobal

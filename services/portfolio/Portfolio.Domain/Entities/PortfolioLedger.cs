@@ -10,11 +10,20 @@ public sealed record PortfolioLedger
 
     public Trade[] Trades { get; init; } = [];
 
-    public DateTimeOffset? UpdatedAt { get; init; }
+    public DateTimeOffset? UpdatedAt
+    {
+        get; init;
+    }
 
-    public DateTimeOffset? PriceUpdatedAt { get; init; }
+    public DateTimeOffset? PriceUpdatedAt
+    {
+        get; init;
+    }
 
-    public DateTimeOffset? HistoryUpdatedAt { get; init; }
+    public DateTimeOffset? HistoryUpdatedAt
+    {
+        get; init;
+    }
 
     public string[] UnavailableHistorySymbols { get; init; } = [];
 

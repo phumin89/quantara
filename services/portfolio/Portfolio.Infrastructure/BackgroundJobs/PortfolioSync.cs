@@ -28,7 +28,10 @@ public sealed class PortfolioSync(IPortfolioRepository store, BitkubAccountReade
             return true;
         }
 
-        Volatile.Write(ref this.status, this.Status with { Syncing = false });
+        Volatile.Write(ref this.status, this.Status with
+        {
+            Syncing = false
+        });
         Interlocked.Exchange(ref this.active, 0);
         return false;
     }
@@ -39,13 +42,19 @@ public sealed class PortfolioSync(IPortfolioRepository store, BitkubAccountReade
         await foreach (var request in this.requests.Reader.ReadAllAsync(stoppingToken))
         {
             Volatile.Write(ref this.status, new(true, 0, 0, null));
-            try { await this.Import(stoppingToken); }
+            try
+            {
+                await this.Import(stoppingToken);
+            }
             catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested) { break; }
             catch (ExchangeReadException error) { Volatile.Write(ref this.status, this.Status with { Error = error.Message }); }
             catch (Exception) { Volatile.Write(ref this.status, this.Status with { Error = "Portfolio sync failed. Stored records are retained. Retry or check backend configuration." }); }
             finally
             {
-                Volatile.Write(ref this.status, this.Status with { Syncing = false });
+                Volatile.Write(ref this.status, this.Status with
+                {
+                    Syncing = false
+                });
                 Interlocked.Exchange(ref this.active, 0);
             }
         }
@@ -56,7 +65,11 @@ public sealed class PortfolioSync(IPortfolioRepository store, BitkubAccountReade
         var ledger = await store.Load(cancellationToken);
         var coins = await marketData.GetCoins(cancellationToken);
         var balances = await exchange.Balances(cancellationToken);
-        ledger = ledger with { Balances = balances, UpdatedAt = DateTimeOffset.UtcNow };
+        ledger = ledger with
+        {
+            Balances = balances,
+            UpdatedAt = DateTimeOffset.UtcNow
+        };
         foreach (var balance in balances.Where(balance => balance.Symbol != "THB" && balance.Quantity > 0))
         {
             ledger = ledger.Remember(coins.FirstOrDefault(coin => coin.Symbol == balance.Symbol) ?? new(balance.Symbol, balance.Symbol), []);
@@ -64,10 +77,17 @@ public sealed class PortfolioSync(IPortfolioRepository store, BitkubAccountReade
 
         await store.Save(ledger, cancellationToken);
         var prices = await marketData.GetQuotes(cancellationToken);
-        ledger = ledger with { Prices = prices, PriceUpdatedAt = DateTimeOffset.UtcNow };
+        ledger = ledger with
+        {
+            Prices = prices,
+            PriceUpdatedAt = DateTimeOffset.UtcNow
+        };
         await store.Save(ledger, cancellationToken);
         var exchangeCoins = coins.Where(coin => coin.Source == "exchange").ToArray();
-        Volatile.Write(ref this.status, this.Status with { TotalSymbols = exchangeCoins.Length });
+        Volatile.Write(ref this.status, this.Status with
+        {
+            TotalSymbols = exchangeCoins.Length
+        });
         var failures = 0;
         var unavailable = new List<string>();
         // Scan every THB market so sold-out coins can be discovered too.
@@ -85,17 +105,27 @@ public sealed class PortfolioSync(IPortfolioRepository store, BitkubAccountReade
             catch (ExchangeReadException error) when (error.Code == "61") { unavailable.Add(coin.Symbol); }
             catch (ExchangeReadException) { failures++; }
 
-            Volatile.Write(ref this.status, this.Status with { CompletedSymbols = this.Status.CompletedSymbols + 1 });
+            Volatile.Write(ref this.status, this.Status with
+            {
+                CompletedSymbols = this.Status.CompletedSymbols + 1
+            });
         }
 
         if (failures == 0)
         {
-            ledger = ledger with { HistoryUpdatedAt = DateTimeOffset.UtcNow, UnavailableHistorySymbols = unavailable.ToArray() };
+            ledger = ledger with
+            {
+                HistoryUpdatedAt = DateTimeOffset.UtcNow,
+                UnavailableHistorySymbols = unavailable.ToArray()
+            };
             await store.Save(ledger, cancellationToken);
         }
         else
         {
-            Volatile.Write(ref this.status, this.Status with { Error = $"History could not be imported for {failures} markets. Stored records are retained; retry sync." });
+            Volatile.Write(ref this.status, this.Status with
+            {
+                Error = $"History could not be imported for {failures} markets. Stored records are retained; retry sync."
+            });
         }
     }
 }

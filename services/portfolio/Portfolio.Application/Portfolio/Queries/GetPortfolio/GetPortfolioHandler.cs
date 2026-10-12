@@ -6,7 +6,8 @@ public sealed class GetPortfolioHandler(IReadOnlyPortfolioRepository store, IPor
 {
     public async ValueTask<PortfolioView> Handle(GetPortfolioQuery query, CancellationToken cancellationToken)
     {
-        var ledger = await store.Load(cancellationToken); var status = sync.Status;
+        var ledger = await store.Load(cancellationToken);
+        var status = sync.Status;
         return new(PortfolioProjection.Positions(ledger), PortfolioProjection.Summary(ledger), ledger.UpdatedAt, ledger.PriceUpdatedAt, ledger.HistoryUpdatedAt, HistoryCoverage.Notice, status.Syncing, status.CompletedSymbols, status.TotalSymbols, status.Error);
     }
 }

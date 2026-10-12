@@ -81,13 +81,19 @@ app.Use(async (context, next) =>
     catch (Exception)
     {
         context.Response.StatusCode = 503;
-        await context.Response.WriteAsJsonAsync(new { error = "Portfolio storage is unavailable. Check the service and SQL Server connection." });
+        await context.Response.WriteAsJsonAsync(new
+        {
+            error = "Portfolio storage is unavailable. Check the service and SQL Server connection."
+        });
     }
 });
 app.MapGet("/health", async (CancellationToken cancellationToken) =>
 {
     await store.Load(cancellationToken);
-    return Results.Ok(new { status = "ready" });
+    return Results.Ok(new
+    {
+        status = "ready"
+    });
 });
 app.MapControllers();
 await app.RunAsync();
