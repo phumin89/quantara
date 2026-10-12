@@ -26,7 +26,7 @@ async function verify() {
   let response = new Response(
     JSON.stringify({ trades: [], coverage: 'Fixture' }),
   );
-  const requests = new RequestService(async function (url, options) {
+  const requests = new RequestService('/api/', async function (url, options) {
     assert.equal(
       this,
       globalThis,
@@ -64,10 +64,25 @@ async function verify() {
   await assert.rejects(history.get('BTC'), /History response is invalid/);
   response = new Response('{}');
   await assert.rejects(portfolio.get(), /Portfolio response is invalid/);
+  assert.equal(calls.at(-1).url, '/api/crypto/portfolio');
   controller.abort();
   await assert.rejects(history.get('BTC', controller.signal), {
     name: 'AbortError',
   });
+  const targets = [];
+  const alternate = new RequestService(
+    'https://service.invalid/api/',
+    async (url) => {
+      targets.push(url);
+      return new Response('{}');
+    },
+  );
+  await alternate.get('health?check=1', 'Fixture');
+  await alternate.get('/health?check=2', 'Fixture');
+  assert.deepEqual(targets, [
+    'https://service.invalid/api/health?check=1',
+    'https://service.invalid/api/health?check=2',
+  ]);
   console.log(
     'Shared RequestService: transport, errors, cancellation and feature validation passed.',
   );

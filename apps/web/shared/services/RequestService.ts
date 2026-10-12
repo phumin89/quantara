@@ -2,33 +2,37 @@ import { JsonResponse } from '../api/JsonResponse';
 import type { IRequestService } from './IRequestService';
 
 export class RequestService implements IRequestService {
-  public constructor(private readonly transport: typeof fetch = fetch) {}
+  public constructor(
+    private readonly baseUrl: string = '/api',
+    private readonly transport: typeof fetch = fetch,
+  ) {}
 
   public async get(
-    url: string,
+    path: string,
     fallback: string,
     signal?: AbortSignal,
   ): Promise<unknown> {
-    const response = await this.send(url, 'GET', fallback, signal);
+    const response = await this.send(path, 'GET', fallback, signal);
 
     return JsonResponse.read(response);
   }
 
   public async post(
-    url: string,
+    path: string,
     fallback: string,
     signal?: AbortSignal,
   ): Promise<void> {
-    await this.send(url, 'POST', fallback, signal);
+    await this.send(path, 'POST', fallback, signal);
   }
 
   private async send(
-    url: string,
+    path: string,
     method: 'GET' | 'POST',
     fallback: string,
     signal?: AbortSignal,
   ): Promise<Response> {
-    const response = await this.transport.call(globalThis, url, {
+    const target = `${this.baseUrl.replace(/\/+$/, '')}/${path.replace(/^\/+/, '')}`;
+    const response = await this.transport.call(globalThis, target, {
       method,
       cache: 'no-store',
       ...(signal ? { signal } : {}),

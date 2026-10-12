@@ -5,11 +5,13 @@ import {
 import type { IRequestService } from '../../../shared/services/IRequestService';
 
 export class PortfolioService {
+  private static readonly basePath: string = '/crypto';
+
   public constructor(private readonly requests: IRequestService) {}
 
   public async get(signal?: AbortSignal): Promise<PortfolioResponse> {
     const body = await this.requests.get(
-      '/api/crypto/portfolio',
+      `${PortfolioService.basePath}/portfolio`,
       'Unable to load portfolio.',
       signal,
     );
@@ -23,7 +25,7 @@ export class PortfolioService {
 
   public async sync(signal?: AbortSignal): Promise<void> {
     await this.requests.post(
-      '/api/crypto/sync',
+      `${PortfolioService.basePath}/sync`,
       'Unable to sync Bitkub data.',
       signal,
     );

@@ -5,6 +5,8 @@ import {
 import type { IRequestService } from '../../../shared/services/IRequestService';
 
 export class HistoryService {
+  private static readonly basePath: string = '/crypto/history';
+
   public constructor(private readonly requests: IRequestService) {}
 
   public async get(
@@ -12,7 +14,7 @@ export class HistoryService {
     signal?: AbortSignal,
   ): Promise<HistoryResponse> {
     const body = await this.requests.get(
-      `/api/crypto/history?coin=${encodeURIComponent(symbol)}`,
+      `${HistoryService.basePath}?coin=${encodeURIComponent(symbol)}`,
       'Unable to load history.',
       signal,
     );
