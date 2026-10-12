@@ -86,6 +86,13 @@ for (const file of scan(root).filter(
       if (!resolved.startsWith(root + path.sep))
         throw Error('Web cannot import another service: ' + file);
       if (
+        file.includes(path.sep + 'features' + path.sep) &&
+        resolved.includes(path.sep + 'app' + path.sep)
+      )
+        throw Error(
+          'Features must not depend on the app composition root: ' + file,
+        );
+      if (
         file.includes(path.sep + 'shared' + path.sep) &&
         resolved.includes(path.sep + 'features' + path.sep)
       )
@@ -93,7 +100,8 @@ for (const file of scan(root).filter(
       if (
         file.includes(path.sep + 'components' + path.sep) &&
         (resolved.includes(path.sep + 'api' + path.sep) ||
-          resolved.includes(path.sep + 'services' + path.sep))
+          resolved.includes(path.sep + 'services' + path.sep) ||
+          resolved.includes(path.sep + 'di' + path.sep))
       )
         throw Error(
           'Components receive feature services through Context: ' + file,

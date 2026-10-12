@@ -23,7 +23,7 @@ export default {
           NewExpression(node) {
             if (
               node.callee.type === 'Identifier' &&
-              /Service$/.test(node.callee.name)
+              /(Service|ServiceContainer)$/.test(node.callee.name)
             ) {
               context.report({ node, messageId: 'injected' });
             }

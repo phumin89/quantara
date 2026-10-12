@@ -1,12 +1,13 @@
 'use client';
 
 import { PureComponent, type ReactNode } from 'react';
-import { RequestService } from '../../../shared/services/RequestService';
-import { HistoryService } from '../../../features/crypto/services/HistoryService';
-import { PortfolioService } from '../../../features/crypto/services/PortfolioService';
 import { CryptoServiceContext } from '../../../features/crypto/context/CryptoServiceContext';
 import type { ICryptoServices } from '../../../features/crypto/context/ICryptoServices';
+import { ServiceContainer } from '../../../shared/di/ServiceContainer';
 import type { ServiceProviderProps } from './ServiceProviderProps';
+import { CryptoServices } from './CryptoServices';
+import { ServiceBindings } from './ServiceBindings';
+import type { ServiceRegistry } from './ServiceRegistry';
 
 export default class ServiceProvider extends PureComponent<ServiceProviderProps> {
   private readonly services: ICryptoServices;
@@ -25,11 +26,8 @@ export default class ServiceProvider extends PureComponent<ServiceProviderProps>
   }
 
   private static createServices(): ICryptoServices {
-    const requests = new RequestService();
-
-    return {
-      history: new HistoryService(requests),
-      portfolio: new PortfolioService(requests),
-    };
+    return new CryptoServices(
+      new ServiceContainer<ServiceRegistry>(ServiceBindings.factories),
+    );
   }
 }
