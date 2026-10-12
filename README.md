@@ -68,3 +68,10 @@ It applies ESLint fixes and Prettier to the frontend, then Roslyn code fixes and
 blocks. Run `npm run format:check` for a non-writing CI check; both commands use
 the same rules. Formatting does not resolve architecture or business errors.
 The QNT005 code fix is also available from the C# editor's Quick Fix action.
+
+Frontend builds automatically run `format:web`, including direct workspace
+builds. C# project and solution builds format each application's project before
+compilation; editor design-time checks and formatter bootstrap projects are
+excluded. Formatter failures stop the build. To explicitly skip C# autoformat,
+use `dotnet build Quantara.sln -p:QuantaraAutoFormat=false`. CI still runs the
+non-writing `format:check` gate before any build.

@@ -1,0 +1,12 @@
+<Project>
+  <PropertyGroup>
+    <QuantaraAutoFormat Condition="'$(QuantaraAutoFormat)' == ''">true</QuantaraAutoFormat>
+    <QuantaraAutoFormatProject Condition="'$(MSBuildProjectName)' != 'Quantara.Analyzers' and '$(MSBuildProjectName)' != 'Quantara.CodeFixes' and '$(DesignTimeBuild)' != 'true' and '$(QuantaraAutoFormat)' == 'true'">true</QuantaraAutoFormatProject>
+  </PropertyGroup>
+
+  <Target Name="QuantaraAutoFormat" BeforeTargets="CoreCompile" Condition="'$(QuantaraAutoFormatProject)' == 'true'">
+    <Exec Command="dotnet format whitespace &quot;$(MSBuildProjectFullPath)&quot; --include ./ --no-restore" WorkingDirectory="$(MSBuildProjectDirectory)" EnvironmentVariables="QuantaraAutoFormat=false" />
+    <Exec Command="dotnet format analyzers &quot;$(MSBuildProjectFullPath)&quot; --diagnostics QNT005 --include ./ --no-restore" WorkingDirectory="$(MSBuildProjectDirectory)" EnvironmentVariables="QuantaraAutoFormat=false" />
+    <Exec Command="dotnet format style &quot;$(MSBuildProjectFullPath)&quot; --diagnostics IDE2000 IDE2003 --include ./ --no-restore" WorkingDirectory="$(MSBuildProjectDirectory)" EnvironmentVariables="QuantaraAutoFormat=false" />
+  </Target>
+</Project>
