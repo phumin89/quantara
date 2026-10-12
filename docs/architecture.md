@@ -24,7 +24,9 @@ flowchart LR
 
 ## Frontend
 
-Routes compose screens. Components use feature hooks; hooks use API functions; API functions validate transport data with Zod. The Next.js server proxy forwards to Portfolio. Shared code never imports features or other services. One component or declared type per matching file, with Next.js route filename conventions retained.
+Routes re-export class screens. UI components extend Component/PureComponent. Each crypto component lives in its own folder with its Props/State files. The CryptoPage screen container owns lifecycle, cancellation, polling and history cache; presentational components cannot import services. PortfolioService and HistoryService receive the same RequestService instance through their constructors. RequestService owns fetch, HTTP errors, no-store and AbortSignal propagation; feature services validate transport data with Zod. CryptoController methods are exported directly as Next.js route handlers; CryptoProxy forwards to Portfolio. Shared code never imports features or other services. One component or declared type per matching file, with Next.js route filename conventions retained.
+
+No standalone application functions or hooks are allowed; ESLint enforces this in the editor/build. Class methods and inline event/collection callbacks are permitted. RootDocument.render is the server layout adapter (Next.js invokes its exported method); client pages re-export real class components. Third-party React/Next.js/MUI implementations retain their own internals.
 
 Portfolio, history, polling, abort handling, filters, status, error recovery and formatting are separate responsibilities. UI colors, compact rows, focusable table scrolling and English copy retain DESIGN.md behavior.
 
@@ -53,7 +55,7 @@ and are configured at the API/SQL boundaries; persisted lowercase trade sides,
 PascalCase ledger properties and camelCase API properties retain their contracts.
 Required trade fields cannot silently become default enum values.
 
-Frontend enums and Zod schemas validate the same wire spellings. Function
+Frontend enums and Zod schemas validate the same wire spellings. Class
 components render views through named Props; ConnectionStatusPresenter uses
 explicit access modifiers and readonly state to encapsulate state precedence
 and appearance. Filtering is a pure operation that returns a new array.

@@ -30,6 +30,14 @@ for (const file of scan(root).filter(
     imports = [];
   function visit(node) {
     if (
+      ts.isFunctionDeclaration(node) ||
+      (ts.isVariableDeclaration(node) &&
+        node.initializer &&
+        (ts.isArrowFunction(node.initializer) ||
+          ts.isFunctionExpression(node.initializer)))
+    )
+      throw Error('Application behavior must be class-based: ' + file);
+    if (
       file.endsWith('.tsx') &&
       ts.isFunctionDeclaration(node) &&
       node.name &&
@@ -84,10 +92,12 @@ for (const file of scan(root).filter(
         throw Error('Shared code must not depend on feature: ' + file);
       if (
         file.includes(path.sep + 'components' + path.sep) &&
-        resolved.includes(path.sep + 'api' + path.sep)
+        (resolved.includes(path.sep + 'api' + path.sep) ||
+          resolved.includes(path.sep + 'services' + path.sep)) &&
+        path.basename(file) !== 'CryptoPage.tsx'
       )
         throw Error(
-          'Components use hooks rather than direct API clients: ' + file,
+          'Only the screen container can call feature API clients: ' + file,
         );
     }
   }

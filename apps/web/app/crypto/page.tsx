@@ -1,5 +1,1 @@
-import CryptoPage from '../../features/crypto/components/CryptoPage';
-
-export default function CryptoRoute() {
-  return <CryptoPage />;
-}
+export { default } from '../../features/crypto/components/crypto-page/CryptoPage';

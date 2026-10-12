@@ -20,6 +20,7 @@ jobs:
       - run: npm run format:check
       - run: npm run check
       - run: npm run test:presentation
+      - run: npm run test:services
       - run: npm run build
       - run: dotnet build Quantara.sln
       - run: npm run test:architecture
@@ -45,6 +46,7 @@ jobs:
       - run: npm run test:ui
       - run: npm run test:crypto -- --fixtures
       - run: npm run test:contracts
+      - run: npm run test:lifecycle
   secrets:
     runs-on: ubuntu-latest
     steps:

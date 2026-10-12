@@ -29,6 +29,8 @@ export default defineConfig([
     settings: { react: { version: 'detect' } },
     rules: {
       'quantara/file-ownership': 'error',
+      'quantara/class-based': 'error',
+      '@stylistic/lines-between-class-members': ['error', 'always'],
       '@stylistic/no-multiple-empty-lines': [
         'error',
         { max: 1, maxBOF: 0, maxEOF: 0 },
@@ -42,6 +44,14 @@ export default defineConfig([
         { blankLine: 'always', prev: '*', next: 'return' },
       ],
       '@typescript-eslint/no-explicit-any': 'error',
+      '@typescript-eslint/no-extraneous-class': [
+        'error',
+        { allowStaticOnly: true },
+      ],
+      '@typescript-eslint/no-invalid-void-type': [
+        'error',
+        { allowAsThisParameter: true },
+      ],
       '@typescript-eslint/no-non-null-assertion': 'error',
       'react/prop-types': 'off',
       '@typescript-eslint/ban-ts-comment': [

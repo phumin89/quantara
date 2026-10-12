@@ -2,6 +2,52 @@ import path from 'node:path';
 
 export default {
   rules: {
+    'class-based': {
+      meta: {
+        type: 'problem',
+        schema: [],
+        messages: {
+          classBased:
+            'Put application behavior in a class method. Standalone functions and hooks are not allowed.',
+        },
+      },
+      create(context) {
+        return {
+          ExportDefaultDeclaration(node) {
+            if (
+              ['ArrowFunctionExpression', 'FunctionExpression'].includes(
+                node.declaration.type,
+              )
+            ) {
+              context.report({ node, messageId: 'classBased' });
+            }
+          },
+          FunctionDeclaration(node) {
+            context.report({ node, messageId: 'classBased' });
+          },
+          VariableDeclarator(node) {
+            if (
+              ['ArrowFunctionExpression', 'FunctionExpression'].includes(
+                node.init?.type,
+              )
+            ) {
+              context.report({ node, messageId: 'classBased' });
+            }
+          },
+          ImportDeclaration(node) {
+            for (const specifier of node.specifiers) {
+              if (
+                specifier.type === 'ImportSpecifier' &&
+                specifier.imported.type === 'Identifier' &&
+                /^use[A-Z]/.test(specifier.imported.name)
+              ) {
+                context.report({ node: specifier, messageId: 'classBased' });
+              }
+            }
+          },
+        };
+      },
+    },
     'file-ownership': {
       meta: {
         type: 'problem',

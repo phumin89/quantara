@@ -26,8 +26,8 @@ const { PositionStatus } = require(
 const { PortfolioFilter } = require(
   path.join(feature, 'contracts/PortfolioFilter.ts'),
 );
-const { default: filterPositions } = require(
-  path.join(feature, 'utils/filterPositions.ts'),
+const { default: PositionFilter } = require(
+  path.join(feature, 'utils/PositionFilter.ts'),
 );
 
 const timestamp = '2026-01-01T00:00:00Z';
@@ -61,17 +61,21 @@ const positions = [
   { symbol: 'A', status: PositionStatus.Holding },
 ];
 assert.deepEqual(
-  filterPositions(positions, PortfolioFilter.All).map((item) => item.symbol),
+  PositionFilter.apply(positions, PortfolioFilter.All).map(
+    (item) => item.symbol,
+  ),
   ['A', 'B', 'Z'],
 );
 assert.deepEqual(
-  filterPositions(positions, PortfolioFilter.Holding).map(
+  PositionFilter.apply(positions, PortfolioFilter.Holding).map(
     (item) => item.symbol,
   ),
   ['A', 'B'],
 );
 assert.deepEqual(
-  filterPositions(positions, PortfolioFilter.Closed).map((item) => item.symbol),
+  PositionFilter.apply(positions, PortfolioFilter.Closed).map(
+    (item) => item.symbol,
+  ),
   ['Z'],
 );
 assert.deepEqual(

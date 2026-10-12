@@ -7,6 +7,21 @@ async function verifyContracts() {
   });
   try {
     const page = await browser.newPage();
+    const invalidSymbol = await page.request.get(
+      'http://127.0.0.1:3000/api/crypto/history?coin=bad%2Fsymbol',
+    );
+    assert.equal(invalidSymbol.status(), 400);
+    assert.deepEqual(await invalidSymbol.json(), {
+      error: 'Invalid coin symbol.',
+    });
+    const crossOrigin = await page.request.post(
+      'http://127.0.0.1:3000/api/crypto/sync',
+      { headers: { origin: 'http://untrusted.invalid' } },
+    );
+    assert.equal(crossOrigin.status(), 403);
+    assert.deepEqual(await crossOrigin.json(), {
+      error: 'Cross-origin sync is not allowed.',
+    });
     const errors = [];
     page.on('pageerror', (error) => errors.push(error.message));
     let payload = { positions: 'invalid API data' };

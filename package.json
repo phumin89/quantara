@@ -17,6 +17,8 @@
     "test:crypto": "node tools/verify-crypto.cjs",
     "test:contracts": "node tools/verify-contracts.cjs",
     "test:presentation": "node tools/verify-presentation.cjs",
+    "test:services": "node tools/verify-services.cjs",
+    "test:lifecycle": "node tools/verify-lifecycle.cjs",
     "test:architecture": "dotnet run --project tests/Architecture.Checks/Architecture.Checks.csproj && node tools/verify-architecture.cjs",
     "format": "npm run format:web && npm run format:dotnet",
     "format:web": "npm exec --workspace @quantara/web -- eslint app features shared --fix && prettier --write apps/web tools .vscode package.json",

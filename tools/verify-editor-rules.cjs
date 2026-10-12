@@ -5,7 +5,7 @@ const { ESLint } = require('eslint');
 async function verify() {
   const eslint = new ESLint({ cwd: path.resolve('apps/web') });
   const filePath = path.resolve(
-    'apps/web/features/crypto/components/CryptoPage.tsx',
+    'apps/web/features/crypto/components/crypto-page/CryptoPage.tsx',
   );
   const [invalid] = await eslint.lintText(
     'export default function CryptoPage() { return null; }\nexport function Extra() { return null; }\n',
@@ -18,10 +18,39 @@ async function verify() {
     3,
   );
   const [valid] = await eslint.lintText(
-    'export default function CryptoPage() { return null; }\n',
+    "import { PureComponent } from 'react';\n\nexport default class CryptoPage extends PureComponent {\n  public override render() {\n    return null;\n  }\n}\n",
     { filePath },
   );
   assert.equal(valid.errorCount, 0);
+  assert.ok(
+    invalid.messages.some(
+      (message) => message.ruleId === 'quantara/class-based',
+    ),
+  );
+  const [standalone] = await eslint.lintText(
+    'export const CryptoPage = () => null;\n',
+    { filePath },
+  );
+  assert.ok(
+    standalone.messages.some(
+      (message) => message.ruleId === 'quantara/class-based',
+    ),
+  );
+  const [anonymous] = await eslint.lintText('export default () => null;\n', {
+    filePath,
+  });
+  assert.ok(
+    anonymous.messages.some(
+      (message) => message.ruleId === 'quantara/class-based',
+    ),
+  );
+  const [hook] = await eslint.lintText(
+    "import { useState as state } from 'react';\n\nexport default class CryptoPage {\n  public value = state;\n}\n",
+    { filePath },
+  );
+  assert.ok(
+    hook.messages.some((message) => message.ruleId === 'quantara/class-based'),
+  );
   const [explicitAny] = await eslint.lintText(
     'export default function CryptoPage(value: any) { return value; }\n',
     { filePath },
@@ -51,10 +80,13 @@ async function verify() {
     ),
   );
   const [spaced] = await eslint.lintText(
-    'export default function CryptoPage() {\n  const value = null;\n\n  return value;\n}\n',
+    'export default class CryptoPage {\n  public render() {\n    const value = null;\n\n    return value;\n  }\n}\n',
     { filePath },
   );
   assert.equal(spaced.errorCount, 0);
+  console.log(
+    'Frontend editor lint requires classes and rejects standalone functions and hooks.',
+  );
   console.log(
     'Frontend editor lint rejects missing/excess blank lines and accepts correctly spaced code.',
   );

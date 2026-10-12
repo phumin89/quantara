@@ -1,83 +1,98 @@
 'use client';
 
-import { useState } from 'react';
+import { Component } from 'react';
 import MenuIcon from '@mui/icons-material/Menu';
-import {
-  Box,
-  Drawer,
-  IconButton,
-  useMediaQuery,
-  useTheme,
-} from '@mui/material';
+import { Box, Drawer, IconButton } from '@mui/material';
 import Navigation from './Navigation';
 import type { AppShellProps } from './AppShellProps';
+import type { AppShellState } from './AppShellState';
 
-const drawerWidth = 240;
-export default function AppShell({ children }: AppShellProps) {
-  const theme = useTheme();
-  const isMobile = useMediaQuery(theme.breakpoints.down('md'));
-  const [open, setOpen] = useState(false);
-  const navigation = (
-    <Navigation
-      onNavigate={() => {
-        setOpen(false);
-      }}
-    />
-  );
+export default class AppShell extends Component<AppShellProps, AppShellState> {
+  private static readonly drawerWidth = 240;
 
-  return (
-    <Box sx={{ display: 'flex', minHeight: '100dvh', width: '100%' }}>
-      {isMobile ? (
-        <Drawer
-          open={open}
-          onClose={() => {
-            setOpen(false);
-          }}
-          ModalProps={{ keepMounted: true }}
-          aria-label="Navigation menu"
-          sx={{
-            '& .MuiDrawer-paper': {
-              width: drawerWidth,
-              boxSizing: 'border-box',
-            },
-          }}
-        >
-          {navigation}
-        </Drawer>
-      ) : (
-        <Drawer
-          variant="permanent"
-          open
-          sx={{
-            width: drawerWidth,
-            flexShrink: 0,
-            '& .MuiDrawer-paper': {
-              width: drawerWidth,
-              boxSizing: 'border-box',
-            },
-          }}
-        >
-          {navigation}
-        </Drawer>
-      )}
-      <Box
-        component="main"
-        sx={{ flexGrow: 1, minWidth: 0, p: { xs: 3, md: 6 } }}
-      >
-        {isMobile && (
-          <IconButton
-            onClick={() => {
-              setOpen(true);
+  public override state: AppShellState = { isMobile: false, open: false };
+
+  private media: MediaQueryList | null = null;
+
+  private readonly updateViewport = (): void => {
+    this.setState({ isMobile: this.media?.matches ?? false, open: false });
+  };
+
+  public override componentDidMount(): void {
+    this.media = window.matchMedia('(max-width: 767.98px)');
+    this.media.addEventListener('change', this.updateViewport);
+    this.updateViewport();
+  }
+
+  public override componentWillUnmount(): void {
+    this.media?.removeEventListener('change', this.updateViewport);
+  }
+
+  public override render() {
+    const { children } = this.props;
+    const { isMobile, open } = this.state;
+    const navigation = (
+      <Navigation
+        onNavigate={() => {
+          this.setState({ open: false });
+        }}
+      />
+    );
+
+    return (
+      <Box sx={{ display: 'flex', minHeight: '100dvh', width: '100%' }}>
+        {isMobile ? (
+          <Drawer
+            open={open}
+            onClose={() => {
+              this.setState({ open: false });
             }}
-            aria-label="Open menu"
-            aria-expanded={open}
-            sx={{ mb: 4, color: 'text.primary', width: 44, height: 44 }}
+            ModalProps={{ keepMounted: true }}
+            aria-label="Navigation menu"
+            sx={{
+              '& .MuiDrawer-paper': {
+                width: AppShell.drawerWidth,
+                boxSizing: 'border-box',
+              },
+            }}
           >
-            <MenuIcon />
-          </IconButton>
+            {navigation}
+          </Drawer>
+        ) : (
+          <Drawer
+            variant="permanent"
+            open
+            sx={{
+              width: AppShell.drawerWidth,
+              flexShrink: 0,
+              '& .MuiDrawer-paper': {
+                width: AppShell.drawerWidth,
+                boxSizing: 'border-box',
+              },
+            }}
+          >
+            {navigation}
+          </Drawer>
         )}
-        {children}
+        <Box
+          component="main"
+          sx={{ flexGrow: 1, minWidth: 0, p: { xs: 3, md: 6 } }}
+        >
+          {isMobile && (
+            <IconButton
+              onClick={() => {
+                this.setState({ open: true });
+              }}
+              aria-label="Open menu"
+              aria-expanded={open}
+              sx={{ mb: 4, color: 'text.primary', width: 44, height: 44 }}
+            >
+              <MenuIcon />
+            </IconButton>
+          )}
+          {children}
+        </Box>
       </Box>
-    </Box>
-  );
+    );
+  }
 }

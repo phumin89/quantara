@@ -92,6 +92,28 @@ async function verifyShell() {
       await page.getByRole('link', { name: 'Home', exact: true }).click();
       await page.getByRole('heading', { name: 'Home', exact: true }).waitFor();
       assert.equal(new URL(page.url()).pathname, '/');
+      await page.goBack();
+      await page
+        .getByRole('heading', { name: 'Crypto', exact: true })
+        .waitFor();
+      if (width < 768) await menu.click();
+      assert.equal(
+        await page
+          .getByRole('link', { name: 'Crypto', exact: true })
+          .getAttribute('aria-current'),
+        'page',
+      );
+      if (width < 768) await page.keyboard.press('Escape');
+      await page.goForward();
+      await page.getByRole('heading', { name: 'Home', exact: true }).waitFor();
+      if (width < 768) await menu.click();
+      assert.equal(
+        await page
+          .getByRole('link', { name: 'Home', exact: true })
+          .getAttribute('aria-current'),
+        'page',
+      );
+      if (width < 768) await page.keyboard.press('Escape');
       assert.equal(
         await page.evaluate(() => window.__navigationMarker),
         'same-document',
