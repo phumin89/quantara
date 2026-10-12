@@ -23,11 +23,20 @@ async function verifyCrypto() {
         .getByRole("columnheader", { name: "Coin", exact: true })
         .waitFor();
       if (width < 1040) {
-        const region = page.getByRole('region', { name: 'Crypto holdings and trading history' });
+        const region = page.getByRole("region", {
+          name: "Crypto holdings and trading history",
+        });
         await region.focus();
-        await page.keyboard.press('ArrowRight');
-        await page.waitForFunction(() => document.querySelector('[aria-label="Crypto holdings and trading history"]').scrollLeft > 0);
-        await region.evaluate(element => { element.scrollLeft = 0; });
+        await page.keyboard.press("ArrowRight");
+        await page.waitForFunction(
+          () =>
+            document.querySelector(
+              '[aria-label="Crypto holdings and trading history"]',
+            ).scrollLeft > 0,
+        );
+        await region.evaluate((element) => {
+          element.scrollLeft = 0;
+        });
       }
       assert.equal(
         await page.evaluate(
@@ -38,12 +47,22 @@ async function verifyCrypto() {
       const snapshot = await (
         await page.request.get("http://127.0.0.1:3000/api/crypto/portfolio")
       ).json();
-      const formattedMoney = value => value == null ? "—" : `฿${value.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-      await page.getByRole("region", { name: "Portfolio summary", exact: true }).waitFor();
+      const formattedMoney = (value) =>
+        value == null
+          ? "—"
+          : `฿${value.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+      await page
+        .getByRole("region", { name: "Portfolio summary", exact: true })
+        .waitFor();
       const expectedSummary = [
         ["total-assets", formattedMoney(snapshot.summary.totalAssets)],
         ["available-thb", formattedMoney(snapshot.summary.availableThb)],
-        ["holding-count", snapshot.summary.holdingCount == null ? "—" : String(snapshot.summary.holdingCount)],
+        [
+          "holding-count",
+          snapshot.summary.holdingCount == null
+            ? "—"
+            : String(snapshot.summary.holdingCount),
+        ],
       ];
       for (const filter of ["Holding", "Closed", "All"]) {
         await page.getByRole("button", { name: filter, exact: true }).click();
@@ -55,7 +74,11 @@ async function verifyCrypto() {
           expected,
         );
         for (const [id, value] of expectedSummary)
-          assert.equal(await page.getByTestId(id).textContent(), value, `${id} stays independent of the table filter`);
+          assert.equal(
+            await page.getByTestId(id).textContent(),
+            value,
+            `${id} stays independent of the table filter`,
+          );
       }
       if (snapshot.positions.length) {
         const symbol = snapshot.positions[0].symbol;
@@ -91,7 +114,58 @@ async function verifyCrypto() {
     await page
       .getByRole("columnheader", { name: "Coin", exact: true })
       .waitFor();
+    const saved = await (
+      await page.request.get("http://127.0.0.1:3000/api/crypto/portfolio")
+    ).json();
+    let badgeSnapshot = { ...saved, syncing: false, error: null };
+    await page.route("**/api/crypto/portfolio", (route) =>
+      route.fulfill({ json: badgeSnapshot }),
+    );
+    await page.reload();
+    const connected = page.getByRole("button", {
+      name: "Bitkub status: Connected",
+      exact: true,
+    });
+    await connected.click();
+    await page.getByRole("tooltip").waitFor();
+    assert.match(await page.getByRole("tooltip").textContent(), /Wallet/);
+    assert.match(await page.getByRole("tooltip").textContent(), /Prices/);
+    assert.match(await page.getByRole("tooltip").textContent(), /History/);
+    await page.keyboard.press("Escape");
+    await page.getByRole("tooltip").waitFor({ state: "hidden" });
+    badgeSnapshot = { ...saved, syncing: true, error: null };
+    await page.reload();
+    await page
+      .getByRole("button", { name: "Bitkub status: Syncing", exact: true })
+      .waitFor();
+    badgeSnapshot = {
+      ...saved,
+      syncing: false,
+      error: "Test: exchange sync failed",
+    };
+    await page.reload();
+    await page
+      .getByRole("button", { name: "Bitkub status: Error", exact: true })
+      .waitFor();
+    await page.getByRole("button", { name: "Retry", exact: true }).waitFor();
+    assert.equal(
+      await page
+        .getByRole("region", { name: "Portfolio summary", exact: true })
+        .isVisible(),
+      true,
+    );
+    await page.route("**/api/crypto/sync", (route) => {
+      badgeSnapshot = { ...saved, syncing: false, error: null };
+      return route.fulfill({ json: {} });
+    });
+    await page.getByRole("button", { name: "Retry", exact: true }).click();
+    await page
+      .getByRole("button", { name: "Bitkub status: Connected", exact: true })
+      .waitFor();
     assert.deepEqual(errors, []);
+    console.log(
+      "Connection badge, timestamps, Escape and saved-snapshot retry: passed",
+    );
     console.log("Backend failure/retry and browser errors: passed");
   } finally {
     await browser.close();

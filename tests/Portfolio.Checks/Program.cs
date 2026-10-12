@@ -1,0 +1,91 @@
+using System.Security.Cryptography;
+using System.Text;
+using System.Text.Json;
+using Quantara.Portfolio.Domain;
+using Quantara.Portfolio.Infrastructure;
+using Quantara.Portfolio.Application;
+
+static void Check(bool condition, string name)
+{
+    if (!condition)
+    {
+        throw new InvalidOperationException(name);
+    }
+
+    Console.WriteLine("Passed: " + name);
+}
+
+using var buy = JsonDocument.Parse("""{"txn_id":"trade-1","side":"buy","rate":"100","amount":"500","fee":"1.25","credit":"0.5","ts":1700000000000} """);
+var buyTrade = BitkubAccountReader.ParseTrade(buy.RootElement, "TEST");
+Check(buyTrade.Quantity == 5 && buyTrade.Fee == 1.25m && buyTrade.FeeCredit == 0.5m, "buy uses quote amount and preserves fee/credit");
+using var sell = JsonDocument.Parse("""{"txn_id":"trade-2","side":"sell","rate":"120","amount":"3","fee":"0.9","credit":"0","ts":1700000100000} """);
+var sellTrade = BitkubAccountReader.ParseTrade(sell.RootElement, "TEST");
+Check(sellTrade.Quantity == 3, "sell uses base quantity");
+var ledger = new PortfolioLedger { Balances = [new("TEST", 2)], Prices = [new("TEST", 120)] };
+ledger = ledger.Remember(new("TEST", "Test coin"), [buyTrade, sellTrade, buyTrade]);
+Check(ledger.Trades.Length == 2 && ledger.Coins.Length == 1, "reimport deduplicates transaction and coin");
+var holding = PortfolioProjection.Positions(ledger).Single();
+Check(holding.Quantity == 2 && holding.Value == 240 && holding.Status == "Holding", "reconciled balance drives holdings");
+Check(holding.AverageCost is null && holding.RealizedPnl is null && holding.UnrealizedPnl is null, "partial history never invents cost or profit");
+var closedLedger = ledger with { Balances = [], Prices = [] };
+var closed = PortfolioProjection.Positions(closedLedger).Single();
+Check(closed.Status == "Closed" && closed.Value == 0 && closed.Quantity == 0, "sold coin remains visible without a market price");
+Check(PortfolioProjection.Positions(ledger with { Prices = [] }).Single().Value is null, "missing price never becomes zero holding value");
+
+var exchangeHandler = new FakeReadHandler();
+using var http = new HttpClient(exchangeHandler) { BaseAddress = new Uri("https://api.bitkub.com") };
+var reader = new BitkubAccountReader(http, new("test-key", "test-secret"));
+var wallet = await reader.Balances(CancellationToken.None);
+Check(wallet.Single(balance => balance.Symbol == "THB") is { Quantity: 1000, Available: 700 }, "wallet retains available THB separately from reserved cash");
+var summaryLedger = ledger with { UpdatedAt = DateTimeOffset.UnixEpoch, Balances = wallet };
+var summary = PortfolioProjection.Summary(summaryLedger);
+Check(summary.TotalAssets == 240 && summary.AvailableThb == 700 && summary.HoldingCount == 1, "summary excludes THB from crypto value and coin count");
+Check(PortfolioProjection.Summary(summaryLedger with { Coins = [] }).TotalAssets == 240, "summary includes unremembered positive wallet balances");
+Check(PortfolioProjection.Summary(summaryLedger with { Prices = [] }).TotalAssets is null, "summary never reports a partial valuation as a total");
+Check(PortfolioProjection.Summary(new PortfolioLedger()) is { TotalAssets: null, AvailableThb: null, HoldingCount: null }, "initial summary remains unknown before wallet sync");
+using var marketHttp = new HttpClient(new Quantara.Portfolio.Checks.FakeMarketDataHandler()) { BaseAddress = new Uri("http://market-data") };
+var marketData = new MarketDataClient(marketHttp);
+Check((await marketData.GetCoins(CancellationToken.None)).Single() is { Symbol: "BTC", Name: "Bitcoin" }, "market data validates coins contract");
+Check((await marketData.GetQuotes(CancellationToken.None)).Single() is { Symbol: "BTC", Price: 100.5m }, "market data validates quotes contract");
+var failedMarket = new Quantara.Portfolio.Checks.FakeMarketDataHandler { Fail = true };
+var failedMarketClient = new MarketDataClient(new HttpClient(failedMarket) { BaseAddress = new Uri("http://market-data") });
+var marketFailedClosed = false;
+try { await failedMarketClient.GetCoins(CancellationToken.None); } catch (HttpRequestException) { marketFailedClosed = true; }
+Check(marketFailedClosed, "market data HTTP failure fails closed");
+using var incompleteMarketHttp = new HttpClient(new Quantara.Portfolio.Checks.FakeMarketDataHandler { MissingSource = true }) { BaseAddress = new Uri("http://market-data") };
+var incompleteMarketClient = new MarketDataClient(incompleteMarketHttp);
+var rejectedContract = false;
+try
+{
+    await incompleteMarketClient.GetCoins(CancellationToken.None);
+}
+catch (JsonException)
+{
+    rejectedContract = true;
+}
+Check(rejectedContract, "market data never invents exchange source for a missing field");
+Check(PortfolioProjection.Summary(summaryLedger with { Balances = [new("THB", 1000, 700)] }) is { TotalAssets: 0, HoldingCount: 0 }, "cash-only wallet has no held crypto value");
+var legacyBalance = JsonSerializer.Deserialize<Balance>("""{"Symbol":"THB","Quantity":1000}""") ?? throw new InvalidOperationException("Legacy balance was not deserialized.");
+Check(legacyBalance.Available is null && PortfolioProjection.Summary(summaryLedger with { Balances = [legacyBalance] }).AvailableThb is null, "legacy payload never substitutes total cash for available cash");
+exchangeHandler.InvalidWallet = true;
+var rejectedWallet = false;
+try { await reader.Balances(CancellationToken.None); }
+catch (InvalidDataException) { rejectedWallet = true; }
+Check(rejectedWallet, "wallet rejects available cash exceeding the total");
+var history = await reader.History("TEST", CancellationToken.None);
+Check(history.Length == 2 && exchangeHandler.HistoryCalls == 2, "history follows keyset pagination");
+Check(exchangeHandler.VerifiedSignatures == 2, "signed GET uses exact timestamp, path and query");
+
+if (args.Contains("--sql"))
+{
+    var account = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes("Quantara deterministic checks account"))).ToLowerInvariant();
+    const string connection = "Server=(localdb)\\MSSQLLocalDB;Database=Quantara;Integrated Security=true;Encrypt=true;TrustServerCertificate=true;";
+    var first = new SqlPortfolioRepository(connection, account);
+    await first.Initialize(true, CancellationToken.None);
+    await first.Save(closedLedger, CancellationToken.None);
+    var second = new SqlPortfolioRepository(connection, account);
+    var restored = await second.Load(CancellationToken.None);
+    Check(restored.Coins.Length == 1 && restored.Trades.Length == 2 && PortfolioProjection.Positions(restored).Single().Status == "Closed", "SQL Server retains closed coin and fills across store instances");
+}
+
+

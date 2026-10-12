@@ -54,6 +54,12 @@ Owner-approved refinement on 2026-10-12 supersedes the original Mobbin pill geom
 
 App copy is English, sentence case. Saans is preferred; supplied assets are unavailable, so retain the established system sans fallback. Page title 32px, body 14–16px, supporting labels 12px. Preserve keyboard focus, readable contrast, filters, loading, error recovery and responsive navigation.
 
+Crypto has a compact Bitkub status beside its title: Connected green, Syncing
+amber, Error red and Checking neutral before wallet data is available. Hover,
+keyboard focus or click reveals wallet, price and history update times plus
+sync progress. Connected reflects the last successful update, not a continuous
+exchange health monitor. Show error details and Retry only when an error occurs.
+
 ## Product truth
 
 Portfolio summary is one compact outlined panel above the filters with three

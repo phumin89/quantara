@@ -1,0 +1,10 @@
+node_modules/
+.next/
+apps/web/.next/
+apps/web/next-env.d.ts
+work/
+.runtime/
+.impeccable/
+package-lock.json
+# Roslyn release tracking uses its own fixed table grammar.
+tools/Quantara.Analyzers/AnalyzerReleases.*.md

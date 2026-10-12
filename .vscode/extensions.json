@@ -1,0 +1,8 @@
+{
+  "recommendations": [
+    "ms-dotnettools.csdevkit",
+    "dbaeumer.vscode-eslint",
+    "editorconfig.editorconfig",
+    "esbenp.prettier-vscode"
+  ]
+}

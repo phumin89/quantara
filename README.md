@@ -1,74 +1,61 @@
 # Quantara
 
-Single-page frontend using Next.js, TypeScript and Material UI, with a
-C# ASP.NET Core/Mediator backend and SQL Server portfolio storage.
-The owner-provided DESIGN.md controls the visual language.
+Next.js/TypeScript/Material UI workspace backed by two independently runnable C# services. Current functionality is read-only Bitkub portfolio tracking; no AI or order execution.
 
-## Run locally
+## Structure
+
+- `apps/web`: routes and API proxy, Crypto components/hooks/API/contracts, shared navigation/theme.
+- `services/market-data`: public Bitkub coins and THB prices. No credentials or database.
+- `services/portfolio`: signed account reads, retained history, portfolio projection and its SQL Server database.
+- Each service has separate Api, Application, Domain and Infrastructure projects. Controllers delegate to Mediator CQRS handlers; Domain has no framework dependencies.
+- `tests`: Portfolio, MarketData and architecture checks. One C# type or React component per named file.
+
+Open `Quantara.sln` in Visual Studio, or this root folder in VS Code. Editor settings, analyzers, typed ESLint and strict compiler flags are committed alongside CI checks.
+
+## Run
+
+Install frontend dependencies once with `npm ci`, then use three terminals:
 
 ```powershell
-npm ci
+npm run dev:market-data
+npm run dev:api
 npm run dev
 ```
 
-Open http://127.0.0.1:3000. Production: `npm run build`, then `npm start`.
-Run `npm run typecheck` to check TypeScript.
+Web: http://127.0.0.1:3000. Portfolio: port 5050. MarketData: port 5051. Production frontend: `npm run build`, then `npm start`. Both services expose `/health`; Portfolio checks SQL connectivity and persisted ledger readability.
 
-With the app running, run `npm run test:ui` for responsive layout and keyboard
-navigation checks. Install the test browser once with `npx playwright install chromium`,
-or use installed Edge on Windows: `$env:PLAYWRIGHT_CHANNEL = 'msedge'`.
+Portfolio reads only BITKUB_API_KEY and BITKUB_API_SECRET from environment variables or the repository-root `.env`. MarketData never receives credentials. Configure `ConnectionStrings__Quantara` for another SQL Server; local default is the existing MSSQLLocalDB Quantara database. Set `Services__MarketDataUrl` on Portfolio and `PORTFOLIO_SERVICE_URL` on the Next.js server when services run elsewhere.
 
-The left navigation is permanent at widths of 768px and above. On smaller
-screens, the menu button opens a left drawer, closed by selecting Home or Crypto,
-pressing Escape or tapping the backdrop.
+The Portfolio database preserves the original `CryptoPortfolioLedger` table, account-key fingerprint and JSON fields. Its idempotent SQL migration creates missing schema and never drops data. API-key rotation creates a separate partition. Old source is archived locally under ignored `work/prestructure`; `.env` remains outside Git.
 
-Home is intentionally empty. Crypto reads actual Bitkub wallet balances,
-prices and exchange trade history. There is no AI or trading capability.
-Saans is not bundled; the documented system font fallback is used.
-Keep `.env` and runtime secrets out of Git.
+## Behavior
 
-Home is available at `/`, and Crypto at `/crypto`. Next.js client navigation
-switches pages while keeping the shared navigation shell mounted.
+Home remains empty; Crypto shows actual balances, retained closed coins and trade fills. Available THB excludes reserved funds. Total assets means held crypto only; a missing price makes the total unknown. Filters do not alter the summary. Snapshot errors retain saved records and offer Retry. Status details expose separate wallet/price/history update times.
 
-## Portfolio backend
+Bitkub exchange history is limited to about 90 days and excludes broker conversions. Cost and profit remain unknown until complete accounting is verified. There are no trading, withdrawal, transfer, AI or RiskEngine paths in this version. Saans is not bundled; the documented system font fallback is used.
 
-Run `npm run dev:api` in a second terminal. It listens on 127.0.0.1:5050.
-On this Windows development machine it uses the existing SQL Server LocalDB
-instance and creates the Quantara database and table if absent. To use a
-different SQL Server, set `ConnectionStrings__Quantara` in the backend
-environment. Existing data is never dropped. The website proxies requests
-on the same origin; no exchange credentials are sent to the browser.
-
-Backend credentials come only from BITKUB_API_KEY and BITKUB_API_SECRET
-in the server environment or root `.env`. Portfolio documents are partitioned
-by an API-key fingerprint. A new key starts a separate partition and retains
-the old one. The backend has no order, withdrawal or transfer endpoints.
-
-## Crypto behavior
-
-Refresh starts a paced background import. All/Holding/Closed filters and
-coin buttons show retained fills and fee credits. Imported coins remain in
-SQL Server even when their balance is zero. A failed sync retains the last
-successful snapshot and shows an error. Prices display their update time.
-
-Bitkub exposes about 90 days of exchange trade history. Broker conversions,
-older activity and unavailable markets can be missing. Average cost and
-profit remain unknown until a complete ledger is verified. Imported fills
-are deduplicated and retained without pruning. Scroll wide tables with
-touch, mouse or keyboard; the navigation itself does not overflow.
-
-## Crypto verification
-
-With both services running: `npm run test:ui` and `npm run test:crypto`.
-The latter reads real data and simulates backend failure only within its
-isolated test browser. Set PLAYWRIGHT_CHANNEL to msedge as above.
-
-Domain, signature, pagination and persistence checks:
+## Verification
 
 ```powershell
-dotnet run --project backend/Quantara.Checks/Quantara.Checks.csproj -- --sql
+npm run format:check
+npm run check
+npm run build
+dotnet build Quantara.sln
+npm run test:architecture
+npm run test:editor
+dotnet run --project tests/Portfolio.Checks/Portfolio.Checks.csproj
+dotnet run --project tests/MarketData.Checks/MarketData.Checks.csproj
 ```
 
-SQL checks use an isolated test account partition, never the owner's
-partition. Stop the backend before rebuilding changed backend code on
-Windows to avoid locking its executable.
+Opt into real SQL verification with `-- --sql` on Portfolio.Checks. It uses a separate deterministic test account, not the owner's partition. Stop running services before rebuilding their assemblies on Windows.
+
+Browser checks with frontend running: `npm run test:ui`, `npm run test:contracts`. Real-data `npm run test:crypto` also needs both services and configured credentials. Install Chromium with `npx playwright install chromium`, or use installed Edge via `$env:PLAYWRIGHT_CHANNEL = 'msedge'`. Test fixtures/failure injection remain confined to the isolated test browser.
+
+CI runs formatting, lint/type checks, builds, deterministic checks, architecture checks, dependency audit, isolated browser checks and Gitleaks scanning. It never needs broker credentials or starts real account imports. GitHub branch protection must require these checks to enforce merge gates; the workflow alone does not change remote branch policy.
+
+Project-owned Roslyn diagnostics QNT001/QNT002 enforce one type per matching
+file in C# editors/builds. QNT003 rejects null-forgiving suppression and QNT004
+requires explicit sealed/abstract/static class intent. ESLint's
+`quantara/file-ownership` reports multiple components/types and mismatched names
+while typing. `npm run test:editor` proves these rules reject invalid probes and
+accept valid source without adding bad code to the application.

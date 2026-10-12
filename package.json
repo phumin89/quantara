@@ -1,31 +1,29 @@
 {
   "name": "quantara",
   "private": true,
+  "workspaces": [
+    "apps/web"
+  ],
   "scripts": {
-    "dev": "next dev --hostname 127.0.0.1",
-    "dev:api": "dotnet run --project backend/Quantara.Api/Quantara.Api.csproj",
-    "build": "next build",
-    "start": "next start --hostname 127.0.0.1",
-    "typecheck": "tsc --noEmit",
+    "dev": "npm run dev --workspace @quantara/web",
+    "dev:market-data": "dotnet run --project services/market-data/MarketData.Api/MarketData.Api.csproj",
+    "dev:api": "dotnet run --project services/portfolio/Portfolio.Api/Portfolio.Api.csproj",
+    "build": "npm run build --workspace @quantara/web",
+    "start": "npm run start --workspace @quantara/web",
+    "lint": "npm run lint --workspace @quantara/web",
+    "typecheck": "npm run typecheck --workspace @quantara/web",
+    "check": "npm run check --workspace @quantara/web",
     "test:ui": "node tools/verify-shell.cjs",
-    "test:crypto": "node tools/verify-crypto.cjs"
-  },
-  "dependencies": {
-    "@emotion/cache": "^11.14.0",
-    "@emotion/react": "^11.14.0",
-    "@emotion/styled": "^11.14.0",
-    "@mui/icons-material": "9.5.0",
-    "@mui/material": "9.5.0",
-    "@mui/material-nextjs": "9.5.0",
-    "next": "16.4.0",
-    "react": "19.3.0",
-    "react-dom": "19.3.0"
+    "test:crypto": "node tools/verify-crypto.cjs",
+    "test:contracts": "node tools/verify-contracts.cjs",
+    "test:architecture": "dotnet run --project tests/Architecture.Checks/Architecture.Checks.csproj && node tools/verify-architecture.cjs",
+    "format": "prettier --write apps/web tools .vscode package.json",
+    "format:check": "prettier --check apps/web tools .vscode package.json",
+    "test:editor": "dotnet run --project tests/Analyzer.Checks/Analyzer.Checks.csproj && node tools/verify-editor-rules.cjs"
   },
   "devDependencies": {
-    "@types/node": "^24.0.0",
-    "@types/react": "^19.0.0",
-    "@types/react-dom": "^19.0.0",
     "playwright": "^1.64.0",
+    "prettier": "^3.9.10",
     "typescript": "^5.9.0"
   }
 }

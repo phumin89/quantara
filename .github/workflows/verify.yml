@@ -1,0 +1,57 @@
+name: Verify
+on:
+  push:
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  checks:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: 24
+          cache: npm
+      - uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1 # v5
+        with:
+          dotnet-version: 10.0.x
+      - run: npm ci
+      - run: npm run format:check
+      - run: npm run check
+      - run: npm run build
+      - run: dotnet build Quantara.sln
+      - run: dotnet format Quantara.sln whitespace --verify-no-changes --no-restore
+      - run: npm run test:architecture
+      - run: dotnet run --project tests/Analyzer.Checks/Analyzer.Checks.csproj
+      - run: node tools/verify-editor-rules.cjs
+      - run: dotnet run --no-build --project tests/Portfolio.Checks/Portfolio.Checks.csproj
+      - run: dotnet run --no-build --project tests/MarketData.Checks/MarketData.Checks.csproj
+      - run: npm audit --audit-level=high
+      - run: npx playwright install chromium
+      - name: Start isolated frontend
+        shell: pwsh
+        run: |
+          Start-Process -FilePath "node" -ArgumentList @("../../node_modules/next/dist/bin/next", "start", "--hostname", "127.0.0.1") -WorkingDirectory apps/web -WindowStyle Hidden
+          $taskReady = $false
+          for ($taskAttempt = 0; $taskAttempt -lt 30; $taskAttempt++) {
+            try {
+              Invoke-WebRequest http://127.0.0.1:3000/ -ErrorAction Stop | Out-Null
+              $taskReady = $true
+              break
+            } catch { Start-Sleep -Seconds 1 }
+          }
+          if (!$taskReady) { throw "Frontend did not start." }
+      - run: npm run test:ui
+      - run: npm run test:contracts
+  secrets:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          fetch-depth: 0
+      - uses: gitleaks/gitleaks-action@e0c47f4f8be36e29cdc102c57e68cb5cbf0e8d1e # v3
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITLEAKS_ENABLE_COMMENTS: "false"
+          GITLEAKS_ENABLE_UPLOAD_ARTIFACT: "false"
