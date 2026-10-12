@@ -1,39 +1,65 @@
-# Quantara — Live Workspace
+---
+version: alpha
+name: Quantara Workspace
+description: Compact data workspace with neutral surfaces, restrained corners, black table headers and semantic status colors.
+colors:
+  primary: "#141414"
+  on-primary: "#ffffff"
+  canvas: "#ffffff"
+  canvas-soft: "#f3f3f3"
+  text-muted: "#707070"
+  hairline: "#e0e0e0"
+  success: "#166534"
+  success-soft: "#dcfce7"
+  warning: "#92400e"
+  warning-soft: "#fef3c7"
+  error: "#991b1b"
+  error-soft: "#fee2e2"
+  info: "#1e40af"
+  info-soft: "#dbeafe"
+  closed: "#6b21a8"
+  closed-soft: "#f3e8ff"
+  sell: "#9a3412"
+  sell-soft: "#ffedd5"
+rounded:
+  container: 8px
+  control: 6px
+  tag: 4px
+---
 
-Reviewed 2026-10-06. This replaces the former single-column page and Sandbox mode navigation. Preserve the owner's modern monochrome interface, self-hosted IBM Plex Sans Thai and colored Pixel Office.
+# Quantara design guide
 
-## Layout and navigation
+Owner-approved refinement on 2026-10-12 supersedes the original Mobbin pill geometry and monochrome-only status rules. The original reference is preserved in work/references/design-mobbin-original.md. Retain neutral surfaces, clear type hierarchy and shadow-free composition.
 
-The persistent app shell uses a 224px left sidebar on desktop, with Office, Account/assets and Trading links. Each is a real Next route (`/`, `/account`, `/trading`), reachable directly and through client navigation. One shared owner/account provider survives route changes. Use one selected black navigation item, consistent stroke SVG icons, and a single connection label in the header. Sidebar status identifies Live/Bitkub without implying execution is enabled.
+## Geometry and layout
 
-Content uses the available screen width. Align the page title and content padding. Office has one route heading, "ภาพรวมทีม", and opens with a compact status line and one secondary next action. Pixel has an accessible region/frame name without repeating a visible Office heading. Keep longer status explanations in a closed native disclosure. Pixel and a compact cash rail sit alongside each other on wide screens, below on smaller screens. No generic setup checklist or repeated access lectures in Office. Account contains verified balances and assets; Trading contains the specific first-use requirement, owner controls and order outcomes. Do not gather every function into one long document or add empty navigation destinations.
+- Tables and panels: 8px corners. Buttons, navigation items, filters and inputs: 6px. Status tags: 4px. Icon-only controls may retain a circular target.
+- Use exact pixel corner values in MUI overrides; numeric sx radii multiply the theme radius.
+- Crypto workspace: left aligned, full available width up to 1280px. Main table minimum width 1040px; scroll within its focusable labelled region on smaller screens.
+- Main data rows approximately 60px; table headings 40px; cells padded 16px horizontally. Interactive targets stay at least 44px.
+- Coin name and ticker share one line. Numeric headings and values align right with tabular numerals. Trade history expands beneath the relevant coin.
+- Keep unrelated page sections separated; keep related table data compact.
 
-At 700px and below, navigation becomes a compact top row and financial content stacks. Native scrolling belongs to each readable region when needed. Keep a skip link, keyboard focus, one H1 per route, controls of at least 44px and no page overflow at 375px.
+## Color meaning
 
-## Visual language
+- All table headings use #141414 backgrounds and white labels, including expanded history.
+- All: neutral gray. Holding: green. Closed: purple, never interpreted as a loss. Filters and row tags share these meanings.
+- Buy: blue. Sell: orange. Labels remain visible so color is never the only cue.
+- Use installed MUI outlined icons alongside labels: grid for All, wallet for Holding, check-circle for Closed, inward arrow for Buy and outward arrow for Sell. Icons are decorative and inherit label color; preserve accessible text and selected-state cues.
+- Verified positive P/L: green; negative P/L: red; zero: neutral. Unknown values remain unknown and have no invented gain/loss color.
+- Incomplete coverage or unknown cost: amber. Connection and load failures: red.
+- Tags use light tinted backgrounds and dark text. Navigation and ordinary actions remain neutral. No decorative gradients or shadows.
 
-White and pale neutral surfaces, black selected navigation and text, subtle gray boundaries. Pixel artwork retains its original colors. Use IBM Plex Sans Thai Regular/Medium/SemiBold, readable 16px body text, compact 20–24px app headings, at least 14px labels, and tabular financial numerals. No display font, negative Thai tracking, decorative metric chart or invented readiness percentage.
+## Typography and interaction
 
-Use native forms, clear disabled/loading/error states and visible focus. Hover changes color/background on capable pointers with about 150ms transitions. The chat window keeps its brief arrival; reduced motion removes spatial animation. No repeating decorative animation or game-loop wandering.
+App copy is English, sentence case. Saans is preferred; supplied assets are unavailable, so retain the established system sans fallback. Page title 32px, body 14–16px, supporting labels 12px. Preserve keyboard focus, readable contrast, filters, loading, error recovery and responsive navigation.
 
-## Office and team room
+## Product truth
 
-The original Pixel renderer and artwork are bundled with the frontend. Existing Live meeting events flow through an account-bound display snapshot into the viewer. Render only roles actually reported by the meeting; keep stable seats, preferring existing chairs and benches. Only a reported working role types; other roles remain stationary. Empty, expired or unavailable activity clears characters. Activity expires after 45 seconds without a company heartbeat, independently of financial state. Honor reduced motion and run no idle animation loop. The viewer cannot start work, change authority or submit orders. Desktop stage is 380–528px, narrow tablet 300px and phone 240–280px; preserve crisp integer pixel zoom.
+Portfolio summary is one compact outlined panel above the filters with three
+labelled values: Total assets (held crypto value only), Available THB (unreserved
+cash) and Holding (number of held coins). It is independent of table filters,
+uses three columns on desktop and stacked rows on phones. Unknown amounts
+display a dash and an explanation, never an invented zero.
 
-The persistent floating team room is separate from the page. It has one minimize button, Escape and focus return; phones use a full viewport reader. Use a content-sized window for disabled/unavailable access, with one status and recovery route. System status is labelled separately from recorded meeting conclusions. The account-bound report reader puts decisions first and team reasoning behind disclosures. When the feed cannot be read, say reports are unavailable rather than claiming none exist. Never invent a team conversation.
-
-Use one native date field to select report history. Do not add a duplicate row of date tabs or a "dates with reports" disclosure. Keep the separate meeting-round selector for the chosen day.
-
-## Current data and access
-
-Refresh verified observations in the background without clearing a fresh balance while a request is pending. Commit matching status/account data together. Account values expire after 30 seconds; failed/unauthorized observations and owner actions clear them. An expired observation is unavailable, not zero. Server observation time identifies the source, not a claimed execution or market refresh.
-
-Keep the Office activity header mounted with a stable two-line status slot and an always-present closed work-details disclosure. Background updates change its content without moving the Pixel frame. Reserve the connection indicator's space even while hidden. Account and report first reads use static neutral skeletons; never animate shimmer or invent balances. Saved same-date meeting reports stay mounted during pending reads and failed polls, with a reserved update notice. Selecting another date shows its loading/error state without displaying the previous date's conclusion.
-
-Pairing appears in Account or Trading only when owner verification is needed. A remembered browser retains viewing for 30 absolute days across normal starts and route changes. Remembering does not extend financial control authority, approve a mandate or activate execution. Financial state comes from the current executor observation. An armed account means owner authority is active; it does not prove an order filled. A disarmed or unavailable account must retain its actual state.
-
-Review evidence: `work/live-account-connect/spa-workspace-review.md`.
-
-## Trading plans
-
-Show persisted entry ceiling, requested quantity, target, stop and deadline on Trading, with acquired/sold amounts kept distinct and explicit THB/coin units. Active plans come first. Use quiet responsive definition lists; preserve native price precision and never invent plans or fills. Configuration stays in a closed native disclosure, so operational plans lead the page. Report plan registration separately from an order submission, and translate rejection reasons into concise Thai.
+Portfolio rows and history reflect actual imported Bitkub data. Retain coins after sale. Never fill empty areas with fictitious holdings, profit, charts or summary values. Clearly disclose limited exchange history, excluded broker conversions and unknown cost/P&L. Styling never changes account authority or trading permissions.

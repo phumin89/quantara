@@ -1,0 +1,41 @@
+* {
+  box-sizing: border-box;
+}
+html,
+body {
+  margin: 0;
+  min-height: 100%;
+  background: #fff;
+}
+body {
+  color: #141414;
+  font-family:
+    Saans,
+    -apple-system,
+    "Helvetica Neue",
+    Arial,
+    sans-serif;
+}
+button,
+a {
+  -webkit-tap-highlight-color: transparent;
+}
+::selection {
+  background: #141414;
+  color: #fff;
+}
+:focus-visible {
+  outline: 2px solid #141414;
+  outline-offset: 3px;
+}
+html {
+  scrollbar-color: #707070 #f3f3f3;
+}
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    transition-duration: 0s !important;
+    animation-duration: 0s !important;
+  }
+}
