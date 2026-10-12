@@ -8,6 +8,7 @@ public static class PortfolioProjection
         {
             return new(null, null, null);
         }
+
         var held = ledger.Balances.Where(item => item.Symbol != "THB" && item.Quantity > 0).ToArray();
         var total = held.Length == 0 ? 0 : held.All(item => ledger.Prices.Any(price => price.Symbol == item.Symbol && price.Price > 0))
             ? held.Sum(item => item.Quantity * ledger.Prices.Single(price => price.Symbol == item.Symbol).Price) : (decimal?)null;

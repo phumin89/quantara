@@ -15,6 +15,7 @@ public sealed class SqlPortfolioRepository(string connectionString, string accou
             await using var connection = new SqlConnection(master.ConnectionString); await connection.OpenAsync(cancellationToken);
             await using var create = new SqlCommand("IF DB_ID(N'Quantara') IS NULL CREATE DATABASE [Quantara];", connection); await create.ExecuteNonQueryAsync(cancellationToken);
         }
+
         await using var database = new SqlConnection(connectionString); await database.OpenAsync(cancellationToken);
         using var migration = typeof(SqlPortfolioRepository).Assembly.GetManifestResourceStream("Portfolio.Infrastructure.Database.Migrations.001_CreateCryptoPortfolioLedger.sql")
             ?? throw new InvalidOperationException("Portfolio schema migration is missing.");

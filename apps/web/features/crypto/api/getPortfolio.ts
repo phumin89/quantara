@@ -16,9 +16,11 @@ export async function getPortfolio(
   if (!response.ok) {
     throw new Error(errorMessage(body, "Unable to load portfolio."));
   }
+
   const parsed = portfolioSchema.safeParse(body);
   if (!parsed.success) {
     throw new Error("Portfolio response is invalid.");
   }
+
   return parsed.data;
 }

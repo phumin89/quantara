@@ -11,9 +11,11 @@ export async function getTradeHistory(coin: string, signal?: AbortSignal) {
   if (!response.ok) {
     throw new Error(errorMessage(body, "Unable to load history."));
   }
+
   const parsed = historyResponseSchema.safeParse(body);
   if (!parsed.success) {
     throw new Error("History response is invalid.");
   }
+
   return parsed.data;
 }

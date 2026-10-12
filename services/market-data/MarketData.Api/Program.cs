@@ -1,6 +1,6 @@
+using System.Text.Json;
 using Mediator;
 using Microsoft.AspNetCore.Mvc;
-using System.Text.Json;
 using Quantara.MarketData.Application;
 using Quantara.MarketData.Infrastructure;
 

@@ -37,3 +37,9 @@ The existing Quantara SQL database remains exclusively owned by Portfolio. `Cryp
 MarketData defaults to port 5051, Portfolio to 5050, and Web to 3000. Service addresses are configuration, not Domain dependencies. Credentials stay in Portfolio's server environment or the root .env allowlist. Startup does not authorize transactions. This slice has no orders, transfers, withdrawals, AI or RiskEngine.
 
 CI checks are implemented, but remote branch protection is an administrator setting and is not changed by adding a workflow. Account integration and SQL checks are opt-in; default CI uses deterministic fake transports and isolated browser fixtures.
+
+## Blank-line enforcement
+
+C# IDE2000/IDE2003 reject consecutive blank lines and require a blank line between a completed block and the next statement. IDE0055 enforces formatter diagnostics. These Roslyn blank-line options are experimental, so SDK upgrades must retain the diagnostic probe verification.
+
+Frontend ESLint Stylistic requires a blank line after the directive/import group, after block-like statements and before return statements, and allows at most one consecutive blank line. Editor lint and CI enforce these rules; Prettier preserves the required spacing. No rule requires an empty line between every statement.

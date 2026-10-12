@@ -4,6 +4,7 @@ import reactHooks from "eslint-plugin-react-hooks";
 import jsxA11y from "eslint-plugin-jsx-a11y";
 import tseslint from "typescript-eslint";
 import architecture from "../../tools/eslint-architecture.mjs";
+import stylistic from "@stylistic/eslint-plugin";
 
 const files = [
   "app/**/*.{ts,tsx}",
@@ -18,7 +19,7 @@ export default defineConfig([
   ...tseslint.configs.strictTypeChecked.map((config) => ({ ...config, files })),
   {
     files,
-    plugins: { quantara: architecture },
+    plugins: { quantara: architecture, "@stylistic": stylistic },
     languageOptions: {
       parserOptions: {
         projectService: true,
@@ -28,6 +29,18 @@ export default defineConfig([
     settings: { react: { version: "detect" } },
     rules: {
       "quantara/file-ownership": "error",
+      "@stylistic/no-multiple-empty-lines": [
+        "error",
+        { max: 1, maxBOF: 0, maxEOF: 0 },
+      ],
+      "@stylistic/padding-line-between-statements": [
+        "error",
+        { blankLine: "always", prev: "directive", next: "*" },
+        { blankLine: "always", prev: "import", next: "*" },
+        { blankLine: "any", prev: "import", next: "import" },
+        { blankLine: "always", prev: "block-like", next: "*" },
+        { blankLine: "always", prev: "*", next: "return" },
+      ],
       "@typescript-eslint/no-explicit-any": "error",
       "@typescript-eslint/no-non-null-assertion": "error",
       "react/prop-types": "off",

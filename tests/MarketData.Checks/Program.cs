@@ -1,5 +1,5 @@
-using Quantara.MarketData.Infrastructure;
 using Quantara.MarketData.Checks;
+using Quantara.MarketData.Infrastructure;
 
 static void Assert(bool condition, string message)
 {
@@ -43,5 +43,6 @@ catch (InvalidDataException)
 {
     rejectedError = true;
 }
+
 Assert(rejectedError, "string provider error was accepted");
 Console.WriteLine("String provider errors fail closed.");

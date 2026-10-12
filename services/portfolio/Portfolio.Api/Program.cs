@@ -12,6 +12,7 @@ while (taskDirectory is not null && !File.Exists(Path.Combine(taskDirectory.Full
 {
     taskDirectory = taskDirectory.Parent;
 }
+
 var environmentFile = builder.Configuration["Credentials:EnvironmentFile"] ?? Path.Combine(taskDirectory?.FullName ?? builder.Environment.ContentRootPath, ".env");
 var settings = new Dictionary<string, string>();
 if (File.Exists(environmentFile))
@@ -23,14 +24,17 @@ if (File.Exists(environmentFile))
         {
             continue;
         }
+
         var name = line[..separator].Trim();
         if (name is not ("BITKUB_API_KEY" or "BITKUB_API_SECRET"))
         {
             continue;
         }
+
         settings[name] = line[(separator + 1)..].Trim().Trim('"', '\'');
     }
 }
+
 string Credential(string name) => Environment.GetEnvironmentVariable(name) ?? settings.GetValueOrDefault(name, "");
 var credentials = new BitkubCredentials(Credential("BITKUB_API_KEY"), Credential("BITKUB_API_SECRET"));
 var accountKey = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(credentials.Key))).ToLowerInvariant();
@@ -52,6 +56,7 @@ if (marketDataUrl.Scheme is not ("http" or "https") || !string.IsNullOrEmpty(mar
 {
     throw new InvalidOperationException("Configure a valid MarketData service URL without embedded credentials.");
 }
+
 builder.Services.AddHttpClient<IMarketDataClient, MarketDataClient>(http =>
 {
     http.BaseAddress = marketDataUrl;

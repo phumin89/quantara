@@ -15,6 +15,7 @@ foreach (var path in sourceFiles)
     {
         throw new InvalidOperationException($"Do not suppress nullability; validate or model null instead: {path}");
     }
+
     var declarations = syntax.DescendantNodes().OfType<BaseTypeDeclarationSyntax>().ToArray();
     foreach (var declaration in declarations.OfType<ClassDeclarationSyntax>())
     {
@@ -23,18 +24,22 @@ foreach (var path in sourceFiles)
             throw new InvalidOperationException($"Classes must be sealed unless explicitly abstract/static: {path}");
         }
     }
+
     if (declarations.Length > 1)
     {
         throw new InvalidOperationException($"One type per file required: {path}");
     }
+
     if (declarations.Length == 1 && declarations[0].Identifier.ValueText != Path.GetFileNameWithoutExtension(path))
     {
         throw new InvalidOperationException($"File name must match its type: {path}");
     }
+
     if (declarations.Length == 0 && Path.GetFileName(path) != "Program.cs")
     {
         throw new InvalidOperationException($"Unexpected type-free service file: {path}");
     }
+
     if (path.Contains(".Domain", StringComparison.Ordinal))
     {
         var imports = syntax.DescendantNodes().OfType<UsingDirectiveSyntax>().Select(item => item.Name?.ToString() ?? "");
@@ -47,18 +52,22 @@ foreach (var path in sourceFiles)
             throw new InvalidOperationException($"Domain has an external dependency: {path}");
         }
     }
+
     if (path.EndsWith("Controller.cs", StringComparison.Ordinal)
         && syntax.DescendantNodes().OfType<UsingDirectiveSyntax>().Any(item => (item.Name?.ToString() ?? "").Contains(".Infrastructure", StringComparison.Ordinal)))
     {
         throw new InvalidOperationException($"Controllers must delegate through Application/Mediator: {path}");
     }
+
     if (path.Contains($"{Path.DirectorySeparatorChar}Queries{Path.DirectorySeparatorChar}", StringComparison.Ordinal)
         && syntax.DescendantNodes().OfType<IdentifierNameSyntax>().Any(item => item.Identifier.ValueText == "IPortfolioRepository"))
     {
         throw new InvalidOperationException($"Portfolio queries must use the read-only repository: {path}");
     }
+
     checkedFiles++;
 }
+
 foreach (var project in Directory.EnumerateFiles(Path.Combine(root, "services"), "*.csproj", SearchOption.AllDirectories))
 {
     var name = Path.GetFileNameWithoutExtension(project);
@@ -71,6 +80,7 @@ foreach (var project in Directory.EnumerateFiles(Path.Combine(root, "services"),
         {
             throw new InvalidOperationException($"Services must communicate through HTTP, not project references: {project}");
         }
+
         var referencedName = Path.GetFileNameWithoutExtension(reference);
         if (name.EndsWith(".Domain", StringComparison.Ordinal)
             || (name.EndsWith(".Application", StringComparison.Ordinal) && !referencedName.EndsWith(".Domain", StringComparison.Ordinal))
@@ -79,9 +89,11 @@ foreach (var project in Directory.EnumerateFiles(Path.Combine(root, "services"),
             throw new InvalidOperationException($"Invalid layer dependency: {project} -> {reference}");
         }
     }
+
     if (name.EndsWith(".Domain", StringComparison.Ordinal) && document.Descendants("PackageReference").Any())
     {
         throw new InvalidOperationException($"Domain must remain framework-free: {project}");
     }
 }
+
 Console.WriteLine($"Architecture: {checkedFiles} C# files satisfy type ownership and layer/service boundaries.");

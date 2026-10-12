@@ -13,6 +13,7 @@ export async function proxyCrypto(
       signal: AbortSignal.timeout(10000),
     });
     const body = await response.text();
+
     return new NextResponse(body, {
       status: response.status,
       headers: {

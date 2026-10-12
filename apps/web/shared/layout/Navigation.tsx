@@ -1,4 +1,5 @@
 "use client";
+
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import HomeOutlinedIcon from "@mui/icons-material/HomeOutlined";
@@ -25,6 +26,7 @@ export default function Navigation({
       icon: <CurrencyBitcoinIcon fontSize="small" />,
     },
   ];
+
   return (
     <Box
       component="nav"
@@ -40,6 +42,7 @@ export default function Navigation({
       >
         {items.map((item) => {
           const selected = pathname === item.href;
+
           return (
             <ListItemButton
               key={item.href}

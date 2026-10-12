@@ -11,6 +11,7 @@ public sealed class FakeMarketDataHandler : HttpMessageHandler
         {
             return Task.FromResult(new HttpResponseMessage(HttpStatusCode.BadGateway));
         }
+
         var requestUri = request.RequestUri ?? throw new InvalidOperationException("Request URI is missing.");
         var json = requestUri.AbsolutePath.EndsWith("/coins", StringComparison.Ordinal)
             ? this.MissingSource ? "[{\"symbol\":\"BTC\",\"name\":\"Bitcoin\"}]" : "[{\"symbol\":\"BTC\",\"name\":\"Bitcoin\",\"source\":\"exchange\"}]"

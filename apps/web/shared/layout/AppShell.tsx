@@ -1,4 +1,5 @@
 "use client";
+
 import { useState, type ReactNode } from "react";
 import MenuIcon from "@mui/icons-material/Menu";
 import {
@@ -22,6 +23,7 @@ export default function AppShell({ children }: { children: ReactNode }) {
       }}
     />
   );
+
   return (
     <Box sx={{ display: "flex", minHeight: "100dvh", width: "100%" }}>
       {isMobile ? (

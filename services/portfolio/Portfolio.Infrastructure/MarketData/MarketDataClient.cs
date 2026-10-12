@@ -17,6 +17,7 @@ public sealed class MarketDataClient(HttpClient http) : IMarketDataClient
         {
             throw new InvalidDataException("Market data returned invalid coins.");
         }
+
         return coins.Select(coin => new Coin(coin.Symbol, coin.Name, coin.Source)).ToArray();
     }
 
@@ -29,6 +30,7 @@ public sealed class MarketDataClient(HttpClient http) : IMarketDataClient
         {
             throw new InvalidDataException("Market data returned invalid quotes.");
         }
+
         return quotes.Select(quote => new Quote(quote.Symbol, quote.Price)).ToArray();
     }
 }

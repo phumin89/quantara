@@ -1,4 +1,5 @@
 "use client";
+
 import { useState } from "react";
 import { Box, Button, Stack, Tooltip, Typography } from "@mui/material";
 import type { PortfolioResponse } from "../contracts/PortfolioResponse";
@@ -45,6 +46,7 @@ export default function ConnectionStatus({
       )}
     </Stack>
   );
+
   return (
     <Tooltip
       arrow

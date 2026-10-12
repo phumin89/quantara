@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { proxyCrypto } from "../proxy";
+
 export const dynamic = "force-dynamic";
 export function GET(request: NextRequest) {
   const coin = request.nextUrl.searchParams.get("coin");
@@ -9,5 +10,6 @@ export function GET(request: NextRequest) {
       { status: 400 },
     );
   }
+
   return proxyCrypto(`history?coin=${encodeURIComponent(coin)}`);
 }

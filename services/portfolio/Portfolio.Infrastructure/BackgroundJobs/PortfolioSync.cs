@@ -81,8 +81,10 @@ public sealed class PortfolioSync(IPortfolioRepository store, BitkubAccountReade
             }
             catch (ExchangeReadException error) when (error.Code == "61") { unavailable.Add(coin.Symbol); }
             catch (ExchangeReadException) { failures++; }
+
             Volatile.Write(ref this.status, this.Status with { CompletedSymbols = this.Status.CompletedSymbols + 1 });
         }
+
         if (failures == 0)
         {
             ledger = ledger with { HistoryUpdatedAt = DateTimeOffset.UtcNow, UnavailableHistorySymbols = unavailable.ToArray() };
@@ -94,5 +96,4 @@ public sealed class PortfolioSync(IPortfolioRepository store, BitkubAccountReade
         }
     }
 }
-
 

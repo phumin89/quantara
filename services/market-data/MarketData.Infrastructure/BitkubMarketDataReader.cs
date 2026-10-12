@@ -1,5 +1,5 @@
-using System.Text.Json;
 using System.Globalization;
+using System.Text.Json;
 using Quantara.MarketData.Application;
 using Quantara.MarketData.Domain;
 

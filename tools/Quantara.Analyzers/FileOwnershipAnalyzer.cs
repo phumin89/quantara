@@ -32,6 +32,7 @@ public sealed class FileOwnershipAnalyzer : DiagnosticAnalyzer
         {
             context.ReportDiagnostic(Diagnostic.Create(nullSuppression, suppression.GetLocation()));
         }
+
         var declarations = root.DescendantNodes().OfType<BaseTypeDeclarationSyntax>().ToArray();
         foreach (var declaration in declarations)
         {
@@ -39,10 +40,12 @@ public sealed class FileOwnershipAnalyzer : DiagnosticAnalyzer
             {
                 context.ReportDiagnostic(Diagnostic.Create(sealedClass, declaration.Identifier.GetLocation()));
             }
+
             if (declarations.Length > 1)
             {
                 context.ReportDiagnostic(Diagnostic.Create(oneType, declaration.Identifier.GetLocation()));
             }
+
             if (declaration.Identifier.ValueText != Path.GetFileNameWithoutExtension(context.Tree.FilePath))
             {
                 context.ReportDiagnostic(Diagnostic.Create(matchingName, declaration.Identifier.GetLocation(), declaration.Identifier.ValueText));

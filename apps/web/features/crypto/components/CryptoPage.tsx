@@ -33,6 +33,7 @@ export default function CryptoPage() {
         ),
     [data?.positions, filter],
   );
+
   return (
     <Stack spacing={4} sx={{ width: "100%", maxWidth: 1280 }}>
       <Stack

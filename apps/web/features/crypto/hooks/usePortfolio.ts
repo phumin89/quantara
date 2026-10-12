@@ -1,4 +1,5 @@
 "use client";
+
 import { useCallback, useEffect, useRef, useState } from "react";
 import { getPortfolio } from "../api/getPortfolio";
 import { syncPortfolio } from "../api/syncPortfolio";
@@ -28,8 +29,10 @@ export function usePortfolio() {
       if (!controller.signal.aborted) {
         return load(controller.signal);
       }
+
       return undefined;
     });
+
     return () => {
       controller.abort();
     };
@@ -38,16 +41,19 @@ export function usePortfolio() {
     if (!data?.syncing) {
       return;
     }
+
     const controller = new AbortController();
     const timer = window.setInterval(() => {
       if (polling.current) {
         return;
       }
+
       polling.current = true;
       void load(controller.signal).finally(() => {
         polling.current = false;
       });
     }, 2000);
+
     return () => {
       window.clearInterval(timer);
       controller.abort();
@@ -66,5 +72,6 @@ export function usePortfolio() {
       setRefreshing(false);
     }
   };
+
   return { data, error, refreshing, load, refresh };
 }

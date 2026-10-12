@@ -16,6 +16,7 @@ public sealed class HistoryController : ControllerBase
         {
             return this.BadRequest(new { error = "Invalid coin symbol." });
         }
+
         return this.Ok(await this.mediator.Send(new GetCoinHistoryQuery(coin.ToUpperInvariant()), cancellationToken));
     }
 }

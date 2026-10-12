@@ -40,6 +40,7 @@ export default function PortfolioTable({
     "Unrealized P/L",
     "Realized P/L",
   ];
+
   return (
     <TableContainer
       tabIndex={0}

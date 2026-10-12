@@ -1,4 +1,5 @@
 "use client";
+
 import { useEffect, useRef, useState } from "react";
 import { getTradeHistory } from "../api/getTradeHistory";
 import type { Trade } from "../contracts/Trade";
@@ -31,6 +32,7 @@ export function useTradeHistory(historyUpdatedAt: string | null | undefined) {
     if (!force && history[symbol]) {
       return;
     }
+
     setHistoryLoading((current) => ({ ...current, [symbol]: true }));
     setHistoryErrors((current) =>
       Object.fromEntries(
@@ -46,6 +48,7 @@ export function useTradeHistory(historyUpdatedAt: string | null | undefined) {
       if (controller.signal.aborted) {
         return;
       }
+
       setHistoryErrors((current) => ({
         ...current,
         [symbol]:
@@ -56,5 +59,6 @@ export function useTradeHistory(historyUpdatedAt: string | null | undefined) {
       setHistoryLoading((current) => ({ ...current, [symbol]: false }));
     }
   };
+
   return { expanded, history, historyLoading, historyErrors, openHistory };
 }

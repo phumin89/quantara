@@ -1,9 +1,9 @@
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using Quantara.Portfolio.Application;
 using Quantara.Portfolio.Domain;
 using Quantara.Portfolio.Infrastructure;
-using Quantara.Portfolio.Application;
 
 static void Check(bool condition, string name)
 {
@@ -51,6 +51,7 @@ var failedMarket = new Quantara.Portfolio.Checks.FakeMarketDataHandler { Fail = 
 var failedMarketClient = new MarketDataClient(new HttpClient(failedMarket) { BaseAddress = new Uri("http://market-data") });
 var marketFailedClosed = false;
 try { await failedMarketClient.GetCoins(CancellationToken.None); } catch (HttpRequestException) { marketFailedClosed = true; }
+
 Check(marketFailedClosed, "market data HTTP failure fails closed");
 using var incompleteMarketHttp = new HttpClient(new Quantara.Portfolio.Checks.FakeMarketDataHandler { MissingSource = true }) { BaseAddress = new Uri("http://market-data") };
 var incompleteMarketClient = new MarketDataClient(incompleteMarketHttp);
@@ -63,6 +64,7 @@ catch (JsonException)
 {
     rejectedContract = true;
 }
+
 Check(rejectedContract, "market data never invents exchange source for a missing field");
 Check(PortfolioProjection.Summary(summaryLedger with { Balances = [new("THB", 1000, 700)] }) is { TotalAssets: 0, HoldingCount: 0 }, "cash-only wallet has no held crypto value");
 var legacyBalance = JsonSerializer.Deserialize<Balance>("""{"Symbol":"THB","Quantity":1000}""") ?? throw new InvalidOperationException("Legacy balance was not deserialized.");
@@ -71,6 +73,7 @@ exchangeHandler.InvalidWallet = true;
 var rejectedWallet = false;
 try { await reader.Balances(CancellationToken.None); }
 catch (InvalidDataException) { rejectedWallet = true; }
+
 Check(rejectedWallet, "wallet rejects available cash exceeding the total");
 var history = await reader.History("TEST", CancellationToken.None);
 Check(history.Length == 2 && exchangeHandler.HistoryCalls == 2, "history follows keyset pagination");
@@ -87,5 +90,4 @@ if (args.Contains("--sql"))
     var restored = await second.Load(CancellationToken.None);
     Check(restored.Coins.Length == 1 && restored.Trades.Length == 2 && PortfolioProjection.Positions(restored).Single().Status == "Closed", "SQL Server retains closed coin and fills across store instances");
 }
-
 
