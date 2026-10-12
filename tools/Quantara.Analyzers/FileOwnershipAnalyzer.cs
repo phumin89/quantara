@@ -12,11 +12,16 @@ namespace Quantara.Analyzers;
 public sealed class FileOwnershipAnalyzer : DiagnosticAnalyzer
 {
     private static readonly DiagnosticDescriptor oneType = new("QNT001", "One type per file", "File must contain only one declared type", "Architecture", DiagnosticSeverity.Error, true);
+
     private static readonly DiagnosticDescriptor matchingName = new("QNT002", "Type and file names must match", "Type '{0}' must be declared in '{0}.cs'", "Architecture", DiagnosticSeverity.Error, true);
+
     private static readonly DiagnosticDescriptor nullSuppression = new("QNT003", "Model or validate null", "Validate null instead of suppressing nullability with '!'", "Safety", DiagnosticSeverity.Error, true);
+
     private static readonly DiagnosticDescriptor sealedClass = new("QNT004", "Explicit inheritance intent", "Class must be sealed unless explicitly abstract or static", "Architecture", DiagnosticSeverity.Error, true);
 
-    public override ImmutableArray<DiagnosticDescriptor> SupportedDiagnostics => ImmutableArray.Create(oneType, matchingName, nullSuppression, sealedClass);
+    private static readonly DiagnosticDescriptor memberSpacing = new("QNT005", "Separate type members", "Add a blank line between type members", "Layout", DiagnosticSeverity.Error, true);
+
+    public override ImmutableArray<DiagnosticDescriptor> SupportedDiagnostics => ImmutableArray.Create(oneType, matchingName, nullSuppression, sealedClass, memberSpacing);
 
     public override void Initialize(AnalysisContext context)
     {
@@ -36,6 +41,27 @@ public sealed class FileOwnershipAnalyzer : DiagnosticAnalyzer
         var declarations = root.DescendantNodes().OfType<BaseTypeDeclarationSyntax>().ToArray();
         foreach (var declaration in declarations)
         {
+            if (declaration is TypeDeclarationSyntax typeDeclaration)
+            {
+                var text = context.Tree.GetText(context.CancellationToken);
+                for (var index = 1; index < typeDeclaration.Members.Count; index++)
+                {
+                    var previous = typeDeclaration.Members[index - 1];
+                    var current = typeDeclaration.Members[index];
+                    if (previous.Span.IsEmpty || current.Span.IsEmpty)
+                    {
+                        continue;
+                    }
+
+                    var start = text.Lines.GetLineFromPosition(previous.Span.End - 1).LineNumber + 1;
+                    var end = text.Lines.GetLineFromPosition(current.SpanStart).LineNumber;
+                    if (!Enumerable.Range(start, System.Math.Max(0, end - start)).Any(line => string.IsNullOrWhiteSpace(text.Lines[line].ToString())))
+                    {
+                        context.ReportDiagnostic(Diagnostic.Create(memberSpacing, current.GetFirstToken().GetLocation()));
+                    }
+                }
+            }
+
             if (declaration is ClassDeclarationSyntax classDeclaration && !classDeclaration.Modifiers.Any(token => token.IsKind(SyntaxKind.SealedKeyword) || token.IsKind(SyntaxKind.AbstractKeyword) || token.IsKind(SyntaxKind.StaticKeyword)))
             {
                 context.ReportDiagnostic(Diagnostic.Create(sealedClass, declaration.Identifier.GetLocation()));

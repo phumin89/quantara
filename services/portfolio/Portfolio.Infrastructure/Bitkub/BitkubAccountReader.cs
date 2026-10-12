@@ -128,6 +128,7 @@ public sealed class BitkubAccountReader(HttpClient http, BitkubCredentials crede
     }
 
     private static string Text(JsonElement item, string name) => item.GetProperty(name).ToString();
+
     private static decimal Number(JsonElement item, string name) => decimal.Parse(Text(item, name), NumberStyles.Float, CultureInfo.InvariantCulture);
 }
 

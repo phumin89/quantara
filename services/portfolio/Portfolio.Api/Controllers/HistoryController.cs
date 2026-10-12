@@ -8,7 +8,9 @@ namespace Quantara.Portfolio.Api;
 public sealed class HistoryController : ControllerBase
 {
     private readonly IMediator mediator;
+
     public HistoryController(IMediator mediator) { this.mediator = mediator; }
+
     [HttpGet]
     public async Task<IActionResult> Get([FromQuery] string coin, CancellationToken cancellationToken)
     {

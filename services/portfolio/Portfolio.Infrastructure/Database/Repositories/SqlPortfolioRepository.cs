@@ -23,12 +23,14 @@ public sealed class SqlPortfolioRepository(string connectionString, string accou
         await using var schema = new SqlCommand(await reader.ReadToEndAsync(cancellationToken), database);
         await schema.ExecuteNonQueryAsync(cancellationToken);
     }
+
     public async Task<PortfolioLedger> Load(CancellationToken cancellationToken)
     {
         await using var connection = new SqlConnection(connectionString); await connection.OpenAsync(cancellationToken);
         await using var query = new SqlCommand("SELECT Payload FROM dbo.CryptoPortfolioLedger WHERE AccountKey = @account;", connection); query.Parameters.Add("@account", SqlDbType.Char, 64).Value = accountKey;
         var json = await query.ExecuteScalarAsync(cancellationToken); return json is null ? new() : JsonSerializer.Deserialize<PortfolioLedger>((string)json) ?? throw new InvalidDataException("Stored portfolio could not be read.");
     }
+
     public async Task Save(PortfolioLedger ledger, CancellationToken cancellationToken)
     {
         await using var connection = new SqlConnection(connectionString); await connection.OpenAsync(cancellationToken);

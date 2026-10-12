@@ -8,8 +8,11 @@ namespace Quantara.Portfolio.Infrastructure;
 public sealed class PortfolioSync(IPortfolioRepository store, BitkubAccountReader exchange, IMarketDataClient marketData) : BackgroundService, IPortfolioSync
 {
     private readonly Channel<bool> requests = Channel.CreateBounded<bool>(1);
+
     private SyncStatus status = new(false, 0, 0, null);
+
     private int active;
+
     public SyncStatus Status => Volatile.Read(ref this.status);
 
     public bool Request()

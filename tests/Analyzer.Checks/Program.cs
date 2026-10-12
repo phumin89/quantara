@@ -31,3 +31,35 @@ if (!unsafeSource.Any(item => item.Id == "QNT003") || !unsafeSource.Any(item => 
 }
 
 Console.WriteLine("C# editor analyzer rejects null suppression and implicit inheritance.");
+
+var adjacentMembers = await Analyze("public sealed class First\n{\n    private readonly int value;\n    public First(int value) { this.value = value; }\n}", "First.cs");
+if (!adjacentMembers.Any(item => item.Id == "QNT005"))
+{
+    throw new InvalidOperationException("Adjacent field and constructor were accepted without a blank line.");
+}
+
+var spacedMembers = await Analyze("public sealed class First\n{\n    private readonly int value;\n\n    public First(int value) { this.value = value; }\n}", "First.cs");
+if (spacedMembers.Length != 0)
+{
+    throw new InvalidOperationException("Correctly separated type members were rejected.");
+}
+
+var commentedMembers = await Analyze("public sealed class First\n{\n    public int Value => 1;\n    // A comment is not a blank line.\n    public int Other => 2;\n}", "First.cs");
+if (!commentedMembers.Any(item => item.Id == "QNT005"))
+{
+    throw new InvalidOperationException("A comment incorrectly substituted for the blank line.");
+}
+
+Console.WriteLine("C# editor analyzer requires blank lines between type members, including fields and constructors.");
+
+var inlineMembers = await Analyze("public sealed class First { public int Value => 1; public int Other => 2; }", "First.cs");
+if (!inlineMembers.Any(item => item.Id == "QNT005") || inlineMembers.Any(item => item.Id == "AD0001"))
+{
+    throw new InvalidOperationException("Inline members must produce a spacing diagnostic without crashing the analyzer.");
+}
+
+var documentedMembers = await Analyze("public sealed class First\n{\n    public int Value => 1;\n\n    /// <summary>Other value.</summary>\n    [System.Obsolete]\n    public int Other => 2;\n}", "First.cs");
+if (documentedMembers.Length != 0)
+{
+    throw new InvalidOperationException("A blank line before member documentation and attributes should be accepted.");
+}

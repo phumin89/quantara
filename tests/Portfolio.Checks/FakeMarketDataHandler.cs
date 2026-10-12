@@ -4,7 +4,9 @@ namespace Quantara.Portfolio.Checks;
 public sealed class FakeMarketDataHandler : HttpMessageHandler
 {
     public bool Fail { get; set; }
+
     public bool MissingSource { get; set; }
+
     protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
     {
         if (this.Fail)

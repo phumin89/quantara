@@ -42,4 +42,6 @@ CI checks are implemented, but remote branch protection is an administrator sett
 
 C# IDE2000/IDE2003 reject consecutive blank lines and require a blank line between a completed block and the next statement. IDE0055 enforces formatter diagnostics. These Roslyn blank-line options are experimental, so SDK upgrades must retain the diagnostic probe verification.
 
+QNT005 requires a blank line between C# type members, including fields, constructors, properties and methods. The blank line goes before the next member's documentation or attributes. Comments alone do not substitute for a blank line. This analyzer reports errors in the editor and build.
+
 Frontend ESLint Stylistic requires a blank line after the directive/import group, after block-like statements and before return statements, and allows at most one consecutive blank line. Editor lint and CI enforce these rules; Prettier preserves the required spacing. No rule requires an empty line between every statement.

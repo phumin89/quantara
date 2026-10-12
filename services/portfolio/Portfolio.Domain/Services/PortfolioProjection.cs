@@ -14,6 +14,7 @@ public static class PortfolioProjection
             ? held.Sum(item => item.Quantity * ledger.Prices.Single(price => price.Symbol == item.Symbol).Price) : (decimal?)null;
         return new(total, ledger.Balances.FirstOrDefault(item => item.Symbol == "THB")?.Available, held.Length);
     }
+
     public static Position[] Positions(PortfolioLedger ledger) => ledger.Coins.Select(coin =>
     {
         var quantity = ledger.Balances.FirstOrDefault(item => item.Symbol == coin.Symbol)?.Quantity ?? 0;
