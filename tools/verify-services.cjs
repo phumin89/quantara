@@ -83,6 +83,22 @@ async function verify() {
     'https://service.invalid/api/health?check=1',
     'https://service.invalid/api/health?check=2',
   ]);
+  response = new Response(JSON.stringify({ accepted: true }));
+  assert.deepEqual(
+    await requests.send(
+      '/team/runs',
+      { objective: 'New task' },
+      'Fixture failure',
+    ),
+    { accepted: true },
+  );
+  const submitted = calls.at(-1);
+  assert.equal(submitted.url, '/api/team/runs');
+  assert.equal(submitted.options.headers['Content-Type'], 'application/json');
+  assert.equal(
+    submitted.options.body,
+    JSON.stringify({ objective: 'New task' }),
+  );
   console.log(
     'Shared RequestService: transport, errors, cancellation and feature validation passed.',
   );

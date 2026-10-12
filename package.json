@@ -2,12 +2,14 @@
   "name": "quantara",
   "private": true,
   "workspaces": [
-    "apps/web"
+    "apps/web",
+    "services/ai-worker"
   ],
   "scripts": {
     "dev": "npm run dev --workspace @quantara/web",
     "dev:market-data": "dotnet run --project services/market-data/MarketData.Api/MarketData.Api.csproj",
     "dev:api": "dotnet run --project services/portfolio/Portfolio.Api/Portfolio.Api.csproj",
+    "dev:team": "dotnet run --project services/team/Team.Api/Team.Api.csproj",
     "build": "npm run build --workspace @quantara/web",
     "start": "npm run start --workspace @quantara/web",
     "lint": "npm run lint --workspace @quantara/web",
@@ -20,13 +22,16 @@
     "test:services": "node tools/verify-services.cjs",
     "test:di": "node tools/verify-di.cjs",
     "test:lifecycle": "node tools/verify-lifecycle.cjs",
+    "test:team": "dotnet run --project tests/Team.Checks/Team.Checks.csproj",
+    "test:ai-worker": "node tools/verify-ai-worker.mjs",
+    "test:team-ui": "node tools/verify-team.cjs",
     "test:architecture": "dotnet run --project tests/Architecture.Checks/Architecture.Checks.csproj && node tools/verify-architecture.cjs",
     "format": "npm run format:web && npm run format:dotnet",
-    "format:web": "npm exec --workspace @quantara/web -- eslint app features shared --fix && prettier --write apps/web tools .vscode package.json",
+    "format:web": "npm exec --workspace @quantara/web -- eslint app features shared --fix && prettier --write apps/web services/ai-worker tools .vscode package.json",
     "format:prepare": "dotnet tool restore && dotnet restore Quantara.sln --verbosity quiet && dotnet build tools/Quantara.Analyzers/Quantara.Analyzers.csproj --no-restore --verbosity quiet && dotnet build tools/Quantara.CodeFixes/Quantara.CodeFixes.csproj --no-restore --verbosity quiet",
     "format:dotnet": "npm run format:prepare && dotnet csharpier format services tests tools && dotnet format Quantara.sln analyzers --diagnostics QNT005 --no-restore && dotnet format Quantara.sln style --diagnostics IDE2000 IDE2003 --no-restore && dotnet csharpier format services tests tools",
     "format:check": "npm run format:web:check && npm run format:dotnet:check",
-    "format:web:check": "prettier --check apps/web tools .vscode package.json && npm run lint",
+    "format:web:check": "prettier --check apps/web services/ai-worker tools .vscode package.json && npm run lint",
     "format:dotnet:check": "npm run format:prepare && dotnet csharpier check services tests tools && dotnet format Quantara.sln analyzers --diagnostics QNT005 --verify-no-changes --no-restore && dotnet format Quantara.sln style --diagnostics IDE2000 IDE2003 --verify-no-changes --no-restore",
     "test:editor": "dotnet run --project tests/Analyzer.Checks/Analyzer.Checks.csproj && node tools/verify-editor-rules.cjs"
   },

@@ -1,0 +1,8 @@
+{
+  "name": "@quantara/ai-worker",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@openai/codex-sdk": "0.162.1"
+  }
+}

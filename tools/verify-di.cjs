@@ -90,7 +90,7 @@ const first = new ServiceProvider({ children: null });
 const second = new ServiceProvider({ children: null });
 assert.equal(first.render().props.value, first.render().props.value);
 assert.notEqual(first.render().props.value, second.render().props.value);
-const counts = { request: 0, portfolio: 0, history: 0 };
+const counts = { request: 0, portfolio: 0, history: 0, team: 0 };
 const tracked = Object.fromEntries(
   Object.entries(ServiceBindings.factories).map(([key, factory]) => [
     key,
@@ -102,18 +102,23 @@ const tracked = Object.fromEntries(
 );
 const container = new ServiceContainer(tracked);
 const lazyServices = new CryptoServices(container);
-assert.deepEqual(counts, { request: 0, portfolio: 0, history: 0 });
+assert.deepEqual(counts, { request: 0, portfolio: 0, history: 0, team: 0 });
 assert.equal(lazyServices.portfolio, lazyServices.portfolio);
-assert.deepEqual(counts, { request: 1, portfolio: 1, history: 0 });
+assert.deepEqual(counts, { request: 1, portfolio: 1, history: 0, team: 0 });
 assert.equal(lazyServices.history, lazyServices.history);
-assert.deepEqual(counts, { request: 1, portfolio: 1, history: 1 });
+assert.deepEqual(counts, { request: 1, portfolio: 1, history: 1, team: 0 });
 assert.equal(
   container.resolve(ServiceKey.Request),
   container.resolve(ServiceKey.Request),
 );
 const other = new ServiceContainer(tracked);
 assert.notEqual(other.resolve(ServiceKey.Portfolio), lazyServices.portfolio);
-assert.deepEqual(counts, { request: 2, portfolio: 2, history: 1 });
+assert.deepEqual(counts, { request: 2, portfolio: 2, history: 1, team: 0 });
+assert.equal(
+  container.resolve(ServiceKey.Team),
+  container.resolve(ServiceKey.Team),
+);
+assert.deepEqual(counts, { request: 2, portfolio: 2, history: 1, team: 1 });
 assert.throws(() => container.resolve('missing'), /not registered/);
 const circular = new ServiceContainer({
   first: (scope) => scope.resolve('second'),

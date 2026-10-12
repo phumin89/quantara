@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { PureComponent } from 'react';
 import HomeOutlinedIcon from '@mui/icons-material/HomeOutlined';
 import CurrencyBitcoinIcon from '@mui/icons-material/CurrencyBitcoin';
+import GroupsOutlinedIcon from '@mui/icons-material/GroupsOutlined';
 import {
   Box,
   List,
@@ -37,6 +38,11 @@ export default class Navigation extends PureComponent<
     const { pathname } = this.state;
     const items = [
       { href: '/', label: 'Home', icon: <HomeOutlinedIcon fontSize="small" /> },
+      {
+        href: '/team',
+        label: 'AI team',
+        icon: <GroupsOutlinedIcon fontSize="small" />,
+      },
       {
         href: '/crypto',
         label: 'Crypto',

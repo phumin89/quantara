@@ -12,7 +12,7 @@ export class RequestService implements IRequestService {
     fallback: string,
     signal?: AbortSignal,
   ): Promise<unknown> {
-    const response = await this.send(path, 'GET', fallback, signal);
+    const response = await this.request(path, 'GET', fallback, signal);
 
     return JsonResponse.read(response);
   }
@@ -22,19 +22,37 @@ export class RequestService implements IRequestService {
     fallback: string,
     signal?: AbortSignal,
   ): Promise<void> {
-    await this.send(path, 'POST', fallback, signal);
+    await this.request(path, 'POST', fallback, signal);
   }
 
-  private async send(
+  public async send(
+    path: string,
+    body: unknown,
+    fallback: string,
+    signal?: AbortSignal,
+  ): Promise<unknown> {
+    const response = await this.request(path, 'POST', fallback, signal, body);
+
+    return JsonResponse.read(response);
+  }
+
+  private async request(
     path: string,
     method: 'GET' | 'POST',
     fallback: string,
     signal?: AbortSignal,
+    body?: unknown,
   ): Promise<Response> {
     const target = `${this.baseUrl.replace(/\/+$/, '')}/${path.replace(/^\/+/, '')}`;
     const response = await this.transport.call(globalThis, target, {
       method,
       cache: 'no-store',
+      ...(body !== undefined
+        ? {
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body),
+          }
+        : {}),
       ...(signal ? { signal } : {}),
     });
     if (!response.ok) {

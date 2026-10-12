@@ -1,6 +1,7 @@
 # Architecture
 
-Quantara uses one frontend and two small services, separated by business ownership rather than one process per class.
+Quantara uses one frontend and small services separated by business ownership
+rather than one process per class.
 
 ```mermaid
 flowchart LR
@@ -40,7 +41,28 @@ The existing Quantara SQL database remains exclusively owned by Portfolio. `Cryp
 
 ## Execution
 
-MarketData defaults to port 5051, Portfolio to 5050, and Web to 3000. Service addresses are configuration, not Domain dependencies. Credentials stay in Portfolio's server environment or the root .env allowlist. Startup does not authorize transactions. This slice has no orders, transfers, withdrawals, AI or RiskEngine.
+MarketData defaults to port 5051, Portfolio to 5050, Team to 5052 and Web to 3000.
+Service addresses are configuration, not Domain dependencies. Broker credentials
+stay in Portfolio's server environment or the root .env allowlist. Startup does
+not authorize transactions. This slice has no orders, transfers, withdrawals or
+RiskEngine. Team produces reports through an isolated Codex SDK worker.
+
+Team owns its own SQL Server database and retained run/step state. Its thin
+controller delegates to Mediator query/command handlers. Read handlers receive
+IReadOnlyTeamRunStore. A single hosted coordinator admits one active run and
+performs CEO, Analyst and Reviewer sequentially, preserving each output before
+the next role. Stop cancels the process tree; terminal and retained output cannot
+be overwritten by a late model response. Startup marks interrupted runs failed
+without automatically rerunning them. No service assembly crosses ownership.
+
+CodexWorker passes JSON via stdin to services/ai-worker/run.mjs, reads bounded
+stdout and discards raw stderr. It clears inherited environment variables and
+allows only OS runtime variables plus Codex API authentication. Portfolio data
+comes through HTTP and an explicit field whitelist, never SQL credentials or
+Bitkub secrets. The Node worker creates an empty temporary Codex home and cwd,
+disables shell/exec, plugins, hooks, additional agents, apps and web search,
+and runs read-only with no shell network. Reports are validated structured
+output and displayed as plain text. API access to OpenAI remains required.
 
 CI checks are implemented, but remote branch protection is an administrator setting and is not changed by adding a workflow. Account integration and SQL checks are opt-in; default CI uses deterministic fake transports and isolated browser fixtures.
 

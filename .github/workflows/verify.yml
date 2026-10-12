@@ -22,6 +22,7 @@ jobs:
       - run: npm run test:presentation
       - run: npm run test:services
       - run: npm run test:di
+      - run: npm run test:ai-worker
       - run: npm run build
       - run: dotnet build Quantara.sln
       - run: npm run test:architecture
@@ -29,6 +30,7 @@ jobs:
       - run: node tools/verify-editor-rules.cjs
       - run: dotnet run --no-build --project tests/Portfolio.Checks/Portfolio.Checks.csproj
       - run: dotnet run --no-build --project tests/MarketData.Checks/MarketData.Checks.csproj
+      - run: dotnet run --no-build --project tests/Team.Checks/Team.Checks.csproj
       - run: npm audit --audit-level=high
       - run: npx playwright install chromium
       - name: Start isolated frontend
@@ -48,6 +50,7 @@ jobs:
       - run: npm run test:crypto -- --fixtures
       - run: npm run test:contracts
       - run: npm run test:lifecycle
+      - run: npm run test:team-ui
   secrets:
     runs-on: ubuntu-latest
     steps:

@@ -10,7 +10,8 @@ Web application, responsive on desktop, tablet and phone.
 
 Next.js, TypeScript and Material UI. Read-only backend: C#, ASP.NET Core,
 Mediator and SQL Server. Two services: MarketData for public prices and symbols,
-Portfolio for account reads and its database. Codex integration is deferred.
+Portfolio for account reads and its database. Team owns AI task orchestration
+and a separate SQL Server database; its isolated Node worker uses Codex SDK.
 
 ## Product Purpose
 
@@ -25,11 +26,17 @@ Crypto at `/crypto` shows actual balances, prices and imported trade history.
 Both are reachable through
 the shared left navigation without a full document reload.
 The interface language is English, including accessible control labels.
-No AI, simulated portfolio data or external transactions. The backend reads
+No simulated portfolio data or external transactions. The backend reads
 Bitkub and persists imported records in SQL Server. Closed coins remain
 visible. Missing history never authorizes inferred cost or profit; broker
 conversions and activity outside the available window are incomplete.
 Build and verify one feature at a time.
+
+AI team at `/team` lets the owner start and stop one report task. CEO plans,
+Analyst uses a whitelisted portfolio snapshot, and Reviewer checks prior output.
+Actual outputs and state transitions are retained in Team's SQL database.
+Authentication/runtime/storage failures remain visible; the app never substitutes
+fake AI reports. Team activation does not authorize trading.
 
 ## Brand Commitments
 
@@ -42,6 +49,6 @@ Follow the owner's code-instructions.md: Clean Code, SOLID, inward dependencies,
 guard clauses, explicit errors and meaningful deterministic tests.
 Service/layer boundaries and one type/component per matching file are enforced
 by architecture checks. Controllers use Mediator CQRS; query handlers receive
-read-only repository interfaces. Frontend routes/components/hooks/API/contracts
+read-only repository interfaces. Frontend routes/components/services/API/contracts
 are separated. Editor/build diagnostics and CI enforce strict compiler flags,
 formatting, lint, architecture and deterministic tests.

@@ -1,12 +1,17 @@
 # Quantara
 
-Next.js/TypeScript/Material UI workspace backed by two independently runnable C# services. Current functionality is read-only Bitkub portfolio tracking; no AI or order execution.
+Next.js/TypeScript/Material UI workspace with independently runnable C# services.
+Crypto tracks Bitkub read-only. AI team runs explicitly started CEO, Analyst and
+Reviewer report tasks through Codex SDK. No order execution is implemented.
 
 ## Structure
 
-- `apps/web`: routes and API proxy, Crypto components/hooks/API/contracts, shared navigation/theme.
+- `apps/web`: routes and API proxy, class components, feature services/contracts,
+  shared navigation/theme and scoped DI.
 - `services/market-data`: public Bitkub coins and THB prices. No credentials or database.
 - `services/portfolio`: signed account reads, retained history, portfolio projection and its SQL Server database.
+- `services/team`: controller, Mediator CQRS, orchestration and its own SQL Server
+  database. `services/ai-worker` is the Node/Codex SDK process adapter.
 - Each service has separate Api, Application, Domain and Infrastructure projects. Controllers delegate to Mediator CQRS handlers; Domain has no framework dependencies.
 - `tests`: Portfolio, MarketData and architecture checks. One C# type or React component per named file.
 
@@ -32,7 +37,10 @@ The Portfolio database preserves the original `CryptoPortfolioLedger` table, acc
 
 Home remains empty; Crypto shows actual balances, retained closed coins and trade fills. Available THB excludes reserved funds. Total assets means held crypto only; a missing price makes the total unknown. Filters do not alter the summary. Snapshot errors retain saved records and offer Retry. Status details expose separate wallet/price/history update times.
 
-Bitkub exchange history is limited to about 90 days and excludes broker conversions. Cost and profit remain unknown until complete accounting is verified. There are no trading, withdrawal, transfer, AI or RiskEngine paths in this version. Saans is not bundled; the documented system font fallback is used.
+Bitkub exchange history is limited to about 90 days and excludes broker conversions.
+Cost and profit remain unknown until complete accounting is verified. AI team
+produces reports only; trading, withdrawal, transfer and RiskEngine paths are not
+implemented. Saans is not bundled; the documented system font fallback is used.
 
 ## Verification
 
@@ -86,9 +94,46 @@ Widths guide wrapping rather than imposing a hard limit on string literals.
 JSON keeps double quotes; C# uses double quotes for strings and single quotes
 for characters. The CSharpier VS Code extension is the C# formatter.
 
-React UI uses function components and hooks. Named Props define component
+React UI uses class components and lifecycle methods. Named Props define component
 contracts; ConnectionStatusPresenter encapsulates connection-state decisions
 and appearance. Enums represent portfolio filters, position status, trade side
 and cost status. C# domain enums remain independent of JSON; API/SQL converters
 retain historical string spellings and reject unknown or numeric values.
 `npm run test:presentation` checks state priority and filtering without a browser.
+
+## AI team
+
+Start `npm run dev:team` alongside the frontend and Portfolio service. Team listens
+on loopback port 5052; `TEAM_SERVICE_URL` configures the server-side web proxy.
+Set `CODEX_API_KEY` (or `OPENAI_API_KEY`) in the **Team server process environment**.
+The current isolated worker uses API authentication, not the desktop chat's login.
+Never put a key in browser variables, objectives or Git. This feature does not read
+broker credentials from `.env`; `.env` is preserved.
+
+Team uses a separate local `QuantaraTeam` SQL Server database and creates missing
+schema only. Set `ConnectionStrings__Team` for an existing remote database and
+`Services__PortfolioUrl` for Portfolio's address. `Codex__NodePath` may select an
+absolute Node executable; otherwise Node is resolved from PATH. `npm ci` installs
+the pinned Codex SDK/runtime. Do not run multiple Team hosts against the same
+database; startup recovery marks interrupted tasks failed without restarting AI.
+
+At `/team`, enter an objective and start one task. CEO plans, Analyst analyzes the
+same whitelisted snapshot, and Reviewer checks both prior reports. Each transition
+and output is persisted. Stop cancels the active subprocess and skips remaining
+roles; it does not erase completed output. Earlier runs remain stored, while this
+first screen shows the latest run. Each role has a 180-second process timeout.
+Reports do not authorize trades or claim verified profitability. No jobs start
+automatically, no browser/broker tools are exposed, and no team customization is
+implemented yet.
+
+The worker receives only explicitly allowed environment variables, uses an empty
+temporary Codex home and working directory, read-only sandbox, disabled shell,
+network/tools integrations and web search. Raw worker errors never reach prompts,
+logs or the browser. API authentication still contacts OpenAI to produce reports.
+Windows policy failures stay visible; this app does not bypass Application Control.
+
+Run `npm run test:ai-worker`, `npm run test:team` and `npm run test:team-ui` for
+deterministic process-boundary, orchestration and isolated browser checks. These
+checks do not spend AI credits, call Bitkub or require SQL secrets. Real SQL and
+authenticated model execution are separate opt-in verification; fixture success
+does not prove those integrations are available on a particular machine.
