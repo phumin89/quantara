@@ -250,6 +250,11 @@ static async Task ProcessBoundary()
             CancellationToken.None
         );
         Check(output == "analyst|plan|snapshot", "real stdin/stdout boundary and cleared broker environment");
+        Check(
+            await worker.Run("ceo", "utf8 report", Array.Empty<(string, string)>(), null, CancellationToken.None)
+                == "รายงานภาษาไทย ฿100",
+            "UTF8 report transport"
+        );
         try
         {
             await worker.Run("ceo", "fail safely", Array.Empty<(string, string)>(), "snapshot", CancellationToken.None);

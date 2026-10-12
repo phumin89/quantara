@@ -44,6 +44,9 @@ public sealed class CodexWorker : ICodexWorker
             RedirectStandardInput = true,
             RedirectStandardOutput = true,
             RedirectStandardError = true,
+            StandardInputEncoding = new UTF8Encoding(false),
+            StandardOutputEncoding = Encoding.UTF8,
+            StandardErrorEncoding = Encoding.UTF8,
             CreateNoWindow = true,
         };
         start.ArgumentList.Add(this.scriptPath);
