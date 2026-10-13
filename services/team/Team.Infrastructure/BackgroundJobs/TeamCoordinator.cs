@@ -265,6 +265,12 @@ public sealed class TeamCoordinator : BackgroundService, ITeamCoordinator
             new
             {
                 evidence = JsonSerializer.Deserialize<JsonElement>(snapshot),
+                mandate = new
+                {
+                    dailyNetProfitTargetThb = TradingMandate.DailyNetProfitTargetThb,
+                    calendarTimeZone = TradingMandate.CalendarTimeZone,
+                    acceptFullCapitalLoss = TradingMandate.AcceptFullCapitalLoss,
+                },
                 priorReview = prior?.Steps.FirstOrDefault(step => step.Role == TeamRole.Reviewer)?.Output,
                 priorRunId = prior?.Id,
                 priorRunStatus = prior?.Status.ToString(),

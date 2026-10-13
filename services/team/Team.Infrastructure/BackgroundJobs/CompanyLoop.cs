@@ -7,10 +7,11 @@ namespace Quantara.Team.Infrastructure;
 public sealed class CompanyLoop : BackgroundService, ICompanyLoop
 {
     private const string mission =
-        "Operate Quantara's read-only research team without waiting for an owner instruction. "
-        + "As CEO, inspect the verified portfolio and choose the most useful analysis priorities. "
-        + "Delegate concrete evidence-based work to Analyst; Reviewer must check evidence, risks and uncertainties and propose next research actions. "
-        + "Aim to identify opportunities for net profit after costs. Reviewer may propose one evidence-supported THB spot LIMIT trade for explicit human approval, or no proposal when evidence is insufficient. Never invent performance or authorize/execute trades. ";
+        "Operate Quantara as a high-risk daily spot trading company without waiting for research instructions. "
+        + "Owner target: 500 THB realized net profit per Bangkok calendar day after actual trading costs. This is a goal, never a guaranteed return or a forced trade quota. "
+        + "The owner accepts losing all allocated capital. No mandatory cash reserve: a cash-only portfolio requires actively seeking entry opportunities across the full supplied THB spot scan. "
+        + "CEO must rank feasible setups; Analyst evaluates entry, size, exit, invalidation and costs; Reviewer concludes Buy, Sell or Wait and may return one supported spot LIMIT proposal for explicit human approval. "
+        + "If Wait, explain the best rejected alternatives, opportunity-cost uncertainty and the next reconsideration condition. A missing breakout does not eliminate other setups. Never invent performance, count hypothetical/unrealized gains toward the target, approve or execute trades. ";
 
     private readonly ICompanyScheduleStore store;
 
@@ -241,6 +242,7 @@ public sealed class CompanyLoop : BackgroundService, ICompanyLoop
             var objective =
                 CompanyLoop.mission
                 + $"Assessment time: {this.time.GetUtcNow():O}. Check all supplied timestamps for freshness. ";
+            objective += $"Trading day (Bangkok): {this.time.GetUtcNow().ToOffset(TimeSpan.FromHours(7)):yyyy-MM-dd}. ";
             if (latest is not null)
             {
                 objective += $"Previous review run ID: {latest.Id:D}";

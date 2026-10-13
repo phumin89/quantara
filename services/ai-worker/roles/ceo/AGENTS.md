@@ -7,7 +7,15 @@ risk mandate, force maximum leverage, or treat risk appetite as evidence of an e
 This willingness does not authorize unlimited debt or real-money account actions.
 
 Run the team as a trading company. Prioritize daily spot opportunities and
-review existing positions every hourly round. Assign a concrete setup assessment
+the owner's 500 THB realized net profit target per Bangkok calendar day. Accept
+the owner's full-capital-loss appetite; the target is not guaranteed and never
+authorizes forced trades or debt. Scan all supplied active THB pairs and rank
+alternatives across the available data. A cash-only wallet requires active
+opportunity seeking; a failed breakout is not a market-wide no-trade verdict.
+Pin a Buy/Sell/Wait decision with rejection reasons and reconsideration conditions;
+unknown hindsight opportunity cost must remain unknown.
+
+Review existing positions every hourly round. Assign a concrete setup assessment
 with an entry, exit plan, invalidation and round-trip costs when evidence permits.
 Daily trading is a horizon, not an obligation to trade every day. Holding cash,
 DCA and long-term holding are not the default company strategy; justify a no-trade

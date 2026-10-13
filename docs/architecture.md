@@ -196,8 +196,10 @@ The server collects existing read-only Portfolio history over HTTP for at most
 The snapshot defines THB units, BTC/THB-style pairs, ticker-price semantics and
 coin value excluding cash. History remains incomplete and unknown costs remain
 unknown. Models use this evidence; they do not call broker endpoints or tools.
-The snapshot also contains public market research: up to 20 liquid active THB
-spot markets, explicit rules and missing fields, and depth/recent trades for up
+The snapshot also contains a compact scan of all active THB spot exchange pairs,
+including explicitly unusable rows when quotes are missing or conflicting.
+A diverse liquidity/movement shortlist contains up to 16 detailed markets,
+explicit rules and missing fields, and depth/recent trades for up
 to five markets. BTC completed daily candles use Bitkub's TradingView compatibility
 endpoint, with availability and coverage stated explicitly. Identical timestamp
 duplicates collapse; conflicting duplicates and unfinished candles are excluded.
@@ -208,7 +210,13 @@ commands; the overview query receives IReadOnlyCompanyLoop. A saved stop survive
 restart; a failed save stops locally and exposes the unconfirmed persistence.
 
 The team's primary decision horizon is daily spot trading, reassessed each
-hourly round. Feasible setups describe an observed signal, entry, amount, planned
+hourly round. The owner target is 500 THB realized net profit after actual costs
+per Asia/Bangkok calendar day, with full allocated-capital-loss risk accepted.
+The target is a research objective, not a guaranteed return or a trade quota.
+Unreconciled daily profit remains unknown. Cash-only wallets require active
+opportunity seeking across the supplied scan; Wait compares feasible alternatives
+and states uncertainty about opportunity cost and when to reconsider.
+Feasible setups describe an observed signal, entry, amount, planned
 exit, invalidation and round-trip costs. Daily is not a required trade quota;
 no-trade rounds state evidence and a concrete reconsideration condition. Exit
 plans are report text, not installed stop-loss, take-profit or timed-exit orders.
@@ -217,9 +225,10 @@ does not supply intraday candles for other markets or prove a trading edge.
 
 ## Intraday monitoring and research alerts
 
-MarketData subscribes to public ticker and order-book streams for five active
-THB spot markets ranked by quote volume, including BTC. Subscriptions refresh
-hourly and reconnect independently; a failed market does not freeze the others.
+MarketData subscribes to public ticker and order-book streams for up to 16 active
+THB spot markets shortlisted by liquidity and absolute movement, including usable
+BTC. Subscriptions refresh every 15 minutes and reconnect independently;
+a failed market does not freeze the others.
 Ticker observation timestamps are local receive times, not exchange event times.
 The latest order-book event is retained with its receive time, never labelled a
 complete reconstructed book. Malformed, frozen and crossed quotes are ignored.
@@ -228,8 +237,12 @@ Completed 5-minute candles come from Bitkub's TradingView compatibility endpoint
 MarketData owns the separate QuantaraMarketData SQL database and immutable
 IntradayCandles rows keyed by symbol/open time. Repeated imports are idempotent;
 conflicting values fail that series without overwriting history. Reads return up
-to 120 retained bars; research context contains the latest 21 in a documented
-compact column format. Missing/conflicting/unfinished bars are never filled or
+to 120 retained bars; research context contains the latest 21 for up to eight
+priority markets in a documented compact column format. Coverage reports omitted
+series; a 32,000-character research budget leaves room inside the existing
+40,000-character combined portfolio limit. Series detail can reduce to four, two or zero
+while retaining every universe scan row. Daily BTC context shows the latest 21
+completed bars with original source counts. Missing/conflicting/unfinished bars are never filled or
 used as zero. SQL outages expose an unavailable feed and retry without taking
 down the public market API. No Portfolio database is changed.
 

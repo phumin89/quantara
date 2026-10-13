@@ -182,7 +182,7 @@ public sealed class LiveMarketFeed : BackgroundService, IIntradayMarketReader
                 await this.RefreshWatch(cancellationToken);
                 delay = TimeSpan.FromSeconds(1);
                 using var session = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-                session.CancelAfter(TimeSpan.FromHours(1));
+                session.CancelAfter(TimeSpan.FromMinutes(15));
                 await Task.WhenAll(this.RunTickers(session.Token), this.RunBooks(session.Token));
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -332,39 +332,18 @@ public sealed class LiveMarketFeed : BackgroundService, IIntradayMarketReader
     {
         var symbols = await this.Get("/api/v3/market/symbols", cancellationToken);
         var ticker = await this.Get("/api/v3/market/ticker", cancellationToken);
-        var eligible = symbols
-            .GetProperty("result")
-            .EnumerateArray()
-            .Where(x =>
-                Text(x, "quote_asset") == "THB"
-                && Text(x, "status") == "active"
-                && Text(x, "market_segment") == "SPOT"
-                && Text(x, "source") == "exchange"
-            )
-            .ToDictionary(x => Text(x, "base_asset").ToUpperInvariant(), x => (int)Number(x, "pairing_id"));
-        var selected = ticker
-            .EnumerateArray()
-            .Where(x =>
-                Text(x, "symbol").EndsWith("_THB", StringComparison.Ordinal)
-                && eligible.ContainsKey(Text(x, "symbol").Split('_')[0].ToUpperInvariant())
-            )
-            .OrderByDescending(x => Number(x, "quote_volume"))
-            .Take(5)
-            .Select(x => new MarketWatchSymbol(
-                Text(x, "symbol").ToUpperInvariant(),
-                eligible[Text(x, "symbol").Split('_')[0].ToUpperInvariant()],
-                Number(x, "quote_volume")
+        var scan = MarketUniverseScanner.Scan(symbols, ticker);
+        var selected = MarketUniverseScanner
+            .SelectCandidates(scan, 16)
+            .Select(entry => new MarketWatchSymbol(
+                entry.Symbol,
+                int.Parse(
+                    entry.PairingId ?? throw new InvalidDataException("Market pairing ID is missing."),
+                    System.Globalization.CultureInfo.InvariantCulture
+                ),
+                entry.Volume24h ?? 0m
             ))
-            .ToList();
-        if (!selected.Any(x => x.Symbol == "BTC_THB") && eligible.TryGetValue("BTC", out var btcPair))
-        {
-            if (selected.Count == 5)
-            {
-                selected.RemoveAt(4);
-            }
-
-            selected.Add(new MarketWatchSymbol("BTC_THB", btcPair, 0m));
-        }
+            .ToArray();
 
         lock (this.sync)
         {

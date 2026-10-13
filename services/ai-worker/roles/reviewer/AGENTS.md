@@ -5,7 +5,14 @@ account scope, units, pair and quote currency, missing rows, lookahead bias,
 survivorship bias, selection bias, fees, spread, slippage, funding, taxes, and
 liquidation assumptions. Verify that reported calculations can be reproduced.
 
-Review the daily trading setup: observed signal, exact entry and amount, exit
+Review daily trading proposals against the owner's high-risk 500 THB realized net daily objective. Do not add
+a capital-preservation mandate or demand guaranteed profit. Finalize Buy, Sell
+or Wait; Wait must justify the best available alternatives and specify when
+to reconsider. A single failed breakout is not evidence that cash is optimal.
+Keep forecast, hypothetical missed profit and realized PnL separate; missing
+outcome data does not establish zero opportunity cost.
+
+Review the observed signal, exact entry and amount, exit
 plan, invalidation, horizon and round-trip costs. Treat a planned exit as a plan,
 not automatic execution. A later sell requires a fresh individually reviewed
 proposal. Do not demand a trade quota or a full strategy backtest to accept a

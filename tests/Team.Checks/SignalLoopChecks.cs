@@ -19,6 +19,12 @@ public static class SignalLoopChecks
 
         await loop.Tick(CancellationToken.None);
         Check(coordinator.Objectives.Count == 1, "normal hourly round");
+        Check(
+            coordinator.Objectives[0].Contains("500 THB realized net profit")
+                && coordinator.Objectives[0].Length <= 2000,
+            "daily net target with bounded objective"
+        );
+        Check((await loop.Read(CancellationToken.None)).DailyNetProfitTargetThb == 500m, "visible daily target");
         var first =
             await runs.Latest(CancellationToken.None) ?? throw new InvalidOperationException("first run missing");
         await runs.Save(first with { Status = TeamRunStatus.Completed }, CancellationToken.None);
@@ -93,18 +99,18 @@ public static class SignalLoopChecks
                     available = true,
                     connected = true,
                     checkedAt = time.GetUtcNow(),
-                    signals = new[]
-                    {
-                        new
+                    signals = Enumerable
+                        .Range(1, 16)
+                        .Select(index => new
                         {
-                            id = "btc-1",
-                            symbol = "BTC_THB",
+                            id = "signal-" + index,
+                            symbol = "C" + index + "_THB",
                             direction = "breakout",
                             candleAt = time.GetUtcNow().ToUnixTimeSeconds() - 300,
                             detectedAt = time.GetUtcNow(),
                             price = 2_000_000m,
-                        },
-                    },
+                        })
+                        .ToArray(),
                 }
             );
         });
@@ -113,6 +119,10 @@ public static class SignalLoopChecks
         var first = await reader.Read(CancellationToken.None) ?? throw new InvalidOperationException("signal missing");
         var second = await reader.Read(CancellationToken.None) ?? throw new InvalidOperationException("signal missing");
         Check(first.Key == second.Key && handler.Requests == 2, "stable reader key");
+        Check(
+            first.Description.Length < 400 && first.Description.Contains("16 total"),
+            "all sixteen signals with bounded summary"
+        );
 
         var staleHandler = new SignalHttpHandler(_ =>
             SignalHttpHandler.Json(

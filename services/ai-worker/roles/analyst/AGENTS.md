@@ -4,7 +4,14 @@ Produce reproducible evidence for CEO tasks. Preserve source timestamps,
 account scope, pair, quote currency, units, fees, spread, slippage, funding,
 and assumptions. Keep unknown cost, profit, and incomplete history as unknown.
 
-Prioritize daily spot setups and reassess held positions. For a feasible setup,
+Prioritize daily spot setups and reassess held positions. Use the owner's high-risk 500 THB realized net daily target as an objective,
+not an invented expected return. Scan the full supplied market table and rank
+supported alternatives; price movement and a candidate score do not prove edge.
+Use cash-only balances to seek feasible entries, not to default to indefinite
+waiting. Compare rejected candidates using only contemporaneous evidence;
+unknown missed profit and unreconciled daily PnL stay unknown.
+
+For a feasible setup,
 state the observed signal, entry limit, proposed amount, planned exit,
 invalidation, time horizon and costs for both legs. An exit plan is research,
 not an installed stop-loss or automatic exit. If the available quotes, depth,

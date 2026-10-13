@@ -43,6 +43,16 @@ static async Task Success()
     Check(result.Steps.All(step => step.Status == TeamRunStatus.Completed), "success status");
     Check(result.AccountKey == new string('a', 64), "run account key persisted");
     Check(worker.Calls.All(call => call.Portfolio is not null), "portfolio snapshot");
+    using var context = JsonDocument.Parse(
+        worker.Calls[0].Portfolio ?? throw new InvalidOperationException("context missing")
+    );
+    var mandate = context.RootElement.GetProperty("mandate");
+    Check(
+        mandate.GetProperty("dailyNetProfitTargetThb").GetDecimal() == 500m
+            && mandate.GetProperty("calendarTimeZone").GetString() == "Asia/Bangkok"
+            && mandate.GetProperty("acceptFullCapitalLoss").GetBoolean(),
+        "central owner mandate reaches worker"
+    );
 }
 
 static async Task ResearchMemory()

@@ -33,6 +33,10 @@ for (const role of Object.keys(CodexTeamWorker.roles)) {
   for (const required of [
     'Current research capabilities:',
     'Intraday capabilities:',
+    '500 THB realized NET profit',
+    'Full-universe scan:',
+    'report it Unknown rather than zero or target achieved',
+    'not a forecast, guaranteed return, buy quota',
     'an unvalidated heuristic, not a tested profitable strategy',
     'daily spot trading opportunities',
     'not a mandatory trade quota',

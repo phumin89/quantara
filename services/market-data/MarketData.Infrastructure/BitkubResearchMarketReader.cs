@@ -28,55 +28,32 @@ public sealed class BitkubResearchMarketReader : IResearchMarketReader
         var ticker = await this.Get("/api/v3/market/ticker", timeout.Token);
         EnsureSuccess(symbols);
         EnsureSuccess(ticker);
-        var symbolRules = symbols
-            .GetProperty("result")
-            .EnumerateArray()
-            .Where(x =>
-                Text(x, "quote_asset") == "THB"
-                && Text(x, "status") == "active"
-                && Text(x, "market_segment") == "SPOT"
-                && Text(x, "source") == "exchange"
-            )
-            .GroupBy(x => Text(x, "base_asset").ToUpperInvariant())
-            .ToDictionary(x => x.Key, x => x.First());
-        var quotes = ticker
-            .EnumerateArray()
-            .Where(x =>
-                Text(x, "symbol").EndsWith("_THB", StringComparison.Ordinal)
-                && symbolRules.ContainsKey(Text(x, "symbol").Split('_')[0])
-            )
-            .OrderByDescending(x => RequiredNumber(x, "quote_volume"))
-            .Take(20)
-            .ToList();
-        if (!quotes.Any(x => Text(x, "symbol") == "BTC_THB") && symbolRules.ContainsKey("BTC"))
-        {
-            var btc = ticker.EnumerateArray().FirstOrDefault(x => Text(x, "symbol") == "BTC_THB");
-            if (btc.ValueKind != JsonValueKind.Undefined)
-            {
-                if (quotes.Count == 20)
-                {
-                    quotes.RemoveAt(19);
-                }
-
-                quotes.Add(btc);
-            }
-        }
+        var scan = MarketUniverseScanner.Scan(symbols, ticker);
+        var candidates = MarketUniverseScanner.SelectCandidates(scan, 16);
 
         var markets = new List<object>();
-        foreach (var quote in quotes)
+        foreach (var entry in candidates)
         {
-            var symbol = Text(quote, "symbol");
-            var rule = symbolRules[symbol.Split('_')[0]];
+            var symbol = entry.Symbol;
+            if (!entry.SourceQuote.HasValue)
+            {
+                throw new InvalidDataException("Usable market candidate has no source quote.");
+            }
+
+            var quote = entry.SourceQuote.Value;
+            var rule = entry.SourceRule;
             var item = new Dictionary<string, object?>
             {
                 ["symbol"] = symbol,
-                ["last"] = RequiredNumber(quote, "last"),
+                ["last"] = entry.Last,
                 ["bid"] = RequiredNumber(quote, "highest_bid"),
                 ["ask"] = RequiredNumber(quote, "lowest_ask"),
                 ["high24h"] = OptionalNumber(quote, "high_24_hr"),
                 ["low24h"] = OptionalNumber(quote, "low_24_hr"),
-                ["change24h"] = OptionalNumber(quote, "percent_change"),
-                ["volume24h"] = RequiredNumber(quote, "quote_volume"),
+                ["change24h"] = entry.Change24h,
+                ["range24h"] = RoundScreening(entry.Range24h, 4),
+                ["volume24h"] = entry.Volume24h,
+                ["spreadPercent"] = RoundScreening(entry.SpreadPercent, 4),
                 ["rules"] = new
                 {
                     minNotional = OptionalNumber(rule, "min_quote_size"),
@@ -103,31 +80,58 @@ public sealed class BitkubResearchMarketReader : IResearchMarketReader
             markets.Add(item);
         }
 
-        var result = JsonSerializer.Serialize(
-            new
-            {
-                available = true,
-                currency = "THB",
-                fetchedAt = DateTimeOffset.UtcNow,
-                coverage = new
+        var history = await this.History(cancellationToken);
+        foreach (var seriesLimit in new[] { 8, 4, 2, 0 })
+        {
+            var result = JsonSerializer.Serialize(
+                new
                 {
-                    universeCount = symbolRules.Count,
-                    truncated = symbolRules.Count > 20,
-                    topDepthCount = Math.Min(5, markets.Count),
+                    available = true,
+                    currency = "THB",
+                    fetchedAt = DateTimeOffset.UtcNow,
+                    coverage = new
+                    {
+                        universeCount = scan.UniverseCount,
+                        scannedCount = scan.Entries.Count,
+                        missingQuoteCount = scan.MissingQuoteCount,
+                        excludedCount = scan.ExcludedCount,
+                        duplicateConflictCount = scan.DuplicateConflictCount,
+                        truncated = false,
+                        detailedMarketCount = markets.Count,
+                        detailedMarketsTruncated = markets.Count < scan.Entries.Count,
+                        selection = "Diverse liquidity and absolute 24h movement shortlist including usable BTC; screening heuristic, not expected profit or validated edge.",
+                        topDepthCount = Math.Min(5, markets.Count),
+                    },
+                    scan = new
+                    {
+                        precision = "Screening metrics are rounded (change/range/spread: 4 decimals, THB volume: 2). Detailed market quotes/rules retain source precision for proposals.",
+                        symbols = scan.Entries.Select(entry => entry.Symbol),
+                        last = scan.Entries.Select(entry => entry.Last),
+                        change24hPercent = scan.Entries.Select(entry => RoundScreening(entry.Change24h, 4)),
+                        range24hPercent = scan.Entries.Select(entry => RoundScreening(entry.Range24h, 4)),
+                        quoteVolume24hThb = scan.Entries.Select(entry => RoundScreening(entry.Volume24h, 2)),
+                        spreadPercent = scan.Entries.Select(entry => RoundScreening(entry.SpreadPercent, 4)),
+                        usable = scan.Entries.Select(entry => entry.Usable),
+                    },
+                    markets,
+                    historicalCandles = history,
+                    intraday = this.ReadIntraday(
+                        candidates.Take(seriesLimit).Select(entry => entry.Symbol).ToHashSet()
+                    ),
+                    tradeEvidence = "Recent executed trades are flow evidence, not OHLC backtest history.",
                 },
-                markets,
-                historicalCandles = await this.History(cancellationToken),
-                intraday = this.ReadIntraday(),
-                tradeEvidence = "Recent executed trades are flow evidence, not OHLC backtest history.",
-            },
-            BitkubResearchMarketReader.jsonOptions
-        );
-        return result.Length <= 40000
-            ? result
-            : throw new InvalidDataException("Market research snapshot is too large.");
+                BitkubResearchMarketReader.jsonOptions
+            );
+            if (result.Length <= 32000)
+            {
+                return result;
+            }
+        }
+
+        throw new InvalidDataException("Market research snapshot is too large.");
     }
 
-    private object ReadIntraday()
+    private object ReadIntraday(HashSet<string> prioritySymbols)
     {
         var snapshot = this.intraday?.Read();
         if (snapshot is null)
@@ -142,7 +146,9 @@ public sealed class BitkubResearchMarketReader : IResearchMarketReader
             snapshot.Connected,
             snapshot.Error,
             timeframeSeconds = 300,
-            coverage = "Up to five liquid THB spot markets including BTC. Last 21 retained completed candles per market. Missing candles are not filled.",
+            coverage = "Up to 16 diverse THB spot markets monitored; last 21 retained completed candles shown for up to 8 priority candidates. Missing candles are not filled.",
+            monitoredSeriesCount = snapshot.Series.Count,
+            omittedSeriesCount = snapshot.Series.Count(series => !prioritySymbols.Contains(series.Symbol)),
             source = "Bitkub public WebSocket ticker (ObservedAt is receive time) and TradingView 5-minute history compatibility endpoint. Order book updates are events, not reconstructed full books.",
             candleColumns = BitkubResearchMarketReader.candleColumns,
             quotes = snapshot.Quotes.Select(quote => new
@@ -155,27 +161,29 @@ public sealed class BitkubResearchMarketReader : IResearchMarketReader
                 quote.BookObservedAt,
                 bookEventAvailable = quote.BookEventJson is not null,
             }),
-            series = snapshot.Series.Select(series => new
-            {
-                series.Symbol,
-                series.FetchedAt,
-                series.Error,
-                returnedBars = series.Candles.Count,
-                truncated = series.Candles.Count > 21,
-                candles = series
-                    .Candles.TakeLast(21)
-                    .Select(candle =>
-                        new decimal[]
-                        {
-                            candle.Timestamp,
-                            candle.Open,
-                            candle.High,
-                            candle.Low,
-                            candle.Close,
-                            candle.Volume,
-                        }
-                    ),
-            }),
+            series = snapshot
+                .Series.Where(series => prioritySymbols.Contains(series.Symbol))
+                .Select(series => new
+                {
+                    series.Symbol,
+                    series.FetchedAt,
+                    series.Error,
+                    returnedBars = series.Candles.Count,
+                    truncated = series.Candles.Count > 21,
+                    candles = series
+                        .Candles.TakeLast(21)
+                        .Select(candle =>
+                            new decimal[]
+                            {
+                                candle.Timestamp,
+                                candle.Open,
+                                candle.High,
+                                candle.Low,
+                                candle.Close,
+                                candle.Volume,
+                            }
+                        ),
+                }),
             signals = snapshot.Signals.Select(signal => new
             {
                 signal.Id,
@@ -192,6 +200,9 @@ public sealed class BitkubResearchMarketReader : IResearchMarketReader
             rule = "Research alert only: closed 5-minute close outside previous 20-bar high/low, volume at least 1.5x previous 20-bar median, current spread at most 0.5%, fresh quote and consecutive verified candles. Thresholds are unvalidated heuristics; no backtest or net-profit proof. Never an order or approval.",
         };
     }
+
+    private static decimal? RoundScreening(decimal? value, int places) =>
+        value is decimal number ? decimal.Round(number, places) : null;
 
     private async Task<JsonElement> Get(string path, CancellationToken token)
     {
@@ -215,6 +226,7 @@ public sealed class BitkubResearchMarketReader : IResearchMarketReader
                 timeout.Token
             );
             var candles = CandleParser.Parse(raw, from, to);
+            var retainedCandles = candles.TakeLast(21).ToArray();
             return new
             {
                 available = candles.Count > 0,
@@ -223,10 +235,12 @@ public sealed class BitkubResearchMarketReader : IResearchMarketReader
                 from,
                 to,
                 expectedBars = 110,
-                returnedBars = candles.Count,
+                returnedBars = retainedCandles.Length,
+                sourceReturnedBars = candles.Count,
                 excludedRows = raw.GetProperty("t").GetArrayLength() - candles.Count,
+                truncated = candles.Count > retainedCandles.Length,
                 complete = candles.Count == 110,
-                candles,
+                candles = retainedCandles,
                 source = "Bitkub public TradingView history compatibility endpoint; completed daily bars only. Conflicting timestamps excluded; gaps are not filled. This dataset is not a backtest result.",
             };
         }

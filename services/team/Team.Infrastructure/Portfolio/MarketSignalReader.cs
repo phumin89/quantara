@@ -13,7 +13,7 @@ public sealed class MarketSignalReader(HttpClient http, TimeProvider time) : IMa
         using var response = await http.GetAsync("api/market/signals", cancellationToken);
         response.EnsureSuccessStatusCode();
         var body = await response.Content.ReadAsStringAsync(cancellationToken);
-        if (body.Length > 250000)
+        if (body.Length > 1000000)
         {
             throw new InvalidDataException("Market signal response is too large.");
         }
@@ -33,7 +33,7 @@ public sealed class MarketSignalReader(HttpClient http, TimeProvider time) : IMa
         }
 
         var signals = root.GetProperty("signals");
-        if (signals.GetArrayLength() is < 1 or > 5)
+        if (signals.GetArrayLength() is < 1 or > 16)
         {
             return null;
         }
@@ -82,6 +82,10 @@ public sealed class MarketSignalReader(HttpClient http, TimeProvider time) : IMa
         var key = Convert
             .ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(string.Join("|", ids.Order(StringComparer.Ordinal)))))
             .ToLowerInvariant();
-        return new MarketSignalNotice(key, string.Join("; ", descriptions), checkedAt);
+        return new MarketSignalNotice(
+            key,
+            string.Join("; ", descriptions.Take(2)) + $"; {descriptions.Count} total research alerts (not orders).",
+            checkedAt
+        );
     }
 }

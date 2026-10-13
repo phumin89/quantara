@@ -7,5 +7,7 @@ public sealed record CompanyLoopOverview(
     CompanyLoopStatus Status,
     DateTimeOffset? NextRunAt,
     Guid? LastRunId,
-    string? Error
+    string? Error,
+    decimal DailyNetProfitTargetThb = TradingMandate.DailyNetProfitTargetThb,
+    string CalendarTimeZone = TradingMandate.CalendarTimeZone
 );
