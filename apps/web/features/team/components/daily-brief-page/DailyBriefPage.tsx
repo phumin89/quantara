@@ -165,7 +165,7 @@ export default class DailyBriefPage extends Component<
               variant="caption"
               color="text.secondary"
             >
-              Research &amp; proposals · Every hour · Approval required
+              Market signals + hourly review · Approval required
             </Typography>
             {company?.status === CompanyLoopStatus.Waiting &&
               company.nextRunAt && (

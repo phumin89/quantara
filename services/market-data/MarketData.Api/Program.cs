@@ -1,13 +1,47 @@
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using Mediator;
 using Microsoft.AspNetCore.Mvc;
 using Quantara.MarketData.Application;
+using Quantara.MarketData.Domain;
 using Quantara.MarketData.Infrastructure;
 
 var builder = WebApplication.CreateBuilder(args);
 builder.WebHost.UseUrls("http://127.0.0.1:5051");
 builder.Logging.AddFilter("System.Net.Http.HttpClient", LogLevel.Warning);
-builder.Services.AddControllers();
+builder
+    .Services.AddControllers()
+    .AddJsonOptions(options =>
+        options.JsonSerializerOptions.Converters.Add(
+            new JsonStringEnumConverter<SignalDirection>(JsonNamingPolicy.CamelCase, false)
+        )
+    );
+builder.Services.AddSingleton(TimeProvider.System);
+var marketConnection = builder.Configuration.GetConnectionString("MarketData");
+builder.Services.AddSingleton<IIntradayCandleStore>(
+    new SqlIntradayCandleStore(
+        marketConnection
+            ?? "Server=(localdb)\\MSSQLLocalDB;Database=QuantaraMarketData;Integrated Security=true;Encrypt=true;TrustServerCertificate=true;",
+        marketConnection is null
+    )
+);
+builder
+    .Services.AddHttpClient(
+        "live-market",
+        http =>
+        {
+            http.BaseAddress = new Uri("https://api.bitkub.com");
+            http.Timeout = TimeSpan.FromSeconds(10);
+        }
+    )
+    .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler { AllowAutoRedirect = false });
+builder.Services.AddSingleton(services => new LiveMarketFeed(
+    services.GetRequiredService<IHttpClientFactory>().CreateClient("live-market"),
+    services.GetRequiredService<IIntradayCandleStore>(),
+    services.GetRequiredService<TimeProvider>()
+));
+builder.Services.AddSingleton<IIntradayMarketReader>(services => services.GetRequiredService<LiveMarketFeed>());
+builder.Services.AddHostedService(services => services.GetRequiredService<LiveMarketFeed>());
 builder
     .Services.AddHttpClient<BitkubMarketDataReader>(client =>
     {

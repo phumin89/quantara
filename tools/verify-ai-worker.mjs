@@ -32,6 +32,8 @@ for (const role of Object.keys(CodexTeamWorker.roles)) {
   assert(prompt.includes(instructions));
   for (const required of [
     'Current research capabilities:',
+    'Intraday capabilities:',
+    'an unvalidated heuristic, not a tested profitable strategy',
     'daily spot trading opportunities',
     'not a mandatory trade quota',
     'Any later exit requires a fresh separately reviewed proposal',

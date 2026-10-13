@@ -4,6 +4,7 @@ using Quantara.Team.Domain;
 using Quantara.Team.Infrastructure;
 using Team.Checks;
 
+await SignalLoopChecks.Run();
 await Success();
 await ResearchMemory();
 await AccountScopedReviewMemory();

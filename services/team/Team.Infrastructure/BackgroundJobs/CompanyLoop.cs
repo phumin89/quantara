@@ -22,6 +22,12 @@ public sealed class CompanyLoop : BackgroundService, ICompanyLoop
 
     private readonly TimeProvider time;
 
+    private readonly IMarketSignalReader? signals;
+
+    private DateTimeOffset? lastSignalPollAt;
+
+    private MarketSignalNotice? signal;
+
     private readonly SemaphoreSlim gate = new(1, 1);
 
     private CompanySchedule? schedule;
@@ -37,7 +43,8 @@ public sealed class CompanyLoop : BackgroundService, ICompanyLoop
         IReadOnlyTeamRunStore runs,
         ITeamCoordinator coordinator,
         IPortfolioSnapshotReader portfolio,
-        TimeProvider time
+        TimeProvider time,
+        IMarketSignalReader? signals = null
     )
     {
         this.store = store;
@@ -45,6 +52,7 @@ public sealed class CompanyLoop : BackgroundService, ICompanyLoop
         this.coordinator = coordinator;
         this.portfolio = portfolio;
         this.time = time;
+        this.signals = signals;
     }
 
     public async Task<CompanyLoopOverview> Read(CancellationToken cancellationToken)
@@ -89,7 +97,7 @@ public sealed class CompanyLoop : BackgroundService, ICompanyLoop
             var next = this.schedule with { Enabled = enabled };
             if (enabled && !this.schedule.Enabled)
             {
-                next = next with { NextRunAt = this.time.GetUtcNow() };
+                next = next with { NextRunAt = this.time.GetUtcNow(), LastAnalysisAt = null };
             }
 
             // Stop is honored in memory even if storage is temporarily unavailable.
@@ -155,7 +163,46 @@ public sealed class CompanyLoop : BackgroundService, ICompanyLoop
                 return;
             }
 
-            if (this.schedule.NextRunAt > this.time.GetUtcNow())
+            var now = this.time.GetUtcNow();
+            if (
+                this.signals is not null
+                && (this.lastSignalPollAt is null || now - this.lastSignalPollAt >= TimeSpan.FromMinutes(1))
+            )
+            {
+                this.lastSignalPollAt = now;
+                this.signal = null;
+                try
+                {
+                    using var signalTimeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+                    signalTimeout.CancelAfter(TimeSpan.FromSeconds(5));
+                    this.signal = await this.signals.Read(signalTimeout.Token);
+                }
+                catch (Exception) when (!cancellationToken.IsCancellationRequested)
+                {
+                    // Unavailable signals never block a regular hourly assessment or authorize a trade.
+                }
+            }
+
+            var hourly = this.schedule.NextRunAt <= now;
+            var triggered =
+                this.signal is not null
+                && this.signal.Key != this.schedule.LastSignalKey
+                && this.signal.CheckedAt <= now.AddSeconds(5)
+                && now - this.signal.CheckedAt <= TimeSpan.FromMinutes(2)
+                && (
+                    this.schedule.LastAnalysisAt is null
+                    || now - this.schedule.LastAnalysisAt >= TimeSpan.FromMinutes(15)
+                );
+            if (!hourly && !triggered)
+            {
+                this.status = CompanyLoopStatus.Waiting;
+                return;
+            }
+
+            if (
+                this.schedule.LastAnalysisAt is not null
+                && now - this.schedule.LastAnalysisAt < TimeSpan.FromMinutes(15)
+            )
             {
                 this.status = CompanyLoopStatus.Waiting;
                 return;
@@ -165,7 +212,10 @@ public sealed class CompanyLoop : BackgroundService, ICompanyLoop
             {
                 using var probe = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
                 probe.CancelAfter(TimeSpan.FromSeconds(5));
-                if (this.refreshedAt is null || this.time.GetUtcNow() - this.refreshedAt >= TimeSpan.FromMinutes(5))
+                if (
+                    hourly
+                    && (this.refreshedAt is null || this.time.GetUtcNow() - this.refreshedAt >= TimeSpan.FromMinutes(5))
+                )
                 {
                     await this.portfolio.Refresh(probe.Token);
                     this.refreshedAt = this.time.GetUtcNow();
@@ -180,7 +230,12 @@ public sealed class CompanyLoop : BackgroundService, ICompanyLoop
                 return;
             }
 
-            this.schedule = this.schedule with { NextRunAt = this.time.GetUtcNow().AddHours(1) };
+            this.schedule = this.schedule with
+            {
+                NextRunAt = hourly ? this.time.GetUtcNow().AddHours(1) : this.schedule.NextRunAt,
+                LastSignalKey = triggered ? this.signal?.Key : this.schedule.LastSignalKey,
+                LastAnalysisAt = this.time.GetUtcNow(),
+            };
             await this.store.Save(this.schedule, cancellationToken);
             this.refreshedAt = null;
             var objective =
@@ -189,6 +244,12 @@ public sealed class CompanyLoop : BackgroundService, ICompanyLoop
             if (latest is not null)
             {
                 objective += $"Previous review run ID: {latest.Id:D}";
+            }
+
+            if (triggered)
+            {
+                objective +=
+                    " Market alert (unvalidated research heuristic, not an order): " + this.signal?.Description;
             }
 
             try

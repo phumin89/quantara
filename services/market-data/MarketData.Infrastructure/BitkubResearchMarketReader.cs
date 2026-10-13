@@ -6,11 +6,18 @@ namespace Quantara.MarketData.Infrastructure;
 
 public sealed class BitkubResearchMarketReader : IResearchMarketReader
 {
+    private static readonly JsonSerializerOptions jsonOptions = new(JsonSerializerDefaults.Web);
+
+    private static readonly string[] candleColumns = ["timestamp", "open", "high", "low", "close", "volume"];
+
     private readonly HttpClient client;
 
-    public BitkubResearchMarketReader(HttpClient client)
+    private readonly IIntradayMarketReader? intraday;
+
+    public BitkubResearchMarketReader(HttpClient client, IIntradayMarketReader? intraday = null)
     {
         this.client = client;
+        this.intraday = intraday;
     }
 
     public async Task<string> Read(CancellationToken cancellationToken)
@@ -110,12 +117,80 @@ public sealed class BitkubResearchMarketReader : IResearchMarketReader
                 },
                 markets,
                 historicalCandles = await this.History(cancellationToken),
+                intraday = this.ReadIntraday(),
                 tradeEvidence = "Recent executed trades are flow evidence, not OHLC backtest history.",
-            }
+            },
+            BitkubResearchMarketReader.jsonOptions
         );
         return result.Length <= 40000
             ? result
             : throw new InvalidDataException("Market research snapshot is too large.");
+    }
+
+    private object ReadIntraday()
+    {
+        var snapshot = this.intraday?.Read();
+        if (snapshot is null)
+        {
+            return new { available = false, reason = "Intraday feed is unavailable." };
+        }
+
+        return new
+        {
+            snapshot.Available,
+            snapshot.CheckedAt,
+            snapshot.Connected,
+            snapshot.Error,
+            timeframeSeconds = 300,
+            coverage = "Up to five liquid THB spot markets including BTC. Last 21 retained completed candles per market. Missing candles are not filled.",
+            source = "Bitkub public WebSocket ticker (ObservedAt is receive time) and TradingView 5-minute history compatibility endpoint. Order book updates are events, not reconstructed full books.",
+            candleColumns = BitkubResearchMarketReader.candleColumns,
+            quotes = snapshot.Quotes.Select(quote => new
+            {
+                quote.Symbol,
+                quote.Bid,
+                quote.Ask,
+                quote.Last,
+                quote.ObservedAt,
+                quote.BookObservedAt,
+                bookEventAvailable = quote.BookEventJson is not null,
+            }),
+            series = snapshot.Series.Select(series => new
+            {
+                series.Symbol,
+                series.FetchedAt,
+                series.Error,
+                returnedBars = series.Candles.Count,
+                truncated = series.Candles.Count > 21,
+                candles = series
+                    .Candles.TakeLast(21)
+                    .Select(candle =>
+                        new decimal[]
+                        {
+                            candle.Timestamp,
+                            candle.Open,
+                            candle.High,
+                            candle.Low,
+                            candle.Close,
+                            candle.Volume,
+                        }
+                    ),
+            }),
+            signals = snapshot.Signals.Select(signal => new
+            {
+                signal.Id,
+                signal.Symbol,
+                direction = signal.Direction.ToString().ToLowerInvariant(),
+                signal.CandleAt,
+                signal.DetectedAt,
+                signal.Price,
+                signal.PriorLevel,
+                signal.VolumeRatio,
+                signal.SpreadPercent,
+                signal.RuleVersion,
+            }),
+            rule = "Research alert only: closed 5-minute close outside previous 20-bar high/low, volume at least 1.5x previous 20-bar median, current spread at most 0.5%, fresh quote and consecutive verified candles. Thresholds are unvalidated heuristics; no backtest or net-profit proof. Never an order or approval.",
+        };
     }
 
     private async Task<JsonElement> Get(string path, CancellationToken token)

@@ -31,6 +31,13 @@ builder.Services.AddSingleton<ITeamRunStore>(store);
 builder.Services.AddSingleton<IReadOnlyTeamRunStore>(store);
 builder.Services.AddSingleton<ICompanyScheduleStore>(new CompanyScheduleStore(teamConnection));
 builder.Services.AddSingleton(TimeProvider.System);
+builder
+    .Services.AddHttpClient<IMarketSignalReader, MarketSignalReader>(http =>
+    {
+        http.BaseAddress = new Uri(builder.Configuration["Services:MarketDataUrl"] ?? "http://127.0.0.1:5051");
+        http.Timeout = TimeSpan.FromSeconds(5);
+    })
+    .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler { AllowAutoRedirect = false });
 builder.Services.AddSingleton<ICodexWorker>(
     new CodexWorker(
         NodeRuntime.Resolve(builder.Configuration["Codex:NodePath"]),

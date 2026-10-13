@@ -1,6 +1,9 @@
 using Quantara.MarketData.Checks;
 using Quantara.MarketData.Infrastructure;
 
+IntradaySignalChecks.Run();
+PublicTickerChecks.Run();
+
 static void Assert(bool condition, string message)
 {
     if (!condition)

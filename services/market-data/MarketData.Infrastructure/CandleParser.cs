@@ -7,7 +7,13 @@ public static class CandleParser
 {
     private static readonly string[] valueFields = ["o", "h", "l", "c", "v"];
 
-    public static IReadOnlyList<MarketCandle> Parse(JsonElement root, long from, long to)
+    public static IReadOnlyList<MarketCandle> Parse(
+        JsonElement root,
+        long from,
+        long to,
+        long intervalSeconds = 86400,
+        int maxRows = 200
+    )
     {
         if (root.GetProperty("s").GetString() != "ok")
         {
@@ -16,7 +22,12 @@ public static class CandleParser
 
         var timestamps = root.GetProperty("t");
         var count = timestamps.GetArrayLength();
-        if (count > 200 || CandleParser.valueFields.Any(field => root.GetProperty(field).GetArrayLength() != count))
+        if (
+            intervalSeconds is not (300 or 86400)
+            || maxRows is < 1 or > 1000
+            || count > maxRows
+            || CandleParser.valueFields.Any(field => root.GetProperty(field).GetArrayLength() != count)
+        )
         {
             throw new InvalidDataException("Historical candle arrays are inconsistent.");
         }
@@ -32,7 +43,7 @@ public static class CandleParser
                 root.GetProperty("c")[index].GetDecimal(),
                 root.GetProperty("v")[index].GetDecimal()
             );
-            if (candle.Timestamp < from || candle.Timestamp > to - 86400)
+            if (candle.Timestamp < from || candle.Timestamp > to - intervalSeconds)
             {
                 continue;
             }

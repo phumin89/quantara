@@ -1,5 +1,7 @@
 # Engineering
 
+- Owner authorized intraday market monitoring and signal-driven research: public ticker/order-book subscriptions, completed 5-minute candles in MarketData-owned SQL storage, one-minute deterministic research alerts, and deduplicated AI assessments with a 15-minute cooldown plus hourly review. These alerts never approve or submit orders. Additive schedule columns and the separate MarketData database preserve existing Portfolio/Team data.
+
 - Owner authorized completing the reviewed pipeline on 2026-10-13: read-only market research, account-isolated reports and memory, one validated AI spot LIMIT proposal per report, human Approve submission, and read-only broker-status reconciliation. AI and background jobs never approve or submit broker orders. Preserve legacy records and account provenance; unknown outcomes never authorize retries.
 
 - Lead owns scope, architecture, review, acceptance and verification. Local workers receive bounded file ownership; inspect their actual output before accepting it.

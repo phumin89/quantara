@@ -30,8 +30,14 @@ public sealed class CompanyScheduleStore : ICompanyScheduleStore
               );
               INSERT dbo.CompanySchedule(Id,Enabled,NextRunAt) VALUES(1,1,SYSDATETIMEOFFSET());
             END;
-            SELECT Enabled,NextRunAt,LastRunId FROM dbo.CompanySchedule WHERE Id=1;
+            IF COL_LENGTH('dbo.CompanySchedule','LastSignalKey') IS NULL
+                ALTER TABLE dbo.CompanySchedule ADD LastSignalKey varchar(64) NULL;
+            IF COL_LENGTH('dbo.CompanySchedule','LastAnalysisAt') IS NULL
+                ALTER TABLE dbo.CompanySchedule ADD LastAnalysisAt datetimeoffset NULL;
             """;
+        await command.ExecuteNonQueryAsync(cancellationToken);
+        command.CommandText =
+            "SELECT Enabled,NextRunAt,LastRunId,LastSignalKey,LastAnalysisAt FROM dbo.CompanySchedule WHERE Id=1;";
         await using var reader = await command.ExecuteReaderAsync(cancellationToken);
         if (!await reader.ReadAsync(cancellationToken))
         {
@@ -41,7 +47,9 @@ public sealed class CompanyScheduleStore : ICompanyScheduleStore
         return new CompanySchedule(
             reader.GetBoolean(0),
             reader.GetDateTimeOffset(1),
-            reader.IsDBNull(2) ? null : reader.GetGuid(2)
+            reader.IsDBNull(2) ? null : reader.GetGuid(2),
+            reader.IsDBNull(3) ? null : reader.GetString(3),
+            reader.IsDBNull(4) ? null : reader.GetDateTimeOffset(4)
         );
     }
 
@@ -51,12 +59,16 @@ public sealed class CompanyScheduleStore : ICompanyScheduleStore
         await connection.OpenAsync(cancellationToken);
         await using var command = connection.CreateCommand();
         command.CommandText =
-            "UPDATE dbo.CompanySchedule SET Enabled=@enabled,NextRunAt=@next,LastRunId=@last WHERE Id=1;";
+            "UPDATE dbo.CompanySchedule SET Enabled=@enabled,NextRunAt=@next,LastRunId=@last,LastSignalKey=@signal,LastAnalysisAt=@analysis WHERE Id=1;";
         command.Parameters.Add("@enabled", SqlDbType.Bit).Value = schedule.Enabled;
         command.Parameters.Add("@next", SqlDbType.DateTimeOffset).Value = schedule.NextRunAt;
         command.Parameters.Add("@last", SqlDbType.UniqueIdentifier).Value = schedule.LastRunId.HasValue
             ? schedule.LastRunId.Value
             : DBNull.Value;
+        command.Parameters.Add("@signal", SqlDbType.VarChar, 64).Value =
+            (object?)schedule.LastSignalKey ?? DBNull.Value;
+        command.Parameters.Add("@analysis", SqlDbType.DateTimeOffset).Value =
+            (object?)schedule.LastAnalysisAt ?? DBNull.Value;
         if (await command.ExecuteNonQueryAsync(cancellationToken) != 1)
         {
             throw new InvalidOperationException("Company schedule is missing.");

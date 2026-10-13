@@ -20,7 +20,7 @@ flowchart LR
 - Each service owns its Domain/Application/Infrastructure/Api projects. No project references cross service directories.
 - Domain has no framework packages. Application references Domain and Mediator abstractions. Infrastructure implements Application interfaces. API composes dependencies and exposes thin controllers.
 - Portfolio query handlers receive a read-only repository interface. Commands schedule import; the background job is the only account import writer.
-- MarketData owns public coin/price reads and has no database or credentials. Portfolio owns account reads and SQL Server. HTTP contracts are mapped locally, never shared through another service's Domain assembly.
+- MarketData owns public coin/price reads and its own intraday candle database, with no broker credentials. Portfolio owns account reads and its SQL Server database. HTTP contracts are mapped locally, never shared through another service's Domain assembly.
 - Each class/record/interface/enum has its own matching file. Controllers, queries, commands, handlers, persistence and adapters are separated. Compiler/analyzers and architecture checks enforce these boundaries.
 
 ## Frontend
@@ -184,6 +184,43 @@ no-trade rounds state evidence and a concrete reconsideration condition. Exit
 plans are report text, not installed stop-loss, take-profit or timed-exit orders.
 Any later exit requires a new individually reviewed proposal. Daily BTC history
 does not supply intraday candles for other markets or prove a trading edge.
+
+## Intraday monitoring and research alerts
+
+MarketData subscribes to public ticker and order-book streams for five active
+THB spot markets ranked by quote volume, including BTC. Subscriptions refresh
+hourly and reconnect independently; a failed market does not freeze the others.
+Ticker observation timestamps are local receive times, not exchange event times.
+The latest order-book event is retained with its receive time, never labelled a
+complete reconstructed book. Malformed, frozen and crossed quotes are ignored.
+
+Completed 5-minute candles come from Bitkub's TradingView compatibility endpoint.
+MarketData owns the separate QuantaraMarketData SQL database and immutable
+IntradayCandles rows keyed by symbol/open time. Repeated imports are idempotent;
+conflicting values fail that series without overwriting history. Reads return up
+to 120 retained bars; research context contains the latest 21 in a documented
+compact column format. Missing/conflicting/unfinished bars are never filled or
+used as zero. SQL outages expose an unavailable feed and retry without taking
+down the public market API. No Portfolio database is changed.
+
+Every minute, the deterministic range20-volume1.5-spread0.5-v1 evaluator checks
+the latest 21 consecutive completed bars. A close beyond the previous 20-bar
+high/low requires at least 1.5 times their median volume, a current spread at
+most 0.5%, and fresh quote/series evidence. The signal ID is stable for the
+same symbol, bar and direction. These are research heuristics with tested code
+invariants, not a validated profitable strategy or an execution instruction.
+GET /api/market/signals exposes the current read-only snapshot through Mediator.
+
+Team polls alerts once per minute, admits no overlapping rounds, and persists
+the consumed signal key and last assessment time in additive nullable schedule
+columns. A new fresh alert can request an earlier assessment after a 15-minute
+cooldown; regular hourly assessments remain scheduled. Early rounds use the
+last verified portfolio import with its actual timestamps, avoiding a full
+337-market history import for every alert; approval still checks live balances.
+Stale/unavailable alerts do not block regular assessments. Stop disables both
+paths. Rolling back to the previous service binaries leaves the new nullable
+columns, candle database and retained history intact; no contraction or data
+deletion is required.
 
 Daily Brief (`/daily-brief`, with `/team` retained as an alias) is a read-only
 day view. Its class component resolves TeamService through Context and the lazy
