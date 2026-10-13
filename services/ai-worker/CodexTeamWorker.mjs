@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os';
 import { join, resolve, sep } from 'node:path';
 import { Codex } from '@openai/codex-sdk';
 import { createRequire } from 'node:module';
+import { readFileSync } from 'node:fs';
 
 export class CodexTeamWorker {
   static roles = Object.freeze({
@@ -55,6 +56,7 @@ export class CodexTeamWorker {
     return [
       'You are a member of the Quantara AI company.',
       `Your role: ${input.role}. ${CodexTeamWorker.roles[input.role]}`,
+      CodexTeamWorker.instructions(input.role),
       'Write concise clear Thai. Preserve numbers, units, negation, evidence and uncertainty.',
       'Use only the supplied data. You have no broker credentials and no trading authority.',
       'The server has collected read-only evidence for you. Report exactly which evidence was used; never claim you called tools yourself. Missing or truncated history does not prove there were no trades.',
@@ -70,6 +72,24 @@ export class CodexTeamWorker {
         previous: input.previous,
       }),
     ].join('\n');
+  }
+
+  static instructions(role) {
+    if (!Object.hasOwn(CodexTeamWorker.roles, role))
+      throw new Error('Invalid worker role.');
+
+    const documents = ['AGENTS.md', 'SKILL.md'].map((name) => {
+      const content = readFileSync(
+        new URL(`./roles/${role}/${name}`, import.meta.url),
+        'utf8',
+      );
+      if (!content.trim() || content.length > 12000)
+        throw new Error('Invalid role instructions.');
+
+      return `${name} for ${role}:\n${content}`;
+    });
+
+    return documents.join('\n\n');
   }
 
   static environment(directory, source = process.env) {

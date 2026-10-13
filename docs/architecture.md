@@ -67,6 +67,20 @@ narrow `exec` dispatch to launch the pinned CLI with `--ignore-user-config` and
 copying tokens or importing personal config/tools. Reports are validated structured
 output and displayed as plain text. OpenAI model access remains required.
 
+Each role has its own `services/ai-worker/roles/<role>/AGENTS.md` and `SKILL.md`.
+The worker explicitly loads the selected role's bounded documents into each prompt;
+native project/skill discovery stays disabled. Invalid roles cannot select paths,
+and missing or empty role instructions fail before a model request. These are
+versioned research profiles, not new execution permissions. The owner's profit
+objective and willingness to lose allocated capital inform research comparisons;
+they do not authorize autonomous real-money orders or losses beyond deposited
+capital. Buffett-inspired valuation is distinguished from forced daily trading
+and cannot manufacture a valuation for assets with unsupported fundamentals.
+Cash, spot and options/futures are research candidates. Historical experiments,
+paper orders and derivatives availability must not be claimed without actual
+data, an implemented simulator and verified venue/account support. No execution
+or derivatives adapter is introduced by loading a profile.
+
 CompanyLoop is a hosted deterministic scheduler. A new owned CompanySchedule table
 persists enabled state, next-run reservation and last-run ID without changing
 retained runs or Portfolio schema. New companies enable research under the owner's

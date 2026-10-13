@@ -8,6 +8,37 @@ const input = {
   previous: [],
   portfolio: '{"positions":[]}',
 };
+for (const role of Object.keys(CodexTeamWorker.roles)) {
+  const instructions = CodexTeamWorker.instructions(role);
+  assert(instructions.includes(`AGENTS.md for ${role}:`));
+  assert(instructions.includes(`SKILL.md for ${role}:`));
+  assert(instructions.includes('paper'));
+  assert(instructions.includes('name:'));
+  assert.match(
+    instructions,
+    /---\r?\nname: quantara-[a-z]+\r?\ndescription: [^\r\n]+\r?\n---/,
+  );
+  const roleInput = {
+    ...input,
+    role,
+    previous: Object.keys(CodexTeamWorker.roles)
+      .slice(0, Object.keys(CodexTeamWorker.roles).indexOf(role))
+      .map((previousRole) => ({
+        role: previousRole,
+        output: 'Earlier report',
+      })),
+  };
+  const prompt = CodexTeamWorker.prompt(roleInput);
+  assert(prompt.includes(instructions));
+  for (const other of Object.keys(CodexTeamWorker.roles).filter(
+    (value) => value !== role,
+  ))
+    assert(!prompt.includes(`AGENTS.md for ${other}:`));
+}
+assert.throws(
+  () => CodexTeamWorker.instructions('../ceo'),
+  /Invalid worker role/,
+);
 assert(CodexTeamWorker.prompt(input).includes('stable task IDs'));
 assert(
   CodexTeamWorker.prompt(input).includes(
