@@ -796,12 +796,21 @@ export default class DailyBriefPage extends Component<
   }
 
   private static today(): string {
-    return new Intl.DateTimeFormat('en-CA', {
+    const parts = new Intl.DateTimeFormat('en', {
       timeZone: 'Asia/Bangkok',
       year: 'numeric',
       month: '2-digit',
       day: '2-digit',
-    }).format(new Date());
+      numberingSystem: 'latn',
+    }).formatToParts(new Date());
+    const year = parts.find((part) => part.type === 'year');
+    const month = parts.find((part) => part.type === 'month');
+    const day = parts.find((part) => part.type === 'day');
+    if (!year || !month || !day) {
+      throw new Error('Unable to determine the current date.');
+    }
+
+    return `${year.value}-${month.value}-${day.value}`;
   }
 
   private statusStyle(status: TeamRunStatus | undefined) {
