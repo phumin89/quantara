@@ -11,12 +11,22 @@ public sealed class SnapshotHttpHandler : HttpMessageHandler
 
     private readonly string account;
 
-    public SnapshotHttpHandler(string json, string? history = null, string? account = null)
+    private readonly string walletEvidence;
+
+    public SnapshotHttpHandler(
+        string json,
+        string? history = null,
+        string? account = null,
+        string? walletEvidence = null
+    )
     {
         this.json = json;
         this.history = history;
         this.account =
             account ?? "{\"accountKey\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"}";
+        this.walletEvidence =
+            walletEvidence
+            ?? $"{{\"accountKey\":\"{new string('a', 64)}\",\"observedAt\":\"{DateTimeOffset.UtcNow:O}\",\"balances\":[{{\"symbol\":\"THB\",\"quantity\":1000,\"available\":700}},{{\"symbol\":\"BTC\",\"quantity\":1,\"available\":1}}],\"fee\":{{\"rate\":0.0025,\"status\":\"estimated\",\"source\":\"test\"}}}}";
     }
 
     protected override Task<HttpResponseMessage> SendAsync(
@@ -28,7 +38,9 @@ public sealed class SnapshotHttpHandler : HttpMessageHandler
             new HttpResponseMessage(HttpStatusCode.OK)
             {
                 Content = new StringContent(
-                    request.RequestUri?.AbsolutePath.EndsWith("/account", StringComparison.Ordinal) == true
+                    request.RequestUri?.AbsolutePath.EndsWith("/account/evidence", StringComparison.Ordinal) == true
+                            ? this.walletEvidence
+                        : request.RequestUri?.AbsolutePath.EndsWith("/account", StringComparison.Ordinal) == true
                             ? this.account
                         : request.RequestUri?.AbsolutePath.EndsWith("/history", StringComparison.Ordinal) == true
                             ? this.history ?? "{}"

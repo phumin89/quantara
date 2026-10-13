@@ -10,6 +10,24 @@ public static class TradeProposalValidator
     {
         using var document = JsonDocument.Parse(context);
         var evidence = document.RootElement.GetProperty("evidence");
+        var accountKey = evidence.GetProperty("accountKey").GetString();
+        if (string.IsNullOrWhiteSpace(accountKey) || accountKey.Length != 64 || !accountKey.All(Uri.IsHexDigit))
+        {
+            throw new InvalidOperationException("Trade proposal account evidence is invalid.");
+        }
+
+        var wallet = evidence.GetProperty("walletEvidence");
+        if (wallet.GetProperty("accountKey").GetString() != accountKey)
+        {
+            throw new InvalidOperationException("Trade proposal wallet evidence is bound to another account.");
+        }
+
+        var walletAge = DateTimeOffset.UtcNow - wallet.GetProperty("observedAt").GetDateTimeOffset();
+        if (walletAge > TimeSpan.FromMinutes(10) || walletAge < TimeSpan.FromSeconds(-5))
+        {
+            throw new InvalidOperationException("Trade proposal wallet evidence is stale or from the future.");
+        }
+
         var research = evidence.GetProperty("marketResearch");
         if (
             !research.GetProperty("available").GetBoolean()
@@ -45,16 +63,17 @@ public static class TradeProposalValidator
             throw new InvalidOperationException("Trade proposal price is unsupported by current market evidence.");
         }
 
+        var availableSymbol = proposal.Side == TradeProposalSide.Buy ? "THB" : proposal.Symbol;
+        var availableBalance = wallet
+            .GetProperty("balances")
+            .EnumerateArray()
+            .SingleOrDefault(item => item.GetProperty("symbol").GetString() == availableSymbol);
         var available =
-            proposal.Side == TradeProposalSide.Buy
-                ? evidence.GetProperty("summary").GetProperty("availableThb").GetDecimal()
-                : evidence
-                    .GetProperty("positions")
-                    .EnumerateArray()
-                    .Where(item => item.GetProperty("symbol").GetString() == proposal.Symbol)
-                    .Select(item => item.GetProperty("quantity").GetDecimal())
-                    .SingleOrDefault();
-        if (amount > available)
+            availableBalance.ValueKind == JsonValueKind.Undefined
+            || availableBalance.GetProperty("available").ValueKind == JsonValueKind.Null
+                ? (decimal?)null
+                : availableBalance.GetProperty("available").GetDecimal();
+        if (available is null || amount > available)
         {
             throw new InvalidOperationException("Trade proposal exceeds the observed account balance.");
         }

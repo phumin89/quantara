@@ -1,5 +1,7 @@
 # Engineering
 
+- Owner authorized Telegram human review on 2026-10-13: notify pending real proposals and accept an explicit button click only from the configured private-chat owner, bound to the exact account/order/message. The listener may dispatch the existing approval command solely in response to that verified human click. Timers, models and restart recovery never authorize submission. Persist notification delivery/review claims before side effects; uncertain sends/submissions are not automatically repeated. Mock buttons have no real order authority.
+
 - Owner authorized intraday market monitoring and signal-driven research: public ticker/order-book subscriptions, completed 5-minute candles in MarketData-owned SQL storage, one-minute deterministic research alerts, and deduplicated AI assessments with a 15-minute cooldown plus hourly review. These alerts never approve or submit orders. Additive schedule columns and the separate MarketData database preserve existing Portfolio/Team data.
 
 - Owner authorized completing the reviewed pipeline on 2026-10-13: read-only market research, account-isolated reports and memory, one validated AI spot LIMIT proposal per report, human Approve submission, and read-only broker-status reconciliation. AI and background jobs never approve or submit broker orders. Preserve legacy records and account provenance; unknown outcomes never authorize retries.

@@ -29,7 +29,16 @@ if (File.Exists(environmentFile))
         }
 
         var name = line[..separator].Trim();
-        if (name is not ("BITKUB_API_KEY" or "BITKUB_API_SECRET"))
+        if (
+            name
+            is not (
+                "BITKUB_API_KEY"
+                or "BITKUB_API_SECRET"
+                or "TELEGRAM_BOT_TOKEN"
+                or "TELEGRAM_USER_ID"
+                or "TELEGRAM_CHAT_ID"
+            )
+        )
         {
             continue;
         }
@@ -54,6 +63,36 @@ builder.Services.AddSingleton<IOrderStore>(orders);
 builder.Services.AddSingleton<IReadOnlyOrderStore>(orders);
 builder.Services.AddHostedService<OrderStatusMonitor>();
 builder.Services.AddSingleton(TimeProvider.System);
+if (!string.IsNullOrWhiteSpace(Credential("TELEGRAM_BOT_TOKEN")))
+{
+    if (
+        !long.TryParse(Credential("TELEGRAM_USER_ID"), out var telegramUserId)
+        || !long.TryParse(Credential("TELEGRAM_CHAT_ID"), out var telegramChatId)
+        || telegramUserId <= 0
+        || telegramChatId <= 0
+        || telegramUserId != telegramChatId
+    )
+    {
+        throw new InvalidOperationException("Configure Telegram owner/private chat IDs before enabling order reviews.");
+    }
+
+    var telegramSettings = new TelegramSettings(Credential("TELEGRAM_BOT_TOKEN"), telegramUserId, telegramChatId);
+    var notifications = new SqlOrderNotificationStore(connectionString, accountKey);
+    await notifications.Initialize(CancellationToken.None);
+    builder.Services.AddSingleton(telegramSettings);
+    builder.Services.AddSingleton<IOrderNotificationStore>(notifications);
+    builder.Services.AddScoped<IHumanOrderReview, MediatorHumanOrderReview>();
+    builder
+        .Services.AddHttpClient<ITelegramTransport, TelegramTransport>(http =>
+        {
+            http.BaseAddress = new Uri("https://api.telegram.org/");
+            http.Timeout = TimeSpan.FromSeconds(15);
+        })
+        .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler { AllowAutoRedirect = false });
+    builder.Services.AddSingleton<TelegramOrderReviews>();
+    builder.Services.AddHostedService<TelegramReviewWorker>();
+}
+
 builder.Services.AddSingleton<IPortfolioRepository>(store);
 builder.Services.AddSingleton<IReadOnlyPortfolioRepository>(store);
 builder.Services.AddSingleton(credentials);
@@ -65,6 +104,7 @@ builder
         http.DefaultRequestHeaders.Accept.ParseAdd("application/json");
     })
     .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler { AllowAutoRedirect = false });
+builder.Services.AddTransient<IAccountEvidenceReader>(services => services.GetRequiredService<BitkubAccountReader>());
 builder
     .Services.AddHttpClient<IOrderBroker, BitkubOrderBroker>(http =>
     {

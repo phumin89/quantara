@@ -9,6 +9,8 @@ using Quantara.Portfolio.Infrastructure;
 await OrderChecks.Run();
 await OrderRecoveryChecks.Run();
 await OrderSourceChecks.Run();
+await AccountEvidenceChecks.Run();
+await TelegramReviewChecks.Run();
 
 static void Check(bool condition, string name)
 {

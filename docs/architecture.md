@@ -51,6 +51,36 @@ transfers, withdrawals or RiskEngine.
 
 ## Individually reviewed orders
 
+Telegram is an additional human review channel on Portfolio. A private-chat
+button is accepted only for the configured owner, account-scoped notification
+nonce and exact Telegram message ID. Real cards explicitly say REAL ORDER;
+mock callback data never matches the real protocol. The adapter dispatches the
+same Mediator approval/rejection handlers as the web screen, exclusively after
+a verified individual human click. No scheduled job or AI decision supplies
+that approval. Both channels use the proposal's existing three-minute deadline.
+
+Portfolio owns additive OrderNotifications and TelegramCursors tables. Delivery
+is reserved before sending, and review is claimed/audited before dispatch. A
+delivery timeout or crash before recording its message ID is not automatically
+resent; use the web screen. A crash after recording a review never replays its
+submission: the web screen and existing broker reconciliation remain the
+recovery path. Display retries cannot re-submit. Bot credentials stay in the
+Portfolio environment allowlist; API request exceptions/HTTP logs never expose
+their token-bearing paths. The server must remain running and online; Telegram
+long polling does not expose the web API publicly. No webhook is installed.
+
+Team obtains account-scoped fresh wallet evidence through Portfolio's read-only
+GET /api/crypto/account/evidence. Collection rejects observations older than
+60 seconds or more than five seconds ahead; after sequential AI reports the
+proposal window is ten minutes, with another fresh broker balance read at final
+approval. Buy and sell budgets use Available, never reserved/total balances.
+Imported positions, cost basis and valuations keep their original timestamps.
+Zero balances are explicitly omitted from model context to preserve its size
+budget. The published THB 0.25% baseline is sourced and dated; future fill fees,
+credits, execution and tax remain estimates or unknown, not realized profit.
+Disabling Telegram leaves web review and all existing history intact. Rolling
+back binaries retains the additive tables; no ownership/schema wipe is needed.
+
 Daily Brief includes compact current trade proposal messages, independent of
 the selected report date. Each message shows exact spend (THB for buys), base
 quantity (for sells), immutable limit price in THB per coin, estimated THB fee,

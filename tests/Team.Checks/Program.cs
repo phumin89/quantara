@@ -28,7 +28,12 @@ static async Task Success()
     var worker = new FakeCodexWorker((role, _, _) => Task.FromResult($"{role}-output"));
     await using var coordinator = await Start(store, worker);
     var run = await coordinator.Start("objective", CancellationToken.None);
-    var result = await store.WaitFor(run.Id, item => item.Status == TeamRunStatus.Completed, TimeoutToken());
+    var result = await store.WaitFor(
+        run.Id,
+        item => item.Status is TeamRunStatus.Completed or TeamRunStatus.Failed,
+        TimeoutToken()
+    );
+    Check(result.Status == TeamRunStatus.Completed, "team pipeline completed: " + result.Error);
     Check(
         worker.Calls.Count == 3
             && worker.Calls[1].Previous[0].Output == "ceo-output"
@@ -136,7 +141,12 @@ static async Task ProposalPublication()
     var store = new FakeTeamRunStore();
     await using var coordinator = await Start(store, worker, publisher);
     var run = await coordinator.Start("proposal", CancellationToken.None);
-    var result = await store.WaitFor(run.Id, item => item.Status == TeamRunStatus.Completed, TimeoutToken());
+    var result = await store.WaitFor(
+        run.Id,
+        item => item.Status is TeamRunStatus.Completed or TeamRunStatus.Failed,
+        TimeoutToken()
+    );
+    Check(result.Status == TeamRunStatus.Completed, "proposal pipeline completed: " + result.Error);
     Check(publisher.Calls.Count == 1 && publisher.Calls[0].RunId == run.Id, "reviewer proposal publishes once");
     Check(result.AccountKey == new string('a', 64), "proposal account binding");
 
@@ -164,9 +174,52 @@ static async Task ProposalPublication()
     var failed = await failingStore.WaitFor(failingRun.Id, item => item.Status == TeamRunStatus.Failed, TimeoutToken());
     Check(failed.Status == TeamRunStatus.Failed, "publisher failure visible");
 
+    var walletObservedAt = DateTimeOffset.UtcNow;
     var context =
-        $"{{\"evidence\":{{\"marketResearch\":{{\"available\":true,\"fetchedAt\":\"{FakePortfolioSnapshotReader.FetchedAt:O}\",\"markets\":[{{\"symbol\":\"BTC_THB\",\"last\":100,\"bid\":99.9,\"ask\":100.1}}]}},\"summary\":{{\"availableThb\":200}},\"positions\":[{{\"symbol\":\"BTC\",\"quantity\":1}}]}}}}";
+        $"{{\"evidence\":{{\"accountKey\":\"{new string('a', 64)}\",\"walletEvidence\":{{\"accountKey\":\"{new string('a', 64)}\",\"observedAt\":\"{walletObservedAt:O}\",\"balances\":[{{\"symbol\":\"THB\",\"quantity\":1000,\"available\":700}},{{\"symbol\":\"BTC\",\"quantity\":1,\"available\":1}}]}},\"marketResearch\":{{\"available\":true,\"fetchedAt\":\"{FakePortfolioSnapshotReader.FetchedAt:O}\",\"markets\":[{{\"symbol\":\"BTC_THB\",\"last\":100,\"bid\":99.9,\"ask\":100.1}}]}},\"summary\":{{\"availableThb\":200}},\"positions\":[{{\"symbol\":\"BTC\",\"quantity\":1}}]}}}}";
     TradeProposalValidator.Validate(proposal, context);
+    foreach (
+        var invalidContext in new[]
+        {
+            context.Replace(
+                $"\"walletEvidence\":{{\"accountKey\":\"{new string('a', 64)}\"",
+                $"\"walletEvidence\":{{\"accountKey\":\"{new string('b', 64)}\"",
+                StringComparison.Ordinal
+            ),
+            context.Replace(
+                $"\"observedAt\":\"{walletObservedAt:O}\"",
+                $"\"observedAt\":\"{walletObservedAt.AddMinutes(-11):O}\"",
+                StringComparison.Ordinal
+            ),
+            context.Replace("\"available\":700", "\"available\":null", StringComparison.Ordinal),
+        }
+    )
+    {
+        var rejectedWallet = false;
+        try
+        {
+            TradeProposalValidator.Validate(proposal, invalidContext);
+        }
+        catch (InvalidOperationException)
+        {
+            rejectedWallet = true;
+        }
+
+        Check(rejectedWallet, "wallet evidence rejects stale, wrong-account or unavailable cash");
+    }
+
+    var reservedContext = context.Replace("\"available\":700", "\"available\":0", StringComparison.Ordinal);
+    var reservedRejected = false;
+    try
+    {
+        TradeProposalValidator.Validate(proposal with { Amount = "0.01" }, reservedContext);
+    }
+    catch (InvalidOperationException)
+    {
+        reservedRejected = true;
+    }
+
+    Check(reservedRejected, "wallet evidence never spends reserved cash");
     foreach (
         var invalid in new[]
         {
@@ -180,7 +233,7 @@ static async Task ProposalPublication()
             },
             proposal with
             {
-                Amount = "201",
+                Amount = "701",
             },
         }
     )

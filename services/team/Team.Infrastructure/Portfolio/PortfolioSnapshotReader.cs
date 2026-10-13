@@ -24,6 +24,7 @@ public sealed class PortfolioSnapshotReader : IPortfolioSnapshotReader
     public async Task<string> Read(CancellationToken cancellationToken)
     {
         var accountKey = await new CurrentAccountReader(this.http).Read(cancellationToken);
+        var wallet = await this.ReadWalletEvidence(accountKey, cancellationToken);
         using var response = await this.http.GetAsync("api/crypto/portfolio", cancellationToken);
         response.EnsureSuccessStatusCode();
         await using var stream = await response.Content.ReadAsStreamAsync(cancellationToken);
@@ -72,11 +73,12 @@ public sealed class PortfolioSnapshotReader : IPortfolioSnapshotReader
             new
             {
                 accountKey,
+                walletEvidence = wallet.Evidence,
                 positions,
                 summary = new
                 {
                     totalAssets = PortfolioSnapshotReader.OptionalDecimal(summary, "totalAssets"),
-                    availableThb = PortfolioSnapshotReader.OptionalDecimal(summary, "availableThb"),
+                    availableThb = wallet.AvailableThb,
                     holdingCount = PortfolioSnapshotReader.OptionalDecimal(summary, "holdingCount"),
                     currency = "THB",
                     totalAssetsDefinition = "Market value of coin positions only; available THB cash is reported separately and is excluded.",
@@ -106,6 +108,84 @@ public sealed class PortfolioSnapshotReader : IPortfolioSnapshotReader
         }
 
         return json;
+    }
+
+    private async Task<(JsonElement Evidence, decimal? AvailableThb)> ReadWalletEvidence(
+        string accountKey,
+        CancellationToken cancellationToken
+    )
+    {
+        using var response = await this.http.GetAsync("api/crypto/account/evidence", cancellationToken);
+        response.EnsureSuccessStatusCode();
+        await using var stream = await response.Content.ReadAsStreamAsync(cancellationToken);
+        using var document = await JsonDocument.ParseAsync(stream, cancellationToken: cancellationToken);
+        var root = document.RootElement;
+        if (root.GetProperty("accountKey").GetString() != accountKey)
+        {
+            throw new InvalidOperationException("Wallet evidence belongs to a different account.");
+        }
+
+        var observedAt = root.GetProperty("observedAt").GetDateTimeOffset();
+        var age = DateTimeOffset.UtcNow - observedAt;
+        if (age > TimeSpan.FromSeconds(60) || age < TimeSpan.FromSeconds(-5))
+        {
+            throw new InvalidOperationException("Wallet evidence is stale or from the future.");
+        }
+
+        var symbols = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var relevantBalances = new List<JsonElement>();
+        decimal? availableThb = null;
+        foreach (var balance in root.GetProperty("balances").EnumerateArray())
+        {
+            var symbol = balance.GetProperty("symbol").GetString();
+            var quantity = balance.GetProperty("quantity").GetDecimal();
+            var available = PortfolioSnapshotReader.OptionalDecimal(balance, "available");
+            if (
+                string.IsNullOrWhiteSpace(symbol)
+                || symbol.Length > 30
+                || !symbol.All(char.IsAsciiLetterOrDigit)
+                || !symbols.Add(symbol)
+                || quantity < 0
+                || (available is not null && (available < 0 || available > quantity))
+            )
+            {
+                throw new InvalidOperationException("Wallet evidence contains an invalid balance.");
+            }
+
+            if (symbol.Equals("THB", StringComparison.OrdinalIgnoreCase))
+            {
+                availableThb = available;
+            }
+
+            if (quantity > 0 || symbol.Equals("THB", StringComparison.OrdinalIgnoreCase))
+            {
+                relevantBalances.Add(
+                    JsonSerializer.SerializeToElement(
+                        new
+                        {
+                            symbol,
+                            quantity,
+                            available,
+                        }
+                    )
+                );
+            }
+        }
+
+        return (
+            JsonSerializer.SerializeToElement(
+                new
+                {
+                    accountKey,
+                    observedAt,
+                    balances = relevantBalances,
+                    sourceBalanceCount = symbols.Count,
+                    omittedZeroBalanceCount = symbols.Count - relevantBalances.Count,
+                    fee = root.GetProperty("fee").Clone(),
+                }
+            ),
+            availableThb
+        );
     }
 
     public async Task EnsureReady(CancellationToken cancellationToken)

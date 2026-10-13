@@ -2,13 +2,16 @@ using System.Globalization;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using Quantara.Portfolio.Application;
 using Quantara.Portfolio.Domain;
 
 namespace Quantara.Portfolio.Infrastructure;
 
 // This adapter only sends GET requests to the documented read endpoints.
-public sealed class BitkubAccountReader(HttpClient http, BitkubCredentials credentials)
+public sealed class BitkubAccountReader(HttpClient http, BitkubCredentials credentials) : IAccountEvidenceReader
 {
+    public Task<Balance[]> ReadBalances(CancellationToken cancellationToken) => this.Balances(cancellationToken);
+
     public async Task<Balance[]> Balances(CancellationToken cancellationToken)
     {
         using var json = await this.Get("/api/v4/wallet/balances", true, cancellationToken);
