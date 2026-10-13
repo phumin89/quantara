@@ -24,6 +24,7 @@ import { TeamRunStatus } from '../../contracts/TeamRunStatus';
 import { CompanyLoopStatus } from '../../contracts/CompanyLoopStatus';
 import type { DailyBriefPageState } from './DailyBriefPageState';
 import OrderReviewPanel from '../../../orders/components/order-review-panel/OrderReviewPanel';
+import BriefMessage from '../brief-message/BriefMessage';
 
 export default class DailyBriefPage extends Component<
   object,
@@ -560,16 +561,7 @@ export default class DailyBriefPage extends Component<
                             maxWidth: '75ch',
                           }}
                         >
-                          <Typography
-                            variant="body2"
-                            sx={{
-                              whiteSpace: 'pre-wrap',
-                              overflowWrap: 'anywhere',
-                              lineHeight: 1.7,
-                            }}
-                          >
-                            {step.output}
-                          </Typography>
+                          <BriefMessage output={step.output} />
                         </Box>
                       )}
                       {step.error && (
@@ -630,20 +622,14 @@ export default class DailyBriefPage extends Component<
             >
               Reviewer report · {run.objective}
             </Typography>
-            <Typography
-              variant="body2"
-              sx={{
-                mt: 1,
-                whiteSpace: 'pre-wrap',
-                overflowWrap: 'anywhere',
-                lineHeight: 1.7,
-              }}
-            >
-              {
-                run.steps.find((step) => step.role === TeamRole.Reviewer)
-                  ?.output
-              }
-            </Typography>
+            <Box sx={{ mt: 1 }}>
+              <BriefMessage
+                output={
+                  run.steps.find((step) => step.role === TeamRole.Reviewer)
+                    ?.output ?? ''
+                }
+              />
+            </Box>
           </Box>
         ))}
       </Stack>

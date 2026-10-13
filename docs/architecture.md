@@ -159,7 +159,13 @@ time (UTC+07:00), ordered by creation time and ID. SQL schema and retained histo
 are unchanged. The supported date range is 1970-01-01 through 9999-12-30.
 
 The conversation displays recorded role outputs as plain text; these are reports,
-not an invented chat transcript. Only task creation times are shown because step
+not an invented chat transcript. BriefMessage previews up to three lines and
+provides a native keyboard-accessible Full report disclosure for longer outputs,
+including Reviewer summaries. Existing stored text is preserved. New worker
+reports start with three short Caveman-lite Thai lines: conclusion, evidence or
+uncertainty, and next action; calculations, sources and the required task ledger
+follow separately. Previewing old reports does not generate a new summary.
+Only task creation times are shown because step
 timestamps are not stored. The summary area displays recorded Reviewer outputs,
 not a newly generated daily synthesis. Members show selected-day task status,
 not online presence. Date changes cancel prior reads, historical days never poll,

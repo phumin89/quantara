@@ -41,6 +41,14 @@ assert.throws(
 );
 assert(CodexTeamWorker.prompt(input).includes('stable task IDs'));
 assert(
+  CodexTeamWorker.prompt(input).includes('Use Caveman lite for Daily Brief'),
+);
+assert(
+  CodexTeamWorker.prompt(input).includes(
+    'required task ledger after a blank line',
+  ),
+);
+assert(
   CodexTeamWorker.prompt(input).includes(
     'never claim you called tools yourself',
   ),

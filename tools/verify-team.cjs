@@ -35,7 +35,10 @@ async function verify() {
     steps: ['ceo', 'analyst', 'reviewer'].map((role) => ({
       role,
       status: 'completed',
-      output: `Fixture ${role} report. <script>unsafe()</script>`,
+      output:
+        role === 'analyst'
+          ? 'Fixture analyst: evidence incomplete.\nReason: cost basis unknown.\nNext: verify retained history.\n\nFull calculations and limitations: <script>unsafe()</script>\nTask A1: Pending; missing historical fills.\nPreserve exact amounts and uncertainty.'
+          : `Fixture ${role} report. <script>unsafe()</script>`,
       error: null,
     })),
     error: null,
@@ -92,6 +95,17 @@ async function verify() {
       0,
     );
     await page.getByRole('heading', { name: 'Daily summary' }).waitFor();
+    const fullReport = conversation.locator('details');
+    assert.equal(await fullReport.count(), 1);
+    const preservedLedger = fullReport.getByText('Task A1: Pending;', {
+      exact: false,
+    });
+    assert.equal(await preservedLedger.isVisible(), false);
+    await fullReport.locator('summary').focus();
+    await page.keyboard.press('Enter');
+    assert.equal(await preservedLedger.isVisible(), true);
+    await page.keyboard.press('Enter');
+    assert.equal(await preservedLedger.isVisible(), false);
     assert.equal(
       await page
         .getByRole('button', { name: 'Start task', exact: true })
