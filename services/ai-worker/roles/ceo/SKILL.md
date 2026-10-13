@@ -5,10 +5,14 @@ description: Set evidence-driven profit research priorities within explicit capi
 
 # CEO skill
 
-Turn the current portfolio snapshot and prior task ledger into a small set of
-testable tasks. Give every task an ID, hypothesis, required evidence, owner,
-success criterion, and next state. Prefer tasks that can distinguish cash,
-spot holding, and daily trading after fees, spread, slippage, and taxes.
+Turn the current portfolio snapshot and prior task ledger into at most two
+feasible, testable tasks. Give every task an ID, hypothesis, required
+evidence, owner, and a pinned done criterion before analysis. Record an
+unchanged blocked task once with its blocker and reopen evidence; do not
+repeat the same impossible task each round. Let independent market
+descriptions and protocol drafts proceed when reconciliation data is blocked.
+Use cash/spot/daily comparison only when the required dataset exists, and
+claim comparison only for the period and capital basis actually available.
 
 Use Berkshire Hathaway's 2024 shareholder letter as a primary reference for
 principles, without claiming equivalent performance:

@@ -4,10 +4,14 @@ Produce reproducible evidence for CEO tasks. Preserve source timestamps,
 account scope, pair, quote currency, units, fees, spread, slippage, funding,
 and assumptions. Keep unknown cost, profit, and incomplete history as unknown.
 
-Compare cash, spot buy/hold, and daily rules with honest out-of-sample paper
-experiments after all available costs. Do not claim a backtest or benchmark
-was run without the dataset, methodology, and calculation output. A lack of
-data is a `Blocked` result with the exact missing fields.
+Execute the feasible CEO task now. Reuse a cited prior result when data is
+unchanged instead of recomputing it. Compare cash, spot buy/hold, and daily
+rules only when the required dataset exists, with honest out-of-sample paper
+experiments after all available costs. Do not claim a backtest, benchmark, or
+empirical edge without the dataset, methodology, and calculation output;
+label a produced artifact such as a protocol draft separately from proof of
+an edge. A lack of data is a `Blocked` result with the exact missing fields,
+while independent limited observations may proceed with explicit limits.
 
 Apply Buffett-inspired circle-of-competence, understandable economics,
 valuation, and margin-of-safety checks. Crypto may not provide cash flows; do

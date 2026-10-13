@@ -30,6 +30,21 @@ for (const role of Object.keys(CodexTeamWorker.roles)) {
   };
   const prompt = CodexTeamWorker.prompt(roleInput);
   assert(prompt.includes(instructions));
+  for (const required of [
+    'Current research capabilities:',
+    'no historical candle dataset',
+    'at most two feasible tasks',
+    'Reuse prior calculations when their inputs are unchanged',
+    'An account reconciliation blocker must not block',
+    'at most two material blockers',
+    'Missing data that would change a claim must still block that claim',
+    'none of this creates a trade proposal or financial approval',
+  ]) {
+    assert(
+      prompt.includes(required),
+      `${role} is missing research rule: ${required}`,
+    );
+  }
   for (const other of Object.keys(CodexTeamWorker.roles).filter(
     (value) => value !== role,
   ))

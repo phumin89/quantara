@@ -141,6 +141,14 @@ references the prior run ID; the coordinator loads its full Reviewer output as
 untrusted context, including the task ledger. Roles retain stable task IDs and
 distinguish Done, Pending and Blocked from report completion. No schema change is
 required; the ledger remains recorded report text, not a separate task engine.
+Worker prompts state the current evidence/tool limits explicitly. Each round
+selects at most two feasible tasks with fixed completion criteria, reuses prior
+calculations when inputs are unchanged, and keeps unchanged blockers as compact
+ledger entries with reopening conditions. Reconciliation blockers do not block
+independent descriptive work. Reviewer raises at most two material blockers
+against the scoped claims; optional improvements do not move completion criteria.
+A completed protocol or limited observation is distinct from proven profitability.
+These are model instructions, not a deterministic guarantee of research quality.
 The server collects existing read-only Portfolio history over HTTP for at most
 10 coins and 20 recent retained fills each, with explicit truncation and availability.
 The snapshot defines THB units, BTC/THB-style pairs, ticker-price semantics and
