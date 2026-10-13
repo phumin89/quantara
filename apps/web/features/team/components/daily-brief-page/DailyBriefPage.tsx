@@ -23,6 +23,7 @@ import { TeamRole } from '../../contracts/TeamRole';
 import { TeamRunStatus } from '../../contracts/TeamRunStatus';
 import { CompanyLoopStatus } from '../../contracts/CompanyLoopStatus';
 import type { DailyBriefPageState } from './DailyBriefPageState';
+import OrderReviewPanel from '../../../orders/components/order-review-panel/OrderReviewPanel';
 
 export default class DailyBriefPage extends Component<
   object,
@@ -234,6 +235,7 @@ export default class DailyBriefPage extends Component<
             spacing={3}
             sx={{ minWidth: 0, order: { xs: 1, lg: 0 } }}
           >
+            <OrderReviewPanel />
             <Paper
               variant="outlined"
               sx={{ borderRadius: '8px', overflow: 'hidden' }}

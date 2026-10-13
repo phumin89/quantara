@@ -2,22 +2,22 @@ const assert = require('node:assert/strict');
 const { chromium } = require('playwright');
 
 async function verifyContracts() {
+  const url = process.env.TEST_URL || 'http://127.0.0.1:3000';
   const browser = await chromium.launch({
     channel: process.env.PLAYWRIGHT_CHANNEL,
   });
   try {
     const page = await browser.newPage();
     const invalidSymbol = await page.request.get(
-      'http://127.0.0.1:3000/api/crypto/history?coin=bad%2Fsymbol',
+      `${url}/api/crypto/history?coin=bad%2Fsymbol`,
     );
     assert.equal(invalidSymbol.status(), 400);
     assert.deepEqual(await invalidSymbol.json(), {
       error: 'Invalid coin symbol.',
     });
-    const crossOrigin = await page.request.post(
-      'http://127.0.0.1:3000/api/crypto/sync',
-      { headers: { origin: 'http://untrusted.invalid' } },
-    );
+    const crossOrigin = await page.request.post(`${url}/api/crypto/sync`, {
+      headers: { origin: 'http://untrusted.invalid' },
+    });
     assert.equal(crossOrigin.status(), 403);
     assert.deepEqual(await crossOrigin.json(), {
       error: 'Cross-origin sync is not allowed.',
@@ -28,7 +28,7 @@ async function verifyContracts() {
     await page.route('**/api/crypto/portfolio', (route) =>
       route.fulfill({ json: payload }),
     );
-    await page.goto('http://127.0.0.1:3000/crypto');
+    await page.goto(`${url}/crypto`);
     await page.getByRole('button', { name: 'Retry', exact: true }).waitFor();
     await page
       .getByRole('button', { name: 'Bitkub status: Error', exact: true })

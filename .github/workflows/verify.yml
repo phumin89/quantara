@@ -51,6 +51,7 @@ jobs:
       - run: npm run test:contracts
       - run: npm run test:lifecycle
       - run: npm run test:team-ui
+      - run: npm run test:orders
   secrets:
     runs-on: ubuntu-latest
     steps:

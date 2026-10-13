@@ -3,4 +3,5 @@ export enum ServiceKey {
   Portfolio = 'portfolio',
   History = 'history',
   Team = 'team',
+  Orders = 'orders',
 }

@@ -6,6 +6,7 @@ import type { IServiceContainer } from '../../../shared/di/IServiceContainer';
 import type { ServiceFactories } from '../../../shared/di/ServiceFactories';
 import { ServiceKey } from './ServiceKey';
 import type { ServiceRegistry } from './ServiceRegistry';
+import { OrdersService } from '../../../features/orders/services/OrdersService';
 
 export class ServiceBindings {
   public static readonly factories: ServiceFactories<ServiceRegistry> = {
@@ -13,6 +14,7 @@ export class ServiceBindings {
     [ServiceKey.Portfolio]: ServiceBindings.createPortfolio,
     [ServiceKey.History]: ServiceBindings.createHistory,
     [ServiceKey.Team]: ServiceBindings.createTeam,
+    [ServiceKey.Orders]: ServiceBindings.createOrders,
   };
 
   private static createRequest(this: void): RequestService {
@@ -38,5 +40,12 @@ export class ServiceBindings {
     container: IServiceContainer<ServiceRegistry>,
   ): TeamService {
     return new TeamService(container.resolve(ServiceKey.Request));
+  }
+
+  private static createOrders(
+    this: void,
+    container: IServiceContainer<ServiceRegistry>,
+  ): OrdersService {
+    return new OrdersService(container.resolve(ServiceKey.Request));
   }
 }

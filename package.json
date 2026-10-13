@@ -25,6 +25,7 @@
     "test:team": "dotnet run --project tests/Team.Checks/Team.Checks.csproj",
     "test:ai-worker": "node tools/verify-ai-worker.mjs",
     "test:team-ui": "node tools/verify-team.cjs",
+    "test:orders": "node tools/verify-orders.cjs",
     "test:architecture": "dotnet run --project tests/Architecture.Checks/Architecture.Checks.csproj && node tools/verify-architecture.cjs",
     "format": "npm run format:web && npm run format:dotnet",
     "format:web": "npm exec --workspace @quantara/web -- eslint app features shared --fix && prettier --write apps/web services/ai-worker tools .vscode package.json",

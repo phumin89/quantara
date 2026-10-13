@@ -1,9 +1,12 @@
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using Portfolio.Checks;
 using Quantara.Portfolio.Application;
 using Quantara.Portfolio.Domain;
 using Quantara.Portfolio.Infrastructure;
+
+await OrderChecks.Run();
 
 static void Check(bool condition, string name)
 {

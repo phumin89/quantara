@@ -3,6 +3,7 @@ const fs = require('node:fs/promises');
 const { chromium } = require('playwright');
 
 async function verifyCrypto() {
+  const url = process.env.TEST_URL || 'http://127.0.0.1:3000';
   const browser = await chromium.launch({
     headless: true,
     channel: process.env.PLAYWRIGHT_CHANNEL,
@@ -52,10 +53,7 @@ async function verifyCrypto() {
     : null;
   const fulfillFixture = (route) => route.fulfill({ json: fixture });
   const readSnapshot = async () =>
-    fixture ??
-    (
-      await page.request.get('http://127.0.0.1:3000/api/crypto/portfolio')
-    ).json();
+    fixture ?? (await page.request.get(`${url}/api/crypto/portfolio`)).json();
   if (fixture) {
     await page.route('**/api/crypto/portfolio', fulfillFixture);
     await page.route('**/api/crypto/history?*', (route) =>
@@ -83,7 +81,7 @@ async function verifyCrypto() {
       ['mobile', 390, 844],
     ]) {
       await page.setViewportSize({ width, height });
-      await page.goto('http://127.0.0.1:3000/crypto');
+      await page.goto(`${url}/crypto`);
       await page
         .getByRole('columnheader', { name: 'Coin', exact: true })
         .waitFor();

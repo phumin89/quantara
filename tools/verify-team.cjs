@@ -9,6 +9,9 @@ async function verify() {
     channel: process.env.PLAYWRIGHT_CHANNEL,
   });
   const page = await browser.newPage();
+  await page.route('**/api/crypto/orders', (route) =>
+    route.fulfill({ json: { proposals: [] } }),
+  );
   const errors = [];
   page.on('pageerror', (error) => errors.push(error.message));
   let failure = false;
@@ -143,6 +146,8 @@ async function verify() {
       ['small', 320, 640],
     ]) {
       await page.setViewportSize({ width, height });
+      await page.clock.runFor(300);
+      await page.waitForTimeout(100);
       assert(
         await page.evaluate(
           () =>

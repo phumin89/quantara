@@ -44,8 +44,55 @@ The existing Quantara SQL database remains exclusively owned by Portfolio. `Cryp
 MarketData defaults to port 5051, Portfolio to 5050, Team to 5052 and Web to 3000.
 Service addresses are configuration, not Domain dependencies. Broker credentials
 stay in Portfolio's server environment or the root .env allowlist. Startup does
-not authorize transactions. This slice has no orders, transfers, withdrawals or
-RiskEngine. Team produces reports through an isolated Codex SDK worker.
+not authorize transactions. Team produces reports through an isolated Codex SDK
+worker. Separately, Portfolio now supports individually human-reviewed THB spot
+limit orders. There are no automatic orders, market orders, derivatives,
+transfers, withdrawals or RiskEngine.
+
+## Individually reviewed orders
+
+Daily Brief includes a current Order review queue, independent of the selected
+report date. The owner manually creates a proposal and sees exact spend (THB
+for buys), base quantity (for sells), immutable limit price in THB per coin,
+reference price, estimated THB fee, reason and a three-minute approval deadline.
+The owner checks the exact-order review checkbox and clicks Approve & submit.
+Creating a proposal, polling, waiting and expiration cannot submit an order.
+The AI report pipeline does not generate proposals or call these endpoints.
+
+The class component receives OrdersService through its own Context and the lazy
+ServiceContainer. Zod validates transport enums, decimal strings and timestamps.
+Next.js proxies guarded local-origin requests to thin OrdersController ->
+Mediator handlers. Keep this deployment on loopback; it is not a multi-user,
+remotely authenticated trading application. Broker credentials remain exclusively
+in Portfolio. Additive OrderProposals SQL storage uses the existing account-key
+partition without changing the portfolio ledger or its retained history.
+
+Approval reads live Bitkub spot rules, ticker and available balances. Invalid
+precision, price steps, minimum value, unavailable markets, insufficient balance,
+expiration or a reference-price move greater than 1% prevent submission. The
+approved amount and limit price are never adjusted. THB fees are estimated at
+0.25%, rounded upward to two decimals, before fee credits; buy fees are deducted
+from spend and sell fees from proceeds. Sources:
+https://github.com/bitkub/bitkub-official-api-docs/blob/master/rest-v3.md
+https://support.bitkub.com/en/solutions/articles?id=151000035191
+
+A serializable SQL claim moves Pending to Submitting before one signed broker
+POST, with a stable client_id derived from the proposal ID. Concurrent API hosts
+and tabs cannot claim the same proposal, and an in-flight or uncertain account
+submission blocks another claim. No HTTP POST retry is configured. A disconnected
+browser does not cancel outcome persistence. Success means Submitted, not filled;
+approval expiry does not cancel an accepted limit order. Open orders must be
+managed in Bitkub in this slice.
+
+Transport ambiguity becomes Unknown; failed outcome storage leaves Submitting.
+Neither state is resent on restart or repeated approval. They block further
+account submissions until explicitly reconciled; an in-app reconciliation tool
+is not implemented here. Check Bitkub and the stored client reference before
+operator reconciliation. Deterministic checks cover expiry during preflight,
+duplicate approval, late rejection, insufficient funds, price changes, unknown
+outcomes, storage failures and exact signed buy/sell bodies. Browser fixtures
+cover explicit review, timeout behavior, local-origin guards and three viewport
+sizes. These checks never use broker secrets or send real orders.
 
 Team owns its own SQL Server database and retained run/step state. Its thin
 controller delegates to Mediator query/command handlers. Read handlers receive

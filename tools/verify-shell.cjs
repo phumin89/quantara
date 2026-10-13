@@ -3,6 +3,7 @@ const fs = require('node:fs/promises');
 const { chromium } = require('playwright');
 
 async function verifyShell() {
+  const url = process.env.TEST_URL || 'http://127.0.0.1:3000';
   const browser = await chromium.launch({
     headless: true,
     channel: process.env.PLAYWRIGHT_CHANNEL,

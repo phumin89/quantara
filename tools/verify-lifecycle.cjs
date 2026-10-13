@@ -2,6 +2,7 @@ const assert = require('node:assert/strict');
 const { chromium } = require('playwright');
 
 async function verify() {
+  const url = process.env.TEST_URL || 'http://127.0.0.1:3000';
   const browser = await chromium.launch({
     channel: process.env.PLAYWRIGHT_CHANNEL,
   });
@@ -46,7 +47,7 @@ async function verify() {
       }
       await route.fulfill({ json: snapshot });
     });
-    await page.goto('http://127.0.0.1:3000/crypto');
+    await page.goto(`${url}/crypto`);
     await page
       .getByRole('button', { name: 'Bitkub status: Syncing' })
       .waitFor();

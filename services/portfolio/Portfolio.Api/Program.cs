@@ -6,6 +6,7 @@ using Quantara.Portfolio.Infrastructure;
 
 var builder = WebApplication.CreateBuilder(args);
 builder.WebHost.UseUrls("http://127.0.0.1:5050");
+builder.WebHost.ConfigureKestrel(options => options.Limits.MaxRequestBodySize = 8192);
 builder.Logging.AddFilter("System.Net.Http.HttpClient", LogLevel.Warning);
 var taskDirectory = new DirectoryInfo(builder.Environment.ContentRootPath);
 while (taskDirectory is not null && !File.Exists(Path.Combine(taskDirectory.FullName, "Quantara.sln")))
@@ -46,6 +47,11 @@ var connectionString =
     ?? "Server=(localdb)\\MSSQLLocalDB;Database=Quantara;Integrated Security=true;Encrypt=true;TrustServerCertificate=true;";
 var store = new SqlPortfolioRepository(connectionString, accountKey);
 await store.Initialize(configuredConnection is null, CancellationToken.None);
+var orders = new SqlOrderStore(connectionString, accountKey);
+await orders.Initialize(CancellationToken.None);
+builder.Services.AddSingleton<IOrderStore>(orders);
+builder.Services.AddSingleton<IReadOnlyOrderStore>(orders);
+builder.Services.AddSingleton(TimeProvider.System);
 builder.Services.AddSingleton<IPortfolioRepository>(store);
 builder.Services.AddSingleton<IReadOnlyPortfolioRepository>(store);
 builder.Services.AddSingleton(credentials);
@@ -55,6 +61,13 @@ builder
         http.BaseAddress = new Uri("https://api.bitkub.com");
         http.Timeout = TimeSpan.FromSeconds(20);
         http.DefaultRequestHeaders.Accept.ParseAdd("application/json");
+    })
+    .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler { AllowAutoRedirect = false });
+builder
+    .Services.AddHttpClient<IOrderBroker, BitkubOrderBroker>(http =>
+    {
+        http.BaseAddress = new Uri("https://api.bitkub.com");
+        http.Timeout = TimeSpan.FromSeconds(20);
     })
     .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler { AllowAutoRedirect = false });
 var marketDataUrl = new Uri(builder.Configuration["Services:MarketDataUrl"] ?? "http://127.0.0.1:5051");
@@ -85,11 +98,54 @@ app.Use(
     async (context, next) =>
     {
         context.Response.Headers.CacheControl = "no-store";
+        if (context.Request.Path.StartsWithSegments("/api/crypto/orders"))
+        {
+            var origin = context.Request.Headers.Origin.ToString();
+            var localHost = context.Request.Host.Host is "127.0.0.1" or "localhost" or "[::1]";
+            var allowedOrigin =
+                string.IsNullOrEmpty(origin) || origin is "http://127.0.0.1:3000" or "http://localhost:3000";
+            var mutation = !HttpMethods.IsGet(context.Request.Method);
+            if (
+                !localHost
+                || !allowedOrigin
+                || context.Request.Headers["Sec-Fetch-Site"] == "cross-site"
+                || (
+                    mutation
+                    && (
+                        context.Request.Headers["X-Quantara-Order-Action"] != "review"
+                        || context.Request.ContentType?.StartsWith(
+                            "application/json",
+                            StringComparison.OrdinalIgnoreCase
+                        ) != true
+                    )
+                )
+            )
+            {
+                context.Response.StatusCode = 403;
+                await context.Response.WriteAsJsonAsync(
+                    new { error = "Use the local order review screen to perform this action." }
+                );
+                return;
+            }
+
+            if (context.Request.ContentLength > 4000)
+            {
+                context.Response.StatusCode = 400;
+                await context.Response.WriteAsJsonAsync(new { error = "Order request is too large." });
+                return;
+            }
+        }
+
         try
         {
             await next();
         }
         catch (OperationCanceledException) when (context.RequestAborted.IsCancellationRequested) { }
+        catch (OrderValidationException error)
+        {
+            context.Response.StatusCode = 409;
+            await context.Response.WriteAsJsonAsync(new { error = error.Message });
+        }
         catch (Exception)
         {
             context.Response.StatusCode = 503;
