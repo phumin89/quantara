@@ -320,19 +320,10 @@ public sealed class LiveMarketFeed : BackgroundService, IIntradayMarketReader
                 }
             } while (!result.EndOfMessage);
 
-            using var document = JsonDocument.Parse(message.ToArray());
-            if (
-                (
-                    Text(document.RootElement, "event")
-                    is "depthchanged"
-                        or "bidschanged"
-                        or "askschanged"
-                        or "tradeschanged"
-                )
-                && Number(document.RootElement, "pairing_id") == symbol.PairingId
-            )
+            var json = PublicBookParser.Parse(Encoding.UTF8.GetString(message.ToArray()), symbol.PairingId);
+            if (json is not null)
             {
-                this.SetDepth(symbol.Symbol, Encoding.UTF8.GetString(message.ToArray()));
+                this.SetDepth(symbol.Symbol, json);
             }
         }
     }

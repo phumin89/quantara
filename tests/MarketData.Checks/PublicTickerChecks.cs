@@ -6,6 +6,19 @@ public static class PublicTickerChecks
 {
     public static void Run()
     {
+        const string book = "{\"event\":\"bidschanged\",\"data\":[]}";
+        if (
+            PublicBookParser.Parse(book, 1) != book
+            || PublicBookParser.Parse("{\"event\":\"tradeschanged\",\"pairing_id\":2,\"data\":[]}", 1) is not null
+            || PublicBookParser.Parse("{\"event\":\"global.ticker\",\"data\":{}}", 1) is not null
+            || PublicBookParser.Parse("bad frame", 1) is not null
+        )
+        {
+            throw new InvalidOperationException(
+                "Book events must use socket identity without accepting mismatched or malformed frames."
+            );
+        }
+
         const string sample =
             "{\"stream\":\"market.ticker.thb_btc\",\"last\":2801093.36,\"lowestAsk\":2801105.95,\"highestBid\":2800562.82,\"isFrozen\":0}";
         var now = DateTimeOffset.UtcNow;
