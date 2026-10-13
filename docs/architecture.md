@@ -74,8 +74,17 @@ retained runs or Portfolio schema. New companies enable research under the owner
 checks dependencies every 30 seconds and never overlaps work or catches up missed
 rounds. A due round requests Portfolio's existing read-only sync before taking a
 snapshot; failed readiness retries the sync no sooner than five minutes. The CEO
-chooses analysis priorities from a fixed research mandate, and receives at most
-1000 characters of the prior Reviewer output as untrusted context. This does not
+chooses analysis priorities from a fixed research mandate. The persisted objective
+references the prior run ID; the coordinator loads its full Reviewer output as
+untrusted context, including the task ledger. Roles retain stable task IDs and
+distinguish Done, Pending and Blocked from report completion. No schema change is
+required; the ledger remains recorded report text, not a separate task engine.
+The server collects existing read-only Portfolio history over HTTP for at most
+10 coins and 20 recent retained fills each, with explicit truncation and availability.
+The snapshot defines THB units, BTC/THB-style pairs, ticker-price semantics and
+coin value excluding cash. History remains incomplete and unknown costs remain
+unknown. Models use this evidence; they do not call broker endpoints or tools.
+This does not
 create orders or financial authority. Stop/Resume use thin controller -> Mediator
 commands; the overview query receives IReadOnlyCompanyLoop. A saved stop survives
 restart; a failed save stops locally and exposes the unconfirmed persistence.

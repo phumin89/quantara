@@ -5,6 +5,7 @@ using Quantara.Team.Infrastructure;
 using Team.Checks;
 
 await Success();
+await ResearchMemory();
 await BusyAndUnrelatedStop();
 await Cancellation();
 await Failure();
@@ -32,6 +33,41 @@ static async Task Success()
     );
     Check(result.Steps.All(step => step.Status == TeamRunStatus.Completed), "success status");
     Check(worker.Calls.All(call => call.Portfolio is not null), "portfolio snapshot");
+}
+
+static async Task ResearchMemory()
+{
+    var store = new FakeTeamRunStore();
+    var priorId = Guid.NewGuid();
+    var review = new string('ก', 4000) + "TASK-001 Pending: inspect retained fills";
+    await store.Save(
+        new TeamRun(
+            priorId,
+            "old",
+            TeamRunStatus.Completed,
+            DateTimeOffset.UtcNow.AddDays(-3),
+            DateTimeOffset.UtcNow.AddDays(-3),
+            [new TeamStep(TeamRole.Reviewer, TeamRunStatus.Completed, review, null)],
+            null
+        ),
+        CancellationToken.None
+    );
+    var worker = new FakeCodexWorker((role, _, _) => Task.FromResult(role));
+    await using var coordinator = await Start(store, worker);
+    var run = await coordinator.Start($"Research. Previous review run ID: {priorId:D}", CancellationToken.None);
+    await store.WaitFor(run.Id, item => item.Status == TeamRunStatus.Completed, TimeoutToken());
+    foreach (var call in worker.Calls)
+    {
+        using var context = JsonDocument.Parse(call.Portfolio ?? throw new InvalidOperationException("No context"));
+        Check(
+            context.RootElement.GetProperty("priorReview").GetString() == review,
+            "full durable review beyond 1000 characters and across dates"
+        );
+        Check(
+            context.RootElement.GetProperty("evidence").GetProperty("positions").GetArrayLength() == 1,
+            "current evidence retained"
+        );
+    }
 }
 
 static async Task BusyAndUnrelatedStop()
@@ -255,6 +291,48 @@ static async Task SnapshotWhitelist()
     using var http = new HttpClient(handler) { BaseAddress = new Uri("http://portfolio.invalid/") };
     var reader = new PortfolioSnapshotReader(http);
     var result = await reader.Read(CancellationToken.None);
+    using var evidence = JsonDocument.Parse(result);
+    Check(
+        evidence.RootElement.GetProperty("summary").GetProperty("currency").GetString() == "THB",
+        "explicit monetary units"
+    );
+    Check(
+        !evidence.RootElement.GetProperty("history")[0].GetProperty("available").GetBoolean(),
+        "missing history is unavailable, not an empty verified ledger"
+    );
+    var history = JsonSerializer.Serialize(
+        new
+        {
+            coverage = "Incomplete retained history",
+            trades = Enumerable
+                .Range(0, 25)
+                .Select(index => new
+                {
+                    transactionId = index.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                    symbol = "BTC",
+                    side = "buy",
+                    quantity = 1m,
+                    price = 100m,
+                    fee = 0.25m,
+                    feeCredit = 0m,
+                    timestamp = "2026-10-12T00:00:00Z",
+                    secret = "private",
+                })
+                .ToArray(),
+        }
+    );
+    using var historyHandler = new SnapshotHttpHandler(JsonSerializer.Serialize(snapshot), history);
+    using var historyHttp = new HttpClient(historyHandler) { BaseAddress = new Uri("http://portfolio.invalid/") };
+    var enriched = await new PortfolioSnapshotReader(historyHttp).Read(CancellationToken.None);
+    using var enrichedJson = JsonDocument.Parse(enriched);
+    var retained = enrichedJson.RootElement.GetProperty("history")[0];
+    Check(
+        retained.GetProperty("available").GetBoolean()
+            && retained.GetProperty("truncated").GetBoolean()
+            && retained.GetProperty("trades").GetArrayLength() == 20,
+        "bounded retained trade evidence and explicit truncation"
+    );
+    Check(!enriched.Contains("private", StringComparison.Ordinal), "trade field whitelist");
     Check(
         !result.Contains("private", StringComparison.Ordinal)
             && !result.Contains("credentials", StringComparison.Ordinal),

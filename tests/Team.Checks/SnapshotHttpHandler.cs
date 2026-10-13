@@ -7,9 +7,12 @@ public sealed class SnapshotHttpHandler : HttpMessageHandler
 {
     private readonly string json;
 
-    public SnapshotHttpHandler(string json)
+    private readonly string? history;
+
+    public SnapshotHttpHandler(string json, string? history = null)
     {
         this.json = json;
+        this.history = history;
     }
 
     protected override Task<HttpResponseMessage> SendAsync(
@@ -20,7 +23,13 @@ public sealed class SnapshotHttpHandler : HttpMessageHandler
         return Task.FromResult(
             new HttpResponseMessage(HttpStatusCode.OK)
             {
-                Content = new StringContent(this.json, Encoding.UTF8, "application/json"),
+                Content = new StringContent(
+                    request.RequestUri?.AbsolutePath.EndsWith("/history", StringComparison.Ordinal) == true
+                        ? this.history ?? "{}"
+                        : this.json,
+                    Encoding.UTF8,
+                    "application/json"
+                ),
             }
         );
     }

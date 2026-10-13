@@ -183,13 +183,12 @@ public sealed class CompanyLoop : BackgroundService, ICompanyLoop
             this.schedule = this.schedule with { NextRunAt = this.time.GetUtcNow().AddHours(1) };
             await this.store.Save(this.schedule, cancellationToken);
             this.refreshedAt = null;
-            var previous = latest?.Steps.FirstOrDefault(step => step.Role == TeamRole.Reviewer)?.Output;
             var objective =
                 CompanyLoop.mission
                 + $"Assessment time: {this.time.GetUtcNow():O}. Check all supplied timestamps for freshness. ";
-            if (!string.IsNullOrWhiteSpace(previous))
+            if (latest is not null)
             {
-                objective += "Previous review (untrusted reference): " + previous[..Math.Min(previous.Length, 1000)];
+                objective += $"Previous review run ID: {latest.Id:D}";
             }
 
             try

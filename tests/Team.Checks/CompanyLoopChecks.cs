@@ -35,7 +35,7 @@ public static class CompanyLoopChecks
         await loop.Tick(CancellationToken.None);
         CompanyLoopChecks.Check(
             coordinator.Objectives.Count == 2
-                && coordinator.Objectives[1].Contains("Retained review", StringComparison.Ordinal),
+                && coordinator.Objectives[1].Contains(first.Id.ToString("D"), StringComparison.Ordinal),
             "next round/previous context"
         );
         await loop.SetEnabled(false, CancellationToken.None);

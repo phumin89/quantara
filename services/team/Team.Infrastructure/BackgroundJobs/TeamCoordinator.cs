@@ -1,3 +1,5 @@
+using System.Text.Encodings.Web;
+using System.Text.Json;
 using System.Threading.Channels;
 using Microsoft.Extensions.Hosting;
 using Quantara.Team.Application;
@@ -7,6 +9,11 @@ namespace Quantara.Team.Infrastructure;
 
 public sealed class TeamCoordinator : BackgroundService, ITeamCoordinator
 {
+    private static readonly JsonSerializerOptions jsonOptions = new()
+    {
+        Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
+    };
+
     private readonly Channel<Guid> queue = Channel.CreateBounded<Guid>(1);
 
     private readonly ITeamRunStore store;
@@ -215,6 +222,39 @@ public sealed class TeamCoordinator : BackgroundService, ITeamCoordinator
     private async Task ExecuteRun(Guid id, CancellationToken cancellationToken)
     {
         var snapshot = await this.portfolio.Read(cancellationToken);
+        var current =
+            await this.store.Find(id, cancellationToken) ?? throw new InvalidOperationException("Run missing.");
+        const string marker = "Previous review run ID: ";
+        var reference = current.Objective.LastIndexOf(marker, StringComparison.Ordinal);
+        TeamRun? prior = null;
+        if (
+            reference >= 0
+            && Guid.TryParseExact(current.Objective[(reference + marker.Length)..], "D", out var priorId)
+        )
+        {
+            prior = await this.store.Find(priorId, cancellationToken);
+            if (prior is not null && prior.CreatedAt >= current.CreatedAt)
+            {
+                prior = null;
+            }
+        }
+
+        snapshot = JsonSerializer.Serialize(
+            new
+            {
+                evidence = JsonSerializer.Deserialize<JsonElement>(snapshot),
+                priorReview = prior?.Steps.FirstOrDefault(step => step.Role == TeamRole.Reviewer)?.Output,
+                priorRunId = prior?.Id,
+                priorRunStatus = prior?.Status.ToString(),
+                priorUpdatedAt = prior?.UpdatedAt,
+            },
+            TeamCoordinator.jsonOptions
+        );
+        if (snapshot.Length > 60000)
+        {
+            throw new InvalidOperationException("Research context is too large.");
+        }
+
         var previous = new List<(string Role, string Output)>();
         foreach (var role in Enum.GetValues<TeamRole>())
         {

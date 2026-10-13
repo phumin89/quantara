@@ -8,6 +8,12 @@ const input = {
   previous: [],
   portfolio: '{"positions":[]}',
 };
+assert(CodexTeamWorker.prompt(input).includes('stable task IDs'));
+assert(
+  CodexTeamWorker.prompt(input).includes(
+    'never claim you called tools yourself',
+  ),
+);
 assert.throws(
   () => CodexTeamWorker.validate({ ...input, role: 'unknown' }),
   /Invalid worker input/,
