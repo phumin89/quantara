@@ -51,11 +51,12 @@ transfers, withdrawals or RiskEngine.
 
 ## Individually reviewed orders
 
-Daily Brief includes a current Order review queue, independent of the selected
-report date. The owner manually creates a proposal and sees exact spend (THB
-for buys), base quantity (for sells), immutable limit price in THB per coin,
-reference price, estimated THB fee, reason and a three-minute approval deadline.
-The owner checks the exact-order review checkbox and clicks Approve & submit.
+Daily Brief includes compact current trade proposal messages, independent of
+the selected report date. Each message shows exact spend (THB for buys), base
+quantity (for sells), immutable limit price in THB per coin, estimated THB fee,
+reason and a three-minute approval deadline. The owner clicks Approve or Reject;
+the Approve click explicitly confirms and submits that exact proposal. There is
+no manual proposal form or separate review checkbox in Daily Brief.
 Creating a proposal, polling, waiting and expiration cannot submit an order.
 The AI report pipeline does not generate proposals or call these endpoints.
 

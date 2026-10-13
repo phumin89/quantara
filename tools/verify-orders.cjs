@@ -35,6 +35,7 @@ async function verifyOrders() {
         : null,
   });
   let current = proposal();
+  let empty = false;
   page.on('pageerror', (error) => errors.push(error.message));
   page.on('request', (request) => {
     if (
@@ -62,7 +63,7 @@ async function verifyOrders() {
     route.fulfill({ json: { date: '2026-10-13', runs: [] } }),
   );
   await page.route('**/api/crypto/orders', (route) =>
-    route.fulfill({ json: { proposals: [current] } }),
+    route.fulfill({ json: { proposals: empty ? [] : [current] } }),
   );
   await page.route('**/api/crypto/orders/**', async (route) => {
     assert.equal(route.request().method(), 'POST');
@@ -79,13 +80,15 @@ async function verifyOrders() {
     await page.goto(url + '/daily-brief');
     await page.getByText('Fixture proposal', { exact: false }).waitFor();
     const approve = page.getByRole('button', {
-      name: 'Approve & submit',
+      name: 'Approve',
       exact: true,
     });
-    assert.equal(await approve.isDisabled(), true);
-    await page
-      .getByRole('checkbox', { name: 'I reviewed this exact order' })
-      .check();
+    assert.equal(await approve.isDisabled(), false);
+    assert.equal(await page.getByRole('checkbox').count(), 0);
+    assert.equal(
+      await page.getByRole('textbox', { name: 'Symbol' }).count(),
+      0,
+    );
     const approvalRequest = page.waitForRequest((request) =>
       request.url().endsWith('/approve'),
     );
@@ -113,9 +116,7 @@ async function verifyOrders() {
     current = proposal();
     await page.clock.setSystemTime(new Date('2026-10-13T04:00:00Z'));
     await page.reload();
-    await page
-      .getByRole('checkbox', { name: 'I reviewed this exact order' })
-      .check();
+    await page.getByText('Fixture proposal', { exact: false }).waitFor();
     await page.clock.runFor(181000);
     await page.getByText('Expired', { exact: true }).waitFor();
     assert.equal(await approve.isDisabled(), true);
@@ -144,6 +145,30 @@ async function verifyOrders() {
         name + ' has no horizontal page overflow',
       );
     }
+    empty = true;
+    await page.reload();
+    await page.getByText('No order proposals.', { exact: true }).waitFor();
+    current = {
+      ...proposal(),
+      side: 'sell',
+      amount: '0.001',
+      notionalThb: '2800',
+      estimatedFeeThb: '7.00',
+    };
+    empty = false;
+    await page.clock.runFor(6000);
+    await page.getByText('Sell 0.001 BTC at limit', { exact: false }).waitFor();
+    await page
+      .getByText('Approx. proceeds 2,800 THB', { exact: false })
+      .waitFor();
+    await page.getByRole('button', { name: 'Reject', exact: true }).click();
+    await page.getByText('rejected', { exact: true }).waitFor();
+    assert.equal(
+      writes.length,
+      2,
+      'new proposal appears and Reject sends only one action',
+    );
+    assert(writes[1].url().endsWith('/reject'));
     assert.deepEqual(errors, []);
     // These requests are refused before any broker access. Never exercise a real approval.
     const crossOrigin = await fetch(url + '/api/crypto/orders', {

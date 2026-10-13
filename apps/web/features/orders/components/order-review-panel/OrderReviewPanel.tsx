@@ -1,33 +1,13 @@
 'use client';
 
-import {
-  Component,
-  type ChangeEvent,
-  type ContextType,
-  type ReactNode,
-} from 'react';
-import {
-  Alert,
-  Box,
-  Button,
-  Checkbox,
-  Chip,
-  Divider,
-  FormControlLabel,
-  MenuItem,
-  Paper,
-  Stack,
-  TextField,
-  Typography,
-} from '@mui/material';
-import AddTaskOutlinedIcon from '@mui/icons-material/AddTaskOutlined';
+import { Component, type ContextType, type ReactNode } from 'react';
+import { Alert, Box, Button, Paper, Stack, Typography } from '@mui/material';
 import CheckCircleOutlineOutlinedIcon from '@mui/icons-material/CheckCircleOutlineOutlined';
 import BlockOutlinedIcon from '@mui/icons-material/BlockOutlined';
 import { OrdersServiceContext } from '../../context/OrdersServiceContext';
 import type { OrderView } from '../../contracts/OrderView';
 import { OrderSide } from '../../contracts/OrderSide';
 import { OrderStatus } from '../../contracts/OrderStatus';
-import type { OrderDraft } from '../../contracts/OrderDraft';
 import type { OrderReviewPanelState } from './OrderReviewPanelState';
 
 export default class OrderReviewPanel extends Component<
@@ -54,18 +34,13 @@ export default class OrderReviewPanel extends Component<
     loading: true,
     error: null,
     busyId: null,
-    symbol: '',
-    side: OrderSide.Buy,
-    amount: '',
-    limitPrice: '',
-    reason: '',
     seconds: 0,
-    reviewedIds: [],
   };
 
   public override componentDidMount(): void {
     this.mounted = true;
     this.request = new AbortController();
+    this.startTimer();
     void this.load();
   }
 
@@ -80,41 +55,14 @@ export default class OrderReviewPanel extends Component<
     return (
       <Paper
         variant="outlined"
-        sx={{ p: { xs: 2, sm: 2.5 }, borderRadius: '8px' }}
+        sx={{ p: { xs: 1.5, sm: 2 }, borderRadius: '8px' }}
       >
-        <Stack spacing={2}>
-          <Stack
-            direction="row"
-            spacing={1}
-            sx={{ alignItems: 'center' }}
-          >
-            <AddTaskOutlinedIcon fontSize="small" />
-            <Typography
-              component="h2"
-              sx={{ fontSize: 16, fontWeight: 700, flex: 1 }}
-            >
-              Order review
-            </Typography>
-            <Chip
-              size="small"
-              label="Limit spot only"
-              sx={{ borderRadius: '4px', color: '#1e40af', bgcolor: '#dbeafe' }}
-            />
-          </Stack>
-          <Button
-            onClick={() => void this.load()}
-            disabled={this.actionInFlight}
-            sx={{ alignSelf: 'flex-start', minHeight: 44 }}
-          >
-            Refresh orders
-          </Button>
+        <Stack spacing={1.25}>
           <Typography
-            variant="body2"
-            color="text.secondary"
+            component="h2"
+            sx={{ fontSize: 16, fontWeight: 700 }}
           >
-            Orders require an explicit approval. Waiting or expiry never
-            approves an order automatically. This is the current order queue,
-            independent of the selected report date.
+            Trade proposals
           </Typography>
           {this.state.error && (
             <Alert severity="error">{this.state.error}</Alert>
@@ -129,79 +77,6 @@ export default class OrderReviewPanel extends Component<
           ) : (
             this.renderProposals()
           )}
-          <Divider />
-          <Typography sx={{ fontSize: 14, fontWeight: 700 }}>
-            Manual proposal
-          </Typography>
-          <Box
-            sx={{
-              display: 'grid',
-              gridTemplateColumns: {
-                xs: '1fr',
-                sm: 'repeat(2, minmax(0, 1fr))',
-                xl: 'repeat(4, minmax(0, 1fr))',
-              },
-              gap: 1.5,
-            }}
-          >
-            <TextField
-              label="Symbol"
-              value={this.state.symbol}
-              onChange={this.change('symbol')}
-              placeholder="BTC"
-              size="small"
-              slotProps={{ htmlInput: { maxLength: 30 } }}
-            />
-            <TextField
-              select
-              label="Side"
-              value={this.state.side}
-              onChange={this.change('side')}
-              size="small"
-              sx={{ minWidth: 110 }}
-            >
-              <MenuItem value="buy">Buy</MenuItem>
-              <MenuItem value="sell">Sell</MenuItem>
-            </TextField>
-            <TextField
-              label={
-                this.state.side === OrderSide.Buy
-                  ? 'THB spend'
-                  : 'Coin quantity'
-              }
-              value={this.state.amount}
-              onChange={this.change('amount')}
-              size="small"
-              slotProps={{ htmlInput: { inputMode: 'decimal' } }}
-            />
-            <TextField
-              label="Limit price (THB)"
-              value={this.state.limitPrice}
-              onChange={this.change('limitPrice')}
-              size="small"
-              slotProps={{ htmlInput: { inputMode: 'decimal' } }}
-            />
-          </Box>
-          <TextField
-            label="Reason"
-            value={this.state.reason}
-            onChange={this.change('reason')}
-            multiline
-            minRows={2}
-            slotProps={{ htmlInput: { maxLength: 500 } }}
-          />
-          <Button
-            variant="outlined"
-            onClick={() => void this.create()}
-            disabled={!this.canCreate()}
-            sx={{
-              alignSelf: 'flex-start',
-              minHeight: 44,
-              textTransform: 'none',
-            }}
-          >
-            Create proposal
-          </Button>
         </Stack>
       </Paper>
     );
@@ -220,7 +95,7 @@ export default class OrderReviewPanel extends Component<
     }
 
     return (
-      <Stack spacing={1.5}>
+      <Stack spacing={1}>
         {this.state.proposals.map((proposal) => this.renderProposal(proposal))}
       </Stack>
     );
@@ -233,52 +108,28 @@ export default class OrderReviewPanel extends Component<
     return (
       <Box
         key={proposal.id}
-        sx={{ border: '1px solid #e0e0e0', borderRadius: '6px', p: 1.5 }}
+        sx={{ borderBottom: '1px solid #e0e0e0', pb: 1.25 }}
       >
-        <Stack spacing={1.25}>
-          <Stack
-            direction={{ xs: 'column', sm: 'row' }}
-            spacing={1}
-            sx={{ alignItems: { sm: 'center' } }}
-          >
-            <Typography sx={{ fontWeight: 700, flex: 1 }}>
-              {proposal.side === OrderSide.Buy ? 'Buy' : 'Sell'}{' '}
-              {proposal.symbol}
-            </Typography>
-            <Chip
-              size="small"
-              label={this.statusLabel(proposal, remaining)}
-              sx={{
-                borderRadius: '4px',
-                color: isPending && remaining > 0 ? '#92400e' : '#525252',
-                bgcolor: isPending && remaining > 0 ? '#fef3c7' : '#f3f3f3',
-              }}
-            />
-          </Stack>
-          <Typography variant="body2">
-            {this.decimal(proposal.amount)}{' '}
-            {proposal.side === OrderSide.Buy ? 'THB spend' : proposal.symbol} ·
-            Limit {this.decimal(proposal.limitPrice)} THB/{proposal.symbol} ·
-            Reference {this.decimal(proposal.referencePrice)} THB/
-            {proposal.symbol}
-          </Typography>
-          <Typography
-            variant="caption"
-            color="text.secondary"
-          >
+        <Stack spacing={0.75}>
+          <Typography sx={{ fontWeight: 700 }}>
             {proposal.side === OrderSide.Buy
-              ? 'Maximum buy spend'
-              : 'Gross sell proceeds'}
-            : {this.decimal(proposal.notionalThb)} THB · Estimated fee{' '}
-            {proposal.estimatedFeeThb} THB · {proposal.reason}
+              ? `Buy ${proposal.symbol} for ${this.decimal(proposal.amount)} THB`
+              : `Sell ${this.decimal(proposal.amount)} ${proposal.symbol}`}{' '}
+            at limit {this.decimal(proposal.limitPrice)} THB/{proposal.symbol}
           </Typography>
           <Typography
             variant="caption"
             color="text.secondary"
           >
-            THB fees are deducted from buy spend or sell proceeds; estimates
-            exclude fee credits. A price move above 1% requires a new proposal.
-            Approval never changes your limit price.
+            {proposal.side === OrderSide.Sell &&
+              `Approx. proceeds ${this.decimal(proposal.notionalThb)} THB · `}
+            Estimated fee {proposal.estimatedFeeThb} THB · {proposal.reason}
+          </Typography>
+          <Typography
+            variant="caption"
+            color="text.secondary"
+          >
+            {this.statusLabel(proposal, remaining)}
           </Typography>
           {proposal.message && (
             <Alert
@@ -289,68 +140,36 @@ export default class OrderReviewPanel extends Component<
               {proposal.message}
             </Alert>
           )}
-          <Stack
-            direction={{ xs: 'column', lg: 'row' }}
-            spacing={1}
-          >
-            {isPending && (
-              <FormControlLabel
-                control={
-                  <Checkbox
-                    checked={this.state.reviewedIds.includes(proposal.id)}
-                    disabled={remaining <= 0 || this.state.busyId !== null}
-                    onChange={(event) => {
-                      this.review(proposal.id, event.target.checked);
-                    }}
-                  />
-                }
-                label="I reviewed this exact order"
-              />
-            )}
+          {isPending && (
             <Stack
-              direction={{ xs: 'column', sm: 'row' }}
+              direction="row"
               spacing={1}
-              sx={{ width: { xs: '100%', sm: 'auto' } }}
             >
-              {isPending && (
-                <Button
-                  variant="contained"
-                  color="success"
-                  size="small"
-                  startIcon={<CheckCircleOutlineOutlinedIcon />}
-                  disabled={
-                    remaining <= 0 ||
-                    this.state.busyId !== null ||
-                    !this.state.reviewedIds.includes(proposal.id)
-                  }
-                  onClick={() => void this.approve(proposal.id)}
-                  sx={{ minHeight: 44, textTransform: 'none' }}
-                >
-                  Approve &amp; submit
-                </Button>
-              )}
-              {isPending && (
-                <Button
-                  variant="outlined"
-                  color="inherit"
-                  size="small"
-                  startIcon={<BlockOutlinedIcon />}
-                  disabled={this.state.busyId !== null}
-                  onClick={() => void this.reject(proposal.id)}
-                  sx={{ minHeight: 44, textTransform: 'none' }}
-                >
-                  Reject
-                </Button>
-              )}
+              <Button
+                variant="contained"
+                disableElevation
+                color="success"
+                size="small"
+                startIcon={<CheckCircleOutlineOutlinedIcon />}
+                disabled={remaining <= 0 || this.state.busyId !== null}
+                onClick={() => void this.approve(proposal.id)}
+                sx={{ minHeight: 44, textTransform: 'none' }}
+              >
+                Approve
+              </Button>
+              <Button
+                variant="outlined"
+                color="inherit"
+                size="small"
+                startIcon={<BlockOutlinedIcon />}
+                disabled={this.state.busyId !== null}
+                onClick={() => void this.reject(proposal.id)}
+                sx={{ minHeight: 44, textTransform: 'none' }}
+              >
+                Reject
+              </Button>
             </Stack>
-          </Stack>
-          <Typography
-            variant="caption"
-            color="text.secondary"
-          >
-            Approval expiry does not cancel an accepted Bitkub limit order.
-            Submitted is not filled. Manage open orders in Bitkub.
-          </Typography>
+          )}
         </Stack>
       </Box>
     );
@@ -389,11 +208,6 @@ export default class OrderReviewPanel extends Component<
       if (
         this.mounted &&
         this.state.seconds % 5 === 0 &&
-        this.state.proposals.some(
-          (proposal) =>
-            proposal.status === OrderStatus.Pending ||
-            proposal.status === OrderStatus.Submitting,
-        ) &&
         !this.actionInFlight
       ) {
         void this.load();
@@ -426,8 +240,7 @@ export default class OrderReviewPanel extends Component<
       this.state.busyId !== null ||
       !proposal ||
       proposal.status !== OrderStatus.Pending ||
-      (action === 'approve' &&
-        (this.remaining(proposal) <= 0 || !this.state.reviewedIds.includes(id)))
+      (action === 'approve' && this.remaining(proposal) <= 0)
     ) {
       return;
     }
@@ -451,9 +264,6 @@ export default class OrderReviewPanel extends Component<
       if (this.mounted) {
         this.setState({
           busyId: null,
-          reviewedIds: this.state.reviewedIds.filter(
-            (reviewed) => reviewed !== id,
-          ),
           error:
             cause instanceof Error
               ? cause.message
@@ -464,67 +274,6 @@ export default class OrderReviewPanel extends Component<
     } finally {
       this.actionInFlight = false;
     }
-  }
-
-  private create(): Promise<void> {
-    if (!this.canCreate()) {
-      return Promise.resolve();
-    }
-
-    this.actionInFlight = true;
-    this.generation += 1;
-    const { symbol, side, amount, limitPrice, reason } = this.state;
-    this.setState({ busyId: 'new', error: null });
-
-    const draft: OrderDraft = {
-      symbol: symbol.toUpperCase(),
-      side,
-      amount,
-      limitPrice,
-      reason,
-    };
-
-    return this.service()
-      .create(draft)
-      .then((proposal) => {
-        if (this.mounted) {
-          this.setState({
-            proposals: [proposal, ...this.state.proposals],
-            symbol: '',
-            amount: '',
-            limitPrice: '',
-            reason: '',
-            busyId: null,
-          });
-        }
-      })
-      .catch((cause: unknown) => {
-        if (this.mounted) {
-          this.setState({
-            busyId: null,
-            error:
-              cause instanceof Error
-                ? cause.message
-                : 'Unable to create the order proposal.',
-          });
-        }
-      })
-      .finally(() => {
-        this.actionInFlight = false;
-      });
-  }
-
-  private canCreate(): boolean {
-    return (
-      !this.actionInFlight &&
-      this.state.busyId === null &&
-      Number(this.state.amount) > 0 &&
-      Number(this.state.limitPrice) > 0 &&
-      /^[a-z0-9]{1,30}$/i.test(this.state.symbol) &&
-      /^(?:0|[1-9]\d{0,17})(?:\.\d{1,18})?$/.test(this.state.amount) &&
-      /^(?:0|[1-9]\d{0,17})(?:\.\d{1,18})?$/.test(this.state.limitPrice) &&
-      this.state.reason.trim().length > 0
-    );
   }
 
   private service() {
@@ -539,25 +288,6 @@ export default class OrderReviewPanel extends Component<
     }
 
     return proposal.status;
-  }
-
-  private review(id: string, reviewed: boolean): void {
-    this.setState({
-      reviewedIds: reviewed
-        ? [...this.state.reviewedIds, id]
-        : this.state.reviewedIds.filter((item) => item !== id),
-    });
-  }
-
-  private change(
-    field: 'symbol' | 'side' | 'amount' | 'limitPrice' | 'reason',
-  ) {
-    return (event: ChangeEvent<HTMLInputElement>) => {
-      this.setState({ [field]: event.target.value } as Pick<
-        OrderReviewPanelState,
-        typeof field
-      >);
-    };
   }
 
   private remaining(proposal: OrderView): number {
