@@ -11,7 +11,16 @@ public sealed class FakeOrderBroker : IOrderBroker
 
     public int Submissions { get; private set; }
 
+    internal void CountSubmission() => this.Submissions += 1;
+
     public bool FailSubmit { get; set; }
+
+    public bool FailPrepare { get; set; }
+
+    public OrderInspection Inspection { get; set; } = new(OrderState.Filled, "fixture-order", "Verified fixture");
+
+    public Task<OrderInspection> Inspect(OrderProposal proposal, CancellationToken cancellationToken) =>
+        Task.FromResult(this.Inspection);
 
     public bool Rejected { get; set; }
 
@@ -32,19 +41,16 @@ public sealed class FakeOrderBroker : IOrderBroker
         return Task.FromResult<Balance[]>([new("THB", 1000m, this.Available), new("BTC", 1000m, this.Available)]);
     }
 
-    public async Task<OrderBrokerResult> Submit(OrderProposal proposal, CancellationToken cancellationToken)
+    public Task<IPreparedOrderSubmission> Prepare(OrderProposal proposal, CancellationToken cancellationToken)
     {
-        this.Submissions += 1;
-        if (this.FailSubmit)
+        if (this.FailPrepare)
         {
-            throw new HttpRequestException("Fixture uncertain result");
+            throw new HttpRequestException("Fixture preparation failure.");
         }
 
-        if (this.Release is not null)
-        {
-            await this.Release.Task.WaitAsync(cancellationToken);
-        }
-
-        return this.Rejected ? new(false, null, "Rejected fixture") : new(true, "broker-123", "Accepted, not filled");
+        return Task.FromResult<IPreparedOrderSubmission>(new Prepared(this));
     }
+
+    public async Task<OrderBrokerResult> Submit(OrderProposal proposal, CancellationToken cancellationToken) =>
+        await (await this.Prepare(proposal, cancellationToken)).Send(cancellationToken);
 }

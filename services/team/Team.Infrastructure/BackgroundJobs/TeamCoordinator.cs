@@ -22,6 +22,8 @@ public sealed class TeamCoordinator : BackgroundService, ITeamCoordinator
 
     private readonly IPortfolioSnapshotReader portfolio;
 
+    private readonly IOrderProposalPublisher? proposals;
+
     private readonly SemaphoreSlim gate = new(1, 1);
 
     private TeamRun? activeRun;
@@ -32,11 +34,17 @@ public sealed class TeamCoordinator : BackgroundService, ITeamCoordinator
 
     private readonly TaskCompletionSource initialization = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
-    public TeamCoordinator(ITeamRunStore store, ICodexWorker worker, IPortfolioSnapshotReader portfolio)
+    public TeamCoordinator(
+        ITeamRunStore store,
+        ICodexWorker worker,
+        IPortfolioSnapshotReader portfolio,
+        IOrderProposalPublisher? proposals = null
+    )
     {
         this.store = store;
         this.worker = worker;
         this.portfolio = portfolio;
+        this.proposals = proposals;
     }
 
     public bool IsConfigured => this.worker.IsConfigured && this.ready;
@@ -222,22 +230,36 @@ public sealed class TeamCoordinator : BackgroundService, ITeamCoordinator
     private async Task ExecuteRun(Guid id, CancellationToken cancellationToken)
     {
         var snapshot = await this.portfolio.Read(cancellationToken);
+        using var snapshotDocument = JsonDocument.Parse(snapshot);
+        var accountKey = snapshotDocument.RootElement.TryGetProperty("accountKey", out var account)
+            ? account.GetString()
+            : null;
+        if (accountKey is null || accountKey.Length != 64 || accountKey.Any(character => !Uri.IsHexDigit(character)))
+        {
+            throw new InvalidOperationException("Portfolio snapshot account key is invalid.");
+        }
+
         var current =
             await this.store.Find(id, cancellationToken) ?? throw new InvalidOperationException("Run missing.");
-        const string marker = "Previous review run ID: ";
-        var reference = current.Objective.LastIndexOf(marker, StringComparison.Ordinal);
-        TeamRun? prior = null;
-        if (
-            reference >= 0
-            && Guid.TryParseExact(current.Objective[(reference + marker.Length)..], "D", out var priorId)
-        )
+        await this.gate.WaitAsync(cancellationToken);
+        try
         {
-            prior = await this.store.Find(priorId, cancellationToken);
-            if (prior is not null && prior.CreatedAt >= current.CreatedAt)
+            cancellationToken.ThrowIfCancellationRequested();
+            if (this.activeRun?.Id != id || this.activeRun.Status == TeamRunStatus.Cancelled)
             {
-                prior = null;
+                throw new OperationCanceledException(cancellationToken);
             }
+
+            current = this.activeRun with { AccountKey = accountKey };
+            await this.store.Save(current, cancellationToken);
+            this.activeRun = current;
         }
+        finally
+        {
+            this.gate.Release();
+        }
+
+        var prior = await this.store.LatestReviewed(accountKey, current.CreatedAt, cancellationToken);
 
         snapshot = JsonSerializer.Serialize(
             new
@@ -260,7 +282,7 @@ public sealed class TeamCoordinator : BackgroundService, ITeamCoordinator
         {
             cancellationToken.ThrowIfCancellationRequested();
             var run = await this.UpdateStep(id, role, TeamRunStatus.Running, null, cancellationToken);
-            var output = await this.worker.Run(
+            var report = await this.worker.Report(
                 role.ToString().ToLowerInvariant(),
                 run.Objective,
                 previous,
@@ -268,8 +290,18 @@ public sealed class TeamCoordinator : BackgroundService, ITeamCoordinator
                 cancellationToken
             );
             cancellationToken.ThrowIfCancellationRequested();
-            await this.UpdateStep(id, role, TeamRunStatus.Completed, output, cancellationToken);
-            previous.Add((role.ToString().ToLowerInvariant(), output));
+            await this.UpdateStep(id, role, TeamRunStatus.Completed, report.Output, cancellationToken);
+            previous.Add((role.ToString().ToLowerInvariant(), report.Output));
+            if (report.Proposal is not null)
+            {
+                if (role != TeamRole.Reviewer || this.proposals is null)
+                {
+                    throw new InvalidOperationException("Trade proposal publishing is unavailable for this role.");
+                }
+
+                TradeProposalValidator.Validate(report.Proposal, snapshot);
+                await this.proposals.Publish(id, accountKey, report.Proposal, cancellationToken);
+            }
         }
 
         cancellationToken.ThrowIfCancellationRequested();

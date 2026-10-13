@@ -13,13 +13,17 @@ public sealed class PortfolioSnapshotReader : IPortfolioSnapshotReader
 
     private readonly HttpClient http;
 
-    public PortfolioSnapshotReader(HttpClient http)
+    private readonly IMarketResearchReader? marketResearchReader;
+
+    public PortfolioSnapshotReader(HttpClient http, IMarketResearchReader? marketResearchReader = null)
     {
         this.http = http;
+        this.marketResearchReader = marketResearchReader;
     }
 
     public async Task<string> Read(CancellationToken cancellationToken)
     {
+        var accountKey = await new CurrentAccountReader(this.http).Read(cancellationToken);
         using var response = await this.http.GetAsync("api/crypto/portfolio", cancellationToken);
         response.EnsureSuccessStatusCode();
         await using var stream = await response.Content.ReadAsStreamAsync(cancellationToken);
@@ -58,9 +62,16 @@ public sealed class PortfolioSnapshotReader : IPortfolioSnapshotReader
             cancellationToken
         );
         var summary = root.GetProperty("summary");
+        if (await new CurrentAccountReader(this.http).Read(cancellationToken) != accountKey)
+        {
+            throw new InvalidOperationException("Account changed while collecting research evidence.");
+        }
+
+        var marketResearch = await this.ReadMarketResearch(accountKey, cancellationToken);
         var json = JsonSerializer.Serialize(
             new
             {
+                accountKey,
                 positions,
                 summary = new
                 {
@@ -85,6 +96,7 @@ public sealed class PortfolioSnapshotReader : IPortfolioSnapshotReader
                 priceUpdatedAt = root.GetProperty("priceUpdatedAt").Clone(),
                 historyUpdatedAt = root.GetProperty("historyUpdatedAt").Clone(),
                 historyCoverage = root.GetProperty("historyCoverage").GetString(),
+                marketResearch,
             },
             PortfolioSnapshotReader.jsonOptions
         );
@@ -94,6 +106,51 @@ public sealed class PortfolioSnapshotReader : IPortfolioSnapshotReader
         }
 
         return json;
+    }
+
+    public async Task EnsureReady(CancellationToken cancellationToken)
+    {
+        using var response = await this.http.GetAsync("api/crypto/portfolio", cancellationToken);
+        response.EnsureSuccessStatusCode();
+        using var document = await JsonDocument.ParseAsync(
+            await response.Content.ReadAsStreamAsync(cancellationToken),
+            cancellationToken: cancellationToken
+        );
+        var root = document.RootElement;
+        if (
+            root.GetProperty("updatedAt").ValueKind == JsonValueKind.Null
+            || root.GetProperty("error").ValueKind != JsonValueKind.Null
+            || root.GetProperty("syncing").GetBoolean()
+        )
+        {
+            throw new InvalidOperationException("Verified portfolio data is not ready.");
+        }
+
+        await new CurrentAccountReader(this.http).Read(cancellationToken);
+    }
+
+    private async Task<object> ReadMarketResearch(string accountKey, CancellationToken cancellationToken)
+    {
+        if (this.marketResearchReader is null)
+        {
+            return new { available = false, reason = "readerUnavailable" };
+        }
+
+        try
+        {
+            using var research = JsonDocument.Parse(
+                await this.marketResearchReader.Read(accountKey, cancellationToken)
+            );
+            return research.RootElement.Clone();
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception)
+        {
+            return new { available = false, reason = "unavailable" };
+        }
     }
 
     private async Task<object[]> ReadHistories(IEnumerable<string> symbols, CancellationToken cancellationToken)

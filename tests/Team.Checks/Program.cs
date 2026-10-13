@@ -6,6 +6,8 @@ using Team.Checks;
 
 await Success();
 await ResearchMemory();
+await AccountScopedReviewMemory();
+await ProposalPublication();
 await BusyAndUnrelatedStop();
 await Cancellation();
 await Failure();
@@ -16,6 +18,7 @@ await ProcessBoundary();
 InvalidObjective();
 await DailyBriefBoundary();
 await CompanyLoopChecks.Run();
+await ProposalTransportChecks.Run();
 Console.WriteLine("Team checks passed.");
 
 static async Task Success()
@@ -32,6 +35,7 @@ static async Task Success()
         "ordered handoff"
     );
     Check(result.Steps.All(step => step.Status == TeamRunStatus.Completed), "success status");
+    Check(result.AccountKey == new string('a', 64), "run account key persisted");
     Check(worker.Calls.All(call => call.Portfolio is not null), "portfolio snapshot");
 }
 
@@ -48,7 +52,8 @@ static async Task ResearchMemory()
             DateTimeOffset.UtcNow.AddDays(-3),
             DateTimeOffset.UtcNow.AddDays(-3),
             [new TeamStep(TeamRole.Reviewer, TeamRunStatus.Completed, review, null)],
-            null
+            null,
+            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
         ),
         CancellationToken.None
     );
@@ -67,6 +72,129 @@ static async Task ResearchMemory()
             context.RootElement.GetProperty("evidence").GetProperty("positions").GetArrayLength() == 1,
             "current evidence retained"
         );
+    }
+}
+
+static async Task AccountScopedReviewMemory()
+{
+    var store = new FakeTeamRunStore();
+    var account = new string('a', 64);
+    var other = new string('b', 64);
+    var before = DateTimeOffset.UtcNow;
+    var valid = new TeamRun(
+        Guid.NewGuid(),
+        "valid",
+        TeamRunStatus.Completed,
+        before.AddMinutes(-3),
+        before.AddMinutes(-3),
+        [new TeamStep(TeamRole.Reviewer, TeamRunStatus.Completed, "valid-review", null)],
+        null,
+        account
+    );
+    var failedLatest = valid with
+    {
+        Id = Guid.NewGuid(),
+        CreatedAt = before.AddMinutes(-1),
+        UpdatedAt = before.AddMinutes(-1),
+        Status = TeamRunStatus.Failed,
+        Steps = [new TeamStep(TeamRole.Reviewer, TeamRunStatus.Failed, null, "failed")],
+    };
+    await store.Save(valid, CancellationToken.None);
+    await store.Save(failedLatest, CancellationToken.None);
+    await store.Save(valid with { Id = Guid.NewGuid(), AccountKey = other }, CancellationToken.None);
+    await store.Save(valid with { Id = Guid.NewGuid(), AccountKey = null }, CancellationToken.None);
+    Check(
+        (await store.LatestReviewed(account, before, CancellationToken.None))?.Id == valid.Id,
+        "failed latest preserves last valid review"
+    );
+    Check(
+        await store.LatestReviewed(other, before, CancellationToken.None) is not null
+            && await store.LatestReviewed(account, before, CancellationToken.None) is not null,
+        "other account remains isolated"
+    );
+    Check(
+        await store.LatestReviewed("c" + new string('a', 63), before, CancellationToken.None) is null,
+        "legacy unknown account excluded"
+    );
+}
+
+static async Task ProposalPublication()
+{
+    var proposal = new TradeProposal(
+        "BTC",
+        TradeProposalSide.Buy,
+        "0.01",
+        "100",
+        "evidence",
+        FakePortfolioSnapshotReader.FetchedAt
+    );
+    var publisher = new FakeOrderProposalPublisher();
+    var worker = new FakeCodexWorker(
+        (role, _, _) => Task.FromResult(new ResearchReport(role, role == "reviewer" ? proposal : null))
+    );
+    var store = new FakeTeamRunStore();
+    await using var coordinator = await Start(store, worker, publisher);
+    var run = await coordinator.Start("proposal", CancellationToken.None);
+    var result = await store.WaitFor(run.Id, item => item.Status == TeamRunStatus.Completed, TimeoutToken());
+    Check(publisher.Calls.Count == 1 && publisher.Calls[0].RunId == run.Id, "reviewer proposal publishes once");
+    Check(result.AccountKey == new string('a', 64), "proposal account binding");
+
+    var rejectedPublisher = new FakeOrderProposalPublisher();
+    var analystWorker = new FakeCodexWorker(
+        (role, _, _) => Task.FromResult(new ResearchReport(role, role == "analyst" ? proposal : null))
+    );
+    var rejectedStore = new FakeTeamRunStore();
+    await using var rejected = await Start(rejectedStore, analystWorker, rejectedPublisher);
+    var rejectedRun = await rejected.Start("bad proposal", CancellationToken.None);
+    var rejectedResult = await rejectedStore.WaitFor(
+        rejectedRun.Id,
+        item => item.Status == TeamRunStatus.Failed,
+        TimeoutToken()
+    );
+    Check(
+        rejectedPublisher.Calls.Count == 0 && rejectedResult.Status == TeamRunStatus.Failed,
+        "analyst proposal rejected"
+    );
+
+    publisher.Fail = true;
+    var failingStore = new FakeTeamRunStore();
+    await using var failing = await Start(failingStore, worker, publisher);
+    var failingRun = await failing.Start("publisher failure", CancellationToken.None);
+    var failed = await failingStore.WaitFor(failingRun.Id, item => item.Status == TeamRunStatus.Failed, TimeoutToken());
+    Check(failed.Status == TeamRunStatus.Failed, "publisher failure visible");
+
+    var context =
+        $"{{\"evidence\":{{\"marketResearch\":{{\"available\":true,\"fetchedAt\":\"{FakePortfolioSnapshotReader.FetchedAt:O}\",\"markets\":[{{\"symbol\":\"BTC_THB\",\"last\":100,\"bid\":99.9,\"ask\":100.1}}]}},\"summary\":{{\"availableThb\":200}},\"positions\":[{{\"symbol\":\"BTC\",\"quantity\":1}}]}}}}";
+    TradeProposalValidator.Validate(proposal, context);
+    foreach (
+        var invalid in new[]
+        {
+            proposal with
+            {
+                Symbol = "ETH",
+            },
+            proposal with
+            {
+                EvidenceAt = FakePortfolioSnapshotReader.FetchedAt.AddMinutes(-11),
+            },
+            proposal with
+            {
+                Amount = "201",
+            },
+        }
+    )
+    {
+        var rejectedProposal = false;
+        try
+        {
+            TradeProposalValidator.Validate(invalid, context);
+        }
+        catch (InvalidOperationException)
+        {
+            rejectedProposal = true;
+        }
+
+        Check(rejectedProposal, "invalid proposal rejected");
     }
 }
 
@@ -212,6 +340,18 @@ static async Task DailyBriefBoundary()
             ),
         "daily brief Bangkok boundaries"
     );
+    var accountKey = new string('a', 64);
+    var own = result[0] with { AccountKey = accountKey };
+    await store.Save(own, CancellationToken.None);
+    await store.Save(result[1] with { AccountKey = new string('b', 64) }, CancellationToken.None);
+    var account = new FakeCurrentAccountReader(accountKey);
+    var scoped = await new GetDailyBriefHandler(store, account).Handle(
+        new GetDailyBriefQuery(day),
+        CancellationToken.None
+    );
+    Check(scoped.Count == 1 && scoped[0].Id == own.Id, "daily brief excludes other and legacy accounts");
+    var latest = await new GetTeamHandler(store, account).Handle(new GetTeamQuery(), CancellationToken.None);
+    Check(latest?.Id == own.Id, "overview selects latest current-account run");
 }
 
 static TeamRun RunAt(Guid id, DateTimeOffset createdAt)
@@ -219,9 +359,13 @@ static TeamRun RunAt(Guid id, DateTimeOffset createdAt)
     return new TeamRun(id, "brief", TeamRunStatus.Completed, createdAt, createdAt, [], null);
 }
 
-static async Task<TeamCoordinatorLease> Start(FakeTeamRunStore store, FakeCodexWorker worker)
+static async Task<TeamCoordinatorLease> Start(
+    FakeTeamRunStore store,
+    FakeCodexWorker worker,
+    IOrderProposalPublisher? publisher = null
+)
 {
-    var coordinator = new TeamCoordinator(store, worker, new FakePortfolioSnapshotReader());
+    var coordinator = new TeamCoordinator(store, worker, new FakePortfolioSnapshotReader(), publisher);
     await coordinator.StartAsync(CancellationToken.None);
     await coordinator.Initialization.WaitAsync(TimeSpan.FromSeconds(5));
     return new TeamCoordinatorLease(coordinator);

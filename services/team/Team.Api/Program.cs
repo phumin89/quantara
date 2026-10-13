@@ -55,6 +55,27 @@ builder
     })
     .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler { AllowAutoRedirect = false });
 builder.Services.AddSingleton<TeamCoordinator>();
+builder
+    .Services.AddHttpClient<ICurrentAccountReader, CurrentAccountReader>(http =>
+    {
+        http.BaseAddress = portfolioUrl;
+        http.Timeout = TimeSpan.FromSeconds(5);
+    })
+    .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler { AllowAutoRedirect = false });
+builder
+    .Services.AddHttpClient<IOrderProposalPublisher, OrderProposalPublisher>(http =>
+    {
+        http.BaseAddress = portfolioUrl;
+        http.Timeout = TimeSpan.FromSeconds(20);
+    })
+    .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler { AllowAutoRedirect = false });
+builder
+    .Services.AddHttpClient<IMarketResearchReader, MarketResearchReader>(http =>
+    {
+        http.BaseAddress = new Uri(builder.Configuration["Services:MarketDataUrl"] ?? "http://127.0.0.1:5051");
+        http.Timeout = TimeSpan.FromSeconds(20);
+    })
+    .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler { AllowAutoRedirect = false });
 builder.Services.AddSingleton<ITeamCoordinator>(services => services.GetRequiredService<TeamCoordinator>());
 builder.Services.AddHostedService(services => services.GetRequiredService<TeamCoordinator>());
 builder.Services.AddSingleton<CompanyLoop>();

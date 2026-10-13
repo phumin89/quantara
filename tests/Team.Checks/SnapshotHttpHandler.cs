@@ -9,10 +9,14 @@ public sealed class SnapshotHttpHandler : HttpMessageHandler
 
     private readonly string? history;
 
-    public SnapshotHttpHandler(string json, string? history = null)
+    private readonly string account;
+
+    public SnapshotHttpHandler(string json, string? history = null, string? account = null)
     {
         this.json = json;
         this.history = history;
+        this.account =
+            account ?? "{\"accountKey\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"}";
     }
 
     protected override Task<HttpResponseMessage> SendAsync(
@@ -24,8 +28,10 @@ public sealed class SnapshotHttpHandler : HttpMessageHandler
             new HttpResponseMessage(HttpStatusCode.OK)
             {
                 Content = new StringContent(
-                    request.RequestUri?.AbsolutePath.EndsWith("/history", StringComparison.Ordinal) == true
-                        ? this.history ?? "{}"
+                    request.RequestUri?.AbsolutePath.EndsWith("/account", StringComparison.Ordinal) == true
+                            ? this.account
+                        : request.RequestUri?.AbsolutePath.EndsWith("/history", StringComparison.Ordinal) == true
+                            ? this.history ?? "{}"
                         : this.json,
                     Encoding.UTF8,
                     "application/json"

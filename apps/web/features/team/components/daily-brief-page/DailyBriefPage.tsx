@@ -165,7 +165,7 @@ export default class DailyBriefPage extends Component<
               variant="caption"
               color="text.secondary"
             >
-              Automatic research · Every hour · No trades
+              Research &amp; proposals · Every hour · Approval required
             </Typography>
             {company?.status === CompanyLoopStatus.Waiting &&
               company.nextRunAt && (

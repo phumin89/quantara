@@ -8,5 +8,7 @@ public sealed record CreateOrderRequest(
     [property: JsonRequired] TradeSide Side,
     [property: JsonRequired] string Amount,
     [property: JsonRequired] string LimitPrice,
-    [property: JsonRequired] string Reason
+    [property: JsonRequired] string Reason,
+    Guid? SourceRunId = null,
+    string? ExpectedAccountKey = null
 );

@@ -4,8 +4,12 @@ using Quantara.Portfolio.Domain;
 
 namespace Quantara.Portfolio.Application;
 
-public sealed class CreateOrderHandler(IOrderStore store, IOrderBroker broker, TimeProvider time)
-    : ICommandHandler<CreateOrderCommand, OrderView>
+public sealed class CreateOrderHandler(
+    IOrderStore store,
+    IOrderBroker broker,
+    TimeProvider time,
+    IAccountContext? account = null
+) : ICommandHandler<CreateOrderCommand, OrderView>
 {
     public async ValueTask<OrderView> Handle(CreateOrderCommand command, CancellationToken cancellationToken)
     {
@@ -24,10 +28,43 @@ public sealed class CreateOrderHandler(IOrderStore store, IOrderBroker broker, T
         var amount = CreateOrderHandler.Number(command.Amount);
         var price = CreateOrderHandler.Number(command.LimitPrice);
         var symbol = command.Symbol.ToUpperInvariant();
+        if (command.SourceRunId is not null || command.ExpectedAccountKey is not null)
+        {
+            if (
+                command.SourceRunId is null
+                || command.SourceRunId == Guid.Empty
+                || account is null
+                || string.IsNullOrWhiteSpace(command.ExpectedAccountKey)
+                || command.ExpectedAccountKey != account?.AccountKey
+            )
+            {
+                throw new OrderValidationException(
+                    "Proposal account changed or source task is missing. Run fresh research."
+                );
+            }
+
+            var existing = await store.Find(command.SourceRunId.Value, cancellationToken);
+            if (existing is not null)
+            {
+                if (
+                    existing.Symbol != symbol
+                    || existing.Side != command.Side
+                    || existing.Amount != amount
+                    || existing.LimitPrice != price
+                    || existing.Reason != command.Reason.Trim()
+                )
+                {
+                    throw new OrderValidationException("Source task already has a different immutable proposal.");
+                }
+
+                return OrderView.From(existing, time.GetUtcNow());
+            }
+        }
+
         var market = await broker.Market(symbol, command.Side, cancellationToken);
         var now = time.GetUtcNow();
         var proposal = new OrderProposal(
-            Guid.NewGuid(),
+            command.SourceRunId ?? Guid.NewGuid(),
             symbol,
             command.Side,
             amount,

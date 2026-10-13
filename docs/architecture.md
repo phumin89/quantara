@@ -58,7 +58,12 @@ reason and a three-minute approval deadline. The owner clicks Approve or Reject;
 the Approve click explicitly confirms and submits that exact proposal. There is
 no manual proposal form or separate review checkbox in Daily Brief.
 Creating a proposal, polling, waiting and expiration cannot submit an order.
-The AI report pipeline does not generate proposals or call these endpoints.
+Only Reviewer may return one structured spot limit proposal alongside a report.
+Team validates its market, price, balance and exact evidence timestamp, then
+publishes a Pending proposal over HTTP. The run ID is its immutable proposal ID;
+repeated publication returns the existing proposal without extending expiry.
+Portfolio checks the expected account hash before accepting it. CEO, Analyst,
+workers and background jobs cannot approve or submit broker orders.
 
 The class component receives OrdersService through its own Context and the lazy
 ServiceContainer. Zod validates transport enums, decimal strings and timestamps.
@@ -77,6 +82,8 @@ from spend and sell fees from proceeds. Sources:
 https://github.com/bitkub/bitkub-official-api-docs/blob/master/rest-v3.md
 https://support.bitkub.com/en/solutions/articles?id=151000035191
 
+Timestamp retrieval, signing and request construction complete before the SQL
+claim. A known preparation failure leaves Pending and sends no broker POST.
 A serializable SQL claim moves Pending to Submitting before one signed broker
 POST, with a stable client_id derived from the proposal ID. Concurrent API hosts
 and tabs cannot claim the same proposal, and an in-flight or uncertain account
@@ -87,9 +94,13 @@ managed in Bitkub in this slice.
 
 Transport ambiguity becomes Unknown; failed outcome storage leaves Submitting.
 Neither state is resent on restart or repeated approval. They block further
-account submissions until explicitly reconciled; an in-app reconciliation tool
-is not implemented here. Check Bitkub and the stored client reference before
-operator reconciliation. Deterministic checks cover expiry during preflight,
+account submissions until reconciled with broker evidence. Check status and a
+30-second monitor use signed GET requests only. Known broker IDs use order-info;
+unknown IDs require an exact client_id and side match in open orders or up to
+three keyset history pages. Missing matches remain Unknown; no order is resent.
+Observed Submitted, PartiallyFilled, Filled and Cancelled states are persisted
+with a compare-and-update guard. Cancellation itself remains managed in Bitkub.
+Deterministic checks cover expiry during preflight,
 duplicate approval, late rejection, insufficient funds, price changes, unknown
 outcomes, storage failures and exact signed buy/sell bodies. Browser fixtures
 cover explicit review, timeout behavior, local-origin guards and three viewport
@@ -137,7 +148,8 @@ checks dependencies every 30 seconds and never overlaps work or catches up misse
 rounds. A due round requests Portfolio's existing read-only sync before taking a
 snapshot; failed readiness retries the sync no sooner than five minutes. The CEO
 chooses analysis priorities from a fixed research mandate. The persisted objective
-references the prior run ID; the coordinator loads its full Reviewer output as
+references the prior run ID; the coordinator loads the latest completed Reviewer
+output for the current account, even if a subsequent round failed, as
 untrusted context, including the task ledger. Roles retain stable task IDs and
 distinguish Done, Pending and Blocked from report completion. No schema change is
 required; the ledger remains recorded report text, not a separate task engine.
@@ -154,8 +166,14 @@ The server collects existing read-only Portfolio history over HTTP for at most
 The snapshot defines THB units, BTC/THB-style pairs, ticker-price semantics and
 coin value excluding cash. History remains incomplete and unknown costs remain
 unknown. Models use this evidence; they do not call broker endpoints or tools.
-This does not
-create orders or financial authority. Stop/Resume use thin controller -> Mediator
+The snapshot also contains public market research: up to 20 liquid active THB
+spot markets, explicit rules and missing fields, and depth/recent trades for up
+to five markets. BTC completed daily candles use Bitkub's TradingView compatibility
+endpoint, with availability and coverage stated explicitly. Identical timestamp
+duplicates collapse; conflicting duplicates and unfinished candles are excluded.
+Missing bars are never invented. This is historical evidence, not a backtest engine.
+Reviewer may draft the pending proposal described above; no research round
+submits an order. Stop/Resume use thin controller -> Mediator
 commands; the overview query receives IReadOnlyCompanyLoop. A saved stop survives
 restart; a failed save stops locally and exposes the unconfirmed persistence.
 
@@ -165,6 +183,14 @@ container. GET `/api/team/brief?date=yyyy-MM-dd` delegates through Mediator to
 the read-only store and selects existing runs by their creation day in Bangkok
 time (UTC+07:00), ordered by creation time and ID. SQL schema and retained history
 are unchanged. The supported date range is 1970-01-01 through 9999-12-30.
+
+Team binds each new run to Portfolio's opaque SHA-256 account key. Snapshot reads
+verify the same key before and after collecting account evidence. Daily Brief,
+the latest-run overview and Reviewer memory filter by the current account.
+Legacy runs with no proven account key remain stored but are excluded from those
+views and memory; they are never reassigned to an account automatically. Reviewer
+memory uses OPENJSON with nvarchar(max), preserving outputs longer than 4,000
+characters without changing the existing SQL schema.
 
 The conversation displays recorded role outputs as plain text; these are reports,
 not an invented chat transcript. BriefMessage previews up to three lines and

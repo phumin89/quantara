@@ -10,7 +10,7 @@ public sealed class CompanyLoop : BackgroundService, ICompanyLoop
         "Operate Quantara's read-only research team without waiting for an owner instruction. "
         + "As CEO, inspect the verified portfolio and choose the most useful analysis priorities. "
         + "Delegate concrete evidence-based work to Analyst; Reviewer must check evidence, risks and uncertainties and propose next research actions. "
-        + "Aim to identify opportunities for net profit after costs, but never invent performance or authorize/execute trades. ";
+        + "Aim to identify opportunities for net profit after costs. Reviewer may propose one evidence-supported THB spot LIMIT trade for explicit human approval, or no proposal when evidence is insufficient. Never invent performance or authorize/execute trades. ";
 
     private readonly ICompanyScheduleStore store;
 
@@ -171,7 +171,7 @@ public sealed class CompanyLoop : BackgroundService, ICompanyLoop
                     this.refreshedAt = this.time.GetUtcNow();
                 }
 
-                await this.portfolio.Read(probe.Token);
+                await this.portfolio.EnsureReady(probe.Token);
             }
             catch (Exception) when (!cancellationToken.IsCancellationRequested)
             {

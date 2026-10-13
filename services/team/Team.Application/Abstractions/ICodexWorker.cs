@@ -11,4 +11,12 @@ public interface ICodexWorker
     );
 
     public bool IsConfigured { get; }
+
+    public async Task<ResearchReport> Report(
+        string role,
+        string objective,
+        IReadOnlyList<(string Role, string Output)> previous,
+        string? portfolio,
+        CancellationToken cancellationToken
+    ) => new(await this.Run(role, objective, previous, portfolio, cancellationToken), null);
 }

@@ -7,4 +7,5 @@ export interface IOrdersService {
   create(proposal: OrderDraft, signal?: AbortSignal): Promise<OrderView>;
   approve(id: string, signal?: AbortSignal): Promise<OrderView>;
   reject(id: string, signal?: AbortSignal): Promise<OrderView>;
+  reconcile(id: string, signal?: AbortSignal): Promise<OrderView>;
 }

@@ -72,4 +72,13 @@ export class OrdersService implements IOrdersService {
 
     return parsed.data;
   }
+
+  public async reconcile(id: string, signal?: AbortSignal): Promise<OrderView> {
+    return this.send(
+      `/${encodeURIComponent(id)}/reconcile`,
+      {},
+      'Unable to verify broker order status.',
+      signal,
+    );
+  }
 }

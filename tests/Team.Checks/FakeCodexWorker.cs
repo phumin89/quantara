@@ -6,6 +6,13 @@ public sealed class FakeCodexWorker : ICodexWorker
 {
     private readonly Func<string, IReadOnlyList<(string Role, string Output)>, CancellationToken, Task<string>> execute;
 
+    private readonly Func<
+        string,
+        IReadOnlyList<(string Role, string Output)>,
+        CancellationToken,
+        Task<ResearchReport>
+    >? report;
+
     public FakeCodexWorker(
         Func<string, IReadOnlyList<(string Role, string Output)>, CancellationToken, Task<string>> execute,
         bool configured = true
@@ -13,6 +20,19 @@ public sealed class FakeCodexWorker : ICodexWorker
     {
         this.execute = execute;
         this.IsConfigured = configured;
+    }
+
+    public FakeCodexWorker(
+        Func<string, IReadOnlyList<(string Role, string Output)>, CancellationToken, Task<ResearchReport>> report,
+        bool configured = true
+    )
+        : this(
+            (role, previous, cancellationToken) =>
+                report(role, previous, cancellationToken).ContinueWith(result => result.Result.Output),
+            configured
+        )
+    {
+        this.report = report;
     }
 
     public bool IsConfigured { get; }
@@ -34,5 +54,21 @@ public sealed class FakeCodexWorker : ICodexWorker
     {
         this.Calls.Add((role, objective, previous.ToArray(), portfolio));
         return this.execute(role, previous, cancellationToken);
+    }
+
+    public Task<ResearchReport> Report(
+        string role,
+        string objective,
+        IReadOnlyList<(string Role, string Output)> previous,
+        string? portfolio,
+        CancellationToken cancellationToken
+    )
+    {
+        this.Calls.Add((role, objective, previous.ToArray(), portfolio));
+        return this.report is null
+            ? Task.FromResult(
+                new ResearchReport(this.execute(role, previous, cancellationToken).GetAwaiter().GetResult(), null)
+            )
+            : this.report(role, previous, cancellationToken);
     }
 }

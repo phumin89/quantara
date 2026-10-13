@@ -170,6 +170,25 @@ export default class OrderReviewPanel extends Component<
               </Button>
             </Stack>
           )}
+          {[
+            OrderStatus.Unknown,
+            OrderStatus.Submitting,
+            OrderStatus.Submitted,
+            OrderStatus.PartiallyFilled,
+          ].includes(proposal.status) && (
+            <Button
+              variant="outlined"
+              disabled={this.state.busyId !== null}
+              onClick={() => void this.mutate(proposal.id, 'reconcile')}
+              sx={{
+                alignSelf: 'flex-start',
+                minHeight: 44,
+                textTransform: 'none',
+              }}
+            >
+              Check status
+            </Button>
+          )}
         </Stack>
       </Box>
     );
@@ -232,14 +251,14 @@ export default class OrderReviewPanel extends Component<
 
   private async mutate(
     id: string,
-    action: 'approve' | 'reject',
+    action: 'approve' | 'reject' | 'reconcile',
   ): Promise<void> {
     const proposal = this.state.proposals.find((item) => item.id === id);
     if (
       this.actionInFlight ||
       this.state.busyId !== null ||
       !proposal ||
-      proposal.status !== OrderStatus.Pending ||
+      (action !== 'reconcile' && proposal.status !== OrderStatus.Pending) ||
       (action === 'approve' && this.remaining(proposal) <= 0)
     ) {
       return;
@@ -249,9 +268,15 @@ export default class OrderReviewPanel extends Component<
     this.generation += 1;
     this.setState({ busyId: id, error: null });
     try {
-      const result = await (action === 'approve'
-        ? this.service().approve(id)
-        : this.service().reject(id));
+      let result: OrderView;
+      if (action === 'approve') {
+        result = await this.service().approve(id);
+      } else if (action === 'reject') {
+        result = await this.service().reject(id);
+      } else {
+        result = await this.service().reconcile(id);
+      }
+
       if (this.mounted) {
         this.setState({
           proposals: this.state.proposals.map((item) =>
@@ -285,6 +310,10 @@ export default class OrderReviewPanel extends Component<
       return remaining > 0
         ? `Expires in ${this.formatSeconds(remaining)}`
         : 'Expired';
+    }
+
+    if (proposal.status === OrderStatus.PartiallyFilled) {
+      return 'Partially filled';
     }
 
     return proposal.status;

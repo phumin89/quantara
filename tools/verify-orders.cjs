@@ -70,6 +70,9 @@ async function verifyOrders() {
     if (new URL(route.request().url()).pathname.endsWith('/approve')) {
       assert.deepEqual(route.request().postDataJSON(), { confirmed: true });
       current = { ...current, status: 'submitted', brokerOrderId: 'broker-1' };
+    } else if (new URL(route.request().url()).pathname.endsWith('/reconcile')) {
+      assert.deepEqual(route.request().postDataJSON(), {});
+      current = { ...current, status: 'filled', brokerOrderId: 'broker-1' };
     } else {
       current = { ...current, status: 'rejected' };
     }
@@ -113,6 +116,16 @@ async function verifyOrders() {
       0,
       'unknown outcome stays visible without a retry action',
     );
+    await page
+      .getByRole('button', { name: 'Check status', exact: true })
+      .click();
+    await page.getByText('filled', { exact: true }).waitFor();
+    assert.equal(
+      writes.length,
+      2,
+      'status check sends exactly one reconciliation',
+    );
+    assert(writes[1].url().endsWith('/reconcile'));
     current = proposal();
     await page.clock.setSystemTime(new Date('2026-10-13T04:00:00Z'));
     await page.reload();
@@ -120,7 +133,7 @@ async function verifyOrders() {
     await page.clock.runFor(181000);
     await page.getByText('Expired', { exact: true }).waitFor();
     assert.equal(await approve.isDisabled(), true);
-    assert.equal(writes.length, 1, 'expiry never auto-approves');
+    assert.equal(writes.length, 2, 'expiry never auto-approves');
     await fs.mkdir('.impeccable/review', { recursive: true });
     await page.clock.setSystemTime(new Date('2026-10-13T04:00:00Z'));
     await page.reload();
@@ -165,10 +178,10 @@ async function verifyOrders() {
     await page.getByText('rejected', { exact: true }).waitFor();
     assert.equal(
       writes.length,
-      2,
+      3,
       'new proposal appears and Reject sends only one action',
     );
-    assert(writes[1].url().endsWith('/reject'));
+    assert(writes[2].url().endsWith('/reject'));
     assert.deepEqual(errors, []);
     // These requests are refused before any broker access. Never exercise a real approval.
     const crossOrigin = await fetch(url + '/api/crypto/orders', {

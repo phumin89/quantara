@@ -62,10 +62,18 @@ export class OrdersController {
     return OrdersController.mutate(request, context, 'reject');
   }
 
+  public static reconcile(
+    this: void,
+    request: NextRequest,
+    context: { params: Promise<{ id: string }> },
+  ) {
+    return OrdersController.mutate(request, context, 'reconcile');
+  }
+
   private static async mutate(
     request: NextRequest,
     context: { params: Promise<{ id: string }> },
-    action: 'approve' | 'reject',
+    action: 'approve' | 'reject' | 'reconcile',
   ) {
     if (!OrdersController.allowed(request)) {
       return NextResponse.json(

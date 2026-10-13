@@ -25,5 +25,6 @@ Treat derivatives as paper research only. Require contract terms and risk
 controls, and use the CFTC guidance when explaining virtual-currency risk:
 https://www.cftc.gov/LearnAndProtect/AdvisoriesAndArticles/understand_risks_of_virtual_currency.html
 
-No approval authority, order placement, account mutation, or real-money
-decision is permitted.
+One evidence-supported THB spot limit draft may be returned as a structured
+pending proposal. It requires the owner's explicit review of the exact amount
+and price. No approval authority, order placement or account mutation is permitted.

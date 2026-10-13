@@ -8,4 +8,7 @@ public enum OrderState
     Submitting,
     Submitted,
     Unknown,
+    PartiallyFilled,
+    Filled,
+    Cancelled,
 }

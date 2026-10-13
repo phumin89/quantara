@@ -17,4 +17,12 @@ public interface IOrderStore : IReadOnlyOrderStore
     );
 
     public Task Reject(Guid id, CancellationToken cancellationToken);
+
+    public Task UpdateObserved(
+        Guid id,
+        OrderState state,
+        string? brokerOrderId,
+        string? message,
+        CancellationToken cancellationToken
+    ) => this.Finish(id, state, brokerOrderId, message, cancellationToken);
 }

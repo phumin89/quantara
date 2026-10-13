@@ -45,6 +45,8 @@ public sealed class ApproveOrderHandler(IOrderStore store, IOrderBroker broker, 
             throw new OrderValidationException("Insufficient available balance for this order.");
         }
 
+        using var prepared = await broker.Prepare(proposal, cancellationToken);
+
         if (!await store.Claim(proposal.Id, time.GetUtcNow(), cancellationToken))
         {
             throw new OrderValidationException(
@@ -60,7 +62,7 @@ public sealed class ApproveOrderHandler(IOrderStore store, IOrderBroker broker, 
         try
         {
             using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(20));
-            var result = await broker.Submit(proposal, timeout.Token);
+            var result = await prepared.Send(timeout.Token);
             state = result.Accepted ? OrderState.Submitted : OrderState.Rejected;
             brokerOrderId = result.OrderId;
             message = result.Message;

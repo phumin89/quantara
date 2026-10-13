@@ -21,7 +21,9 @@ public sealed class OrdersController(IMediator mediator) : ControllerBase
                     request.Side,
                     request.Amount,
                     request.LimitPrice,
-                    request.Reason
+                    request.Reason,
+                    request.SourceRunId,
+                    request.ExpectedAccountKey
                 ),
                 cancellationToken
             )
@@ -37,4 +39,8 @@ public sealed class OrdersController(IMediator mediator) : ControllerBase
     [HttpPost("{id:guid}/reject")]
     public async Task<IActionResult> Reject(Guid id, CancellationToken cancellationToken) =>
         this.Ok(await mediator.Send(new RejectOrderCommand(id), cancellationToken));
+
+    [HttpPost("{id:guid}/reconcile")]
+    public async Task<IActionResult> Reconcile(Guid id, CancellationToken cancellationToken) =>
+        this.Ok(await mediator.Send(new ReconcileOrderCommand(id), cancellationToken));
 }

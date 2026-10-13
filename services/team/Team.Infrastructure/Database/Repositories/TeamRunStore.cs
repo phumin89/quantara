@@ -32,6 +32,52 @@ public sealed class TeamRunStore : ITeamRunStore, IDisposable
         return await this.Read(id, cancellationToken);
     }
 
+    public async Task<TeamRun?> LatestForAccount(string accountKey, CancellationToken cancellationToken)
+    {
+        await this.Initialize(cancellationToken);
+        await using var connection = new SqlConnection(this.connectionString);
+        await connection.OpenAsync(cancellationToken);
+        await using var command = connection.CreateCommand();
+        command.CommandText =
+            "SELECT TOP (1) Payload FROM dbo.TeamRuns WHERE JSON_VALUE(Payload,'$.AccountKey')=@account ORDER BY CreatedAt DESC, Id DESC";
+        command.Parameters.Add("@account", SqlDbType.VarChar, 64).Value = accountKey;
+        var payload = await command.ExecuteScalarAsync(cancellationToken);
+        return payload is string json ? JsonSerializer.Deserialize<TeamRun>(json) : null;
+    }
+
+    public async Task<TeamRun?> LatestReviewed(
+        string accountKey,
+        DateTimeOffset before,
+        CancellationToken cancellationToken
+    )
+    {
+        ArgumentException.ThrowIfNullOrEmpty(accountKey);
+        await this.Initialize(cancellationToken);
+        await using var connection = new SqlConnection(this.connectionString);
+        await connection.OpenAsync(cancellationToken);
+        await using var command = connection.CreateCommand();
+        command.CommandText = """
+            SELECT TOP (1) Payload FROM dbo.TeamRuns
+            CROSS APPLY OPENJSON(Payload, '$.Steps')
+            WITH (Role int '$.Role', Status int '$.Status', Output nvarchar(max) '$.Output') AS Step
+            WHERE CreatedAt < @before
+              AND JSON_VALUE(Payload, '$.AccountKey') = @account
+              AND Step.Role = @reviewer
+              AND Step.Status = @completed
+              AND NULLIF(LTRIM(RTRIM(Step.Output)), '') IS NOT NULL
+            ORDER BY CreatedAt DESC, Id DESC
+            """;
+        command.Parameters.Add("@before", SqlDbType.DateTimeOffset).Value = before;
+        command.Parameters.Add("@account", SqlDbType.VarChar, 64).Value = accountKey;
+        command.Parameters.Add("@reviewer", SqlDbType.Int).Value = (int)TeamRole.Reviewer;
+        command.Parameters.Add("@completed", SqlDbType.Int).Value = (int)TeamRunStatus.Completed;
+        var payload = await command.ExecuteScalarAsync(cancellationToken);
+        return payload is string json
+            ? JsonSerializer.Deserialize<TeamRun>(json)
+                ?? throw new InvalidOperationException("Stored team task is invalid.")
+            : null;
+    }
+
     public async Task<IReadOnlyList<TeamRun>> ForDay(DateOnly day, CancellationToken cancellationToken)
     {
         var start = new DateTimeOffset(day.ToDateTime(TimeOnly.MinValue), TimeSpan.FromHours(7));

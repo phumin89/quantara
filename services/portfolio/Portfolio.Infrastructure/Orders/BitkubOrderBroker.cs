@@ -12,6 +12,9 @@ public sealed class BitkubOrderBroker(HttpClient http, BitkubCredentials credent
 {
     public Task<Balance[]> Balances(CancellationToken cancellationToken) => reader.Balances(cancellationToken);
 
+    public Task<OrderInspection> Inspect(OrderProposal proposal, CancellationToken cancellationToken) =>
+        new BitkubOrderInspector(http, credentials).Inspect(proposal, cancellationToken);
+
     public async Task<OrderMarket> Market(string symbol, TradeSide side, CancellationToken cancellationToken)
     {
         using var symbols = await this.Read("/api/v3/market/symbols", cancellationToken);
@@ -59,7 +62,7 @@ public sealed class BitkubOrderBroker(HttpClient http, BitkubCredentials credent
         );
     }
 
-    public async Task<OrderBrokerResult> Submit(OrderProposal proposal, CancellationToken cancellationToken)
+    public async Task<IPreparedOrderSubmission> Prepare(OrderProposal proposal, CancellationToken cancellationToken)
     {
         if (string.IsNullOrWhiteSpace(credentials.Key) || string.IsNullOrWhiteSpace(credentials.Secret))
         {
@@ -83,37 +86,28 @@ public sealed class BitkubOrderBroker(HttpClient http, BitkubCredentials credent
                 )
             )
             .ToLowerInvariant();
-        using var request = new HttpRequestMessage(HttpMethod.Post, path)
+        var request = new HttpRequestMessage(HttpMethod.Post, path)
         {
             Content = new StringContent(body, Encoding.UTF8, "application/json"),
         };
-        request.Headers.Add("X-BTK-APIKEY", credentials.Key);
-        request.Headers.Add("X-BTK-TIMESTAMP", timestamp);
-        request.Headers.Add("X-BTK-SIGN", signature);
-        using var response = await http.SendAsync(request, cancellationToken);
-        response.EnsureSuccessStatusCode();
-        using var json = JsonDocument.Parse(await response.Content.ReadAsStringAsync(cancellationToken));
-        var error = json.RootElement.GetProperty("error").GetInt32();
-        if (error != 0)
+        try
         {
-            return new(
-                false,
-                null,
-                $"Bitkub rejected the order (code {error}). Review market rules, balance and Trade API permission."
-            );
+            request.Headers.Add("X-BTK-APIKEY", credentials.Key);
+            request.Headers.Add("X-BTK-TIMESTAMP", timestamp);
+            request.Headers.Add("X-BTK-SIGN", signature);
+            return new PreparedOrder(http, request);
         }
-
-        var orderId = json.RootElement.GetProperty("result").GetProperty("id").ToString();
-        if (string.IsNullOrWhiteSpace(orderId) || orderId.Length > 200)
+        catch
         {
-            throw new InvalidDataException("The broker did not return an order identifier.");
+            request.Dispose();
+            throw;
         }
+    }
 
-        return new(
-            true,
-            orderId,
-            "Accepted by Bitkub. Submitted does not mean filled. Manage the open limit order in Bitkub; approval expiry does not cancel it."
-        );
+    public async Task<OrderBrokerResult> Submit(OrderProposal proposal, CancellationToken cancellationToken)
+    {
+        using var prepared = await this.Prepare(proposal, cancellationToken);
+        return await prepared.Send(cancellationToken);
     }
 
     private async Task<JsonDocument> Read(string path, CancellationToken cancellationToken)

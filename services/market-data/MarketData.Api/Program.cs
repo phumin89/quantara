@@ -17,6 +17,14 @@ builder
     })
     .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler { AllowAutoRedirect = false });
 builder.Services.AddScoped<IMarketDataReader>(services => services.GetRequiredService<BitkubMarketDataReader>());
+builder
+    .Services.AddHttpClient<IResearchMarketReader, BitkubResearchMarketReader>(client =>
+    {
+        client.BaseAddress = new Uri("https://api.bitkub.com");
+        client.Timeout = TimeSpan.FromSeconds(10);
+        client.DefaultRequestHeaders.Accept.ParseAdd("application/json");
+    })
+    .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler { AllowAutoRedirect = false });
 builder.Services.AddMediator(options => options.ServiceLifetime = ServiceLifetime.Scoped);
 
 var app = builder.Build();

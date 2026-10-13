@@ -26,4 +26,8 @@ export class OrdersServices implements IOrdersService {
   public reject(id: string, signal?: AbortSignal) {
     return this.container.resolve(ServiceKey.Orders).reject(id, signal);
   }
+
+  public reconcile(id: string, signal?: AbortSignal) {
+    return this.container.resolve(ServiceKey.Orders).reconcile(id, signal);
+  }
 }

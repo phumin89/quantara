@@ -8,5 +8,8 @@ public interface IOrderBroker
 
     public Task<Balance[]> Balances(CancellationToken cancellationToken);
 
-    public Task<OrderBrokerResult> Submit(OrderProposal proposal, CancellationToken cancellationToken);
+    public Task<IPreparedOrderSubmission> Prepare(OrderProposal proposal, CancellationToken cancellationToken);
+
+    public Task<OrderInspection> Inspect(OrderProposal proposal, CancellationToken cancellationToken) =>
+        Task.FromResult(new OrderInspection(OrderState.Unknown, null, "Inspection is unavailable."));
 }

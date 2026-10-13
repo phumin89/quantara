@@ -7,5 +7,6 @@ public sealed record TeamRun(
     DateTimeOffset CreatedAt,
     DateTimeOffset UpdatedAt,
     IReadOnlyList<TeamStep> Steps,
-    string? Error
+    string? Error,
+    string? AccountKey = null
 );

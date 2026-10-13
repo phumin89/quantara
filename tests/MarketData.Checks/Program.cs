@@ -51,3 +51,5 @@ catch (InvalidDataException)
 
 Assert(rejectedError, "string provider error was accepted");
 Console.WriteLine("String provider errors fail closed.");
+await ResearchMarketChecks.Run();
+Console.WriteLine("Research market checks passed.");

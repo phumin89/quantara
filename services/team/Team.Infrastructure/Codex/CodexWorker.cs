@@ -34,6 +34,14 @@ public sealed class CodexWorker : ICodexWorker
         IReadOnlyList<(string Role, string Output)> previous,
         string? portfolio,
         CancellationToken cancellationToken
+    ) => (await this.Report(role, objective, previous, portfolio, cancellationToken)).Output;
+
+    public async Task<ResearchReport> Report(
+        string role,
+        string objective,
+        IReadOnlyList<(string Role, string Output)> previous,
+        string? portfolio,
+        CancellationToken cancellationToken
     )
     {
         if (!this.IsConfigured)
@@ -116,7 +124,34 @@ public sealed class CodexWorker : ICodexWorker
             throw new InvalidOperationException("Codex returned an invalid report.");
         }
 
-        return report;
+        TradeProposal? proposal = null;
+        if (
+            result.RootElement.TryGetProperty("proposal", out var candidate)
+            && candidate.ValueKind != JsonValueKind.Null
+        )
+        {
+            if (role != "reviewer")
+            {
+                throw new InvalidOperationException("Only Reviewer can produce a pending proposal.");
+            }
+
+            var side = candidate.GetProperty("side").GetString() switch
+            {
+                "buy" => Quantara.Team.Domain.TradeProposalSide.Buy,
+                "sell" => Quantara.Team.Domain.TradeProposalSide.Sell,
+                _ => throw new InvalidOperationException("Invalid proposal side."),
+            };
+            proposal = new TradeProposal(
+                candidate.GetProperty("symbol").GetString() ?? "",
+                side,
+                candidate.GetProperty("amount").GetString() ?? "",
+                candidate.GetProperty("limitPrice").GetString() ?? "",
+                candidate.GetProperty("reason").GetString() ?? "",
+                candidate.GetProperty("evidenceAt").GetDateTimeOffset()
+            );
+        }
+
+        return new ResearchReport(report, proposal);
     }
 
     private bool HasAuthentication()

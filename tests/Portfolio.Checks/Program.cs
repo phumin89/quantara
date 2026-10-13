@@ -7,6 +7,8 @@ using Quantara.Portfolio.Domain;
 using Quantara.Portfolio.Infrastructure;
 
 await OrderChecks.Run();
+await OrderRecoveryChecks.Run();
+await OrderSourceChecks.Run();
 
 static void Check(bool condition, string name)
 {

@@ -7,6 +7,9 @@ export enum OrderStatus {
   Submitting = 'submitting',
   Submitted = 'submitted',
   Unknown = 'unknown',
+  PartiallyFilled = 'partiallyfilled',
+  Filled = 'filled',
+  Cancelled = 'cancelled',
 }
 
 export const orderStatusSchema = z.enum(OrderStatus);

@@ -1,5 +1,7 @@
 # Engineering
 
+- Owner authorized completing the reviewed pipeline on 2026-10-13: read-only market research, account-isolated reports and memory, one validated AI spot LIMIT proposal per report, human Approve submission, and read-only broker-status reconciliation. AI and background jobs never approve or submit broker orders. Preserve legacy records and account provenance; unknown outcomes never authorize retries.
+
 - Lead owns scope, architecture, review, acceptance and verification. Local workers receive bounded file ownership; inspect their actual output before accepting it.
 - Follow docs/architecture.md, DESIGN.md and the checked compiler/analyzer/lint configurations.
 - One C# class/record/interface/enum per matching file. One React component or named type per matching file; Next.js route conventions are exceptions for filenames.

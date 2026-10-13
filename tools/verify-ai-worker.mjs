@@ -32,13 +32,13 @@ for (const role of Object.keys(CodexTeamWorker.roles)) {
   assert(prompt.includes(instructions));
   for (const required of [
     'Current research capabilities:',
-    'no historical candle dataset',
+    'historicalCandles for BTC when available',
     'at most two feasible tasks',
     'Reuse prior calculations when their inputs are unchanged',
     'An account reconciliation blocker must not block',
     'at most two material blockers',
     'Missing data that would change a claim must still block that claim',
-    'none of this creates a trade proposal or financial approval',
+    'report completion never constitutes financial approval',
   ]) {
     assert(
       prompt.includes(required),
@@ -123,6 +123,67 @@ const factory = (value) => {
 assert.deepEqual(await CodexTeamWorker.run(input, factory, source), {
   output: 'Verified report',
 });
+const proposal = {
+  symbol: 'BTC',
+  side: 'buy',
+  amount: '10',
+  limitPrice: '100',
+  reason: 'Evidence-backed review candidate',
+  evidenceAt: '2026-10-13T00:00:00Z',
+};
+const proposalFactory = () => ({
+  startThread: () => ({
+    run: async () => ({
+      items: [],
+      finalResponse: JSON.stringify({ output: 'Review', proposal }),
+    }),
+  }),
+});
+const reviewerInput = {
+  ...input,
+  role: 'reviewer',
+  previous: [
+    { role: 'ceo', output: 'Earlier report' },
+    { role: 'analyst', output: 'Earlier report' },
+  ],
+};
+assert.deepEqual(
+  await CodexTeamWorker.run(reviewerInput, proposalFactory, source),
+  {
+    output: 'Review',
+    proposal,
+  },
+);
+await assert.rejects(
+  CodexTeamWorker.run(
+    {
+      ...input,
+      role: 'analyst',
+      previous: [{ role: 'ceo', output: 'Earlier report' }],
+    },
+    proposalFactory,
+    source,
+  ),
+  /invalid pending proposal/,
+);
+await assert.rejects(
+  CodexTeamWorker.run(
+    reviewerInput,
+    () => ({
+      startThread: () => ({
+        run: async () => ({
+          items: [],
+          finalResponse: JSON.stringify({
+            output: 'Review',
+            proposal: { ...proposal, unknown: true },
+          }),
+        }),
+      }),
+    }),
+    source,
+  ),
+  /invalid pending proposal/,
+);
 assert.equal(options.apiKey, 'test-key');
 assert.equal(options.env.BITKUB_API_KEY, undefined);
 assert.equal(options.env.BITKUB_API_SECRET, undefined);

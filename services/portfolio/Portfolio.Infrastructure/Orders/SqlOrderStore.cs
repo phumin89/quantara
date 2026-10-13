@@ -26,7 +26,7 @@ public sealed class SqlOrderStore(string connectionString, string accountKey) : 
         await using var connection = new SqlConnection(connectionString);
         await connection.OpenAsync(cancellationToken);
         await using var command = new SqlCommand(
-            "SELECT TOP (50) Payload, State FROM dbo.OrderProposals WHERE AccountKey=@account ORDER BY CASE WHEN State IN ('Submitting','Unknown') THEN 0 ELSE 1 END, CreatedAt DESC, Id;",
+            "SELECT TOP (50) Payload, State FROM dbo.OrderProposals WHERE AccountKey=@account ORDER BY CASE WHEN State IN ('Submitting','Unknown') THEN 0 WHEN State IN ('Submitted','PartiallyFilled') THEN 1 ELSE 2 END, CreatedAt DESC, Id;",
             connection
         );
         SqlOrderStore.Account(command, accountKey);
@@ -135,6 +135,60 @@ public sealed class SqlOrderStore(string connectionString, string accountKey) : 
         SqlOrderStore.Account(command, accountKey);
         command.Parameters.Add("@id", SqlDbType.UniqueIdentifier).Value = id;
         await command.ExecuteNonQueryAsync(cancellationToken);
+    }
+
+    public Task UpdateObserved(
+        Guid id,
+        OrderState state,
+        string? brokerOrderId,
+        string? message,
+        CancellationToken cancellationToken
+    ) => this.FinishObserved(id, state, brokerOrderId, message, cancellationToken);
+
+    private async Task FinishObserved(
+        Guid id,
+        OrderState state,
+        string? brokerOrderId,
+        string? message,
+        CancellationToken cancellationToken
+    )
+    {
+        var proposal = await this.Find(id, cancellationToken) ?? throw new InvalidOperationException("Order missing.");
+        if (
+            proposal.State
+            is not (OrderState.Submitting or OrderState.Unknown or OrderState.Submitted or OrderState.PartiallyFilled)
+        )
+        {
+            throw new InvalidOperationException("Only submitted or uncertain orders can be reconciled.");
+        }
+
+        var updated = proposal with
+        {
+            State =
+                proposal.State == OrderState.PartiallyFilled && state == OrderState.Submitted
+                    ? OrderState.PartiallyFilled
+                    : state,
+            BrokerOrderId = brokerOrderId ?? proposal.BrokerOrderId,
+            Message = message,
+        };
+        await using var connection = new SqlConnection(connectionString);
+        await connection.OpenAsync(cancellationToken);
+        await using var command = new SqlCommand(
+            "UPDATE dbo.OrderProposals SET State=@state,Payload=@payload WHERE AccountKey=@account AND Id=@id AND State=@expected AND State IN ('Submitting','Unknown','Submitted','PartiallyFilled');",
+            connection
+        );
+        SqlOrderStore.Account(command, accountKey);
+        command.Parameters.Add("@expected", SqlDbType.VarChar, 20).Value = proposal.State.ToString();
+        command.Parameters.Add("@id", SqlDbType.UniqueIdentifier).Value = id;
+        command.Parameters.Add("@state", SqlDbType.VarChar, 20).Value = updated.State.ToString();
+        command.Parameters.Add("@payload", SqlDbType.NVarChar, -1).Value = JsonSerializer.Serialize(
+            updated,
+            jsonOptions
+        );
+        if (await command.ExecuteNonQueryAsync(cancellationToken) != 1)
+        {
+            throw new InvalidOperationException("Order outcome changed; reload before retrying.");
+        }
     }
 
     private static OrderProposal Read(string payload, string state)

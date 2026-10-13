@@ -48,9 +48,11 @@ var connectionString =
 var store = new SqlPortfolioRepository(connectionString, accountKey);
 await store.Initialize(configuredConnection is null, CancellationToken.None);
 var orders = new SqlOrderStore(connectionString, accountKey);
+builder.Services.AddSingleton<IAccountContext>(new AccountContext(accountKey));
 await orders.Initialize(CancellationToken.None);
 builder.Services.AddSingleton<IOrderStore>(orders);
 builder.Services.AddSingleton<IReadOnlyOrderStore>(orders);
+builder.Services.AddHostedService<OrderStatusMonitor>();
 builder.Services.AddSingleton(TimeProvider.System);
 builder.Services.AddSingleton<IPortfolioRepository>(store);
 builder.Services.AddSingleton<IReadOnlyPortfolioRepository>(store);
@@ -98,7 +100,10 @@ app.Use(
     async (context, next) =>
     {
         context.Response.Headers.CacheControl = "no-store";
-        if (context.Request.Path.StartsWithSegments("/api/crypto/orders"))
+        if (
+            context.Request.Path.StartsWithSegments("/api/crypto/orders")
+            || context.Request.Path.StartsWithSegments("/api/crypto/account")
+        )
         {
             var origin = context.Request.Headers.Origin.ToString();
             var localHost = context.Request.Host.Host is "127.0.0.1" or "localhost" or "[::1]";
