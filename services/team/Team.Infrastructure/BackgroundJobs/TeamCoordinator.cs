@@ -122,6 +122,25 @@ public sealed class TeamCoordinator : BackgroundService, ITeamCoordinator
         }
     }
 
+    public async Task RequestStopCurrent(CancellationToken cancellationToken)
+    {
+        Guid? id;
+        await this.gate.WaitAsync(cancellationToken);
+        try
+        {
+            id = this.activeRun?.Id;
+        }
+        finally
+        {
+            this.gate.Release();
+        }
+
+        if (id.HasValue)
+        {
+            await this.RequestStop(id.Value, cancellationToken);
+        }
+    }
+
     public override void Dispose()
     {
         this.activeCancellation?.Dispose();

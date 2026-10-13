@@ -16,9 +16,12 @@ import {
 import ForumOutlinedIcon from '@mui/icons-material/ForumOutlined';
 import GroupsOutlinedIcon from '@mui/icons-material/GroupsOutlined';
 import AssignmentOutlinedIcon from '@mui/icons-material/AssignmentOutlined';
+import StopOutlinedIcon from '@mui/icons-material/StopOutlined';
+import PlayArrowOutlinedIcon from '@mui/icons-material/PlayArrowOutlined';
 import { TeamServiceContext } from '../../context/TeamServiceContext';
 import { TeamRole } from '../../contracts/TeamRole';
 import { TeamRunStatus } from '../../contracts/TeamRunStatus';
+import { CompanyLoopStatus } from '../../contracts/CompanyLoopStatus';
 import type { DailyBriefPageState } from './DailyBriefPageState';
 
 export default class DailyBriefPage extends Component<
@@ -63,6 +66,7 @@ export default class DailyBriefPage extends Component<
     loading: true,
     error: null,
     membersOpen: false,
+    controlling: false,
   };
 
   private mounted: boolean = false;
@@ -73,6 +77,8 @@ export default class DailyBriefPage extends Component<
 
   private timer: number | null = null;
 
+  private action: AbortController | null = null;
+
   public override componentDidMount(): void {
     this.mounted = true;
     this.setState({ date: DailyBriefPage.today() }, () => void this.load());
@@ -82,11 +88,14 @@ export default class DailyBriefPage extends Component<
     this.mounted = false;
     this.generation += 1;
     this.request?.abort();
+    this.action?.abort();
     this.clearTimer();
   }
 
   public override render(): ReactNode {
-    const { date, brief, loading, error, membersOpen } = this.state;
+    const { date, brief, loading, error, membersOpen, controlling, overview } =
+      this.state;
+    const company = overview?.company;
     const latest = brief?.runs.at(-1);
     const reports =
       brief?.runs.flatMap((run) => run.steps.filter((step) => step.output)) ??
@@ -134,6 +143,67 @@ export default class DailyBriefPage extends Component<
             sx={{ width: { xs: '100%', sm: 190 } }}
           />
         </Box>
+        <Box
+          sx={{
+            display: 'flex',
+            flexWrap: 'wrap',
+            gap: 1.5,
+            alignItems: 'center',
+            justifyContent: 'space-between',
+          }}
+        >
+          <Stack spacing={0.5}>
+            <Typography
+              variant="body2"
+              sx={{ fontWeight: 600 }}
+            >
+              {this.companyLabel(company?.status)}
+            </Typography>
+            <Typography
+              variant="caption"
+              color="text.secondary"
+            >
+              Automatic research · Every hour · No trades
+            </Typography>
+            {company?.status === CompanyLoopStatus.Waiting &&
+              company.nextRunAt && (
+                <Typography
+                  variant="caption"
+                  color="text.secondary"
+                >
+                  Next review{' '}
+                  {new Date(company.nextRunAt).toLocaleString('en-GB', {
+                    timeZone: 'Asia/Bangkok',
+                  })}{' '}
+                  Bangkok
+                </Typography>
+              )}
+          </Stack>
+          <Button
+            variant="outlined"
+            color={
+              company?.enabled || company?.status === CompanyLoopStatus.Error
+                ? 'error'
+                : 'primary'
+            }
+            startIcon={
+              company?.enabled ||
+              company?.status === CompanyLoopStatus.Error ? (
+                <StopOutlinedIcon />
+              ) : (
+                <PlayArrowOutlinedIcon />
+              )
+            }
+            disabled={!company || controlling}
+            onClick={() => void this.controlCompany()}
+            sx={{ minHeight: 44, textTransform: 'none' }}
+          >
+            {company?.enabled || company?.status === CompanyLoopStatus.Error
+              ? 'Stop company'
+              : 'Resume company'}
+          </Button>
+        </Box>
+        {company?.error && <Alert severity="warning">{company.error}</Alert>}
         {error && (
           <Alert
             severity="error"
@@ -592,8 +662,8 @@ export default class DailyBriefPage extends Component<
     );
   }
 
-  private async load(): Promise<void> {
-    if (!this.mounted || !this.state.date) {
+  private async load(preserveError: boolean = false): Promise<void> {
+    if (!this.mounted || !this.state.date || this.action) {
       return;
     }
 
@@ -603,7 +673,10 @@ export default class DailyBriefPage extends Component<
     this.request = request;
     const generation = ++this.generation;
     const date = this.state.date;
-    this.setState({ loading: true, error: null });
+    this.setState({
+      loading: true,
+      error: preserveError ? this.state.error : null,
+    });
     try {
       const service = TeamServiceContext.require(this.context);
       const [brief, overview] = await Promise.all([
@@ -630,10 +703,16 @@ export default class DailyBriefPage extends Component<
             this.mounted &&
             generation === this.generation &&
             date === DailyBriefPage.today() &&
-            (status === TeamRunStatus.Queued ||
+            (this.state.overview?.company?.enabled ||
+              status === TeamRunStatus.Queued ||
               status === TeamRunStatus.Running)
           ) {
-            this.timer = window.setTimeout(() => void this.load(), 5000);
+            const interval =
+              status === TeamRunStatus.Queued ||
+              status === TeamRunStatus.Running
+                ? 5000
+                : 30000;
+            this.timer = window.setTimeout(() => void this.load(), interval);
           }
         });
       }
@@ -644,6 +723,59 @@ export default class DailyBriefPage extends Component<
     if (this.timer !== null) {
       window.clearTimeout(this.timer);
       this.timer = null;
+    }
+  }
+
+  private async controlCompany(): Promise<void> {
+    const company = this.state.overview?.company;
+    if (!company || this.action) {
+      return;
+    }
+
+    this.clearTimer();
+    this.request?.abort();
+    this.generation += 1;
+    const action = new AbortController();
+    this.action = action;
+    this.setState({ controlling: true, error: null });
+    try {
+      await TeamServiceContext.require(this.context).setCompanyEnabled(
+        company.status === CompanyLoopStatus.Error ? false : !company.enabled,
+        action.signal,
+      );
+    } catch (cause) {
+      if (this.mounted && !action.signal.aborted) {
+        this.setState({
+          error:
+            cause instanceof Error
+              ? cause.message
+              : 'Unable to update company operation.',
+        });
+      }
+    } finally {
+      this.action = null;
+      if (this.mounted) {
+        this.setState({ controlling: false }, () => void this.load(true));
+      }
+    }
+  }
+
+  private companyLabel(status: CompanyLoopStatus | undefined): string {
+    switch (status) {
+      case CompanyLoopStatus.Stopped:
+        return 'Company stopped';
+      case CompanyLoopStatus.WaitingForCodex:
+        return 'Waiting for Codex sign-in';
+      case CompanyLoopStatus.WaitingForPortfolio:
+        return 'Waiting for verified portfolio';
+      case CompanyLoopStatus.Running:
+        return 'Team is working';
+      case CompanyLoopStatus.Waiting:
+        return 'Company is monitoring';
+      case CompanyLoopStatus.Error:
+        return 'Company needs attention';
+      case undefined:
+        return this.state.loading ? 'Checking company…' : 'Company unavailable';
     }
   }
 

@@ -72,6 +72,25 @@ assert.equal(options.config.features.multi_agent, false);
 assert.equal(threadOptions.sandboxMode, 'read-only');
 assert.equal(threadOptions.networkAccessEnabled, false);
 assert.equal(threadOptions.webSearchMode, 'disabled');
+const chatSource = {
+  ...source,
+  QUANTARA_CODEX_AUTH_HOME: 'existing-auth-home',
+  QUANTARA_CODEX_LAUNCHER: 'isolated-launcher',
+};
+assert.deepEqual(await CodexTeamWorker.run(input, factory, chatSource), {
+  output: 'Verified report',
+});
+assert.equal(
+  options.apiKey,
+  undefined,
+  'ChatGPT mode must not silently use an API key',
+);
+assert.equal(options.env.CODEX_HOME, 'existing-auth-home');
+assert.equal(options.codexPathOverride, 'isolated-launcher');
+assert.equal(options.config.forced_login_method, 'chatgpt');
+assert.equal(options.env.CODEX_API_KEY, undefined);
+assert.equal(options.env.BITKUB_API_KEY, undefined);
+await access(options.env.QUANTARA_CODEX_EXECUTABLE);
 assert(turnOptions.signal instanceof AbortSignal);
 await assert.rejects(access(threadOptions.workingDirectory));
 const badFactory = () => ({

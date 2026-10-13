@@ -9,4 +9,6 @@ public interface ITeamCoordinator
     public bool IsConfigured { get; }
 
     public Task<TeamRun?> RequestStop(Guid id, CancellationToken cancellationToken);
+
+    public Task RequestStopCurrent(CancellationToken cancellationToken);
 }

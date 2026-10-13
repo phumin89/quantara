@@ -105,31 +105,42 @@ retain historical string spellings and reject unknown or numeric values.
 
 Start `npm run dev:team` alongside the frontend and Portfolio service. Team listens
 on loopback port 5052; `TEAM_SERVICE_URL` configures the server-side web proxy.
-Set `CODEX_API_KEY` (or `OPENAI_API_KEY`) in the **Team server process environment**.
-The current isolated worker uses API authentication, not the desktop chat's login.
-Never put a key in browser variables, objectives or Git. This feature does not read
-broker credentials from `.env`; `.env` is preserved.
+Team uses the existing Codex ChatGPT login. Sign in locally with Codex if needed;
+`Codex__AuthHome` selects its credential directory (otherwise `CODEX_HOME` or
+the owner's `~/.codex`). Tokens never enter prompts, logs, browser code or Git.
+No API key is needed. Team does not read broker credentials from `.env`.
 
 Team uses a separate local `QuantaraTeam` SQL Server database and creates missing
 schema only. Set `ConnectionStrings__Team` for an existing remote database and
 `Services__PortfolioUrl` for Portfolio's address. `Codex__NodePath` may select an
 absolute Node executable; otherwise Node is resolved from PATH. `npm ci` installs
 the pinned Codex SDK/runtime. Do not run multiple Team hosts against the same
-database; startup recovery marks interrupted tasks failed without restarting AI.
+database; startup recovery marks interrupted tasks failed rather than replaying them.
 
-At `/team`, enter an objective and start one task. CEO plans, Analyst analyzes the
-same whitelisted snapshot, and Reviewer checks both prior reports. Each transition
-and output is persisted. Stop cancels the active subprocess and skips remaining
-roles; it does not erase completed output. Earlier runs remain stored, while this
-first screen shows the latest run. Each role has a 180-second process timeout.
-Reports do not authorize trades or claim verified profitability. No jobs start
-automatically, no browser/broker tools are exposed, and no team customization is
-implemented yet.
+At `/daily-brief` (`/team` remains an alias), choose a Bangkok date to read recorded
+role reports and Reviewer summaries. A new company's research loop is enabled by
+the owner's 2026-10-13 direction. When login, SQL and portfolio data are ready,
+CEO chooses analysis priorities, Analyst follows the plan, and Reviewer checks
+the evidence. The next round uses the previous review as bounded untrusted context.
+Rounds are spaced at least one hour apart, with no overlaps or missed-round backlog.
+Each role has a 180-second process timeout. This is research, not working trading.
 
-The worker receives only explicitly allowed environment variables, uses an empty
-temporary Codex home and working directory, read-only sandbox, disabled shell,
-network/tools integrations and web search. Raw worker errors never reach prompts,
-logs or the browser. API authentication still contacts OpenAI to produce reports.
+CompanySchedule is a new table in Team's database; existing TeamRuns and Portfolio
+schema/history stay intact. The next hour is reserved before starting a round,
+so uncertain failures/restarts do not immediately repeat model calls. Dependency
+readiness is checked every 30 seconds. Due rounds request the existing Portfolio
+read-only sync and wait for completion; failed readiness can request another sync
+after five minutes. Stop company persists the disabled state and cancels active
+work; Resume makes the next round due. Saved stops survive restarts. Closing the
+web page does not stop the server. No model work occurs when prerequisites fail.
+
+The worker receives only explicitly allowed environment variables and a temporary
+working directory. A narrow launch mode in Team.Api forwards SDK execution to the
+pinned Codex CLI with `--ignore-user-config --ephemeral`, sharing only the existing
+auth cache for normal token refresh. Personal config, MCP servers and plugins are
+not imported. Shell, app tools, web search and sandbox network are disabled; the
+model receives only whitelisted portfolio fields. Raw worker errors never reach
+prompts, logs or the browser. Model inference still contacts OpenAI.
 Windows policy failures stay visible; this app does not bypass Application Control.
 
 Run `npm run test:ai-worker`, `npm run test:team` and `npm run test:team-ui` for

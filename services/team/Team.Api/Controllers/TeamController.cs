@@ -23,8 +23,24 @@ public sealed class TeamController : ControllerBase
     public async Task<IActionResult> Get(CancellationToken cancellationToken)
     {
         var run = await this.mediator.Send(new GetTeamQuery(), cancellationToken);
+        var company = await this.mediator.Send(new GetCompanyQuery(), cancellationToken);
 
-        return this.Ok(new { configured = this.coordinator.IsConfigured, latestRun = run });
+        return this.Ok(
+            new
+            {
+                configured = this.coordinator.IsConfigured,
+                latestRun = run,
+                company,
+            }
+        );
+    }
+
+    [HttpPost("company")]
+    public async Task<IActionResult> Company(CompanyControl body, CancellationToken cancellationToken)
+    {
+        var company = await this.mediator.Send(new SetCompanyEnabledCommand(body.Enabled), cancellationToken);
+
+        return this.Ok(company);
     }
 
     [HttpGet("brief")]

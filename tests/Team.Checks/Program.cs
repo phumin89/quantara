@@ -14,6 +14,7 @@ await SnapshotWhitelist();
 await ProcessBoundary();
 InvalidObjective();
 await DailyBriefBoundary();
+await CompanyLoopChecks.Run();
 Console.WriteLine("Team checks passed.");
 
 static async Task Success()

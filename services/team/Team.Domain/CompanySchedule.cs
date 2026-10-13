@@ -1,0 +1,3 @@
+namespace Quantara.Team.Domain;
+
+public sealed record CompanySchedule(bool Enabled, DateTimeOffset NextRunAt, Guid? LastRunId);

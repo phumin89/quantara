@@ -45,6 +45,47 @@ export class TeamController {
     );
   }
 
+  public static async company(this: void, request: NextRequest) {
+    if (!TeamController.allowed(request)) {
+      return NextResponse.json(
+        { error: 'Use the local application to control the company.' },
+        { status: 403 },
+      );
+    }
+
+    try {
+      if (Number(request.headers.get('content-length') ?? 0) > 1000) {
+        return NextResponse.json(
+          { error: 'Invalid company request.' },
+          { status: 400 },
+        );
+      }
+
+      const text = await request.text();
+      const body: unknown = text.length <= 1000 ? JSON.parse(text) : null;
+      if (
+        !body ||
+        typeof body !== 'object' ||
+        !('enabled' in body) ||
+        typeof body.enabled !== 'boolean'
+      ) {
+        return NextResponse.json(
+          { error: 'Invalid company request.' },
+          { status: 400 },
+        );
+      }
+
+      return await TeamController.proxy('/company', 'POST', request, {
+        enabled: body.enabled,
+      });
+    } catch {
+      return NextResponse.json(
+        { error: 'Invalid company request.' },
+        { status: 400 },
+      );
+    }
+  }
+
   public static async start(this: void, request: NextRequest) {
     if (!TeamController.allowed(request)) {
       return NextResponse.json(

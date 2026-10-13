@@ -8,4 +8,5 @@ export interface DailyBriefPageState {
   readonly loading: boolean;
   readonly error: string | null;
   readonly membersOpen: boolean;
+  readonly controlling: boolean;
 }

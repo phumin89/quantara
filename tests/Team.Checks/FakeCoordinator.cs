@@ -7,6 +7,8 @@ public sealed class FakeCoordinator : ITeamCoordinator
 {
     public bool IsConfigured => true;
 
+    public Task RequestStopCurrent(CancellationToken cancellationToken) => Task.CompletedTask;
+
     public Task<TeamRun> Start(string objective, CancellationToken cancellationToken) =>
         throw new NotSupportedException();
 

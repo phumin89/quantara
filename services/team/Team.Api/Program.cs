@@ -5,6 +5,12 @@ using Quantara.Team.Application;
 using Quantara.Team.Domain;
 using Quantara.Team.Infrastructure;
 
+if (args.FirstOrDefault() == "exec")
+{
+    Environment.ExitCode = await CodexLauncher.Run(args);
+    return;
+}
+
 var builder = WebApplication.CreateBuilder(args);
 builder.WebHost.UseUrls("http://127.0.0.1:5052");
 builder.WebHost.ConfigureKestrel(options => options.Limits.MaxRequestBodySize = 12000);
@@ -17,17 +23,22 @@ while (taskDirectory is not null && !File.Exists(Path.Combine(taskDirectory.Full
 
 var root = taskDirectory?.FullName ?? builder.Environment.ContentRootPath;
 var configuredConnection = builder.Configuration.GetConnectionString("Team");
-var store = new TeamRunStore(
+var teamConnection =
     configuredConnection
-        ?? "Server=(localdb)\\MSSQLLocalDB;Database=QuantaraTeam;Integrated Security=true;Encrypt=true;TrustServerCertificate=true;",
-    configuredConnection is null
-);
+    ?? "Server=(localdb)\\MSSQLLocalDB;Database=QuantaraTeam;Integrated Security=true;Encrypt=true;TrustServerCertificate=true;";
+var store = new TeamRunStore(teamConnection, configuredConnection is null);
 builder.Services.AddSingleton<ITeamRunStore>(store);
 builder.Services.AddSingleton<IReadOnlyTeamRunStore>(store);
+builder.Services.AddSingleton<ICompanyScheduleStore>(new CompanyScheduleStore(teamConnection));
+builder.Services.AddSingleton(TimeProvider.System);
 builder.Services.AddSingleton<ICodexWorker>(
     new CodexWorker(
         NodeRuntime.Resolve(builder.Configuration["Codex:NodePath"]),
-        Path.Combine(root, "services", "ai-worker", "run.mjs")
+        Path.Combine(root, "services", "ai-worker", "run.mjs"),
+        builder.Configuration["Codex:AuthHome"]
+            ?? Environment.GetEnvironmentVariable("CODEX_HOME")
+            ?? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".codex"),
+        Path.Combine(AppContext.BaseDirectory, OperatingSystem.IsWindows() ? "Team.Api.exe" : "Team.Api")
     )
 );
 var portfolioUrl = new Uri(builder.Configuration["Services:PortfolioUrl"] ?? "http://127.0.0.1:5050");
@@ -46,6 +57,10 @@ builder
 builder.Services.AddSingleton<TeamCoordinator>();
 builder.Services.AddSingleton<ITeamCoordinator>(services => services.GetRequiredService<TeamCoordinator>());
 builder.Services.AddHostedService(services => services.GetRequiredService<TeamCoordinator>());
+builder.Services.AddSingleton<CompanyLoop>();
+builder.Services.AddSingleton<ICompanyLoop>(services => services.GetRequiredService<CompanyLoop>());
+builder.Services.AddSingleton<IReadOnlyCompanyLoop>(services => services.GetRequiredService<CompanyLoop>());
+builder.Services.AddHostedService(services => services.GetRequiredService<CompanyLoop>());
 builder.Services.AddMediator(options => options.ServiceLifetime = ServiceLifetime.Scoped);
 builder
     .Services.AddControllers()
@@ -56,6 +71,9 @@ builder
         );
         options.JsonSerializerOptions.Converters.Add(
             new JsonStringEnumConverter<TeamRunStatus>(JsonNamingPolicy.CamelCase, false)
+        );
+        options.JsonSerializerOptions.Converters.Add(
+            new JsonStringEnumConverter<CompanyLoopStatus>(JsonNamingPolicy.CamelCase, false)
         );
     });
 var app = builder.Build();

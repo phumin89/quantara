@@ -67,6 +67,15 @@ public sealed class PortfolioSnapshotReader : IPortfolioSnapshotReader
         return json;
     }
 
+    public async Task Refresh(CancellationToken cancellationToken)
+    {
+        using var response = await this.http.PostAsync("api/crypto/sync", null, cancellationToken);
+        if (response.StatusCode != System.Net.HttpStatusCode.Conflict)
+        {
+            response.EnsureSuccessStatusCode();
+        }
+    }
+
     private static decimal? OptionalDecimal(JsonElement value, string property)
     {
         var number = value.GetProperty(property);

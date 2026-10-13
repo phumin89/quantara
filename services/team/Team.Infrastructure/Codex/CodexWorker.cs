@@ -11,14 +11,19 @@ public sealed class CodexWorker : ICodexWorker
 
     private readonly string scriptPath;
 
-    public CodexWorker(string nodePath, string scriptPath)
+    private readonly string? authHome;
+
+    private readonly string? launcherPath;
+
+    public CodexWorker(string nodePath, string scriptPath, string? authHome = null, string? launcherPath = null)
     {
         this.nodePath = nodePath;
         this.scriptPath = scriptPath;
+        this.authHome = authHome;
+        this.launcherPath = launcherPath;
     }
 
-    public bool IsConfigured =>
-        File.Exists(this.nodePath) && File.Exists(this.scriptPath) && !string.IsNullOrWhiteSpace(CodexWorker.Key);
+    public bool IsConfigured => File.Exists(this.nodePath) && File.Exists(this.scriptPath) && this.HasAuthentication();
 
     private static string? Key =>
         Environment.GetEnvironmentVariable("CODEX_API_KEY") ?? Environment.GetEnvironmentVariable("OPENAI_API_KEY");
@@ -60,7 +65,16 @@ public sealed class CodexWorker : ICodexWorker
             }
         }
 
-        start.Environment["CODEX_API_KEY"] = CodexWorker.Key;
+        if (this.authHome is not null)
+        {
+            start.Environment["QUANTARA_CODEX_AUTH_HOME"] = this.authHome;
+            start.Environment["QUANTARA_CODEX_LAUNCHER"] = this.launcherPath;
+        }
+        else
+        {
+            start.Environment["CODEX_API_KEY"] = CodexWorker.Key;
+        }
+
         using var process = new Process { StartInfo = start };
         process.Start();
         using var kill = timeout.Token.Register(() =>
@@ -103,6 +117,36 @@ public sealed class CodexWorker : ICodexWorker
         }
 
         return report;
+    }
+
+    private bool HasAuthentication()
+    {
+        if (this.authHome is null)
+        {
+            return !string.IsNullOrWhiteSpace(CodexWorker.Key);
+        }
+
+        if (!File.Exists(this.launcherPath))
+        {
+            return false;
+        }
+
+        try
+        {
+            using var document = JsonDocument.Parse(File.ReadAllText(Path.Combine(this.authHome, "auth.json")));
+
+            return document.RootElement.TryGetProperty("auth_mode", out var mode)
+                && mode.GetString() == "chatgpt"
+                && document.RootElement.TryGetProperty("tokens", out var tokens)
+                && tokens.ValueKind == JsonValueKind.Object
+                && tokens.TryGetProperty("access_token", out var token)
+                && !string.IsNullOrWhiteSpace(token.GetString());
+        }
+        catch (Exception error)
+            when (error is IOException or UnauthorizedAccessException or JsonException or InvalidOperationException)
+        {
+            return false;
+        }
     }
 
     private static async Task<string> ReadBounded(StreamReader reader, CancellationToken cancellationToken)

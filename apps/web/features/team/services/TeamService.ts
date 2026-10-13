@@ -4,6 +4,10 @@ import { teamRunSchema, type TeamRun } from '../contracts/TeamRun';
 import type { TeamOverview } from '../contracts/TeamOverview';
 import type { ITeamService } from './ITeamService';
 import { dailyBriefSchema, type DailyBrief } from '../contracts/DailyBrief';
+import {
+  companyLoopOverviewSchema,
+  type CompanyLoopOverview,
+} from '../contracts/CompanyLoopOverview';
 
 export class TeamService implements ITeamService {
   private static readonly basePath: string = '/team';
@@ -33,6 +37,24 @@ export class TeamService implements ITeamService {
     const parsed = dailyBriefSchema.safeParse(body);
     if (!parsed.success || parsed.data.date !== date) {
       throw new Error('Daily brief response is invalid.');
+    }
+
+    return parsed.data;
+  }
+
+  public async setCompanyEnabled(
+    enabled: boolean,
+    signal?: AbortSignal,
+  ): Promise<CompanyLoopOverview> {
+    const body = await this.requests.send(
+      `${TeamService.basePath}/company`,
+      { enabled },
+      'Unable to update company operation.',
+      signal,
+    );
+    const parsed = companyLoopOverviewSchema.safeParse(body);
+    if (!parsed.success) {
+      throw new Error('Company response is invalid.');
     }
 
     return parsed.data;

@@ -57,12 +57,28 @@ without automatically rerunning them. No service assembly crosses ownership.
 
 CodexWorker passes JSON via stdin to services/ai-worker/run.mjs, reads bounded
 stdout and discards raw stderr. It clears inherited environment variables and
-allows only OS runtime variables plus Codex API authentication. Portfolio data
+allows only OS runtime variables plus the Codex auth-home and launcher paths. Portfolio data
 comes through HTTP and an explicit field whitelist, never SQL credentials or
-Bitkub secrets. The Node worker creates an empty temporary Codex home and cwd,
+Bitkub secrets. The Node worker creates a temporary working directory,
 disables shell/exec, plugins, hooks, additional agents, apps and web search,
-and runs read-only with no shell network. Reports are validated structured
-output and displayed as plain text. API access to OpenAI remains required.
+and runs read-only with no shell network. The SDK uses the Team.Api apphost's
+narrow `exec` dispatch to launch the pinned CLI with `--ignore-user-config` and
+`--ephemeral`, retaining the existing ChatGPT auth cache for normal refresh without
+copying tokens or importing personal config/tools. Reports are validated structured
+output and displayed as plain text. OpenAI model access remains required.
+
+CompanyLoop is a hosted deterministic scheduler. A new owned CompanySchedule table
+persists enabled state, next-run reservation and last-run ID without changing
+retained runs or Portfolio schema. New companies enable research under the owner's
+2026-10-13 direction. The scheduler reserves an hour before admitting a round,
+checks dependencies every 30 seconds and never overlaps work or catches up missed
+rounds. A due round requests Portfolio's existing read-only sync before taking a
+snapshot; failed readiness retries the sync no sooner than five minutes. The CEO
+chooses analysis priorities from a fixed research mandate, and receives at most
+1000 characters of the prior Reviewer output as untrusted context. This does not
+create orders or financial authority. Stop/Resume use thin controller -> Mediator
+commands; the overview query receives IReadOnlyCompanyLoop. A saved stop survives
+restart; a failed save stops locally and exposes the unconfirmed persistence.
 
 Daily Brief (`/daily-brief`, with `/team` retained as an alias) is a read-only
 day view. Its class component resolves TeamService through Context and the lazy
@@ -76,8 +92,10 @@ not an invented chat transcript. Only task creation times are shown because step
 timestamps are not stored. The summary area displays recorded Reviewer outputs,
 not a newly generated daily synthesis. Members show selected-day task status,
 not online presence. Date changes cancel prior reads, historical days never poll,
-and today's view polls only while an existing task is active. Visiting this page
-does not start AI work or enable autonomous operation.
+and today's view polls every five seconds during work or every thirty seconds
+while automatic research is enabled. Visiting the page only reads state; the
+server-owned loop continues independently of the browser. Company controls affect
+the current loop even when a historical conversation is selected.
 
 CI checks are implemented, but remote branch protection is an administrator setting and is not changed by adding a workflow. Account integration and SQL checks are opt-in; default CI uses deterministic fake transports and isolated browser fixtures.
 

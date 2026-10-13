@@ -15,6 +15,14 @@ async function verify() {
   let reads = 0;
   let active = false;
   let writes = 0;
+  let companyEnabled = false;
+  const company = () => ({
+    enabled: companyEnabled,
+    status: companyEnabled ? (active ? 'running' : 'waiting') : 'stopped',
+    nextRunAt: companyEnabled ? '2026-10-13T04:00:00Z' : null,
+    lastRunId: null,
+    error: null,
+  });
   const run = {
     id: '218d734e-0446-492d-8b62-ffbd106d044e',
     objective: 'Fixture: review portfolio evidence',
@@ -37,9 +45,14 @@ async function verify() {
       json: {
         configured: true,
         latestRun: active ? { ...run, status: 'running' } : run,
+        company: company(),
       },
     }),
   );
+  await page.route('**/api/team/company', async (route) => {
+    companyEnabled = route.request().postDataJSON().enabled;
+    await route.fulfill({ json: company() });
+  });
   await page.route('**/api/team/brief?*', async (route) => {
     reads++;
     const date = new URL(route.request().url()).searchParams.get('date');
@@ -58,6 +71,10 @@ async function verify() {
       .getByRole('heading', { name: 'Daily Brief', exact: true })
       .waitFor();
     const date = page.getByLabel('Date', { exact: true });
+    await page.waitForFunction(
+      () =>
+        document.querySelector('input[type="date"]')?.value === '2026-10-13',
+    );
     assert.equal(await date.inputValue(), '2026-10-13');
     const conversation = page.getByRole('region', {
       name: 'Daily conversation',
@@ -162,6 +179,27 @@ async function verify() {
       .getByRole('heading', { name: 'Daily Brief', exact: true })
       .waitFor();
     assert.equal(writes, 0, 'Opening/changing days never starts AI work');
+    await page
+      .getByRole('button', { name: 'Resume company', exact: true })
+      .click();
+    await page.getByText('Company is monitoring', { exact: true }).waitFor();
+    const monitoringReads = reads;
+    const scheduled = page.waitForResponse((response) =>
+      response.url().includes('/api/team/brief?'),
+    );
+    await page.clock.runFor(30100);
+    await scheduled;
+    assert(
+      reads > monitoringReads,
+      'Idle automatic company is monitored without a manual task',
+    );
+    await page
+      .getByRole('button', { name: 'Stop company', exact: true })
+      .click();
+    await page.getByText('Company stopped', { exact: true }).waitFor();
+    await page.reload();
+    await page.getByText('Company stopped', { exact: true }).waitFor();
+    assert.equal(writes, 2, 'Only explicit company controls send writes');
     const api = await browser.newContext();
     for (const badDate of [
       'invalid',
@@ -195,6 +233,23 @@ async function verify() {
     );
     assert.equal(
       (
+        await api.request.post(`${url}/api/team/company`, {
+          data: { enabled: 'true' },
+        })
+      ).status(),
+      400,
+    );
+    assert.equal(
+      (
+        await api.request.post(`${url}/api/team/company`, {
+          headers: { Origin: 'https://attacker.invalid' },
+          data: { enabled: true },
+        })
+      ).status(),
+      403,
+    );
+    assert.equal(
+      (
         await api.request.post(`${url}/api/team/runs`, {
           data: { objective: ' ' },
         })
@@ -210,7 +265,7 @@ async function verify() {
     await api.close();
     assert.deepEqual(errors, []);
     console.log(
-      'Daily Brief: date filtering, real composition, plaintext reports, summary, responsive members, active-only polling, error/retry, no AI writes and local proxy validation passed. Isolated fixtures only.',
+      'Daily Brief: date filtering, plaintext reports, responsive members, work/idle polling, error/retry, persisted company controls, no unsolicited writes and proxy validation passed. Isolated fixtures only.',
     );
   } finally {
     await browser.close();
