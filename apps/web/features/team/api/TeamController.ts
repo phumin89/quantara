@@ -15,6 +15,36 @@ export class TeamController {
     return TeamController.proxy('', 'GET', request);
   }
 
+  public static brief(this: void, request: NextRequest) {
+    if (!TeamController.allowed(request)) {
+      return NextResponse.json(
+        { error: 'Use the local application to access the team.' },
+        { status: 403 },
+      );
+    }
+
+    const date = request.nextUrl.searchParams.get('date');
+    if (
+      !date ||
+      !/^\d{4}-\d{2}-\d{2}$/.test(date) ||
+      Number.isNaN(Date.parse(`${date}T00:00:00Z`)) ||
+      new Date(`${date}T00:00:00Z`).toISOString().slice(0, 10) !== date ||
+      date < '1970-01-01' ||
+      date > '9999-12-30'
+    ) {
+      return NextResponse.json(
+        { error: 'Select a valid date.' },
+        { status: 400 },
+      );
+    }
+
+    return TeamController.proxy(
+      `/brief?date=${encodeURIComponent(date)}`,
+      'GET',
+      request,
+    );
+  }
+
   public static async start(this: void, request: NextRequest) {
     if (!TeamController.allowed(request)) {
       return NextResponse.json(
@@ -128,8 +158,7 @@ export class TeamController {
     } catch {
       return NextResponse.json(
         {
-          error:
-            'The AI team service is unavailable. Start the C# team service and retry.',
+          error: 'The team service is unavailable. Please retry.',
         },
         { status: 503 },
       );

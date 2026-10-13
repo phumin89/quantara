@@ -11,147 +11,178 @@ async function verify() {
   const page = await browser.newPage();
   const errors = [];
   page.on('pageerror', (error) => errors.push(error.message));
-  const id = '218d734e-0446-492d-8b62-ffbd106d044e';
-  let configured = true;
-  let latestRun = null;
-  let reads = 0;
-  let starts = 0;
   let failure = false;
-  await page.route('**/api/team', async (route) => {
+  let reads = 0;
+  let active = false;
+  let writes = 0;
+  const run = {
+    id: '218d734e-0446-492d-8b62-ffbd106d044e',
+    objective: 'Fixture: review portfolio evidence',
+    status: 'completed',
+    createdAt: '2026-10-12T18:00:00+00:00',
+    updatedAt: '2026-10-12T18:03:00+00:00',
+    steps: ['ceo', 'analyst', 'reviewer'].map((role) => ({
+      role,
+      status: 'completed',
+      output: `Fixture ${role} report. <script>unsafe()</script>`,
+      error: null,
+    })),
+    error: null,
+  };
+  page.on('request', (request) => {
+    if (request.method() !== 'GET') writes++;
+  });
+  await page.route('**/api/team', (route) =>
+    route.fulfill({
+      json: {
+        configured: true,
+        latestRun: active ? { ...run, status: 'running' } : run,
+      },
+    }),
+  );
+  await page.route('**/api/team/brief?*', async (route) => {
     reads++;
+    const date = new URL(route.request().url()).searchParams.get('date');
     await route.fulfill({
+      status: failure ? 503 : 200,
       json: failure
         ? { error: 'Fixture storage failure' }
-        : { configured, latestRun },
-      status: failure ? 503 : 200,
+        : { date, runs: date === '2026-10-13' ? [run] : [] },
     });
-  });
-  await page.route('**/api/team/runs', async (route) => {
-    starts++;
-    latestRun = {
-      id,
-      objective: route.request().postDataJSON().objective,
-      status: 'queued',
-      createdAt: '2026-10-12T12:00:00+00:00',
-      updatedAt: '2026-10-12T12:00:00+00:00',
-      steps: ['ceo', 'analyst', 'reviewer'].map((role) => ({
-        role,
-        status: 'queued',
-        output: null,
-        error: null,
-      })),
-      error: null,
-    };
-    await route.fulfill({ status: 202, json: latestRun });
-  });
-  await page.route('**/api/team/stop?*', async (route) => {
-    latestRun = {
-      ...latestRun,
-      status: 'cancelled',
-      steps: latestRun.steps.map((step) => ({ ...step, status: 'cancelled' })),
-    };
-    await route.fulfill({ json: latestRun });
   });
   try {
-    await page.clock.install();
-    await page.goto(`${url}/team`);
-    await page.getByText('Give the team a goal to begin.').waitFor();
-    const objective = page.getByRole('textbox', {
-      name: 'Objective',
-      exact: true,
-    });
-    const start = page.getByRole('button', { name: 'Start task', exact: true });
-    assert(await start.isDisabled());
-    await objective.fill('Review the portfolio with evidence');
-    const startedResponse = page.waitForResponse((response) =>
-      response.url().endsWith('/api/team/runs'),
-    );
-    await start.click();
-    await page.getByRole('button', { name: 'Stop', exact: true }).waitFor();
-    await startedResponse;
-    assert.equal(starts, 1);
-    assert(await start.isDisabled());
-    for (let i = 0; i < 3; i++) {
-      const response = page.waitForResponse((value) =>
-        value.url().endsWith('/api/team'),
-      );
-      await page.clock.runFor(2100);
-      await response;
-    }
-    assert.equal(reads, 4, 'Unchanged queued status must continue polling');
-    await page.getByRole('button', { name: 'Stop', exact: true }).click();
-    await page.getByText('cancelled', { exact: true }).first().waitFor();
-    const stoppedReads = reads;
-    await page.clock.runFor(10000);
-    assert.equal(reads, stoppedReads, 'Terminal task must stop polling');
-    assert(
-      await page
-        .getByRole('button', { name: 'Stop', exact: true })
-        .isDisabled(),
-    );
-    latestRun = {
-      ...latestRun,
-      status: 'completed',
-      steps: latestRun.steps.map((step) => ({
-        ...step,
-        status: 'completed',
-        output: `Fixture ${step.role} report. <script>unsafe()</script>`,
-      })),
-    };
     await fs.mkdir('.impeccable/review', { recursive: true });
+    await page.clock.install({ time: new Date('2026-10-13T03:00:00Z') });
+    await page.goto(`${url}/daily-brief`);
+    await page
+      .getByRole('heading', { name: 'Daily Brief', exact: true })
+      .waitFor();
+    const date = page.getByLabel('Date', { exact: true });
+    assert.equal(await date.inputValue(), '2026-10-13');
+    const conversation = page.getByRole('region', {
+      name: 'Daily conversation',
+    });
+    await conversation
+      .getByText('Fixture ceo report. <script>unsafe()</script>', {
+        exact: true,
+      })
+      .waitFor();
+    assert.equal(
+      await page.locator('script').filter({ hasText: 'unsafe()' }).count(),
+      0,
+    );
+    await page.getByRole('heading', { name: 'Daily summary' }).waitFor();
+    assert.equal(
+      await page
+        .getByRole('button', { name: 'Start task', exact: true })
+        .count(),
+      0,
+    );
+    await date.fill('2026-10-12');
+    await conversation.getByText('No activity', { exact: true }).waitFor();
+    assert.equal(
+      await conversation
+        .getByText('Fixture ceo report.', { exact: false })
+        .count(),
+      0,
+    );
+    await page
+      .getByText('No reviewer summary recorded for this day.')
+      .waitFor();
+    const pastReads = reads;
+    await page.clock.runFor(15000);
+    assert.equal(reads, pastReads, 'Historical days must not poll');
+    active = true;
+    await date.fill('2026-10-13');
+    await conversation
+      .getByText('Fixture ceo report.', { exact: false })
+      .waitFor();
+    const activeReads = reads;
+    const polled = page.waitForResponse((response) =>
+      response.url().includes('/api/team/brief?'),
+    );
+    await page.clock.runFor(5100);
+    await polled;
+    assert(reads > activeReads, 'Today follows an active task');
+    active = false;
+    const terminal = page.waitForResponse((response) =>
+      response.url().includes('/api/team/brief?'),
+    );
+    await page.clock.runFor(5100);
+    await terminal;
+    await page.waitForFunction(
+      () =>
+        document
+          .querySelector('[aria-label="Daily conversation"]')
+          .getAttribute('aria-busy') === 'false',
+    );
+    const terminalReads = reads;
+    await page.clock.runFor(15000);
+    assert.equal(reads, terminalReads, 'Terminal work stops polling');
     for (const [name, width, height] of [
       ['desktop', 1440, 900],
       ['tablet', 768, 1024],
       ['mobile', 390, 844],
-      ['small', 320, 740],
+      ['small', 320, 640],
     ]) {
       await page.setViewportSize({ width, height });
-      await page.reload();
-      await page
-        .getByText('Fixture reviewer report.', { exact: false })
-        .waitFor();
-      assert.equal(
+      assert(
         await page.evaluate(
-          () => document.documentElement.scrollWidth <= innerWidth,
+          () =>
+            document.documentElement.scrollWidth <=
+            document.documentElement.clientWidth,
         ),
-        true,
         `${name} overflow`,
       );
-      assert.equal(
-        await page.locator('script').filter({ hasText: 'unsafe()' }).count(),
-        0,
-        'Reports render plain text',
-      );
+      const members = page.getByRole('button', { name: 'Members · 3' });
+      if (width < 1024) {
+        await members.click();
+        await page
+          .getByText('Direction & coordination', { exact: true })
+          .waitFor();
+        await members.click();
+      }
       if (name !== 'small')
         await page.screenshot({
-          path: `.impeccable/review/team-${name}.png`,
+          path: `.impeccable/review/daily-brief-${name}.png`,
           fullPage: true,
         });
     }
-    configured = false;
-    latestRun = null;
-    await page.reload();
-    await page
-      .getByText('Configure the Codex worker on the server to start tasks.')
-      .waitFor();
-    await objective.fill('Should stay disabled');
-    assert(await start.isDisabled());
     failure = true;
     await page.reload();
-    await page.getByText('Fixture storage failure').waitFor();
-    assert(await start.isDisabled());
+    await page.getByText('Fixture storage failure', { exact: true }).waitFor();
+    await conversation.getByText('Daily brief unavailable').waitFor();
     failure = false;
     await page.getByRole('button', { name: 'Retry', exact: true }).click();
-    await page.getByText('Give the team a goal to begin.').waitFor();
+    await conversation
+      .getByText('Fixture ceo report.', { exact: false })
+      .waitFor();
+    await page.goto(`${url}/team`);
+    await page
+      .getByRole('heading', { name: 'Daily Brief', exact: true })
+      .waitFor();
+    assert.equal(writes, 0, 'Opening/changing days never starts AI work');
     const api = await browser.newContext();
+    for (const badDate of [
+      'invalid',
+      '2026-02-30',
+      '0000-01-01',
+      '9999-12-31',
+    ]) {
+      assert.equal(
+        (
+          await api.request.get(`${url}/api/team/brief?date=${badDate}`)
+        ).status(),
+        400,
+      );
+    }
     assert.equal(
       (
-        await api.request.get(`${url}/api/team`, {
+        await api.request.get(`${url}/api/team/brief?date=2026-10-13`, {
           headers: { Host: 'attacker.invalid' },
         })
       ).status(),
       403,
-      'DNS rebinding must not expose team reports',
     );
     assert.equal(
       (
@@ -179,7 +210,7 @@ async function verify() {
     await api.close();
     assert.deepEqual(errors, []);
     console.log(
-      'AI team UI: real composition, start/stop, unchanged-state polling, terminal stop, safe reports, error/retry, configuration gate, responsive layouts and proxy validation passed. Isolated fixtures only.',
+      'Daily Brief: date filtering, real composition, plaintext reports, summary, responsive members, active-only polling, error/retry, no AI writes and local proxy validation passed. Isolated fixtures only.',
     );
   } finally {
     await browser.close();

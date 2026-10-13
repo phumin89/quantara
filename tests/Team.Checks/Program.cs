@@ -13,6 +13,7 @@ await LateOutput();
 await SnapshotWhitelist();
 await ProcessBoundary();
 InvalidObjective();
+await DailyBriefBoundary();
 Console.WriteLine("Team checks passed.");
 
 static async Task Success()
@@ -127,6 +128,58 @@ static void InvalidObjective()
         throw new InvalidOperationException("invalid objective accepted");
     }
     catch (ArgumentException) { }
+}
+
+static async Task DailyBriefBoundary()
+{
+    var store = new FakeTeamRunStore();
+    var day = new DateOnly(2026, 10, 13);
+    await store.Save(
+        RunAt(
+            Guid.Parse("00000000-0000-0000-0000-000000000001"),
+            new DateTimeOffset(2026, 10, 12, 16, 59, 59, TimeSpan.Zero)
+        ),
+        CancellationToken.None
+    );
+    await store.Save(
+        RunAt(
+            Guid.Parse("00000000-0000-0000-0000-000000000002"),
+            new DateTimeOffset(2026, 10, 12, 17, 0, 0, TimeSpan.Zero)
+        ),
+        CancellationToken.None
+    );
+    await store.Save(
+        RunAt(
+            Guid.Parse("00000000-0000-0000-0000-000000000003"),
+            new DateTimeOffset(2026, 10, 13, 16, 59, 59, TimeSpan.Zero)
+        ),
+        CancellationToken.None
+    );
+    await store.Save(
+        RunAt(
+            Guid.Parse("00000000-0000-0000-0000-000000000004"),
+            new DateTimeOffset(2026, 10, 13, 17, 0, 0, TimeSpan.Zero)
+        ),
+        CancellationToken.None
+    );
+    var result = await new GetDailyBriefHandler(store).Handle(new GetDailyBriefQuery(day), CancellationToken.None);
+    Check(
+        result
+            .Select(run => run.Id)
+            .SequenceEqual(
+                new[]
+                {
+                    Guid.Parse("00000000-0000-0000-0000-000000000002"),
+                    Guid.Parse("00000000-0000-0000-0000-000000000003"),
+                }
+            ),
+        "daily brief Bangkok boundaries"
+    );
+}
+
+static TeamRun RunAt(Guid id, DateTimeOffset createdAt)
+{
+    return new TeamRun(id, "brief", TeamRunStatus.Completed, createdAt, createdAt, [], null);
 }
 
 static async Task<TeamCoordinatorLease> Start(FakeTeamRunStore store, FakeCodexWorker worker)

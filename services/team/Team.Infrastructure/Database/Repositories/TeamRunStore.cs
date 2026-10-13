@@ -32,6 +32,31 @@ public sealed class TeamRunStore : ITeamRunStore, IDisposable
         return await this.Read(id, cancellationToken);
     }
 
+    public async Task<IReadOnlyList<TeamRun>> ForDay(DateOnly day, CancellationToken cancellationToken)
+    {
+        var start = new DateTimeOffset(day.ToDateTime(TimeOnly.MinValue), TimeSpan.FromHours(7));
+        var end = start.AddDays(1);
+        await this.Initialize(cancellationToken);
+        await using var connection = new SqlConnection(this.connectionString);
+        await connection.OpenAsync(cancellationToken);
+        await using var command = connection.CreateCommand();
+        command.CommandText =
+            "SELECT Payload FROM dbo.TeamRuns WHERE CreatedAt >= @start AND CreatedAt < @end ORDER BY CreatedAt, Id";
+        command.Parameters.Add("@start", SqlDbType.DateTimeOffset).Value = start;
+        command.Parameters.Add("@end", SqlDbType.DateTimeOffset).Value = end;
+        var runs = new List<TeamRun>();
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        while (await reader.ReadAsync(cancellationToken))
+        {
+            runs.Add(
+                JsonSerializer.Deserialize<TeamRun>(reader.GetString(0))
+                    ?? throw new InvalidOperationException("Stored team task is invalid.")
+            );
+        }
+
+        return runs;
+    }
+
     public async Task Save(TeamRun run, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(run);

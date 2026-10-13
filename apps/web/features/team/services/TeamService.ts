@@ -3,6 +3,7 @@ import { teamOverviewSchema } from '../contracts/TeamOverview';
 import { teamRunSchema, type TeamRun } from '../contracts/TeamRun';
 import type { TeamOverview } from '../contracts/TeamOverview';
 import type { ITeamService } from './ITeamService';
+import { dailyBriefSchema, type DailyBrief } from '../contracts/DailyBrief';
 
 export class TeamService implements ITeamService {
   private static readonly basePath: string = '/team';
@@ -18,6 +19,20 @@ export class TeamService implements ITeamService {
     const parsed = teamOverviewSchema.safeParse(body);
     if (!parsed.success) {
       throw new Error('AI team response is invalid.');
+    }
+
+    return parsed.data;
+  }
+
+  public async brief(date: string, signal?: AbortSignal): Promise<DailyBrief> {
+    const body = await this.requests.get(
+      `${TeamService.basePath}/brief?date=${encodeURIComponent(date)}`,
+      'Unable to load the daily brief.',
+      signal,
+    );
+    const parsed = dailyBriefSchema.safeParse(body);
+    if (!parsed.success || parsed.data.date !== date) {
+      throw new Error('Daily brief response is invalid.');
     }
 
     return parsed.data;

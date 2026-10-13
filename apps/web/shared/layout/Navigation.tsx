@@ -39,8 +39,8 @@ export default class Navigation extends PureComponent<
     const items = [
       { href: '/', label: 'Home', icon: <HomeOutlinedIcon fontSize="small" /> },
       {
-        href: '/team',
-        label: 'AI team',
+        href: '/daily-brief',
+        label: 'Daily Brief',
         icon: <GroupsOutlinedIcon fontSize="small" />,
       },
       {
@@ -64,7 +64,9 @@ export default class Navigation extends PureComponent<
           sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}
         >
           {items.map((item) => {
-            const selected = pathname === item.href;
+            const selected =
+              pathname === item.href ||
+              (pathname === '/team' && item.href === '/daily-brief');
 
             return (
               <ListItemButton

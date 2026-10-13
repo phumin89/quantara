@@ -1,1 +1,1 @@
-export { default } from '../../features/team/components/team-page/TeamPage';
+export { default } from '../../features/team/components/daily-brief-page/DailyBriefPage';

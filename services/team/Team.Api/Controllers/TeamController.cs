@@ -1,3 +1,4 @@
+using System.Globalization;
 using Mediator;
 using Microsoft.AspNetCore.Mvc;
 using Quantara.Team.Application;
@@ -24,6 +25,29 @@ public sealed class TeamController : ControllerBase
         var run = await this.mediator.Send(new GetTeamQuery(), cancellationToken);
 
         return this.Ok(new { configured = this.coordinator.IsConfigured, latestRun = run });
+    }
+
+    [HttpGet("brief")]
+    public async Task<IActionResult> Brief([FromQuery] string? date, CancellationToken cancellationToken)
+    {
+        if (
+            !DateOnly.TryParseExact(
+                date,
+                "yyyy-MM-dd",
+                CultureInfo.InvariantCulture,
+                DateTimeStyles.None,
+                out var parsedDate
+            )
+            || parsedDate < new DateOnly(1970, 1, 1)
+            || parsedDate > new DateOnly(9999, 12, 30)
+        )
+        {
+            return this.BadRequest(new { error = "Date must use yyyy-MM-dd format." });
+        }
+
+        var runs = await this.mediator.Send(new GetDailyBriefQuery(parsedDate), cancellationToken);
+
+        return this.Ok(new DailyBriefResponse(parsedDate.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture), runs));
     }
 
     [HttpPost("runs")]

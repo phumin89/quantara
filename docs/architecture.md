@@ -64,6 +64,21 @@ disables shell/exec, plugins, hooks, additional agents, apps and web search,
 and runs read-only with no shell network. Reports are validated structured
 output and displayed as plain text. API access to OpenAI remains required.
 
+Daily Brief (`/daily-brief`, with `/team` retained as an alias) is a read-only
+day view. Its class component resolves TeamService through Context and the lazy
+container. GET `/api/team/brief?date=yyyy-MM-dd` delegates through Mediator to
+the read-only store and selects existing runs by their creation day in Bangkok
+time (UTC+07:00), ordered by creation time and ID. SQL schema and retained history
+are unchanged. The supported date range is 1970-01-01 through 9999-12-30.
+
+The conversation displays recorded role outputs as plain text; these are reports,
+not an invented chat transcript. Only task creation times are shown because step
+timestamps are not stored. The summary area displays recorded Reviewer outputs,
+not a newly generated daily synthesis. Members show selected-day task status,
+not online presence. Date changes cancel prior reads, historical days never poll,
+and today's view polls only while an existing task is active. Visiting this page
+does not start AI work or enable autonomous operation.
+
 CI checks are implemented, but remote branch protection is an administrator setting and is not changed by adding a workflow. Account integration and SQL checks are opt-in; default CI uses deterministic fake transports and isolated browser fixtures.
 
 ## Blank-line enforcement

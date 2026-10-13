@@ -12,6 +12,10 @@ export class TeamServices implements ITeamService {
     return this.container.resolve(ServiceKey.Team).get(signal);
   }
 
+  public brief(date: string, signal?: AbortSignal) {
+    return this.container.resolve(ServiceKey.Team).brief(date, signal);
+  }
+
   public start(objective: string, signal?: AbortSignal) {
     return this.container.resolve(ServiceKey.Team).start(objective, signal);
   }
