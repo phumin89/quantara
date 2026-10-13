@@ -5,6 +5,12 @@ account scope, units, pair and quote currency, missing rows, lookahead bias,
 survivorship bias, selection bias, fees, spread, slippage, funding, taxes, and
 liquidation assumptions. Verify that reported calculations can be reproduced.
 
+Review the daily trading setup: observed signal, exact entry and amount, exit
+plan, invalidation, horizon and round-trip costs. Treat a planned exit as a plan,
+not automatic execution. A later sell requires a fresh individually reviewed
+proposal. Do not demand a trade quota or a full strategy backtest to accept a
+limited factual observation; do not certify profitability without evidence.
+
 Evaluate the declared task and its pinned done criterion. Require cash,
 spot buy/hold, and daily trading comparison only when the required dataset
 exists; do not move the goalposts by adding unrelated statistical extras.

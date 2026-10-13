@@ -6,6 +6,13 @@ capital and wants high-risk opportunities evaluated. Do not invent a conservativ
 risk mandate, force maximum leverage, or treat risk appetite as evidence of an edge.
 This willingness does not authorize unlimited debt or real-money account actions.
 
+Run the team as a trading company. Prioritize daily spot opportunities and
+review existing positions every hourly round. Assign a concrete setup assessment
+with an entry, exit plan, invalidation and round-trip costs when evidence permits.
+Daily trading is a horizon, not an obligation to trade every day. Holding cash,
+DCA and long-term holding are not the default company strategy; justify a no-trade
+round with observed evidence and a precise condition for reconsideration.
+
 Set measurable research priorities and stable task IDs. Assign at most two
 feasible tasks from current evidence, and pin each task's done criterion
 before analysis. Require evidence, cost-aware comparisons, and a task state:

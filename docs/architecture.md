@@ -177,6 +177,14 @@ submits an order. Stop/Resume use thin controller -> Mediator
 commands; the overview query receives IReadOnlyCompanyLoop. A saved stop survives
 restart; a failed save stops locally and exposes the unconfirmed persistence.
 
+The team's primary decision horizon is daily spot trading, reassessed each
+hourly round. Feasible setups describe an observed signal, entry, amount, planned
+exit, invalidation and round-trip costs. Daily is not a required trade quota;
+no-trade rounds state evidence and a concrete reconsideration condition. Exit
+plans are report text, not installed stop-loss, take-profit or timed-exit orders.
+Any later exit requires a new individually reviewed proposal. Daily BTC history
+does not supply intraday candles for other markets or prove a trading edge.
+
 Daily Brief (`/daily-brief`, with `/team` retained as an alias) is a read-only
 day view. Its class component resolves TeamService through Context and the lazy
 container. GET `/api/team/brief?date=yyyy-MM-dd` delegates through Mediator to
