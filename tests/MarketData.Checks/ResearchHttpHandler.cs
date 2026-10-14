@@ -10,6 +10,8 @@ public sealed class ResearchHttpHandler : HttpMessageHandler
 
     public string? TickerResponse { get; init; }
 
+    public string? HistoryResponse { get; init; }
+
     protected override Task<HttpResponseMessage> SendAsync(
         HttpRequestMessage request,
         CancellationToken cancellationToken
@@ -41,6 +43,11 @@ public sealed class ResearchHttpHandler : HttpMessageHandler
         if (path.EndsWith("ticker", StringComparison.Ordinal) && this.TickerResponse is not null)
         {
             body = this.TickerResponse;
+        }
+
+        if (path.EndsWith("history", StringComparison.Ordinal) && this.HistoryResponse is not null)
+        {
+            body = this.HistoryResponse;
         }
 
         return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(body) });

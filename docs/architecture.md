@@ -204,6 +204,17 @@ to five markets. BTC completed daily candles use Bitkub's TradingView compatibil
 endpoint, with availability and coverage stated explicitly. Identical timestamp
 duplicates collapse; conflicting duplicates and unfinished candles are excluded.
 Missing bars are never invented. This is historical evidence, not a backtest engine.
+Daily and intraday candles use numeric rows with explicit column metadata and
+lossless decimal compaction. Within the existing research context budget, alert
+markets receive details and candle rows first, followed by BTC and diverse
+liquid/moving candidates with supplied bars. Gaps and continuity are explicit.
+Live quote detail is restricted to supplied candle candidates, with omitted
+quote counts stated; full market quotes remain in the scan and detailed shortlist.
+The largest fitting candle count is retained rather than skipping counts when
+the payload approaches its limit. This prioritization is
+data routing, not an entry signal or expected-profit estimate. Each alert states
+whether its supplied 21-bar series ends at the alert candle and can be rechecked;
+unavailable or omitted evidence never certifies a signal.
 Reviewer may draft the pending proposal described above; no research round
 submits an order. Stop/Resume use thin controller -> Mediator
 commands; the overview query receives IReadOnlyCompanyLoop. A saved stop survives
@@ -222,6 +233,11 @@ no-trade rounds state evidence and a concrete reconsideration condition. Exit
 plans are report text, not installed stop-loss, take-profit or timed-exit orders.
 Any later exit requires a new individually reviewed proposal. Daily BTC history
 does not supply intraday candles for other markets or prove a trading edge.
+Incomplete simulated-fill protocols, strategy backtests, historical account PnL
+or retrospective opportunity-cost calculations block their own claims rather
+than an independent spot proposal assessment. A new proposal still requires
+observed entry evidence, a budget, exit/invalidation, round-trip costs and
+individual human review.
 
 ## Intraday monitoring and research alerts
 
