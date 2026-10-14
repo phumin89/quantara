@@ -31,6 +31,7 @@ public sealed class BitkubResearchMarketReader : IResearchMarketReader
         EnsureSuccess(ticker);
         var scan = MarketUniverseScanner.Scan(symbols, ticker);
         var snapshot = this.intraday?.Read();
+        var assessedAt = DateTimeOffset.UtcNow;
         var alertSymbols = snapshot?.Signals.Select(signal => signal.Symbol).ToHashSet(StringComparer.Ordinal) ?? [];
         var candidates = scan
             .Entries.Where(entry => entry.Usable && alertSymbols.Contains(entry.Symbol))
@@ -138,7 +139,7 @@ public sealed class BitkubResearchMarketReader : IResearchMarketReader
                     },
                     markets,
                     historicalCandles = history,
-                    intraday = ReadIntraday(snapshot, priorities.Take(seriesLimit).ToArray()),
+                    intraday = ReadIntraday(snapshot, priorities.Take(seriesLimit).ToArray(), assessedAt),
                     tradeEvidence = "Recent executed trades are flow evidence, not OHLC backtest history.",
                 },
                 BitkubResearchMarketReader.jsonOptions
@@ -152,7 +153,7 @@ public sealed class BitkubResearchMarketReader : IResearchMarketReader
         throw new InvalidDataException("Market research snapshot is too large.");
     }
 
-    private static object ReadIntraday(IntradaySnapshot? snapshot, string[] priorities)
+    private static object ReadIntraday(IntradaySnapshot? snapshot, string[] priorities, DateTimeOffset assessedAt)
     {
         if (snapshot is null)
         {
@@ -175,6 +176,8 @@ public sealed class BitkubResearchMarketReader : IResearchMarketReader
             source = "Bitkub public WebSocket ticker (ObservedAt is receive time) and TradingView 5-minute history compatibility endpoint. Order book updates are events, not reconstructed full books.",
             candleColumns = BitkubResearchMarketReader.candleColumns,
             numericEncoding = "Lossless decimal values; insignificant trailing zeros are omitted.",
+            adaptiveCheckedAt = assessedAt,
+            adaptiveRule = "adaptive-ema-atr-v1: EMA20/50 SMA seeds; ATR14 Wilder seed from 14 true ranges with previous closes. At least 70 consecutive completed bars, at most 120. Last 3 bar regimes must agree: gap=(EMA20-EMA50)/ATR >=0.5 with positive 5-bar EMA20 slope is uptrend; <=-0.5 with negative slope is downtrend; absolute gap and slope/ATR <=0.25 is range; otherwise transition. ATR/previous20 ATR median >=1.5 high, <=0.75 low; zero baseline ratio is unknown. Research routing heuristics, not profit proof or trade gates.",
             quotes = snapshot
                 .Quotes.Where(quote => prioritySymbols.Contains(quote.Symbol))
                 .Select(quote => new
@@ -198,6 +201,7 @@ public sealed class BitkubResearchMarketReader : IResearchMarketReader
                     returnedBars = series.Candles.Count,
                     truncated = series.Candles.Count > 21,
                     consecutiveBars = CanVerify(series),
+                    adaptive = ReadAdaptive(AdaptiveMarketEvaluator.Evaluate(series, assessedAt)),
                     candles = series
                         .Candles.TakeLast(21)
                         .Select(candle =>
@@ -233,6 +237,34 @@ public sealed class BitkubResearchMarketReader : IResearchMarketReader
             }),
             rule = "Research alert only: closed 5-minute close outside previous 20-bar high/low, volume at least 1.5x previous 20-bar median, current spread at most 0.5%, fresh quote and consecutive verified candles. Thresholds are unvalidated heuristics; no backtest or net-profit proof. Never an order or approval.",
         };
+    }
+
+    private static Dictionary<string, object?> ReadAdaptive(AdaptiveMarketAssessment assessment)
+    {
+        var evidence = new Dictionary<string, object?>
+        {
+            ["available"] = assessment.Available,
+            ["ruleVersion"] = assessment.RuleVersion,
+            ["regime"] = assessment.Regime.ToString().ToLowerInvariant(),
+            ["volatility"] = assessment.Volatility.ToString().ToLowerInvariant(),
+            ["windowBars"] = assessment.UsedBars,
+        };
+        if (!assessment.Available)
+        {
+            evidence["reason"] = assessment.UnavailableReason;
+            return evidence;
+        }
+
+        evidence["windowFrom"] = assessment.WindowFrom;
+        evidence["candleAt"] = assessment.CandleAt;
+        evidence["ema20"] = assessment.Ema20;
+        evidence["ema50"] = assessment.Ema50;
+        evidence["atr14"] = assessment.Atr14;
+        evidence["atrPercent"] = RoundScreening(assessment.AtrPercent, 4);
+        evidence["relativeAtr"] = RoundScreening(assessment.RelativeAtr, 4);
+        evidence["trendGapAtr"] = RoundScreening(assessment.TrendGapAtr, 4);
+        evidence["ema20SlopeAtr"] = RoundScreening(assessment.Ema20SlopeAtr, 4);
+        return evidence;
     }
 
     private static decimal? RoundScreening(decimal? value, int places) =>

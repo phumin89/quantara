@@ -65,7 +65,22 @@ public static class ResearchEvidenceChecks
             now,
             true,
             monitored.Select(symbol => new LiveMarketQuote(symbol, 1m, 2m, 1.5m, now, null)).ToArray(),
-            monitored.Select(symbol => new IntradaySeries(symbol, candles, now, null)).ToArray(),
+            monitored
+                .Select(symbol => new IntradaySeries(
+                    symbol,
+                    Enumerable
+                        .Range(0, 120)
+                        .Select(index =>
+                            candles[index < 99 ? 0 : index - 99] with
+                            {
+                                Timestamp = lastTimestamp - (119 - index) * 300,
+                            }
+                        )
+                        .ToArray(),
+                    now,
+                    null
+                ))
+                .ToArray(),
             [
                 new MarketSignal(
                     "signal-1",
@@ -134,6 +149,23 @@ public static class ResearchEvidenceChecks
         var signalSeries = series
             .EnumerateArray()
             .Single(item => item.GetProperty("symbol").GetString() == signalSymbol);
+        var adaptive = signalSeries.GetProperty("adaptive");
+        if (
+            !adaptive.GetProperty("available").GetBoolean()
+            || adaptive.GetProperty("ruleVersion").GetString() != "adaptive-ema-atr-v1"
+            || adaptive.GetProperty("windowBars").GetInt32() != 120
+            || adaptive.GetProperty("candleAt").GetInt64() != lastTimestamp
+            || adaptive.GetProperty("windowFrom").GetInt64() >= signalSeries.GetProperty("candles")[0][0].GetInt64()
+            || adaptive.GetProperty("regime").ValueKind != JsonValueKind.String
+            || adaptive.GetProperty("ema50").ValueKind != JsonValueKind.Number
+            || !intraday.TryGetProperty("adaptiveCheckedAt", out _)
+        )
+        {
+            throw new InvalidOperationException(
+                "Research must expose typed adaptive evidence from its full source window."
+            );
+        }
+
         if (
             signalSeries.GetProperty("candles").GetArrayLength() != 21
             || signalSeries.GetProperty("candles")[20][4].GetDecimal() != candles[^1].Close
@@ -218,6 +250,23 @@ public static class ResearchEvidenceChecks
             {
                 throw new InvalidOperationException(
                     "Signals with short, gapped or missing candle proof must report unavailable evidence."
+                );
+            }
+
+            var incompleteAdaptive = incompleteDocument
+                .RootElement.GetProperty("intraday")
+                .GetProperty("series")
+                .EnumerateArray()
+                .Single(item => item.GetProperty("symbol").GetString() == signalSymbol)
+                .GetProperty("adaptive");
+            if (
+                incompleteAdaptive.GetProperty("available").GetBoolean()
+                || incompleteAdaptive.GetProperty("regime").GetString() != "unknown"
+                || incompleteAdaptive.TryGetProperty("ema20", out _)
+            )
+            {
+                throw new InvalidOperationException(
+                    "Missing adaptive proof must remain unknown rather than publish a zero EMA."
                 );
             }
         }

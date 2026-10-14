@@ -289,7 +289,7 @@ conflicting values fail that series without overwriting history. Reads return up
 to 120 retained bars; research context contains the latest 21 for up to eight
 priority markets in a documented compact column format. Coverage reports omitted
 series; a 32,000-character research budget leaves room inside the existing
-40,000-character combined portfolio limit. Series detail can reduce to four, two or zero
+40,000-character combined portfolio limit. Series detail reduces one market at a time
 while retaining every universe scan row. Daily BTC context shows the latest 21
 completed bars with original source counts. Missing/conflicting/unfinished bars are never filled or
 used as zero. SQL outages expose an unavailable feed and retry without taking
@@ -302,6 +302,32 @@ most 0.5%, and fresh quote/series evidence. The signal ID is stable for the
 same symbol, bar and direction. These are research heuristics with tested code
 invariants, not a validated profitable strategy or an execution instruction.
 GET /api/market/signals exposes the current read-only snapshot through Mediator.
+
+Research series also carry `adaptive-ema-atr-v1` assessments computed in the
+framework-free MarketData domain from up to 120 completed bars. A contiguous
+trailing window of at least 70 bars is required; earlier gaps can be excluded,
+and short, stale, unfinished or malformed used windows remain unavailable.
+EMA20/50 use SMA seeds. ATR14 seeds the first 14 true ranges with previous
+closes and then uses Wilder smoothing. ATR-normalized EMA separation and the
+five-bar EMA20 slope classify uptrend, downtrend, range or transition; the last
+three completed classifications must agree. Current ATR versus the previous
+20 ATR median describes high/normal/low volatility. A zero baseline has no
+numeric ratio. The published version, window, bar timestamp and assessment
+time make the routing rule explicit; rounded ratios are descriptive, while
+the original quotes/rules remain exact.
+Formula references are Fidelity's [EMA guide](https://www.fidelity.com/learning-center/trading-investing/technical-analysis/technical-indicator-guide/ema)
+and [ATR guide](https://www.fidelity.com/learning-center/trading-investing/technical-analysis/technical-indicator-guide/atr).
+The warmup, regime thresholds and three-bar agreement are local versioned
+heuristics rather than validated optimal settings.
+
+AI uses these assessments to choose continuation/pullback, observed recovery,
+range or competing setup hypotheses and judge volatility against costs and
+execution uncertainty. The indicators are research context, not a proven
+edge, allocation rule, installed exit or additional approval gate. Missing
+indicator evidence affects its own claim; independent supported setups remain
+eligible for individual human review. No new alert schedule, model tuning,
+financial authority or database schema is introduced. The 500 THB realized
+net daily goal remains an objective rather than a promised return.
 
 Team polls alerts once per minute, admits no overlapping rounds, and persists
 the consumed signal key and last assessment time in additive nullable schedule
