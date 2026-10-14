@@ -250,7 +250,7 @@ public sealed class TeamCoordinator : BackgroundService, ITeamCoordinator
                 throw new OperationCanceledException(cancellationToken);
             }
 
-            current = this.activeRun with { AccountKey = accountKey };
+            current = this.activeRun with { AccountKey = accountKey, Learning = DailyLearning.Capture(snapshot) };
             await this.store.Save(current, cancellationToken);
             this.activeRun = current;
         }
@@ -260,11 +260,21 @@ public sealed class TeamCoordinator : BackgroundService, ITeamCoordinator
         }
 
         var prior = await this.store.LatestReviewed(accountKey, current.CreatedAt, cancellationToken);
+        var learningHistory = await this.store.LearningHistory(accountKey, current.CreatedAt, cancellationToken);
+        var priorOutput = prior?.Steps.FirstOrDefault(step => step.Role == TeamRole.Reviewer)?.Output;
+        var learning = DailyLearning.Review(
+            accountKey,
+            current.CreatedAt,
+            current.Learning,
+            learningHistory,
+            Math.Clamp(57000 - snapshot.Length - (priorOutput?.Length ?? 0), 1000, 10000)
+        );
 
         snapshot = JsonSerializer.Serialize(
             new
             {
                 evidence = JsonSerializer.Deserialize<JsonElement>(snapshot),
+                dailyLearning = JsonSerializer.Deserialize<JsonElement>(learning),
                 mandate = new
                 {
                     dailyNetProfitTargetThb = TradingMandate.DailyNetProfitTargetThb,

@@ -78,6 +78,57 @@ public sealed class TeamRunStore : ITeamRunStore, IDisposable
             : null;
     }
 
+    public async Task<IReadOnlyList<TeamRun>> LearningHistory(
+        string accountKey,
+        DateTimeOffset before,
+        CancellationToken cancellationToken
+    )
+    {
+        ValidateAccountKey(accountKey);
+        await this.Initialize(cancellationToken);
+        await using var connection = new SqlConnection(this.connectionString);
+        await connection.OpenAsync(cancellationToken);
+        await using var command = connection.CreateCommand();
+        command.CommandText = """
+            WITH Ranked AS (
+                SELECT Payload, CreatedAt, Id,
+                    CONVERT(date, SWITCHOFFSET(CreatedAt, '+07:00')) AS BangkokDate,
+                    ROW_NUMBER() OVER (
+                        PARTITION BY CONVERT(date, SWITCHOFFSET(CreatedAt, '+07:00'))
+                        ORDER BY CreatedAt DESC, Id DESC
+                    ) AS RankInDay
+                FROM dbo.TeamRuns
+                WHERE CreatedAt < @before
+                  AND CreatedAt >= @start
+                  AND JSON_VALUE(Payload, '$.AccountKey') = @account
+                  AND JSON_VALUE(Payload, '$.Status') = @completed
+                  AND JSON_QUERY(Payload, '$.Learning') IS NOT NULL
+            )
+            SELECT Payload FROM Ranked
+            WHERE RankInDay = 1
+            ORDER BY CreatedAt DESC, Id DESC
+            """;
+        var bangkokDate = before.ToOffset(TimeSpan.FromHours(7)).Date;
+        command.Parameters.Add("@before", SqlDbType.DateTimeOffset).Value = before;
+        command.Parameters.Add("@start", SqlDbType.DateTimeOffset).Value = new DateTimeOffset(
+            bangkokDate.AddDays(-6),
+            TimeSpan.FromHours(7)
+        );
+        command.Parameters.Add("@account", SqlDbType.VarChar, 64).Value = accountKey;
+        command.Parameters.Add("@completed", SqlDbType.Int).Value = (int)TeamRunStatus.Completed;
+        var runs = new List<TeamRun>();
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        while (await reader.ReadAsync(cancellationToken))
+        {
+            runs.Add(
+                JsonSerializer.Deserialize<TeamRun>(reader.GetString(0))
+                    ?? throw new InvalidOperationException("Stored team task is invalid.")
+            );
+        }
+
+        return runs;
+    }
+
     public async Task<IReadOnlyList<TeamRun>> ForDay(DateOnly day, CancellationToken cancellationToken)
     {
         var start = new DateTimeOffset(day.ToDateTime(TimeOnly.MinValue), TimeSpan.FromHours(7));
@@ -248,5 +299,18 @@ public sealed class TeamRunStore : ITeamRunStore, IDisposable
         {
             this.initialization.Release();
         }
+    }
+
+    private static void ValidateAccountKey(string accountKey)
+    {
+        if (accountKey is null || accountKey.Length != 64 || accountKey.Any(character => !IsHexDigit(character)))
+        {
+            throw new ArgumentException("Account key must be exactly 64 hexadecimal characters.", nameof(accountKey));
+        }
+    }
+
+    private static bool IsHexDigit(char character)
+    {
+        return character is >= '0' and <= '9' or >= 'a' and <= 'f' or >= 'A' and <= 'F';
     }
 }

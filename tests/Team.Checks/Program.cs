@@ -5,6 +5,7 @@ using Quantara.Team.Infrastructure;
 using Team.Checks;
 
 await SignalLoopChecks.Run();
+await DailyLearningChecks.Run();
 await Success();
 await ResearchMemory();
 await AccountScopedReviewMemory();
@@ -43,6 +44,7 @@ static async Task Success()
     Check(result.Steps.All(step => step.Status == TeamRunStatus.Completed), "success status");
     Check(result.AccountKey == new string('a', 64), "run account key persisted");
     Check(worker.Calls.All(call => call.Portfolio is not null), "portfolio snapshot");
+    Check(result.Learning?.Markets.Count == 1, "learning evidence durably retained with completed report");
     using var context = JsonDocument.Parse(
         worker.Calls[0].Portfolio ?? throw new InvalidOperationException("context missing")
     );
@@ -52,6 +54,16 @@ static async Task Success()
             && mandate.GetProperty("calendarTimeZone").GetString() == "Asia/Bangkok"
             && mandate.GetProperty("acceptFullCapitalLoss").GetBoolean(),
         "central owner mandate reaches worker"
+    );
+    var next = await coordinator.Start("next learning round", CancellationToken.None);
+    await store.WaitFor(next.Id, item => item.Status == TeamRunStatus.Completed, TimeoutToken());
+    using var recalled = JsonDocument.Parse(
+        worker.Calls[3].Portfolio ?? throw new InvalidOperationException("learning context missing")
+    );
+    var days = recalled.RootElement.GetProperty("dailyLearning").GetProperty("days");
+    Check(
+        days.GetArrayLength() == 1 && days[0].GetProperty("runId").GetGuid() == result.Id,
+        "completed report memory reaches the next CEO round"
     );
 }
 

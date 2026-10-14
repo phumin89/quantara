@@ -225,6 +225,24 @@ does not supply intraday candles for other markets or prove a trading edge.
 
 ## Intraday monitoring and research alerts
 
+Daily learning reuses the existing TeamRuns JSON payload: each new research run
+retains a bounded reference-price snapshot from its observed scan. No legacy
+records are backfilled and no database schema is replaced. Completed reports
+provide one latest run per Bangkok calendar date for up to seven dates, strictly
+before the new run and isolated by account. Future, failed, cancelled and legacy
+records without snapshots cannot provide learning outcomes.
+
+The next report compares available later reference prices with the actual earlier
+observations, with timestamps and missing coverage explicit. Up to five largest
+absolute moves are descriptive hindsight diagnostics; they are not executable
+returns, net missed profits, a cash benchmark or a tested strategy. Daily realized
+profit remains unknown until complete fill/cost reconciliation is available.
+Reviewer writes a short Lesson/Evidence/Next test section into the retained report;
+CEO and Analyst reuse that memory and specify a forward test against the unchanged
+baseline. Memory is bounded to the context budget with explicit omissions. This
+does not retrain model weights, automatically promote a strategy, change skills,
+or expand financial approval authority.
+
 MarketData subscribes to public ticker and order-book streams for up to 16 active
 THB spot markets shortlisted by liquidity and absolute movement, including usable
 BTC. Subscriptions refresh every 15 minutes and reconnect independently;

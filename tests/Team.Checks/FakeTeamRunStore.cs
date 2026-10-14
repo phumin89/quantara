@@ -60,6 +60,36 @@ public sealed class FakeTeamRunStore : ITeamRunStore
         }
     }
 
+    public Task<IReadOnlyList<TeamRun>> LearningHistory(
+        string accountKey,
+        DateTimeOffset before,
+        CancellationToken cancellationToken
+    )
+    {
+        ValidateAccountKey(accountKey);
+        var bangkokDate = before.ToOffset(TimeSpan.FromHours(7)).Date;
+        var start = new DateTimeOffset(bangkokDate.AddDays(-6), TimeSpan.FromHours(7));
+        lock (this.gate)
+        {
+            return Task.FromResult<IReadOnlyList<TeamRun>>(
+                this.runs.Values.Where(run =>
+                        run.AccountKey == accountKey
+                        && run.CreatedAt >= start
+                        && run.CreatedAt < before
+                        && run.Status == TeamRunStatus.Completed
+                        && run.Learning is not null
+                    )
+                    .GroupBy(run => run.CreatedAt.ToOffset(TimeSpan.FromHours(7)).Date)
+                    .Select(group =>
+                        group.OrderByDescending(run => run.CreatedAt).ThenByDescending(run => run.Id).First()
+                    )
+                    .OrderByDescending(run => run.CreatedAt)
+                    .ThenByDescending(run => run.Id)
+                    .ToArray()
+            );
+        }
+    }
+
     public Task<IReadOnlyList<TeamRun>> ForDay(DateOnly day, CancellationToken cancellationToken)
     {
         var start = new DateTimeOffset(day.ToDateTime(TimeOnly.MinValue), TimeSpan.FromHours(7));
@@ -121,5 +151,18 @@ public sealed class FakeTeamRunStore : ITeamRunStore
                 this.waiters.Remove(waiter);
             }
         }
+    }
+
+    private static void ValidateAccountKey(string accountKey)
+    {
+        if (accountKey is null || accountKey.Length != 64 || accountKey.Any(character => !IsHexDigit(character)))
+        {
+            throw new ArgumentException("Account key must be exactly 64 hexadecimal characters.", nameof(accountKey));
+        }
+    }
+
+    private static bool IsHexDigit(char character)
+    {
+        return character is >= '0' and <= '9' or >= 'a' and <= 'f' or >= 'A' and <= 'F';
     }
 }
