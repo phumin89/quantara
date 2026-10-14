@@ -43,10 +43,13 @@ public sealed class BitkubResearchMarketReader : IResearchMarketReader
         var priorityOrder = priorities
             .Select((symbol, index) => new { symbol, index })
             .ToDictionary(item => item.symbol, item => item.index);
-        candidates = candidates
-            .OrderBy(entry => priorityOrder.GetValueOrDefault(entry.Symbol, 100))
-            .ThenBy(entry => entry.Symbol)
-            .ToArray();
+        if (priorities.Length > 0)
+        {
+            candidates = candidates
+                .OrderBy(entry => priorityOrder.GetValueOrDefault(entry.Symbol, 100))
+                .ThenBy(entry => entry.Symbol)
+                .ToArray();
+        }
 
         var markets = new List<object>();
         foreach (var entry in candidates)

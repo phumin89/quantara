@@ -108,6 +108,19 @@ public static class ResearchMarketChecks
             );
         }
 
+        if (
+            !universeDocument
+                .RootElement.GetProperty("markets")
+                .EnumerateArray()
+                .Select(market => market.GetProperty("symbol").GetString())
+                .SequenceEqual(MarketUniverseScanner.SelectCandidates(scan, 16).Select(entry => entry.Symbol))
+        )
+        {
+            throw new InvalidOperationException(
+                "Without an intraday feed, preserve the existing diverse market order."
+            );
+        }
+
         using var missingTicker = JsonDocument.Parse(JsonSerializer.Serialize(quotes.Skip(1)));
         var missing = MarketUniverseScanner.Scan(symbols.RootElement, missingTicker.RootElement);
         if (
