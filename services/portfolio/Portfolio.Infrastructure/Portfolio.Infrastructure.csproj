@@ -3,4 +3,5 @@
   <ItemGroup><ProjectReference Include="../Portfolio.Application/Portfolio.Application.csproj"/><ProjectReference Include="../Portfolio.Domain/Portfolio.Domain.csproj"/><PackageReference Include="Microsoft.Data.SqlClient" Version="7.1.1"/></ItemGroup>
   <ItemGroup><FrameworkReference Include="Microsoft.AspNetCore.App" /></ItemGroup>
   <ItemGroup><EmbeddedResource Include="Database/Migrations/*.sql" /></ItemGroup>
+  <ItemGroup><PackageReference Include="System.Security.Cryptography.Pkcs" Version="9.0.21" /></ItemGroup>
 </Project>
