@@ -1,14 +1,15 @@
 # Quantara
 
 Next.js/TypeScript/Material UI workspace with independently runnable C# services.
-Crypto tracks Bitkub read-only. AI team runs explicitly started CEO, Analyst and
-Reviewer report tasks through Codex SDK. No order execution is implemented.
+Crypto tracks Bitkub balances and retained history. CEO, Analyst and Reviewer
+research through Codex SDK and may propose spot LIMIT orders for explicit human
+approval. Background research never approves or submits orders.
 
 ## Structure
 
 - `apps/web`: routes and API proxy, class components, feature services/contracts,
   shared navigation/theme and scoped DI.
-- `services/market-data`: public Bitkub coins and THB prices. No credentials or database.
+- `services/market-data`: public Bitkub coins, THB prices and intraday candles in its own SQL database. No broker credentials.
 - `services/portfolio`: signed account reads, retained history, portfolio projection and its SQL Server database.
 - `services/team`: controller, Mediator CQRS, orchestration and its own SQL Server
   database. `services/ai-worker` is the Node/Codex SDK process adapter.
@@ -29,6 +30,11 @@ npm run dev
 
 Web: http://127.0.0.1:3000. Portfolio: port 5050. MarketData: port 5051. Production frontend: `npm run build`, then `npm start`. Both services expose `/health`; Portfolio checks SQL connectivity and persisted ledger readability.
 
+For continuous operation on this Windows PC, see
+[local runtime setup](docs/local-runtime.md). It installs hidden per-user service
+watchers, restart recovery and a temporary idle-sleep request. Real orders still
+require individual human approval.
+
 Portfolio reads only BITKUB_API_KEY and BITKUB_API_SECRET from environment variables or the repository-root `.env`. MarketData never receives credentials. Configure `ConnectionStrings__Quantara` for another SQL Server; local default is the existing MSSQLLocalDB Quantara database. Set `Services__MarketDataUrl` on Portfolio and `PORTFOLIO_SERVICE_URL` on the Next.js server when services run elsewhere.
 
 The Portfolio database preserves the original `CryptoPortfolioLedger` table, account-key fingerprint and JSON fields. Its idempotent SQL migration creates missing schema and never drops data. API-key rotation creates a separate partition. Old source is archived locally under ignored `work/prestructure`; `.env` remains outside Git.
@@ -38,9 +44,10 @@ The Portfolio database preserves the original `CryptoPortfolioLedger` table, acc
 Home remains empty; Crypto shows actual balances, retained closed coins and trade fills. Available THB excludes reserved funds. Total assets means held crypto only; a missing price makes the total unknown. Filters do not alter the summary. Snapshot errors retain saved records and offer Retry. Status details expose separate wallet/price/history update times.
 
 Bitkub exchange history is limited to about 90 days and excludes broker conversions.
-Cost and profit remain unknown until complete accounting is verified. AI team
-produces reports only; trading, withdrawal, transfer and RiskEngine paths are not
-implemented. Saans is not bundled; the documented system font fallback is used.
+Cost and profit remain unknown until complete accounting is verified. Real spot
+LIMIT proposals require individual human review; withdrawals, transfers and
+leverage are not supported. Saans is not bundled; the documented system font
+fallback is used.
 
 ## Verification
 
@@ -122,8 +129,9 @@ role reports and Reviewer summaries. A new company's research loop is enabled by
 the owner's 2026-10-13 direction. When login, SQL and portfolio data are ready,
 CEO chooses analysis priorities, Analyst follows the plan, and Reviewer checks
 the evidence. The next round uses the previous review as bounded untrusted context.
-Rounds are spaced at least one hour apart, with no overlaps or missed-round backlog.
-Each role has a 180-second process timeout. This is research, not working trading.
+Hourly reviews and deduplicated signal assessments run without overlapping
+rounds or a missed-round backlog. Each role has a 180-second process timeout.
+Research runs overnight; only an explicit human approval can submit a real order.
 
 CompanySchedule is a new table in Team's database; existing TeamRuns and Portfolio
 schema/history stay intact. The next hour is reserved before starting a round,

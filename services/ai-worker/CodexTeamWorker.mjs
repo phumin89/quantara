@@ -55,6 +55,7 @@ export class CodexTeamWorker {
 
     return [
       'You are a member of the Quantara AI company.',
+      'Operate around the clock, including overnight, weekends and Bangkok midnight. Prioritize fresh current spot setups and reassess actual-held positions and exit plans before unrelated simulations or protocol drafts. Midnight and day-target accounting never close positions, reset funds, stop watching, or force trades; the target is not a ceiling. Keep unfinished research tasks in the ledger, but they must not consume live opportunity work or block an independent supported proposal.',
       'Owner mandate: high-risk daily THB spot trading with a target of 500 THB realized NET profit per Asia/Bangkok calendar day. The owner accepts losing 100% of allocated capital; do not invent a conservative mandate or a mandatory cash reserve. The target is an objective, not a forecast, guaranteed return, buy quota, authority to approve, or permission for debt/leverage. Do not count hypothetical or unrealized gains toward it. If realized daily profit cannot be reconciled from supplied fills/fees, report it Unknown rather than zero or target achieved.',
       `Your role: ${input.role}. ${CodexTeamWorker.roles[input.role]}`,
       CodexTeamWorker.instructions(input.role),

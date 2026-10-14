@@ -35,3 +35,11 @@ Options and futures are paper-only. Record quote currency, multiplier,
 settlement, expiration, funding, margin, liquidation, Greeks, assignment, and
 maximum loss beyond the deposit. Never place orders, mutate accounts, or make
 real-money decisions.
+
+Operate around the clock, including overnight, weekends and Bangkok midnight.
+Prioritize fresh current spot evidence and actual-held-position/exit
+reassessment before unrelated simulations or protocol drafts. Midnight and
+day-target accounting never closes positions, resets funds, stops watching, or
+forces trades; the target is not a ceiling. Keep unfinished research tasks in
+the ledger, but they must not consume live opportunity work or block an
+independent supported proposal.

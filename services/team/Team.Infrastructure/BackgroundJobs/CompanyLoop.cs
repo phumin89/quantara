@@ -11,7 +11,8 @@ public sealed class CompanyLoop : BackgroundService, ICompanyLoop
         + "Owner target: 500 THB realized net profit per Bangkok calendar day after actual trading costs. This is a goal, never a guaranteed return or a forced trade quota. "
         + "The owner accepts losing all allocated capital. No mandatory cash reserve: a cash-only portfolio requires actively seeking entry opportunities across the full supplied THB spot scan. "
         + "CEO must rank feasible setups; Analyst evaluates entry, size, exit, invalidation and costs; Reviewer concludes Buy, Sell or Wait and may return one supported spot LIMIT proposal for explicit human approval. "
-        + "If Wait, explain the best rejected alternatives, opportunity-cost uncertainty and the next reconsideration condition. A missing breakout does not eliminate other setups. Never invent performance, count hypothetical/unrealized gains toward the target, approve or execute trades. ";
+        + "If Wait, explain the best rejected alternatives, opportunity-cost uncertainty and the next reconsideration condition. A missing breakout does not eliminate other setups. Never invent performance, count hypothetical/unrealized gains toward the target, approve or execute trades. "
+        + "Operate around the clock, including overnight, weekends and Bangkok midnight. Prioritize fresh current spot setups and reassessment of actual-held positions and exits before unrelated simulations or protocol drafts. Midnight and day-target accounting never close positions, reset funds, stop watching, or force trades; the target is not a ceiling. Keep unfinished research tasks in the ledger, but they must not consume live opportunity work or block an independent supported proposal. ";
 
     private readonly ICompanyScheduleStore store;
 

@@ -31,6 +31,11 @@ for (const role of Object.keys(CodexTeamWorker.roles)) {
   const prompt = CodexTeamWorker.prompt(roleInput);
   assert(prompt.includes(instructions));
   for (const required of [
+    'Operate around the clock',
+    'fresh current spot setups',
+    'actual-held positions',
+    'Midnight and day-target accounting never close positions',
+    'must not consume live opportunity work or block an independent supported proposal',
     'Current research capabilities:',
     'Intraday capabilities:',
     '500 THB realized NET profit',

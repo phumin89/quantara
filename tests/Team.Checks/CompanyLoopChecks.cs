@@ -102,6 +102,40 @@ public static class CompanyLoopChecks
         store.FailSave = false;
         await uncertain.SetEnabled(false, CancellationToken.None);
         CompanyLoopChecks.Check(!store.Schedule.Enabled, "retry stop persists disabled state");
+
+        var overnightTime = new ManualTimeProvider();
+        overnightTime.Advance(TimeSpan.FromDays(3) + TimeSpan.FromHours(16));
+        var overnightStore = new FakeCompanyScheduleStore(overnightTime.GetUtcNow());
+        var overnightRuns = new FakeTeamRunStore();
+        var overnightCoordinator = new LoopCoordinator(overnightRuns, overnightTime);
+        using var overnight = new CompanyLoop(
+            overnightStore,
+            overnightRuns,
+            overnightCoordinator,
+            new LoopSnapshotReader(),
+            overnightTime
+        );
+        await overnight.Tick(CancellationToken.None);
+        CompanyLoopChecks.Check(overnightCoordinator.Objectives.Count == 1, "late Friday round starts");
+        CompanyLoopChecks.Check(
+            overnightCoordinator.Objectives[0].Contains("Trading day (Bangkok): 2026-10-16", StringComparison.Ordinal),
+            "late Friday Bangkok trading day"
+        );
+        var overnightFirst =
+            await overnightRuns.Latest(CancellationToken.None)
+            ?? throw new InvalidOperationException("Overnight run missing");
+        await overnightRuns.Save(overnightFirst with { Status = TeamRunStatus.Completed }, CancellationToken.None);
+        overnightTime.Advance(TimeSpan.FromHours(1));
+        await Task.WhenAll(overnight.Tick(CancellationToken.None), overnight.Tick(CancellationToken.None));
+        CompanyLoopChecks.Check(overnightCoordinator.Objectives.Count == 2, "Saturday midnight next round/no overlap");
+        CompanyLoopChecks.Check(
+            overnightCoordinator.Objectives[1].Contains("Trading day (Bangkok): 2026-10-17", StringComparison.Ordinal),
+            "Saturday Bangkok trading day"
+        );
+        CompanyLoopChecks.Check(
+            overnightStore.Schedule.NextRunAt == overnightTime.GetUtcNow().AddHours(1),
+            "overnight target and cadence unchanged"
+        );
     }
 
     private static void Check(bool condition, string name)

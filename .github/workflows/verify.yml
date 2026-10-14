@@ -23,6 +23,7 @@ jobs:
       - run: npm run test:services
       - run: npm run test:di
       - run: npm run test:ai-worker
+      - run: npm run test:runtime
       - run: npm run build
       - run: dotnet build Quantara.sln
       - run: npm run test:architecture
@@ -61,5 +62,5 @@ jobs:
       - uses: gitleaks/gitleaks-action@e0c47f4f8be36e29cdc102c57e68cb5cbf0e8d1e # v3
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GITLEAKS_ENABLE_COMMENTS: "false"
-          GITLEAKS_ENABLE_UPLOAD_ARTIFACT: "false"
+          GITLEAKS_ENABLE_COMMENTS: 'false'
+          GITLEAKS_ENABLE_UPLOAD_ARTIFACT: 'false'

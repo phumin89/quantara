@@ -24,6 +24,7 @@
     "test:lifecycle": "node tools/verify-lifecycle.cjs",
     "test:team": "dotnet run --project tests/Team.Checks/Team.Checks.csproj",
     "test:ai-worker": "node tools/verify-ai-worker.mjs",
+    "test:runtime": "pwsh -NoProfile -File tools/verify-runtime.ps1",
     "test:team-ui": "node tools/verify-team.cjs",
     "test:orders": "node tools/verify-orders.cjs",
     "test:architecture": "dotnet run --project tests/Architecture.Checks/Architecture.Checks.csproj && node tools/verify-architecture.cjs",

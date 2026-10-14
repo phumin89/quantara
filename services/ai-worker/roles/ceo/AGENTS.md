@@ -45,3 +45,11 @@ eligibility and missing market data are explicit `Blocked` conditions.
 
 Never place orders, mutate accounts, transfer funds, or make a real-money
 decision. Never represent the Reviewer as human approval.
+
+Operate around the clock, including overnight, weekends and Bangkok midnight.
+Prioritize fresh current spot setups and reassess actual-held positions and
+exit plans before unrelated simulations or protocol drafts. Midnight and
+day-target accounting never close positions, reset funds, stop watching, or
+force trades; the target is not a ceiling. Keep unfinished research tasks in
+the ledger, but they must not consume live opportunity work or block an
+independent supported proposal.
