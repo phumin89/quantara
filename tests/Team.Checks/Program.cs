@@ -26,7 +26,22 @@ Console.WriteLine("Team checks passed.");
 static async Task Success()
 {
     var store = new FakeTeamRunStore();
-    var worker = new FakeCodexWorker((role, _, _) => Task.FromResult($"{role}-output"));
+    var worker = new FakeCodexWorker(
+        (role, _, _) =>
+            Task.FromResult(
+                new ResearchReport(
+                    $"{role}-output",
+                    null,
+                    role == "reviewer"
+                        ? new LearningLesson(
+                            "Do not force entries",
+                            "Unknown net PnL",
+                            "Compare fixed-hour observations"
+                        )
+                        : null
+                )
+            )
+    );
     await using var coordinator = await Start(store, worker);
     var run = await coordinator.Start("objective", CancellationToken.None);
     var result = await store.WaitFor(
@@ -45,6 +60,10 @@ static async Task Success()
     Check(result.AccountKey == new string('a', 64), "run account key persisted");
     Check(worker.Calls.All(call => call.Portfolio is not null), "portfolio snapshot");
     Check(result.Learning?.Markets.Count == 1, "learning evidence durably retained with completed report");
+    Check(
+        result.Lesson?.Lesson == "Do not force entries" && result.Decision == LearningDecision.NoProposal,
+        "structured lesson and proposal decision persisted"
+    );
     using var context = JsonDocument.Parse(
         worker.Calls[0].Portfolio ?? throw new InvalidOperationException("context missing")
     );
@@ -62,7 +81,10 @@ static async Task Success()
     );
     var days = recalled.RootElement.GetProperty("dailyLearning").GetProperty("days");
     Check(
-        days.GetArrayLength() == 1 && days[0].GetProperty("runId").GetGuid() == result.Id,
+        days.GetArrayLength() == 1
+            && days[0].GetProperty("rounds")[0].GetProperty("runId").GetGuid() == result.Id
+            && days[0].GetProperty("rounds")[0].GetProperty("lesson").GetProperty("Lesson").GetString()
+                == "Do not force entries",
         "completed report memory reaches the next CEO round"
     );
 }
@@ -607,6 +629,16 @@ static async Task ProcessBoundary()
                 == "รายงานภาษาไทย ฿100",
             "UTF8 report transport"
         );
+        var typed = await worker.Report("reviewer", "typed lesson", [], null, CancellationToken.None);
+        Check(typed.Lesson?.Lesson == "Keep baseline", "typed reviewer lesson crosses process boundary");
+        try
+        {
+            await worker.Report("reviewer", "missing lesson", [], null, CancellationToken.None);
+            throw new InvalidOperationException("Reviewer null lesson accepted");
+        }
+        catch (InvalidOperationException error)
+            when (error.Message.Contains("learning lesson", StringComparison.Ordinal)) { }
+
         try
         {
             await worker.Run("ceo", "fail safely", Array.Empty<(string, string)>(), "snapshot", CancellationToken.None);

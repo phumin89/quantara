@@ -564,6 +564,40 @@ export default class DailyBriefPage extends Component<
                           <BriefMessage output={step.output} />
                         </Box>
                       )}
+                      {step.role === TeamRole.Reviewer && run.lesson && (
+                        <Stack
+                          spacing={0.5}
+                          sx={{ mt: 1.5, overflowWrap: 'anywhere' }}
+                        >
+                          <Typography variant="body2">
+                            <Box
+                              component="span"
+                              sx={{ fontWeight: 700 }}
+                            >
+                              Lesson:
+                            </Box>{' '}
+                            {run.lesson.lesson}
+                          </Typography>
+                          <Typography variant="body2">
+                            <Box
+                              component="span"
+                              sx={{ fontWeight: 700 }}
+                            >
+                              Evidence:
+                            </Box>{' '}
+                            {run.lesson.evidence}
+                          </Typography>
+                          <Typography variant="body2">
+                            <Box
+                              component="span"
+                              sx={{ fontWeight: 700 }}
+                            >
+                              Next test:
+                            </Box>{' '}
+                            {run.lesson.nextTest}
+                          </Typography>
+                        </Stack>
+                      )}
                       {step.error && (
                         <Typography
                           variant="body2"

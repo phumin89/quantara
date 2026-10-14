@@ -79,10 +79,6 @@ public sealed class FakeTeamRunStore : ITeamRunStore
                         && run.Status == TeamRunStatus.Completed
                         && run.Learning is not null
                     )
-                    .GroupBy(run => run.CreatedAt.ToOffset(TimeSpan.FromHours(7)).Date)
-                    .Select(group =>
-                        group.OrderByDescending(run => run.CreatedAt).ThenByDescending(run => run.Id).First()
-                    )
                     .OrderByDescending(run => run.CreatedAt)
                     .ThenByDescending(run => run.Id)
                     .ToArray()

@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.Text;
 using System.Text.Json;
 using Quantara.Team.Application;
+using Quantara.Team.Domain;
 
 namespace Quantara.Team.Infrastructure;
 
@@ -151,7 +152,50 @@ public sealed class CodexWorker : ICodexWorker
             );
         }
 
-        return new ResearchReport(report, proposal);
+        LearningLesson? lesson = null;
+        if (!result.RootElement.TryGetProperty("lesson", out var lessonElement))
+        {
+            throw new InvalidOperationException("Worker must return a learning lesson field.");
+        }
+        else if (lessonElement.ValueKind != JsonValueKind.Null)
+        {
+            if (role != "reviewer" || lessonElement.ValueKind != JsonValueKind.Object)
+            {
+                throw new InvalidOperationException("Invalid learning lesson.");
+            }
+
+            var properties = lessonElement
+                .EnumerateObject()
+                .Select(property => property.Name)
+                .OrderBy(name => name)
+                .ToArray();
+            if (!properties.SequenceEqual(new[] { "evidence", "lesson", "nextTest" }))
+            {
+                throw new InvalidOperationException("Invalid learning lesson.");
+            }
+
+            var lessonText = CodexWorker.LessonText(lessonElement, "lesson");
+            var evidenceText = CodexWorker.LessonText(lessonElement, "evidence");
+            var nextTestText = CodexWorker.LessonText(lessonElement, "nextTest");
+            lesson = new LearningLesson(lessonText, evidenceText, nextTestText);
+        }
+        else if (role == "reviewer")
+        {
+            throw new InvalidOperationException("Reviewer must return a learning lesson.");
+        }
+
+        return new ResearchReport(report, proposal, lesson);
+    }
+
+    private static string LessonText(JsonElement lesson, string name)
+    {
+        var value = lesson.GetProperty(name).GetString()?.Trim();
+        if (string.IsNullOrWhiteSpace(value) || value.Length > 500)
+        {
+            throw new InvalidOperationException("Invalid learning lesson.");
+        }
+
+        return value;
     }
 
     private bool HasAuthentication()

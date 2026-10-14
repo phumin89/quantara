@@ -42,6 +42,11 @@ async function verify() {
       error: null,
     })),
     error: null,
+    lesson: {
+      lesson: 'Fixture lesson: keep a fixed horizon.',
+      evidence: 'Fixture evidence: unknown realized profit.',
+      nextTest: 'Fixture next test: compare the unchanged baseline.',
+    },
   };
   page.on('request', (request) => {
     if (request.method() !== 'GET') writes++;
@@ -89,6 +94,15 @@ async function verify() {
       .getByText('Fixture ceo report. <script>unsafe()</script>', {
         exact: true,
       })
+      .waitFor();
+    await conversation
+      .getByText(`Lesson: ${run.lesson.lesson}`, { exact: true })
+      .waitFor();
+    await conversation
+      .getByText(`Evidence: ${run.lesson.evidence}`, { exact: true })
+      .waitFor();
+    await conversation
+      .getByText(`Next test: ${run.lesson.nextTest}`, { exact: true })
       .waitFor();
     assert.equal(
       await page.locator('script').filter({ hasText: 'unsafe()' }).count(),

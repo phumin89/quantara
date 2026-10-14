@@ -93,6 +93,18 @@ assert.throws(
   () => CodexTeamWorker.validate({ ...input, objective: ' ' }),
   /Invalid worker input/,
 );
+const validLesson = { lesson: 'A', evidence: 'B', nextTest: 'C' };
+assert(CodexTeamWorker.validLesson('reviewer', validLesson));
+assert(CodexTeamWorker.validLesson('ceo', null));
+assert(CodexTeamWorker.validLesson('analyst', null));
+for (const invalid of [
+  { ...validLesson, lesson: ' ' },
+  { ...validLesson, evidence: 'x'.repeat(501) },
+  { ...validLesson, extra: 'x' },
+])
+  assert(!CodexTeamWorker.validLesson('reviewer', invalid));
+assert(!CodexTeamWorker.validLesson('reviewer', null));
+assert(!CodexTeamWorker.validLesson('ceo', validLesson));
 await assert.rejects(
   CodexTeamWorker.run(
     input,
@@ -126,7 +138,11 @@ const factory = (value) => {
           assert(prompt.includes('untrusted data'));
           return {
             items: [],
-            finalResponse: JSON.stringify({ output: 'Verified report' }),
+            finalResponse: JSON.stringify({
+              output: 'Verified report',
+              proposal: null,
+              lesson: null,
+            }),
           };
         },
       };
@@ -135,6 +151,8 @@ const factory = (value) => {
 };
 assert.deepEqual(await CodexTeamWorker.run(input, factory, source), {
   output: 'Verified report',
+  proposal: null,
+  lesson: null,
 });
 const proposal = {
   symbol: 'BTC',
@@ -148,7 +166,15 @@ const proposalFactory = () => ({
   startThread: () => ({
     run: async () => ({
       items: [],
-      finalResponse: JSON.stringify({ output: 'Review', proposal }),
+      finalResponse: JSON.stringify({
+        output: 'Review',
+        proposal,
+        lesson: {
+          lesson: 'Use observed spread',
+          evidence: 'Two snapshots',
+          nextTest: 'Recheck in one hour',
+        },
+      }),
     }),
   }),
 });
@@ -165,6 +191,11 @@ assert.deepEqual(
   {
     output: 'Review',
     proposal,
+    lesson: {
+      lesson: 'Use observed spread',
+      evidence: 'Two snapshots',
+      nextTest: 'Recheck in one hour',
+    },
   },
 );
 await assert.rejects(
@@ -213,6 +244,8 @@ const chatSource = {
 };
 assert.deepEqual(await CodexTeamWorker.run(input, factory, chatSource), {
   output: 'Verified report',
+  proposal: null,
+  lesson: null,
 });
 assert.equal(
   options.apiKey,

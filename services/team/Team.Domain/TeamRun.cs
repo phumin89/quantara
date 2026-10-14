@@ -9,5 +9,8 @@ public sealed record TeamRun(
     IReadOnlyList<TeamStep> Steps,
     string? Error,
     string? AccountKey = null,
-    LearningSnapshot? Learning = null
+    LearningSnapshot? Learning = null,
+    LearningEvaluation? LearningEvaluation = null,
+    LearningLesson? Lesson = null,
+    LearningDecision? Decision = null
 );

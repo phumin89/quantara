@@ -261,13 +261,26 @@ public sealed class TeamCoordinator : BackgroundService, ITeamCoordinator
 
         var prior = await this.store.LatestReviewed(accountKey, current.CreatedAt, cancellationToken);
         var learningHistory = await this.store.LearningHistory(accountKey, current.CreatedAt, cancellationToken);
+        var evaluatedHistory = new List<TeamRun>();
+        foreach (var previousRun in learningHistory)
+        {
+            var evaluation = DailyLearning.Evaluate(previousRun, learningHistory, current);
+            var evaluated = previousRun with { LearningEvaluation = evaluation };
+            if (previousRun.LearningEvaluation is null && evaluation is not null)
+            {
+                await this.store.Save(evaluated, cancellationToken);
+            }
+
+            evaluatedHistory.Add(evaluated);
+        }
+
         var priorOutput = prior?.Steps.FirstOrDefault(step => step.Role == TeamRole.Reviewer)?.Output;
         var learning = DailyLearning.Review(
             accountKey,
             current.CreatedAt,
             current.Learning,
-            learningHistory,
-            Math.Clamp(57000 - snapshot.Length - (priorOutput?.Length ?? 0), 1000, 10000)
+            evaluatedHistory,
+            Math.Clamp(59000 - snapshot.Length - (priorOutput?.Length ?? 0), 3000, 12000)
         );
 
         snapshot = JsonSerializer.Serialize(
@@ -306,7 +319,7 @@ public sealed class TeamCoordinator : BackgroundService, ITeamCoordinator
                 cancellationToken
             );
             cancellationToken.ThrowIfCancellationRequested();
-            await this.UpdateStep(id, role, TeamRunStatus.Completed, report.Output, cancellationToken);
+            await this.UpdateStep(id, role, TeamRunStatus.Completed, report.Output, cancellationToken, report);
             previous.Add((role.ToString().ToLowerInvariant(), report.Output));
             if (report.Proposal is not null)
             {
@@ -329,7 +342,8 @@ public sealed class TeamCoordinator : BackgroundService, ITeamCoordinator
         TeamRole role,
         TeamRunStatus status,
         string? output,
-        CancellationToken cancellationToken
+        CancellationToken cancellationToken,
+        ResearchReport? report = null
     )
     {
         await this.gate.WaitAsync(cancellationToken);
@@ -346,6 +360,16 @@ public sealed class TeamCoordinator : BackgroundService, ITeamCoordinator
             {
                 Status = TeamRunStatus.Running,
                 UpdatedAt = DateTimeOffset.UtcNow,
+                Lesson = role == TeamRole.Reviewer && report is not null ? report.Lesson : current.Lesson,
+                Decision =
+                    role == TeamRole.Reviewer && report is not null
+                        ? report.Proposal?.Side switch
+                        {
+                            TradeProposalSide.Buy => LearningDecision.BuyProposal,
+                            TradeProposalSide.Sell => LearningDecision.SellProposal,
+                            _ => LearningDecision.NoProposal,
+                        }
+                        : current.Decision,
                 Steps = current
                     .Steps.Select(step => step.Role == role ? step with { Status = status, Output = output } : step)
                     .ToArray(),

@@ -6,137 +6,143 @@ namespace Team.Checks;
 
 public static class DailyLearningChecks
 {
-    private static readonly string[] fixtureSymbols = ["BTC_THB", "ETH_THB"];
-
-    private static readonly bool[] fixtureUsable = [true, false];
-
     public static async Task Run()
     {
         var now = DateTimeOffset.UtcNow;
         var account = new string('a', 64);
-        var current = new LearningSnapshot(now, [new LearningQuote("BTC_THB", 110m)]);
-        var store = new FakeTeamRunStore();
-        for (var days = 0; days < 9; days++)
+        var observed = now.AddHours(-2);
+        var first = new TeamRun(
+            Guid.NewGuid(),
+            "first decision",
+            TeamRunStatus.Completed,
+            observed,
+            observed,
+            [new TeamStep(TeamRole.Reviewer, TeamRunStatus.Completed, new string('x', 4000), null)],
+            null,
+            account,
+            new LearningSnapshot(
+                observed,
+                [new LearningQuote("BTC_THB", 100m), new LearningQuote("ETH_THB", 50m)],
+                observed.AddHours(1)
+            ),
+            null,
+            new LearningLesson("keep full lesson", "fixed reference", "compare baseline"),
+            LearningDecision.NoProposal
+        );
+        var second = first with
         {
-            var observed = now.AddDays(-days).AddMinutes(-10);
-            var run = new TeamRun(
-                Guid.NewGuid(),
-                "Review entry and Wait",
-                TeamRunStatus.Completed,
-                observed,
-                observed,
-                [
-                    new TeamStep(
-                        TeamRole.Reviewer,
-                        TeamRunStatus.Completed,
-                        "Learning: entry hypothesis needs forward costs",
-                        null
-                    ),
-                ],
-                null,
-                account,
-                new LearningSnapshot(observed, [new LearningQuote("BTC_THB", 100m), new LearningQuote("ETH_THB", 50m)])
-            );
-            await store.Save(run, CancellationToken.None);
-            await store.Save(
-                run with
-                {
-                    Id = Guid.NewGuid(),
-                    CreatedAt = observed.AddMinutes(-1),
-                },
-                CancellationToken.None
-            );
-            await store.Save(
-                run with
-                {
-                    Id = Guid.NewGuid(),
-                    AccountKey = new string('b', 64),
-                },
-                CancellationToken.None
-            );
-            await store.Save(
-                run with
-                {
-                    Id = Guid.NewGuid(),
-                    CreatedAt = observed.AddMinutes(1),
-                    Status = TeamRunStatus.Failed,
-                },
-                CancellationToken.None
-            );
-        }
-
+            Id = Guid.NewGuid(),
+            CreatedAt = observed.AddMinutes(10),
+            Decision = LearningDecision.BuyProposal,
+        };
+        var store = new FakeTeamRunStore();
+        await store.Save(first, CancellationToken.None);
+        await store.Save(second, CancellationToken.None);
+        await store.Save(first with { Id = Guid.NewGuid(), AccountKey = new string('b', 64) }, CancellationToken.None);
+        await store.Save(first with { Id = Guid.NewGuid(), Status = TeamRunStatus.Failed }, CancellationToken.None);
+        await store.Save(first with { Id = Guid.NewGuid(), CreatedAt = now.AddMinutes(1) }, CancellationToken.None);
+        await store.Save(first with { Id = Guid.NewGuid(), CreatedAt = now.AddDays(-8) }, CancellationToken.None);
         var history = await store.LearningHistory(account, now, CancellationToken.None);
+        Check(history.Count == 2, "all same-day decisions retained; failed, future, old and other account excluded");
+        var endpoint = first with
+        {
+            Id = Guid.NewGuid(),
+            CreatedAt = observed.AddHours(1),
+            Learning = new LearningSnapshot(observed.AddHours(1).AddMinutes(2), [new LearningQuote("BTC_THB", 110m)]),
+        };
+        var current = first with
+        {
+            Id = Guid.NewGuid(),
+            CreatedAt = now,
+            Learning = new LearningSnapshot(now, [new LearningQuote("BTC_THB", 180m)]),
+        };
+        var frozen =
+            DailyLearning.Evaluate(first, [endpoint], current)
+            ?? throw new InvalidOperationException("endpoint missing");
         Check(
-            history.Count == 7
-                && history.All(run => run.AccountKey == account && run.Status == TeamRunStatus.Completed),
-            "isolated seven-day completed history"
+            frozen.SourceRunId == endpoint.Id && frozen.Markets[0].Price == 110m,
+            "first mature observation selected at fixed one-hour deadline"
         );
-        using var review = JsonDocument.Parse(DailyLearning.Review(account, now, current, history));
-        var first = review.RootElement.GetProperty("days")[0];
+        var evaluated = first with { LearningEvaluation = frozen };
         Check(
-            first.GetProperty("outcomes")[0].GetProperty("grossReferenceMovePercent").GetDecimal() == 10m,
-            "forward reference move"
+            DailyLearning.Evaluate(evaluated, [], current)?.Markets[0].Price == 110m,
+            "old result never repriced by later market"
+        );
+        Check(DailyLearning.Evaluate(first, [], current) is null, "late endpoint remains unknown");
+        var early = current with
+        {
+            Learning = new LearningSnapshot(
+                observed.AddMinutes(59),
+                (current.Learning ?? throw new InvalidOperationException("current missing")).Markets
+            ),
+        };
+        Check(DailyLearning.Evaluate(first, [], early) is null, "before horizon cannot evaluate");
+        Check(
+            DailyLearning.Evaluate(first, [endpoint with { AccountKey = new string('b', 64) }], current) is null,
+            "endpoint account isolation"
+        );
+        using var review = JsonDocument.Parse(
+            DailyLearning.Review(account, now, current.Learning, [evaluated, second])
+        );
+        var day = review.RootElement.GetProperty("days")[0];
+        Check(
+            day.GetProperty("roundCount").GetInt32() == 2
+                && day.GetProperty("buyProposalCount").GetInt32() == 1
+                && day.GetProperty("noProposalCount").GetInt32() == 1,
+            "every decision contributes to daily totals"
+        );
+        var round = day.GetProperty("rounds")
+            .EnumerateArray()
+            .Single(item => item.GetProperty("runId").GetGuid() == first.Id);
+        Check(
+            round.GetProperty("outcomes")[0].GetProperty("grossReferenceMovePercent").GetDecimal() == 10m,
+            "frozen forward movement"
         );
         Check(
-            first.GetProperty("comparedMarketCount").GetInt32() == 1
-                && first.GetProperty("sourceMarketCount").GetInt32() == 2,
-            "missing later quote never becomes zero"
+            round.GetProperty("comparedMarketCount").GetInt32() == 1
+                && round.GetProperty("sourceMarketCount").GetInt32() == 2,
+            "missing endpoint price never becomes zero"
         );
         Check(
-            review.RootElement.GetProperty("realizedNetProfitThb").ValueKind == JsonValueKind.Null,
-            "reference gain is not realized profit"
-        );
-        using var bounded = JsonDocument.Parse(DailyLearning.Review(account, now, current, history, 1000));
-        Check(bounded.RootElement.GetProperty("omittedDayCount").GetInt32() > 0, "budget omissions explicit");
-        using var early = JsonDocument.Parse(
-            DailyLearning.Review(account, now, new LearningSnapshot(now.AddMinutes(-9), current.Markets), history)
+            round.GetProperty("lesson").GetProperty("Lesson").GetString() == "keep full lesson",
+            "lesson survives long report text"
         );
         Check(
-            early.RootElement.GetProperty("days")[0].GetProperty("outcomes").GetArrayLength() == 0,
-            "no premature outcome"
+            review.RootElement.GetProperty("dailyNetProfitTargetThb").GetDecimal() == 500m
+                && review.RootElement.GetProperty("realizedNetProfitThb").ValueKind == JsonValueKind.Null,
+            "500 net target is distinct from hypothetical gains"
         );
-        var evidence = JsonSerializer.Serialize(
-            new
-            {
-                marketResearch = new
-                {
-                    available = true,
-                    fetchedAt = now,
-                    scan = new
-                    {
-                        symbols = DailyLearningChecks.fixtureSymbols,
-                        last = new decimal?[] { 110m, null },
-                        usable = DailyLearningChecks.fixtureUsable,
-                    },
-                },
-            }
+        using var bounded = JsonDocument.Parse(
+            DailyLearning.Review(account, now, current.Learning, [evaluated, second], 1500)
         );
-        Check(DailyLearning.Capture(evidence)?.Markets.Count == 1, "capture excludes unusable quote");
-        Check(DailyLearning.Capture("{}") is null, "legacy evidence has no invented memory");
-        var snapshot = await new FakePortfolioSnapshotReader().Read(CancellationToken.None);
-        Check(DailyLearning.Capture(snapshot)?.Markets.Count == 1, "real context shape captures learning");
-        using var overflow = JsonDocument.Parse(
-            DailyLearning.Review(
-                account,
-                now,
-                new LearningSnapshot(now, [new LearningQuote("BTC_THB", decimal.MaxValue)]),
-                [
-                    history[0] with
+        Check(
+            bounded.RootElement.GetProperty("days")[0].GetProperty("roundCount").GetInt32() == 2,
+            "bounded context still counts all rounds"
+        );
+        var legacy =
+            JsonSerializer.Deserialize<TeamRun>(
+                JsonSerializer.Serialize(
+                    first with
                     {
                         Learning = new LearningSnapshot(
-                            now.AddMinutes(-10),
-                            [new LearningQuote("BTC_THB", 0.0000000000000000000000000001m)]
+                            observed,
+                            (first.Learning ?? throw new InvalidOperationException("first missing")).Markets
                         ),
-                    },
-                ]
-            )
-        );
+                        Lesson = null,
+                        Decision = null,
+                    }
+                )
+            ) ?? throw new InvalidOperationException("legacy missing");
         Check(
-            overflow.RootElement.GetProperty("days")[0].GetProperty("outcomes").GetArrayLength() == 0,
-            "overflow remains unknown"
+            DailyLearning.Evaluate(legacy, [endpoint], current) is null && legacy.Decision is null,
+            "legacy deadline/decision not invented"
         );
+        var snapshot = await new FakePortfolioSnapshotReader().Read(CancellationToken.None);
+        var captured = DailyLearning.Capture(snapshot) ?? throw new InvalidOperationException("capture failed");
+        Check(captured.EvaluationAt == captured.ObservedAt.AddHours(1), "evaluation deadline pinned before research");
+        Check(DailyLearning.Capture("{}") is null, "missing learning remains unknown");
         Console.WriteLine(
-            "Daily learning: account isolation, Bangkok dates, reference outcomes, unknown profit, bounded memory and legacy capture passed."
+            "Daily learning: all rounds, frozen horizons, complete typed lessons, account isolation, unknowns and 500 THB net target passed."
         );
     }
 

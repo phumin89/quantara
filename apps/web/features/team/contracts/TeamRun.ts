@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { TeamRole } from './TeamRole';
 import { TeamRunStatus } from './TeamRunStatus';
+import { learningLessonSchema } from './LearningLesson';
 
 export const teamRunStatusSchema = z.enum(TeamRunStatus);
 
@@ -27,6 +28,7 @@ export const teamRunSchema = z.object({
       'Each team role must appear once.',
     ),
   error: z.string().max(2000).nullable(),
+  lesson: learningLessonSchema.nullable().optional(),
 });
 
 export type TeamRun = z.infer<typeof teamRunSchema>;

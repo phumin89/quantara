@@ -60,7 +60,36 @@ public static class DailyLearning
         var observedAt = market.GetProperty("fetchedAt").GetDateTimeOffset();
         var now = DateTimeOffset.UtcNow;
         return observedAt <= now.AddSeconds(5) && observedAt >= now.AddMinutes(-10)
-            ? new LearningSnapshot(observedAt, quotes)
+            ? new LearningSnapshot(observedAt, quotes, observedAt.AddHours(1))
+            : null;
+    }
+
+    public static LearningEvaluation? Evaluate(TeamRun run, IReadOnlyList<TeamRun> observations, TeamRun current)
+    {
+        if (run.LearningEvaluation is not null)
+        {
+            return run.LearningEvaluation;
+        }
+
+        if (run.Learning?.EvaluationAt is not DateTimeOffset target)
+        {
+            return null;
+        }
+
+        var source = observations
+            .Append(current)
+            .Where(sample =>
+                sample.AccountKey == run.AccountKey
+                && sample.Id != run.Id
+                && sample.Learning is not null
+                && sample.Learning.ObservedAt >= target
+                && sample.Learning.ObservedAt <= target.AddMinutes(15)
+            )
+            .OrderBy(sample => sample.Learning?.ObservedAt)
+            .ThenBy(sample => sample.Id)
+            .FirstOrDefault();
+        return source?.Learning is LearningSnapshot snapshot
+            ? new LearningEvaluation(target, snapshot.ObservedAt, source.Id, snapshot.Markets)
             : null;
     }
 
@@ -72,9 +101,6 @@ public static class DailyLearning
         int maxCharacters = 10000
     )
     {
-        var quotes =
-            current?.Markets.ToDictionary(quote => quote.Symbol, quote => quote.Price, StringComparer.Ordinal)
-            ?? new Dictionary<string, decimal>(StringComparer.Ordinal);
         var day = DateOnly.FromDateTime(before.ToOffset(TimeSpan.FromHours(7)).DateTime);
         var prior = history
             .Where(run =>
@@ -87,72 +113,50 @@ public static class DailyLearning
             )
             .OrderByDescending(run => run.CreatedAt)
             .ThenByDescending(run => run.Id)
-            .GroupBy(run => DateOnly.FromDateTime(run.CreatedAt.ToOffset(TimeSpan.FromHours(7)).DateTime))
-            .Select(group => group.First())
-            .Take(7)
             .ToArray();
-        foreach (var count in new[] { 7, 3, 1, 0 })
+        foreach (var detailLimit in new[] { 32, 14, 7, 3, 1, 0 })
         {
+            var detailedIds = prior.Take(detailLimit).Select(run => run.Id).ToHashSet();
             var result = JsonSerializer.Serialize(
                 new
                 {
                     available = current is not null,
+                    dailyNetProfitTargetThb = TradingMandate.DailyNetProfitTargetThb,
                     calendarTimeZone = TradingMandate.CalendarTimeZone,
                     realizedNetProfitThb = (decimal?)null,
-                    limitations = "Reference-price observations only, not fills, net returns or proof of a strategy. Realized daily PnL and missed net profit are unknown without complete fill/cost reconciliation. Largest later moves are hindsight diagnostics, never a selection rule or evidence that a trade would have filled.",
-                    omittedDayCount = Math.Max(0, prior.Length - count),
+                    evaluationHorizonMinutes = 60,
+                    endpointToleranceMinutes = 15,
+                    sourceRoundCount = prior.Length,
+                    omittedRoundDetailCount = Math.Max(0, prior.Length - detailLimit),
+                    limitations = "All completed rounds counted. One-hour reference outcome frozen using first observation within 15 minutes after deadline; missing/legacy endpoint Unknown. Reference moves are not fills, net/realized profit, missed profit or evidence of edge. Daily net PnL Unknown without full fill/cost reconciliation.",
                     days = prior
-                        .Take(count)
-                        .Select(run =>
+                        .GroupBy(run => DateOnly.FromDateTime(run.CreatedAt.ToOffset(TimeSpan.FromHours(7)).DateTime))
+                        .Select(group => new
                         {
-                            var snapshot =
-                                run.Learning ?? throw new InvalidDataException("Learning evidence is missing.");
-                            var review =
-                                run.Steps.FirstOrDefault(step =>
-                                    step.Role == TeamRole.Reviewer && step.Status == TeamRunStatus.Completed
-                                )?.Output
-                                ?? "";
-                            var comparable =
-                                current is not null && current.ObservedAt >= snapshot.ObservedAt.AddMinutes(5);
-                            var outcomes = comparable
-                                ? snapshot
-                                    .Markets.Where(quote => quotes.ContainsKey(quote.Symbol) && quote.Price > 0)
-                                    .Select(quote => new
-                                    {
-                                        symbol = quote.Symbol,
-                                        beforePrice = quote.Price,
-                                        laterPrice = quotes[quote.Symbol],
-                                        grossReferenceMovePercent = DailyLearning.PriceMove(
-                                            quote.Price,
-                                            quotes[quote.Symbol]
-                                        ),
-                                    })
-                                    .Where(outcome => outcome.grossReferenceMovePercent is not null)
-                                    .OrderByDescending(outcome => Math.Abs(outcome.grossReferenceMovePercent ?? 0m))
-                                    .ThenBy(outcome => outcome.symbol)
-                                    .Take(5)
-                                    .ToArray()
-                                : [];
-                            return new
-                            {
-                                runId = run.Id,
-                                day = DateOnly
-                                    .FromDateTime(run.CreatedAt.ToOffset(TimeSpan.FromHours(7)).DateTime)
-                                    .ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture),
-                                closedDay = DateOnly.FromDateTime(
-                                    run.CreatedAt.ToOffset(TimeSpan.FromHours(7)).DateTime
-                                ) < day,
-                                observedAt = snapshot.ObservedAt,
-                                laterObservedAt = current?.ObservedAt,
-                                sourceMarketCount = snapshot.Markets.Count,
-                                comparedMarketCount = comparable
-                                    ? snapshot.Markets.Count(quote => quotes.ContainsKey(quote.Symbol))
-                                    : 0,
-                                outcomeSelection = "At most five largest absolute later reference moves among previously observed usable markets; descriptive hindsight only.",
-                                reviewExcerpt = review.Length <= 1000 ? review : review[^1000..],
-                                reviewTruncated = review.Length > 1000,
-                                outcomes,
-                            };
+                            day = group.Key.ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture),
+                            calendarDayEnded = group.Key < day,
+                            roundCount = group.Count(),
+                            buyProposalCount = group.Count(run => run.Decision == LearningDecision.BuyProposal),
+                            sellProposalCount = group.Count(run => run.Decision == LearningDecision.SellProposal),
+                            noProposalCount = group.Count(run => run.Decision == LearningDecision.NoProposal),
+                            unknownDecisionCount = group.Count(run => run.Decision is null),
+                            evaluatedRoundCount = group.Count(run => run.LearningEvaluation is not null),
+                            pendingRoundCount = group.Count(run =>
+                                run.LearningEvaluation is null
+                                && run.Learning?.EvaluationAt is DateTimeOffset deadline
+                                && before <= deadline.AddMinutes(15)
+                            ),
+                            unknownRoundCount = group.Count(run =>
+                                run.LearningEvaluation is null
+                                && (
+                                    run.Learning?.EvaluationAt is not DateTimeOffset deadline
+                                    || before > deadline.AddMinutes(15)
+                                )
+                            ),
+                            omittedRoundDetailCount = group.Count(run => !detailedIds.Contains(run.Id)),
+                            rounds = group
+                                .Where(run => detailedIds.Contains(run.Id))
+                                .Select(run => DailyLearning.Round(run)),
                         }),
                 },
                 DailyLearning.jsonOptions
@@ -164,6 +168,41 @@ public static class DailyLearning
         }
 
         throw new InvalidDataException("Learning context budget is too small.");
+    }
+
+    private static object Round(TeamRun run)
+    {
+        var snapshot = run.Learning ?? throw new InvalidDataException("Learning evidence is missing.");
+        var evaluation = run.LearningEvaluation;
+        var prices =
+            evaluation?.Markets.ToDictionary(quote => quote.Symbol, quote => quote.Price, StringComparer.Ordinal)
+            ?? new Dictionary<string, decimal>(StringComparer.Ordinal);
+        var matched = snapshot.Markets.Where(quote => quote.Price > 0 && prices.ContainsKey(quote.Symbol)).ToArray();
+        return new
+        {
+            runId = run.Id,
+            decision = run.Decision.ToString(),
+            observedAt = snapshot.ObservedAt,
+            evaluationAt = snapshot.EvaluationAt,
+            evaluatedAt = evaluation?.ObservedAt,
+            evaluationSourceRunId = evaluation?.SourceRunId,
+            sourceMarketCount = snapshot.Markets.Count,
+            comparedMarketCount = matched.Length,
+            lesson = run.Lesson,
+            lessonUnavailable = run.Lesson is null,
+            outcomes = matched
+                .Select(quote => new
+                {
+                    symbol = quote.Symbol,
+                    beforePrice = quote.Price,
+                    laterPrice = prices[quote.Symbol],
+                    grossReferenceMovePercent = DailyLearning.PriceMove(quote.Price, prices[quote.Symbol]),
+                })
+                .Where(outcome => outcome.grossReferenceMovePercent is not null)
+                .OrderByDescending(outcome => Math.Abs(outcome.grossReferenceMovePercent ?? 0m))
+                .ThenBy(outcome => outcome.symbol)
+                .Take(5),
+        };
     }
 
     private static decimal? PriceMove(decimal prior, decimal later)

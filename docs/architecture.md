@@ -228,16 +228,26 @@ does not supply intraday candles for other markets or prove a trading edge.
 Daily learning reuses the existing TeamRuns JSON payload: each new research run
 retains a bounded reference-price snapshot from its observed scan. No legacy
 records are backfilled and no database schema is replaced. Completed reports
-provide one latest run per Bangkok calendar date for up to seven dates, strictly
+provide all completed rounds from up to seven Bangkok calendar dates, strictly
 before the new run and isolated by account. Future, failed, cancelled and legacy
 records without snapshots cannot provide learning outcomes.
 
-The next report compares available later reference prices with the actual earlier
+Each new observation pins a one-hour evaluation deadline before research starts.
+The first available same-account snapshot within 15 minutes after that deadline
+is frozen in the original run. A missing endpoint stays unknown, and old records
+without a deadline are not retrospectively assigned one. All rounds contribute
+to daily proposal/evaluation/unknown counts; context can omit round detail with
+explicit counts while preserving the complete SQL records and daily totals.
+The next report compares these frozen reference prices with earlier
 observations, with timestamps and missing coverage explicit. Up to five largest
 absolute moves are descriptive hindsight diagnostics; they are not executable
 returns, net missed profits, a cash benchmark or a tested strategy. Daily realized
 profit remains unknown until complete fill/cost reconciliation is available.
-Reviewer writes a short Lesson/Evidence/Next test section into the retained report;
+Reviewer returns validated typed Lesson/Evidence/NextTest fields (each at most
+500 characters); CEO/Analyst must return null. These fields are retained separately
+from report text, without arbitrary suffix truncation. Legacy lessons and
+decisions remain unknown. Human-reviewed proposals are counted as proposals,
+never as executed trades. The 500 THB realized net daily target stays explicit.
 CEO and Analyst reuse that memory and specify a forward test against the unchanged
 baseline. Memory is bounded to the context budget with explicit omissions. This
 does not retrain model weights, automatically promote a strategy, change skills,

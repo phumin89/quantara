@@ -90,22 +90,12 @@ public sealed class TeamRunStore : ITeamRunStore, IDisposable
         await connection.OpenAsync(cancellationToken);
         await using var command = connection.CreateCommand();
         command.CommandText = """
-            WITH Ranked AS (
-                SELECT Payload, CreatedAt, Id,
-                    CONVERT(date, SWITCHOFFSET(CreatedAt, '+07:00')) AS BangkokDate,
-                    ROW_NUMBER() OVER (
-                        PARTITION BY CONVERT(date, SWITCHOFFSET(CreatedAt, '+07:00'))
-                        ORDER BY CreatedAt DESC, Id DESC
-                    ) AS RankInDay
-                FROM dbo.TeamRuns
-                WHERE CreatedAt < @before
-                  AND CreatedAt >= @start
-                  AND JSON_VALUE(Payload, '$.AccountKey') = @account
-                  AND JSON_VALUE(Payload, '$.Status') = @completed
-                  AND JSON_QUERY(Payload, '$.Learning') IS NOT NULL
-            )
-            SELECT Payload FROM Ranked
-            WHERE RankInDay = 1
+            SELECT Payload FROM dbo.TeamRuns
+            WHERE CreatedAt < @before
+              AND CreatedAt >= @start
+              AND JSON_VALUE(Payload, '$.AccountKey') = @account
+              AND JSON_VALUE(Payload, '$.Status') = @completed
+              AND JSON_QUERY(Payload, '$.Learning') IS NOT NULL
             ORDER BY CreatedAt DESC, Id DESC
             """;
         var bangkokDate = before.ToOffset(TimeSpan.FromHours(7)).Date;
