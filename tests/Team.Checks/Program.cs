@@ -630,6 +630,16 @@ static async Task ProcessBoundary()
             "UTF8 report transport"
         );
         var typed = await worker.Report("reviewer", "typed lesson", [], null, CancellationToken.None);
+        Check(
+            await worker.Run(
+                "reviewer",
+                "utf8 transport size",
+                [("ceo", new string('ก', 6000)), ("analyst", new string('ข', 6000))],
+                new string('ค', 20000),
+                CancellationToken.None
+            ) == "UTF8 size accepted",
+            "Thai context respects worker input budget without Unicode expansion"
+        );
         Check(typed.Lesson?.Lesson == "Keep baseline", "typed reviewer lesson crosses process boundary");
         try
         {

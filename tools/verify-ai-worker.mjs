@@ -118,6 +118,7 @@ await assert.rejects(
 let options;
 let threadOptions;
 let turnOptions;
+let reviewerTurnOptions;
 const source = {
   CODEX_API_KEY: 'test-key',
   BITKUB_API_KEY: 'must-not-leak',
@@ -133,6 +134,9 @@ const factory = (value) => {
       return {
         run: async (prompt, turn) => {
           turnOptions = turn;
+          assert.deepEqual(turn.outputSchema.properties.lesson, {
+            type: 'null',
+          });
           assert(!prompt.includes('must-not-leak'));
           assert(prompt.includes(input.objective));
           assert(prompt.includes('untrusted data'));
@@ -164,18 +168,21 @@ const proposal = {
 };
 const proposalFactory = () => ({
   startThread: () => ({
-    run: async () => ({
-      items: [],
-      finalResponse: JSON.stringify({
-        output: 'Review',
-        proposal,
-        lesson: {
-          lesson: 'Use observed spread',
-          evidence: 'Two snapshots',
-          nextTest: 'Recheck in one hour',
-        },
-      }),
-    }),
+    run: async (prompt, turn) => {
+      reviewerTurnOptions = turn;
+      return {
+        items: [],
+        finalResponse: JSON.stringify({
+          output: 'Review',
+          proposal,
+          lesson: {
+            lesson: 'Use observed spread',
+            evidence: 'Two snapshots',
+            nextTest: 'Recheck in one hour',
+          },
+        }),
+      };
+    },
   }),
 });
 const reviewerInput = {
@@ -197,6 +204,21 @@ assert.deepEqual(
       nextTest: 'Recheck in one hour',
     },
   },
+);
+assert.deepEqual(reviewerTurnOptions.outputSchema.properties.lesson, {
+  type: 'object',
+  properties: {
+    lesson: { type: 'string', minLength: 1, maxLength: 500 },
+    evidence: { type: 'string', minLength: 1, maxLength: 500 },
+    nextTest: { type: 'string', minLength: 1, maxLength: 500 },
+  },
+  required: ['lesson', 'evidence', 'nextTest'],
+  additionalProperties: false,
+});
+assert.equal(reviewerTurnOptions.outputSchema.properties.lesson.type, 'object');
+assert.equal(
+  reviewerTurnOptions.outputSchema.properties.lesson.anyOf,
+  undefined,
 );
 await assert.rejects(
   CodexTeamWorker.run(

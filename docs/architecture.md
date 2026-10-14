@@ -233,6 +233,8 @@ before the new run and isolated by account. Future, failed, cancelled and legacy
 records without snapshots cannot provide learning outcomes.
 
 Each new observation pins a one-hour evaluation deadline before research starts.
+The next hourly assessment waits until that captured deadline when it is slightly
+later than the scheduled hour; signal rounds preserve the existing hourly cadence.
 The first available same-account snapshot within 15 minutes after that deadline
 is frozen in the original run. A missing endpoint stays unknown, and old records
 without a deadline are not retrospectively assigned one. All rounds contribute
@@ -244,7 +246,10 @@ absolute moves are descriptive hindsight diagnostics; they are not executable
 returns, net missed profits, a cash benchmark or a tested strategy. Daily realized
 profit remains unknown until complete fill/cost reconciliation is available.
 Reviewer returns validated typed Lesson/Evidence/NextTest fields (each at most
-500 characters); CEO/Analyst must return null. These fields are retained separately
+500 characters); the model output schema requires a non-null object for Reviewer
+and null for CEO/Analyst. UTF-8 research transport preserves Thai text within the
+existing input size limit without expanding every character into a Unicode escape.
+These fields are retained separately
 from report text, without arbitrary suffix truncation. Legacy lessons and
 decisions remain unknown. Human-reviewed proposals are counted as proposals,
 never as executed trades. The 500 THB realized net daily target stays explicit.

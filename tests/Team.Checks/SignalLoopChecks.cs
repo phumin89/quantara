@@ -9,6 +9,7 @@ public static class SignalLoopChecks
 {
     public static async Task Run()
     {
+        await DeadlineAlignment();
         var time = new ManualTimeProvider();
         var schedule = new FakeCompanyScheduleStore(time.GetUtcNow());
         var runs = new FakeTeamRunStore();
@@ -41,11 +42,22 @@ public static class SignalLoopChecks
 
         var second =
             await runs.Latest(CancellationToken.None) ?? throw new InvalidOperationException("second run missing");
-        await runs.Save(second with { Status = TeamRunStatus.Completed }, CancellationToken.None);
+        await runs.Save(
+            second with
+            {
+                Status = TeamRunStatus.Completed,
+                Learning = new LearningSnapshot(time.GetUtcNow(), [], time.GetUtcNow().AddHours(1)),
+            },
+            CancellationToken.None
+        );
         signal.Notice = Notice("signal-b", time.GetUtcNow().AddMinutes(1));
         time.Advance(TimeSpan.FromMinutes(1));
         await loop.Tick(CancellationToken.None);
         Check(coordinator.Objectives.Count == 2, "same signal does not retrigger");
+        Check(
+            schedule.Schedule.NextRunAt == second.CreatedAt.AddMinutes(45),
+            "signal learning deadline preserves hourly cadence"
+        );
 
         using var restarted = new CompanyLoop(schedule, runs, coordinator, portfolio, time, signal);
         await restarted.Tick(CancellationToken.None);
@@ -86,6 +98,36 @@ public static class SignalLoopChecks
 
         await ReadSignalReaderChecks(time);
         Console.WriteLine("Signal loop checks passed.");
+    }
+
+    private static async Task DeadlineAlignment()
+    {
+        var time = new ManualTimeProvider();
+        var schedule = new FakeCompanyScheduleStore(time.GetUtcNow());
+        var runs = new FakeTeamRunStore();
+        var coordinator = new LoopCoordinator(runs, time);
+        using var loop = new CompanyLoop(schedule, runs, coordinator, new LoopSnapshotReader(), time);
+        await loop.Tick(CancellationToken.None);
+        var first = await runs.Latest(CancellationToken.None) ?? throw new InvalidOperationException("run missing");
+        var observedAt = time.GetUtcNow().AddSeconds(20);
+        var deadline = observedAt.AddHours(1);
+        time.Advance(TimeSpan.FromSeconds(30));
+        await runs.Save(
+            first with
+            {
+                Status = TeamRunStatus.Completed,
+                Learning = new LearningSnapshot(observedAt, [], deadline),
+            },
+            CancellationToken.None
+        );
+        await loop.Tick(CancellationToken.None);
+        Check(schedule.Schedule.NextRunAt == deadline, "hourly schedule waits for captured learning deadline");
+        time.Advance(TimeSpan.FromSeconds(3570));
+        await loop.Tick(CancellationToken.None);
+        Check(coordinator.Objectives.Count == 1, "no premature endpoint sample");
+        time.Advance(TimeSpan.FromSeconds(20));
+        await loop.Tick(CancellationToken.None);
+        Check(coordinator.Objectives.Count == 2, "hourly report starts at mature endpoint");
     }
 
     private static async Task ReadSignalReaderChecks(ManualTimeProvider time)

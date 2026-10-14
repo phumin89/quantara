@@ -203,6 +203,20 @@ export class CodexTeamWorker {
     );
   }
 
+  static lessonSchema(role) {
+    if (role === 'ceo' || role === 'analyst') return { type: 'null' };
+    return {
+      type: 'object',
+      properties: {
+        lesson: { type: 'string', minLength: 1, maxLength: 500 },
+        evidence: { type: 'string', minLength: 1, maxLength: 500 },
+        nextTest: { type: 'string', minLength: 1, maxLength: 500 },
+      },
+      required: ['lesson', 'evidence', 'nextTest'],
+      additionalProperties: false,
+    };
+  }
+
   static async run(
     input,
     factory = (options) => new Codex(options),
@@ -258,21 +272,7 @@ export class CodexTeamWorker {
                 },
               ],
             },
-            lesson: {
-              anyOf: [
-                { type: 'null' },
-                {
-                  type: 'object',
-                  properties: {
-                    lesson: { type: 'string', minLength: 1, maxLength: 500 },
-                    evidence: { type: 'string', minLength: 1, maxLength: 500 },
-                    nextTest: { type: 'string', minLength: 1, maxLength: 500 },
-                  },
-                  required: ['lesson', 'evidence', 'nextTest'],
-                  additionalProperties: false,
-                },
-              ],
-            },
+            lesson: CodexTeamWorker.lessonSchema(input.role),
           },
           required: ['output', 'proposal', 'lesson'],
           additionalProperties: false,

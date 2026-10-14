@@ -8,6 +8,11 @@ namespace Quantara.Team.Infrastructure;
 
 public sealed class CodexWorker : ICodexWorker
 {
+    private static readonly JsonSerializerOptions jsonOptions = new()
+    {
+        Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
+    };
+
     private readonly string nodePath;
 
     private readonly string scriptPath;
@@ -106,7 +111,8 @@ public sealed class CodexWorker : ICodexWorker
                 objective,
                 previous = previous.Select(item => new { role = item.Role, output = item.Output }),
                 portfolio,
-            }
+            },
+            CodexWorker.jsonOptions
         );
         await process.StandardInput.WriteAsync(body.AsMemory(), timeout.Token);
         process.StandardInput.Close();

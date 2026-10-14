@@ -1,5 +1,6 @@
 let text = '';
 for await (const chunk of process.stdin) text += chunk;
+if (text.length > 100000) process.exit(3);
 const input = JSON.parse(text);
 if (process.env.BITKUB_API_KEY || process.env.BITKUB_API_SECRET)
   process.exit(2);
@@ -11,6 +12,17 @@ if (input.objective === 'wait for cancellation') {
   );
 } else if (input.objective === 'missing lesson') {
   process.stdout.write(JSON.stringify({ output: 'report', lesson: null }));
+} else if (input.objective === 'utf8 transport size') {
+  process.stdout.write(
+    JSON.stringify({
+      output: 'UTF8 size accepted',
+      lesson: {
+        lesson: 'Observed input',
+        evidence: 'Unicode preserved',
+        nextTest: 'Keep bounded input',
+      },
+    }),
+  );
 } else if (input.objective === 'typed lesson') {
   process.stdout.write(
     JSON.stringify({

@@ -158,6 +158,19 @@ public sealed class CompanyLoop : BackgroundService, ICompanyLoop
             }
 
             var latest = await this.runs.Latest(cancellationToken);
+            if (
+                latest?.Status == TeamRunStatus.Completed
+                && this.schedule.LastRunId == latest.Id
+                && latest.Learning?.EvaluationAt is DateTimeOffset deadline
+                && this.schedule.NextRunAt >= latest.CreatedAt.AddMinutes(59)
+                && this.schedule.NextRunAt < deadline
+                && deadline <= this.schedule.NextRunAt.AddMinutes(15)
+            )
+            {
+                this.schedule = this.schedule with { NextRunAt = deadline };
+                await this.store.Save(this.schedule, cancellationToken);
+            }
+
             if (CompanyLoop.IsActive(latest))
             {
                 this.status = CompanyLoopStatus.Running;
