@@ -5,7 +5,7 @@ using Quantara.Portfolio.Application;
 using Quantara.Portfolio.Infrastructure;
 
 var builder = WebApplication.CreateBuilder(args);
-builder.WebHost.UseUrls("http://127.0.0.1:5050");
+builder.WebHost.UseUrls(builder.Configuration["Hosting:ListenUrl"] ?? "http://127.0.0.1:5050");
 builder.WebHost.ConfigureKestrel(options => options.Limits.MaxRequestBodySize = 8192);
 builder.Logging.AddFilter("System.Net.Http.HttpClient", LogLevel.Warning);
 var taskDirectory = new DirectoryInfo(builder.Environment.ContentRootPath);
@@ -146,7 +146,13 @@ app.Use(
         )
         {
             var origin = context.Request.Headers.Origin.ToString();
-            var localHost = context.Request.Host.Host is "127.0.0.1" or "localhost" or "[::1]";
+            var internalHost = builder.Configuration["Hosting:InternalHost"];
+            var localHost =
+                context.Request.Host.Host is "127.0.0.1" or "localhost" or "[::1]"
+                || (
+                    !string.IsNullOrWhiteSpace(internalHost)
+                    && string.Equals(context.Request.Host.Host, internalHost, StringComparison.OrdinalIgnoreCase)
+                );
             var allowedOrigin =
                 string.IsNullOrEmpty(origin) || origin is "http://127.0.0.1:3000" or "http://localhost:3000";
             var mutation = !HttpMethods.IsGet(context.Request.Method);

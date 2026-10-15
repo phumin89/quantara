@@ -7,7 +7,7 @@ using Quantara.MarketData.Domain;
 using Quantara.MarketData.Infrastructure;
 
 var builder = WebApplication.CreateBuilder(args);
-builder.WebHost.UseUrls("http://127.0.0.1:5051");
+builder.WebHost.UseUrls(builder.Configuration["Hosting:ListenUrl"] ?? "http://127.0.0.1:5051");
 builder.Logging.AddFilter("System.Net.Http.HttpClient", LogLevel.Warning);
 builder
     .Services.AddControllers()

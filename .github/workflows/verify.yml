@@ -24,6 +24,7 @@ jobs:
       - run: npm run test:di
       - run: npm run test:ai-worker
       - run: npm run test:runtime
+      - run: npm run test:docker
       - run: npm run build
       - run: dotnet build Quantara.sln
       - run: npm run test:architecture

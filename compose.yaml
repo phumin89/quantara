@@ -1,0 +1,175 @@
+x-app: &app
+  restart: unless-stopped
+  init: true
+  read_only: true
+  tmpfs:
+    - /tmp
+  cap_drop:
+    - ALL
+  security_opt:
+    - no-new-privileges:true
+  stop_grace_period: 60s
+  entrypoint:
+    - /bin/sh
+    - -c
+    - >-
+      test -f /run/quantara-ready/verified ||
+      { echo 'Run the verified migration first.' >&2; exit 78; };
+      exec "$$@"
+    - --
+  volumes:
+    - type: bind
+      source: ./.runtime/docker/ready
+      target: /run/quantara-ready
+      read_only: true
+      bind:
+        create_host_path: false
+  logging: &logging
+    driver: json-file
+    options:
+      max-size: 10m
+      max-file: '3'
+
+services:
+  sql:
+    image: mcr.microsoft.com/mssql/server@sha256:742481d1b1186cccc81220a1eaacef244ca8d0f7d19c8e5c70df8ae541ffbab2
+    restart: unless-stopped
+    environment:
+      ACCEPT_EULA: 'Y'
+      MSSQL_PID: Express
+      MSSQL_SA_PASSWORD: ${QUANTARA_SQL_ADMIN_PASSWORD:?Run Start-QuantaraDocker.ps1 first}
+      MSSQL_MEMORY_LIMIT_MB: '2048'
+      TZ: Asia/Bangkok
+    volumes:
+      - sql-data:/var/opt/mssql
+      - type: bind
+        source: ./.runtime/docker/backups
+        target: /backups
+        read_only: true
+        bind:
+          create_host_path: false
+    networks:
+      - database
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - >-
+          SQLCMDPASSWORD="$${MSSQL_SA_PASSWORD}"
+          /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -C -b
+          -Q 'SELECT 1' -o /dev/null
+      interval: 10s
+      timeout: 5s
+      retries: 18
+      start_period: 30s
+    stop_grace_period: 60s
+    logging: *logging
+
+  market-data:
+    <<: *app
+    build:
+      context: .
+      dockerfile: docker/Api.Dockerfile
+      target: market-data
+    command: [dotnet, /app/MarketData.Api.dll]
+    environment:
+      Hosting__ListenUrl: http://0.0.0.0:5051
+      ConnectionStrings__MarketData: ${QUANTARA_MARKET_CONNECTION:?Run Start-QuantaraDocker.ps1 first}
+      TZ: Asia/Bangkok
+    networks:
+      - application
+      - database
+    depends_on:
+      sql:
+        condition: service_healthy
+
+  portfolio:
+    <<: *app
+    build:
+      context: .
+      dockerfile: docker/Api.Dockerfile
+      target: portfolio
+    command: [dotnet, /app/Portfolio.Api.dll]
+    env_file:
+      - path: ./.runtime/docker/portfolio.env
+        format: raw
+    environment:
+      Hosting__ListenUrl: http://0.0.0.0:5050
+      Hosting__InternalHost: portfolio
+      ConnectionStrings__Quantara: ${QUANTARA_PORTFOLIO_CONNECTION:?Run Start-QuantaraDocker.ps1 first}
+      Services__MarketDataUrl: http://market-data:5051
+      TZ: Asia/Bangkok
+    networks:
+      - application
+      - database
+    depends_on:
+      sql:
+        condition: service_healthy
+      market-data:
+        condition: service_healthy
+
+  team:
+    <<: *app
+    build:
+      context: .
+      dockerfile: docker/Team.Dockerfile
+    command: [/app/Team.Api]
+    environment:
+      Hosting__ListenUrl: http://0.0.0.0:5052
+      Hosting__InternalHost: team
+      ConnectionStrings__Team: ${QUANTARA_TEAM_CONNECTION:?Run Start-QuantaraDocker.ps1 first}
+      Services__PortfolioUrl: http://portfolio:5050
+      Services__MarketDataUrl: http://market-data:5051
+      Codex__NodePath: /usr/local/bin/node
+      Codex__AuthHome: /codex-auth
+      TZ: Asia/Bangkok
+    volumes:
+      - type: bind
+        source: ./.runtime/docker/ready
+        target: /run/quantara-ready
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ./.runtime/docker/auth
+        target: /codex-auth
+        bind:
+          create_host_path: false
+    networks:
+      - application
+      - database
+    depends_on:
+      sql:
+        condition: service_healthy
+      portfolio:
+        condition: service_healthy
+
+  web:
+    <<: *app
+    build:
+      context: .
+      dockerfile: docker/Web.Dockerfile
+    command:
+      - node
+      - /app/apps/web/server.js
+    environment:
+      PORTFOLIO_SERVICE_URL: http://portfolio:5050
+      TEAM_SERVICE_URL: http://team:5052
+      QUANTARA_CONTAINER_RUNTIME: 'true'
+      TZ: Asia/Bangkok
+    ports:
+      - 127.0.0.1:3000:3000
+    networks:
+      - application
+    depends_on:
+      portfolio:
+        condition: service_healthy
+      team:
+        condition: service_healthy
+
+networks:
+  application:
+  database:
+    internal: true
+
+volumes:
+  sql-data:

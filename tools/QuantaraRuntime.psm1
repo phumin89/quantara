@@ -155,5 +155,19 @@ function Get-QuantaraSqlStartPlan {
     }
 }
 
+function Test-QuantaraDockerOwnership {
+    param([Parameter(Mandatory)][string] $RepoRoot, [switch] $Sql)
+
+    $statePath = Join-Path $RepoRoot '.runtime/docker/state.json'
+    if (!(Test-Path -LiteralPath $statePath)) { return $false }
+    $state = Get-Content -LiteralPath $statePath -Raw | ConvertFrom-Json
+    if ($state.Version -ne 1) { throw 'Unrecognized Docker runtime state; native startup stopped.' }
+    if ($state.Phase -notin @('Prepared', 'Pausing', 'SourcePaused', 'Restored', 'Active', 'Native')) {
+        throw 'Unrecognized Docker migration phase; native startup stopped.'
+    }
+    if ($Sql) { return $state.Phase -eq 'Active' }
+    return $state.Phase -in @('Pausing', 'SourcePaused', 'Restored', 'Active')
+}
+
 Export-ModuleMember -Function Get-QuantaraRuntimePlan, Get-QuantaraServiceOwner, Get-QuantaraSqlPipe,
-    Get-QuantaraSqlCandidates, Get-QuantaraSqlEnvironment, Get-QuantaraSqlStartPlan
+    Get-QuantaraSqlCandidates, Get-QuantaraSqlEnvironment, Get-QuantaraSqlStartPlan, Test-QuantaraDockerOwnership

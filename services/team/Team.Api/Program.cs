@@ -12,7 +12,7 @@ if (args.FirstOrDefault() == "exec")
 }
 
 var builder = WebApplication.CreateBuilder(args);
-builder.WebHost.UseUrls("http://127.0.0.1:5052");
+builder.WebHost.UseUrls(builder.Configuration["Hosting:ListenUrl"] ?? "http://127.0.0.1:5052");
 builder.WebHost.ConfigureKestrel(options => options.Limits.MaxRequestBodySize = 12000);
 builder.Logging.AddFilter("System.Net.Http.HttpClient", LogLevel.Warning);
 var taskDirectory = new DirectoryInfo(builder.Environment.ContentRootPath);
@@ -109,10 +109,14 @@ app.Use(
     async (context, next) =>
     {
         context.Response.Headers.CacheControl = "no-store";
-        if (
-            context.Request.Host.Host is not ("127.0.0.1" or "localhost" or "::1")
-            || context.Request.Headers.ContainsKey("Origin")
-        )
+        var internalHost = builder.Configuration["Hosting:InternalHost"];
+        var localHost =
+            context.Request.Host.Host is "127.0.0.1" or "localhost" or "::1"
+            || (
+                !string.IsNullOrWhiteSpace(internalHost)
+                && string.Equals(context.Request.Host.Host, internalHost, StringComparison.OrdinalIgnoreCase)
+            );
+        if (!localHost || context.Request.Headers.ContainsKey("Origin"))
         {
             context.Response.StatusCode = 403;
             await context.Response.WriteAsJsonAsync(new { error = "Use the application to access the team service." });
@@ -146,6 +150,14 @@ app.Use(
                 new { error = "AI team storage is unavailable. Check SQL Server and retry." }
             );
         }
+    }
+);
+app.MapGet(
+    "/health",
+    async (CancellationToken cancellationToken) =>
+    {
+        await store.Latest(cancellationToken);
+        return Results.Ok(new { status = "ready" });
     }
 );
 app.MapControllers();

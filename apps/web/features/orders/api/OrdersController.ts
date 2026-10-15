@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { LocalRequestPolicy } from '../../../shared/api/LocalRequestPolicy';
 
 export class OrdersController {
   private static readonly serviceUrl =
@@ -148,18 +149,7 @@ export class OrdersController {
   }
 
   private static allowed(request: NextRequest): boolean {
-    const origin = request.headers.get('origin');
-    const host = request.headers.get('host');
-
-    return (
-      host !== null &&
-      /^(?:localhost|127\.0\.0\.1|\[::1\])(?::\d{1,5})?$/i.test(host) &&
-      ['127.0.0.1', 'localhost', '[::1]', '::1'].includes(
-        request.nextUrl.hostname,
-      ) &&
-      (!origin || origin === request.nextUrl.origin) &&
-      request.headers.get('sec-fetch-site') !== 'cross-site'
-    );
+    return LocalRequestPolicy.allows(request);
   }
 
   private static async proxy(

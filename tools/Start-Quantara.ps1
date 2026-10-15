@@ -15,6 +15,9 @@ if ($SqlMasterFile -or (Test-Path -LiteralPath (Join-Path $repoRoot '.runtime/sq
 }
 $description = "Quantara managed runtime: $repoRoot"
 if ($Plan) { $tasks; return }
+if (!$Remove -and (Test-QuantaraDockerOwnership -RepoRoot $repoRoot)) {
+    throw 'Docker migration owns the retained data. Use Start-QuantaraDocker.ps1 or its documented pre-activation rollback.'
+}
 
 if ($SqlMasterFile) {
     $sqlMaster = [IO.Path]::GetFullPath($SqlMasterFile)

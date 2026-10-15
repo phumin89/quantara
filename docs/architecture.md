@@ -41,6 +41,13 @@ The existing Quantara SQL database remains exclusively owned by Portfolio. `Cryp
 
 ## Execution
 
+The canonical local deployment runs the web, Team, Portfolio, MarketData and
+SQL services in Docker Compose. Only the web service is published to the host;
+the API services and SQL remain on private Compose networks. Native scheduled
+tasks are a retained development and verified reverse-migration path, and must not be started
+against the active Docker databases. See [Docker runtime](docker-runtime.md)
+and [local runtime](local-runtime.md) for lifecycle and migration rules.
+
 MarketData defaults to port 5051, Portfolio to 5050, Team to 5052 and Web to 3000.
 Service addresses are configuration, not Domain dependencies. Broker credentials
 stay in Portfolio's server environment or the root .env allowlist. Startup does

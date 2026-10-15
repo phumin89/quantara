@@ -23,6 +23,7 @@ if ($Inspect) {
 }
 
 if (!(Test-Path -LiteralPath $service.Executable)) { throw 'Build the runtime before starting it.' }
+if (Test-QuantaraDockerOwnership -RepoRoot $service.RepoRoot) { return }
 $mutex = [Threading.Mutex]::new($false, "Local\$($service.TaskName)")
 try { $claimed = $mutex.WaitOne(0) }
 catch [Threading.AbandonedMutexException] { $claimed = $true }
@@ -35,6 +36,7 @@ try {
     $awake = [Quantara.Tools.WindowsPowerRequest]::KeepAwake()
     $lastState = ''
     while ($true) {
+        if (Test-QuantaraDockerOwnership -RepoRoot $service.RepoRoot) { return }
         $owner = Get-QuantaraServiceOwner -Service $service
         $database = if (!$owner.Listening) { Get-QuantaraSqlEnvironment -Service $service } else { $null }
         $state = if ($owner.Managed) { "Adopted existing process $($owner.ProcessId)." }

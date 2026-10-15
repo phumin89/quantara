@@ -5,6 +5,7 @@ $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 Import-Module (Join-Path $PSScriptRoot 'QuantaraRuntime.psm1') -Force
 $service = @(Get-QuantaraRuntimePlan -ArtifactsPath $ArtifactsPath)[0]
+if (Test-QuantaraDockerOwnership -RepoRoot $service.RepoRoot -Sql) { return }
 $state = Get-Content -LiteralPath (Join-Path $service.RepoRoot '.runtime/sql-instance.json') -Raw | ConvertFrom-Json
 $sid = [Security.Principal.WindowsIdentity]::GetCurrent().User.Value
 if ($state.version -ne 1 -or $state.ownerSid -ne $sid) { throw 'Original SQL owner is not verified.' }
@@ -20,6 +21,7 @@ try {
     New-Item -ItemType Directory -Path $logRoot -Force | Out-Null
     $lastState = ''
     while ($true) {
+        if (Test-QuantaraDockerOwnership -RepoRoot $service.RepoRoot -Sql) { return }
         $candidates = @(Get-QuantaraSqlCandidates)
         $pipe = Get-QuantaraSqlPipe -MasterFile $state.masterFile -OwnerSid $sid -Candidates $candidates
         $message = if ($pipe) { 'Original SQL instance is running.' } else { 'Starting original registered SQL instance.' }

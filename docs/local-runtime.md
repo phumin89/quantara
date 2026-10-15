@@ -1,5 +1,10 @@
 # Local continuous operation
 
+Docker Compose is the canonical runtime for this checkout; see
+[Docker runtime](docker-runtime.md). The native watcher path below is retained
+for development and for a deliberate, verified reverse migration only. Do not
+start it while Docker owns the active databases.
+
 Run from the repository root in PowerShell 7 after `npm ci` and local Codex
 sign-in:
 
