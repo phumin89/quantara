@@ -9,7 +9,8 @@ sign-in:
 ```
 
 The installer builds isolated Release binaries and the production frontend,
-then registers four Windows Scheduled Tasks for the current interactive user.
+then registers four service tasks for the current interactive user, plus a SQL
+watcher when an original LocalDB binding is configured.
 Each task starts immediately and after that user signs in. It uses the same
 user's SQL LocalDB and Codex login; no administrator account, stored Windows
 password or SYSTEM service is needed. Task names include a hash of this checkout
@@ -18,7 +19,10 @@ so another checkout has separate task names. All windows stay hidden.
 Each watcher adopts an existing verified service on its configured port, or
 starts its built executable when the port becomes available. An adopted process
 that exits is checked again every 15 seconds. A watcher failure is retried by
-Windows after one minute. Occupied ports belonging to unverified processes are
+Windows after one minute. A one-minute recurring trigger also restarts a stopped
+watcher while the user is logged in; running instances are ignored. These
+triggers never Resume a persistently stopped company or approve orders.
+Occupied ports belonging to unverified processes are
 left alone; inspect the host log to resolve the conflict. Watchers do not kill
 processes, call trading endpoints, replay reports or retry broker orders. They
 restart exited processes, not an alive process that has stopped responding.
@@ -47,12 +51,26 @@ master file and owner, then supplies its current pipe with each service's own
 database name. Missing or ambiguous matches wait; they never fall back to another
 instance or create a replacement database. No database is copied, moved or shared.
 
-This checkout is pinned to the original instance on this PC. That SQL instance
-must also be running. Login restarts the watchers; it does not prove the original
-SQL instance has started. If it is absent, the host log shows the waiting state.
-Independent SQL startup or a move to a normally hosted SQL Server is separate
-infrastructure work. Existing services continue using their current connection
-until they exit; a restarted service receives the verified binding.
+This checkout is pinned to the original instance on this PC. The dedicated SQL
+watcher adopts that instance or starts its registered engine with the same
+master, transaction logs and Windows owner. Startup requires a unique matching
+HKCU registration, the installed HKLM engine location, existing system database
+files and a valid Microsoft executable signature. It does not create an instance,
+copy databases, edit registry values or change Windows security policy. Missing
+or ambiguous identity fails visibly. Existing API services receive the current
+verified pipe on their next launch.
+
+To update task configuration without replacing an existing compiled backend:
+
+```powershell
+./tools/Start-Quantara.ps1 -ExistingArtifactsPath '<existing repository build directory>'
+```
+
+Windows App Control can still reject an application assembly. A database recovery
+does not remove that block; the application must be permitted by Windows policy
+or use an approved trusted build. See Code Integrity event 3077 and the service
+error log. Do not disable protection, relocate binaries or load blocked code by
+another route as a workaround.
 
 ## Inspect and stop
 

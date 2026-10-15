@@ -51,10 +51,32 @@ if (Get-QuantaraSqlPipe -MasterFile $sqlMaster -OwnerSid $sqlOwner -Candidates @
 if (Get-QuantaraSqlPipe -MasterFile $sqlMaster -OwnerSid $sqlOwner -Candidates @()) {
     throw 'A missing original SQL instance must wait rather than choose another database.'
 }
-$runnerAst = [Management.Automation.Language.Parser]::ParseFile(
-    (Join-Path $PSScriptRoot 'Run-QuantaraService.ps1'), [ref]$null, [ref]$null)
-if ($runnerAst.FindAll({ param($node)
-    $node -is [Management.Automation.Language.CommandAst] -and
-        $node.GetCommandName() -in @('Stop-Process', 'Invoke-RestMethod', 'Invoke-WebRequest')
-}, $true).Count -ne 0) { throw 'The runtime must not kill adopted processes or call business endpoints.' }
+
+$registration = [pscustomobject]@{
+    DataDirectory = Split-Path -Parent $sqlMaster
+    InstanceName = 'LOCALDB#1234ABCD'; ParentInstance = 'MSSQL17E.LOCALDB'
+}
+$sqlStart = Get-QuantaraSqlStartPlan -MasterFile $sqlMaster -OwnerSid $sqlOwner -CurrentOwnerSid $sqlOwner `
+    -Registrations @($registration) -BinRoot (Join-Path $repoRoot '.runtime/test-sql/bin')
+if ($sqlStart.Executable -notlike '*sqlservr.exe' -or !$sqlStart.Arguments.Contains('-sLOCALDB#1234ABCD') -or
+    !$sqlStart.RequiredFiles.Contains($sqlMaster)) { throw 'SQL bootstrap must reuse the registered instance and original files.' }
+foreach ($probe in @(
+    { Get-QuantaraSqlStartPlan -MasterFile $sqlMaster -OwnerSid 'another-owner' -CurrentOwnerSid $sqlOwner -Registrations @($registration) -BinRoot $repoRoot },
+    { Get-QuantaraSqlStartPlan -MasterFile $sqlMaster -OwnerSid $sqlOwner -CurrentOwnerSid $sqlOwner -Registrations @() -BinRoot $repoRoot },
+    { Get-QuantaraSqlStartPlan -MasterFile $sqlMaster -OwnerSid $sqlOwner -CurrentOwnerSid $sqlOwner -Registrations @($registration, $registration) -BinRoot $repoRoot }
+)) {
+    $rejected = $false
+    try { & $probe | Out-Null } catch { $rejected = $true }
+    if (!$rejected) { throw 'Unverified SQL bootstrap identity was accepted.' }
+}
+foreach ($runner in @('Run-QuantaraService.ps1', 'Run-QuantaraSql.ps1')) {
+    $parseErrors = $null
+    $runnerAst = [Management.Automation.Language.Parser]::ParseFile(
+        (Join-Path $PSScriptRoot $runner), [ref]$null, [ref]$parseErrors)
+    if ($parseErrors) { throw 'A runtime script could not be parsed.' }
+    if ($runnerAst.FindAll({ param($node)
+        $node -is [Management.Automation.Language.CommandAst] -and
+            $node.GetCommandName() -in @('Stop-Process', 'Invoke-RestMethod', 'Invoke-WebRequest', 'Set-ItemProperty', 'Remove-Item')
+    }, $true).Count -ne 0) { throw 'The runtime must not kill adopted processes, alter registry policy, delete data or call business endpoints.' }
+}
 Write-Output 'Runtime checks passed: scoped tasks/artifacts, port ownership, original SQL identity, ambiguous/missing SQL protection and native helper compilation. No broker calls or task registration.'

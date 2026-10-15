@@ -120,5 +120,40 @@ function Get-QuantaraSqlEnvironment {
     return [pscustomobject]@{ Ready = $true; Environment = $environment }
 }
 
+function Get-QuantaraSqlStartPlan {
+    param(
+        [Parameter(Mandatory)][string] $MasterFile,
+        [Parameter(Mandatory)][string] $OwnerSid,
+        [Parameter(Mandatory)][string] $CurrentOwnerSid,
+        [Parameter(Mandatory)][AllowEmptyCollection()][object[]] $Registrations,
+        [Parameter(Mandatory)][string] $BinRoot
+    )
+
+    if ($OwnerSid -ne $CurrentOwnerSid) { throw 'Original SQL owner does not match this Windows user.' }
+    $master = [IO.Path]::GetFullPath($MasterFile)
+    if ([IO.Path]::GetFileName($master) -ne 'master.mdf') { throw 'An existing SQL master file is required.' }
+    $directory = Split-Path -Parent $master
+    $matching = @($Registrations | Where-Object {
+        $_.DataDirectory -and [IO.Path]::GetFullPath($_.DataDirectory).TrimEnd('\').Equals(
+            $directory.TrimEnd('\'), [StringComparison]::OrdinalIgnoreCase)
+    })
+    if ($matching.Count -ne 1) { throw 'Original LocalDB registration is missing or ambiguous.' }
+    $instance = $matching[0]
+    if ($instance.InstanceName -notmatch '^LOCALDB#[0-9A-Fa-f]+$' -or
+        $instance.ParentInstance -notmatch '^MSSQL[0-9]+E\.LOCALDB$') {
+        throw 'Original LocalDB registration is invalid.'
+    }
+
+    $bin = [IO.Path]::GetFullPath($BinRoot)
+    [pscustomobject]@{
+        Executable = Join-Path $bin 'sqlservr.exe'
+        WorkingDirectory = $bin
+        Arguments = '-c -S{0} -s{1} -d"{2}" -l"{3}" -e"{4}"' -f $instance.ParentInstance,
+            $instance.InstanceName, $master, (Join-Path $directory 'mastlog.ldf'), (Join-Path $directory 'error.log')
+        RequiredFiles = @('master.mdf', 'mastlog.ldf', 'model.mdf', 'modellog.ldf', 'msdbdata.mdf', 'msdblog.ldf') |
+            ForEach-Object { Join-Path $directory $_ }
+    }
+}
+
 Export-ModuleMember -Function Get-QuantaraRuntimePlan, Get-QuantaraServiceOwner, Get-QuantaraSqlPipe,
-    Get-QuantaraSqlCandidates, Get-QuantaraSqlEnvironment
+    Get-QuantaraSqlCandidates, Get-QuantaraSqlEnvironment, Get-QuantaraSqlStartPlan

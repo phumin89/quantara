@@ -725,7 +725,9 @@ export default class DailyBriefPage extends Component<
             this.mounted &&
             generation === this.generation &&
             date === DailyBriefPage.today() &&
-            (this.state.overview?.company?.enabled ||
+            (!this.state.overview ||
+              Boolean(this.state.error) ||
+              this.state.overview.company?.enabled ||
               status === TeamRunStatus.Queued ||
               status === TeamRunStatus.Running)
           ) {

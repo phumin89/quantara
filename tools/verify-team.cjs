@@ -203,7 +203,13 @@ async function verify() {
     await page.getByText('Fixture storage failure', { exact: true }).waitFor();
     await conversation.getByText('Daily brief unavailable').waitFor();
     failure = false;
-    await page.getByRole('button', { name: 'Retry', exact: true }).click();
+    const recovered = page.waitForResponse(
+      (response) =>
+        response.url().includes('/api/team/brief?') &&
+        response.status() === 200,
+    );
+    await page.clock.runFor(30100);
+    await recovered;
     await conversation
       .getByText('Fixture ceo report.', { exact: false })
       .waitFor();
