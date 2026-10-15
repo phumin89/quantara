@@ -103,7 +103,7 @@ public sealed class CodexWorker : ICodexWorker
             catch (InvalidOperationException) { }
         });
         var output = CodexWorker.ReadBounded(process.StandardOutput, timeout.Token);
-        var stderr = CodexWorker.Drain(process.StandardError, timeout.Token);
+        var stderr = CodexWorker.ReadBounded(process.StandardError, timeout.Token);
         var body = JsonSerializer.Serialize(
             new
             {
@@ -114,16 +114,36 @@ public sealed class CodexWorker : ICodexWorker
             },
             CodexWorker.jsonOptions
         );
-        await process.StandardInput.WriteAsync(body.AsMemory(), timeout.Token);
-        process.StandardInput.Close();
-        await process.WaitForExitAsync(timeout.Token);
-        await stderr;
-        var json = await output;
-        if (process.ExitCode != 0)
+        try
         {
-            throw new InvalidOperationException("Codex worker failed. Check server authentication and runtime.");
-        }
+            await process.StandardInput.WriteAsync(body.AsMemory(), timeout.Token);
+            process.StandardInput.Close();
+            await process.WaitForExitAsync(timeout.Token);
+            var diagnostic = await stderr;
+            var json = await output;
+            if (process.ExitCode != 0)
+            {
+                throw CodexWorkerException.FromDiagnostic(diagnostic);
+            }
 
+            try
+            {
+                return CodexWorker.Decode(json, role);
+            }
+            catch (Exception error)
+                when (error is JsonException or InvalidOperationException or KeyNotFoundException or FormatException)
+            {
+                throw new CodexWorkerException("worker_response_invalid");
+            }
+        }
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+        {
+            throw new CodexWorkerException("worker_timed_out");
+        }
+    }
+
+    private static ResearchReport Decode(string json, string role)
+    {
         using var result = JsonDocument.Parse(json);
         var report = result.RootElement.GetProperty("output").GetString();
         if (string.IsNullOrWhiteSpace(report) || report.Length > 16000)
@@ -148,13 +168,24 @@ public sealed class CodexWorker : ICodexWorker
                 "sell" => Quantara.Team.Domain.TradeProposalSide.Sell,
                 _ => throw new InvalidOperationException("Invalid proposal side."),
             };
+            TradeEntryPlan? entryPlan = null;
+            if (candidate.TryGetProperty("entryPlan", out var plan) && plan.ValueKind != JsonValueKind.Null)
+            {
+                entryPlan = new TradeEntryPlan(
+                    plan.GetProperty("targetPrice").GetString() ?? "",
+                    plan.GetProperty("invalidationPrice").GetString() ?? "",
+                    plan.GetProperty("reviewAfterMinutes").GetInt32()
+                );
+            }
+
             proposal = new TradeProposal(
                 candidate.GetProperty("symbol").GetString() ?? "",
                 side,
                 candidate.GetProperty("amount").GetString() ?? "",
                 candidate.GetProperty("limitPrice").GetString() ?? "",
                 candidate.GetProperty("reason").GetString() ?? "",
-                candidate.GetProperty("evidenceAt").GetDateTimeOffset()
+                candidate.GetProperty("evidenceAt").GetDateTimeOffset(),
+                entryPlan
             );
         }
 
@@ -190,7 +221,20 @@ public sealed class CodexWorker : ICodexWorker
             throw new InvalidOperationException("Reviewer must return a learning lesson.");
         }
 
-        return new ResearchReport(report, proposal, lesson);
+        var researchSymbols = result.RootElement.TryGetProperty("researchSymbols", out var requested)
+            ? requested.EnumerateArray().Select(item => item.GetString() ?? "").ToArray()
+            : [];
+        if (
+            researchSymbols.Length > 3
+            || (researchSymbols.Length > 0 && role != "ceo")
+            || researchSymbols.Distinct(StringComparer.Ordinal).Count() != researchSymbols.Length
+            || researchSymbols.Any(symbol => symbol.Length is < 1 or > 30 || !symbol.All(char.IsAsciiLetterOrDigit))
+        )
+        {
+            throw new CodexWorkerException("worker_response_invalid");
+        }
+
+        return new ResearchReport(report, proposal, lesson, researchSymbols);
     }
 
     private static string LessonText(JsonElement lesson, string name)
@@ -249,11 +293,5 @@ public sealed class CodexWorker : ICodexWorker
         }
 
         return output.ToString();
-    }
-
-    private static async Task Drain(StreamReader reader, CancellationToken cancellationToken)
-    {
-        var buffer = new char[2048];
-        while (await reader.ReadAsync(buffer.AsMemory(), cancellationToken) > 0) { }
     }
 }

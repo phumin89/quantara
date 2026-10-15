@@ -155,6 +155,43 @@ const factory = (value) => {
           assert.deepEqual(turn.outputSchema.properties.lesson, {
             type: 'null',
           });
+          assert.deepEqual(turn.outputSchema.properties.output, {
+            type: 'string',
+            minLength: 1,
+            maxLength: 16000,
+          });
+          assert.deepEqual(
+            turn.outputSchema.properties.proposal.anyOf[1].properties.symbol,
+            {
+              type: 'string',
+              pattern: '^[A-Z0-9]{1,30}$',
+            },
+          );
+          for (const name of ['amount', 'limitPrice'])
+            assert.equal(
+              turn.outputSchema.properties.proposal.anyOf[1].properties[name]
+                .pattern,
+              '^(?:0|[1-9]\\d{0,11})(?:\\.\\d{1,18})?$',
+            );
+          assert.deepEqual(
+            turn.outputSchema.properties.proposal.anyOf[1].properties.reason,
+            {
+              type: 'string',
+              minLength: 1,
+              maxLength: 240,
+            },
+          );
+          const proposalSchema = turn.outputSchema.properties.proposal.anyOf[1];
+          for (const name of ['targetPrice', 'invalidationPrice'])
+            assert.equal(
+              proposalSchema.properties.entryPlan.anyOf[1].properties[name]
+                .pattern,
+              '^(?:0|[1-9]\\d{0,11})(?:\\.\\d{1,18})?$',
+            );
+          assert.equal(
+            turn.outputSchema.properties.researchSymbols.maxItems,
+            3,
+          );
           assert(!prompt.includes('must-not-leak'));
           assert(prompt.includes(input.objective));
           assert(prompt.includes('untrusted data'));
@@ -235,6 +272,10 @@ assert.deepEqual(reviewerTurnOptions.outputSchema.properties.lesson, {
 });
 assert.equal(reviewerTurnOptions.outputSchema.properties.lesson.type, 'object');
 assert.equal(
+  reviewerTurnOptions.outputSchema.properties.researchSymbols.maxItems,
+  0,
+);
+assert.equal(
   reviewerTurnOptions.outputSchema.properties.lesson.anyOf,
   undefined,
 );
@@ -249,6 +290,10 @@ await assert.rejects(
     source,
   ),
   /invalid pending proposal/,
+);
+assert.equal(
+  reviewerTurnOptions.outputSchema.properties.researchSymbols.maxItems,
+  0,
 );
 await assert.rejects(
   CodexTeamWorker.run(
@@ -314,4 +359,73 @@ await assert.rejects(
 );
 console.log(
   'Codex worker: input/handoff validation, isolated environment, tool restrictions, structured reports and cleanup passed. No real AI call.',
+);
+const entryPlan = {
+  targetPrice: '105',
+  invalidationPrice: '95',
+  reviewAfterMinutes: 60,
+};
+assert(CodexTeamWorker.validProposal('reviewer', { ...proposal, entryPlan }));
+for (const invalid of [
+  { ...entryPlan, targetPrice: '0' },
+  { ...entryPlan, invalidationPrice: 'private-value' },
+  { ...entryPlan, reviewAfterMinutes: 0 },
+  { ...entryPlan, reviewAfterMinutes: 1441 },
+  { ...entryPlan, automaticExit: true },
+])
+  assert(
+    !CodexTeamWorker.validProposal('reviewer', {
+      ...proposal,
+      entryPlan: invalid,
+    }),
+  );
+assert(
+  !CodexTeamWorker.validProposal('reviewer', {
+    ...proposal,
+    side: 'sell',
+    entryPlan,
+  }),
+);
+const selectionFactory =
+  (researchSymbols, role = 'ceo') =>
+  () => ({
+    startThread: () => ({
+      run: async () => ({
+        items: [],
+        finalResponse: JSON.stringify({
+          output: 'Candidate selection',
+          proposal: null,
+          lesson: role === 'reviewer' ? validLesson : null,
+          researchSymbols,
+        }),
+      }),
+    }),
+  });
+assert.deepEqual(
+  (await CodexTeamWorker.run(input, selectionFactory(['KUB', 'BTC']), source))
+    .researchSymbols,
+  ['KUB', 'BTC'],
+);
+for (const invalid of [
+  ['KUB', 'KUB'],
+  ['KUB_THB'],
+  ['KUB', 'BTC', 'ETH', 'SOL'],
+  ['https://private.test'],
+  ['kub'],
+]) {
+  await assert.rejects(
+    CodexTeamWorker.run(input, selectionFactory(invalid), source),
+    /invalid response research selection/,
+  );
+}
+await assert.rejects(
+  CodexTeamWorker.run(
+    reviewerInput,
+    selectionFactory(['KUB'], 'reviewer'),
+    source,
+  ),
+  /invalid response research selection/,
+);
+console.log(
+  'Resting entry plan and read-only CEO candidate selection contracts passed.',
 );

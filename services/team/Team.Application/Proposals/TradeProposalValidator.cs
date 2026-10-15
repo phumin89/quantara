@@ -54,13 +54,31 @@ public static class TradeProposalValidator
         var amount = TradeProposalValidator.Number(proposal.Amount);
         var price = TradeProposalValidator.Number(proposal.LimitPrice);
         var last = market.GetProperty("last").GetDecimal();
+        var restingBuy = proposal.Side == TradeProposalSide.Buy && price < last && proposal.EntryPlan is not null;
         if (
             last <= 0
-            || decimal.Abs(price / last - 1) > 0.01m
+            || (!restingBuy && decimal.Abs(price / last - 1) > 0.01m)
             || market.GetProperty(proposal.Side == TradeProposalSide.Buy ? "ask" : "bid").GetDecimal() <= 0
         )
         {
             throw new InvalidOperationException("Trade proposal price is unsupported by current market evidence.");
+        }
+
+        if (proposal.EntryPlan is { } plan)
+        {
+            var target = TradeProposalValidator.Number(plan.TargetPrice);
+            var invalidation = TradeProposalValidator.Number(plan.InvalidationPrice);
+            if (
+                proposal.Side != TradeProposalSide.Buy
+                || target <= price
+                || invalidation >= price
+                || plan.ReviewAfterMinutes is < 1 or > 1440
+            )
+            {
+                throw new InvalidOperationException("Entry plan target, invalidation or review horizon is invalid.");
+            }
+
+            _ = TradeProposalDescription.Format(proposal);
         }
 
         var availableSymbol = proposal.Side == TradeProposalSide.Buy ? "THB" : proposal.Symbol;

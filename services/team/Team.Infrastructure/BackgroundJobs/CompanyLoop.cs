@@ -77,6 +77,13 @@ public sealed class CompanyLoop : BackgroundService, ICompanyLoop
             {
                 visibleStatus = CompanyLoopStatus.Running;
             }
+            else if (latest?.Status == TeamRunStatus.Failed)
+            {
+                return this.Overview(CompanyLoopStatus.Error) with
+                {
+                    Error = latest.Error ?? "The last analysis failed. The next scheduled assessment remains enabled.",
+                };
+            }
             else if (visibleStatus == CompanyLoopStatus.Running)
             {
                 visibleStatus = CompanyLoopStatus.Waiting;

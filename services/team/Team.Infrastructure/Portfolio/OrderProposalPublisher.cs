@@ -29,7 +29,7 @@ public sealed class OrderProposalPublisher(HttpClient http) : IOrderProposalPubl
                     side = proposal.Side.ToString().ToLowerInvariant(),
                     proposal.Amount,
                     proposal.LimitPrice,
-                    proposal.Reason,
+                    Reason = TradeProposalDescription.Format(proposal),
                     sourceRunId = runId,
                     expectedAccountKey = accountKey,
                 }

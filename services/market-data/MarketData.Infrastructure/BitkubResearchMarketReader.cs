@@ -21,26 +21,76 @@ public sealed class BitkubResearchMarketReader : IResearchMarketReader
         this.intraday = intraday;
     }
 
-    public async Task<string> Read(CancellationToken cancellationToken)
+    public async Task<string> Read(CancellationToken cancellationToken, IReadOnlyList<string>? symbols = null)
     {
+        var requestedSymbols = NormalizeRequestedSymbols(symbols);
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         timeout.CancelAfter(TimeSpan.FromSeconds(8));
-        var symbols = await this.Get("/api/v3/market/symbols", timeout.Token);
+        var symbolDocument = await this.Get("/api/v3/market/symbols", timeout.Token);
         var ticker = await this.Get("/api/v3/market/ticker", timeout.Token);
-        EnsureSuccess(symbols);
+        EnsureSuccess(symbolDocument);
         EnsureSuccess(ticker);
-        var scan = MarketUniverseScanner.Scan(symbols, ticker);
+        var scan = MarketUniverseScanner.Scan(symbolDocument, ticker);
+        var requestedEntries = requestedSymbols
+            .Select(symbol => scan.Entries.SingleOrDefault(entry => entry.Symbol == symbol + "_THB"))
+            .ToArray();
+        if (requestedEntries.Any(entry => entry is null || !entry.Usable))
+        {
+            throw new ArgumentException("Requested symbols must be active THB spot markets with usable quotes.");
+        }
+
         var snapshot = this.intraday?.Read();
+        var monitoredSeriesCount = snapshot?.Series.Count ?? 0;
         var assessedAt = DateTimeOffset.UtcNow;
+        if (requestedSymbols.Length > 0)
+        {
+            var requestedSeries = await this.FetchRequestedSeries(requestedSymbols, timeout.Token);
+            var requestedEvidenceAvailable = requestedSeries.Any(series =>
+                series.Error is null && series.Candles.Count > 0
+            );
+            snapshot = (snapshot ?? new IntradaySnapshot(false, assessedAt, false, [], [], [], null)) with
+            {
+                Available = snapshot?.Available == true || requestedEvidenceAvailable,
+                Series = (snapshot?.Series ?? [])
+                    .Where(series => !requestedSeries.Any(requested => requested.Symbol == series.Symbol))
+                    .Concat(requestedSeries)
+                    .ToArray(),
+                Error = snapshot?.Error,
+            };
+        }
+
+        assessedAt = DateTimeOffset.UtcNow;
         var alertSymbols = snapshot?.Signals.Select(signal => signal.Symbol).ToHashSet(StringComparer.Ordinal) ?? [];
-        var candidates = scan
-            .Entries.Where(entry => entry.Usable && alertSymbols.Contains(entry.Symbol))
-            .OrderBy(entry => entry.Symbol)
-            .Concat(MarketUniverseScanner.SelectCandidates(scan, 16))
+        var validRequestedEntries = requestedEntries
+            .Select(entry =>
+                entry
+                ?? throw new ArgumentException("Requested symbols must be active THB spot markets with usable quotes.")
+            )
+            .ToArray();
+        var candidates = validRequestedEntries
+            .Concat(
+                scan.Entries.Where(entry => entry.Usable && alertSymbols.Contains(entry.Symbol))
+                    .OrderBy(entry => entry.Symbol)
+                    .Concat(MarketUniverseScanner.SelectCandidates(scan, Math.Max(0, 16 - requestedEntries.Length)))
+            )
             .DistinctBy(entry => entry.Symbol)
             .Take(16)
             .ToArray();
-        var priorities = PrioritizeSeries(candidates, snapshot);
+        if (requestedSymbols.Length > 0)
+        {
+            candidates = validRequestedEntries;
+        }
+
+        var priorities = requestedSymbols
+            .Select(symbol => symbol + "_THB")
+            .Concat(PrioritizeSeries(candidates, snapshot))
+            .Distinct(StringComparer.Ordinal)
+            .ToArray();
+        if (requestedSymbols.Length > 0)
+        {
+            priorities = requestedSymbols.Select(symbol => symbol + "_THB").ToArray();
+        }
+
         var priorityOrder = priorities
             .Select((symbol, index) => new { symbol, index })
             .ToDictionary(item => item.symbol, item => item.index);
@@ -101,9 +151,22 @@ public sealed class BitkubResearchMarketReader : IResearchMarketReader
             markets.Add(item);
         }
 
-        var history = await this.History(cancellationToken);
+        object history =
+            requestedSymbols.Length == 0
+                ? await this.History(cancellationToken)
+                : new
+                {
+                    available = false,
+                    reason = "Requested intraday evidence is prioritized; default daily BTC history was omitted.",
+                };
+
         foreach (var seriesLimit in Enumerable.Range(0, 9).Reverse())
         {
+            if (seriesLimit < requestedSymbols.Length)
+            {
+                break;
+            }
+
             var result = JsonSerializer.Serialize(
                 new
                 {
@@ -120,9 +183,13 @@ public sealed class BitkubResearchMarketReader : IResearchMarketReader
                         truncated = false,
                         detailedMarketCount = markets.Count,
                         detailedMarketsTruncated = markets.Count < scan.Entries.Count,
-                        selection = "Diverse liquidity and absolute 24h movement shortlist including usable BTC; screening heuristic, not expected profit or validated edge.",
+                        selection = requestedSymbols.Length > 0
+                            ? "Explicit research candidates; the complete compact universe scan is retained."
+                            : "Diverse liquidity and absolute 24h movement shortlist including usable BTC; screening heuristic, not expected profit or validated edge.",
                         topDepthCount = Math.Min(5, markets.Count),
-                        candleSelection = "Alerts first, then BTC and diverse liquid/moving pairs with supplied bars. Continuity is stated per series. Routing only; movement/spread ranking is not expected profit or an entry rule.",
+                        candleSelection = requestedSymbols.Length > 0
+                            ? "Explicit requested candidates in request order. Every requested series is retained or the request fails its budget; no new live subscription is created."
+                            : "Alerts first, then BTC and diverse liquid/moving pairs with supplied bars. Continuity is stated per series. Routing only; movement/spread ranking is not expected profit or an entry rule.",
                     },
                     scan = new
                     {
@@ -139,7 +206,12 @@ public sealed class BitkubResearchMarketReader : IResearchMarketReader
                     },
                     markets,
                     historicalCandles = history,
-                    intraday = ReadIntraday(snapshot, priorities.Take(seriesLimit).ToArray(), assessedAt),
+                    intraday = ReadIntraday(
+                        snapshot,
+                        priorities.Take(seriesLimit).ToArray(),
+                        assessedAt,
+                        monitoredSeriesCount
+                    ),
                     tradeEvidence = "Recent executed trades are flow evidence, not OHLC backtest history.",
                 },
                 BitkubResearchMarketReader.jsonOptions
@@ -153,7 +225,85 @@ public sealed class BitkubResearchMarketReader : IResearchMarketReader
         throw new InvalidDataException("Market research snapshot is too large.");
     }
 
-    private static object ReadIntraday(IntradaySnapshot? snapshot, string[] priorities, DateTimeOffset assessedAt)
+    private static string[] NormalizeRequestedSymbols(IReadOnlyList<string>? symbols)
+    {
+        if (symbols is null || symbols.Count == 0)
+        {
+            return [];
+        }
+
+        if (
+            symbols.Count > 3
+            || symbols.Any(symbol =>
+                symbol.Length is < 1 or > 30 || symbol.Any(character => !char.IsAsciiLetterOrDigit(character))
+            )
+        )
+        {
+            throw new ArgumentException("At most three ASCII alphanumeric symbols are allowed.");
+        }
+
+        var normalized = symbols.Select(symbol => symbol.ToUpperInvariant()).Distinct(StringComparer.Ordinal).ToArray();
+        if (normalized.Length != symbols.Count)
+        {
+            throw new ArgumentException("Requested symbols must be unique.");
+        }
+
+        return normalized;
+    }
+
+    private async Task<IReadOnlyList<IntradaySeries>> FetchRequestedSeries(
+        IReadOnlyList<string> symbols,
+        CancellationToken cancellationToken
+    )
+    {
+        using var budget = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        budget.CancelAfter(TimeSpan.FromSeconds(4));
+        return await Task.WhenAll(
+            symbols.Select(symbol => this.FetchRequestedSeries(symbol, budget.Token, cancellationToken))
+        );
+    }
+
+    private async Task<IntradaySeries> FetchRequestedSeries(
+        string symbol,
+        CancellationToken cancellationToken,
+        CancellationToken requestToken
+    )
+    {
+        var to = DateTimeOffset.UtcNow.ToUnixTimeSeconds() / 300 * 300;
+        var from = to - 120 * 300;
+        try
+        {
+            var raw = await this.Get(
+                $"/tradingview/history?symbol={Uri.EscapeDataString(symbol + "_THB")}&resolution=5&from={from}&to={to}",
+                cancellationToken
+            );
+            // The endpoint can include the unfinished bar at the inclusive upper boundary.
+            var candles = CandleParser.Parse(raw, from, to, 300, 121).TakeLast(120).ToArray();
+            return new IntradaySeries(
+                symbol + "_THB",
+                candles,
+                DateTimeOffset.UtcNow,
+                candles.Length == 0 ? "No completed candles returned." : null
+            );
+        }
+        catch (Exception exception)
+            when (exception is not OperationCanceledException || !requestToken.IsCancellationRequested)
+        {
+            return new IntradaySeries(
+                symbol + "_THB",
+                [],
+                DateTimeOffset.UtcNow,
+                "Requested candle evidence could not be verified."
+            );
+        }
+    }
+
+    private static object ReadIntraday(
+        IntradaySnapshot? snapshot,
+        string[] priorities,
+        DateTimeOffset assessedAt,
+        int monitoredSeriesCount
+    )
     {
         if (snapshot is null)
         {
@@ -170,10 +320,10 @@ public sealed class BitkubResearchMarketReader : IResearchMarketReader
             snapshot.Error,
             timeframeSeconds = 300,
             coverage = "Up to 16 diverse THB spot markets monitored; last 21 retained completed candles shown for up to 8 priority candidates. Missing candles are not filled.",
-            monitoredSeriesCount = snapshot.Series.Count,
+            monitoredSeriesCount,
             omittedSeriesCount = snapshot.Series.Count(series => !prioritySymbols.Contains(series.Symbol)),
             omittedQuoteCount = snapshot.Quotes.Count(quote => !prioritySymbols.Contains(quote.Symbol)),
-            source = "Bitkub public WebSocket ticker (ObservedAt is receive time) and TradingView 5-minute history compatibility endpoint. Order book updates are events, not reconstructed full books.",
+            source = "Bitkub public WebSocket ticker (ObservedAt is receive time); requested symbols may include separately fetched completed 5-minute TradingView history outside the monitored set. A request is not a live subscription. Order book updates are events, not reconstructed full books.",
             candleColumns = BitkubResearchMarketReader.candleColumns,
             numericEncoding = "Lossless decimal values; insignificant trailing zeros are omitted.",
             adaptiveCheckedAt = assessedAt,

@@ -246,6 +246,31 @@ than an independent spot proposal assessment. A new proposal still requires
 observed entry evidence, a budget, exit/invalidation, round-trip costs and
 individual human review.
 
+CEO may select up to three usable base symbols through the typed researchSymbols
+field. Before Analyst runs, Team requests targeted public rules, quotes, depth,
+trades and completed 5-minute candles over MarketData HTTP, then refreshes wallet
+and order evidence and verifies the account again. The compact full-universe scan
+remains present. Targeted requests prioritize only the selected detailed markets
+and omit default daily BTC history to preserve the 32,000-character market budget.
+REST candle evidence is identified separately from live subscriptions; it never
+mutates retained candle rows or subscribes a new trading runtime.
+
+A buy limit below the current market may exceed the former 1% distance guard
+when accompanied by a typed entryPlan: target above entry, invalidation below
+entry and a bounded intraday review horizon. The exact plan is appended to the
+immutable human review reason. It does not install automatic stop-loss, exit,
+cancellation or repricing. The existing three-minute human approval deadline,
+fresh balance/rule checks and reference-price drift check remain unchanged.
+Open-order evidence distinguishes pending proposals from submitted broker orders
+and discloses its bounded coverage; reserved funds are never spendable balances.
+
+Worker errors cross the Node/.NET boundary as allowlisted codes and fixed messages,
+including authentication, usage limits, response contract errors and model refusal.
+Raw SDK errors, credentials and prompts never appear in user-visible diagnostics.
+The company overview exposes a failed latest round while preserving the saved
+Stop/Resume state and retry schedule. Container readiness is not a claim that a
+research round completed successfully.
+
 ## Intraday monitoring and research alerts
 
 Daily learning reuses the existing TeamRuns JSON payload: each new research run

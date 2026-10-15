@@ -13,15 +13,19 @@ public sealed class SnapshotHttpHandler : HttpMessageHandler
 
     private readonly string walletEvidence;
 
+    private readonly string orders;
+
     public SnapshotHttpHandler(
         string json,
         string? history = null,
         string? account = null,
-        string? walletEvidence = null
+        string? walletEvidence = null,
+        string? orders = null
     )
     {
         this.json = json;
         this.history = history;
+        this.orders = orders ?? "{\"proposals\":[]}";
         this.account =
             account ?? "{\"accountKey\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"}";
         this.walletEvidence =
@@ -44,6 +48,8 @@ public sealed class SnapshotHttpHandler : HttpMessageHandler
                             ? this.account
                         : request.RequestUri?.AbsolutePath.EndsWith("/history", StringComparison.Ordinal) == true
                             ? this.history ?? "{}"
+                        : request.RequestUri?.AbsolutePath.EndsWith("/orders", StringComparison.Ordinal) == true
+                            ? this.orders
                         : this.json,
                     Encoding.UTF8,
                     "application/json"

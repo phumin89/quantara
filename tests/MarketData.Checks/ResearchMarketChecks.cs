@@ -30,6 +30,21 @@ public static class ResearchMarketChecks
             throw new InvalidOperationException("bounded depth/trades query failed");
         }
 
+        var requestedHandler = new ResearchHttpHandler();
+        using var requestedClient = new HttpClient(requestedHandler) { BaseAddress = new Uri("https://test.invalid") };
+        using var requestedDocument = JsonDocument.Parse(
+            await new BitkubResearchMarketReader(requestedClient).Read(CancellationToken.None, ["eth"])
+        );
+        if (
+            requestedDocument.RootElement.GetProperty("markets")[0].GetProperty("symbol").GetString() != "ETH_THB"
+            || !requestedHandler.Requests.Any(request =>
+                request.Query.Contains("symbol=ETH_THB") && request.Query.Contains("resolution=5")
+            )
+        )
+        {
+            throw new InvalidOperationException("Requested market evidence must fetch the requested 5-minute history.");
+        }
+
         using var candles = JsonDocument.Parse(
             "{\"s\":\"ok\",\"t\":[0,0,86400],\"o\":[10,10,10],\"h\":[12,12,12],\"l\":[9,9,9],\"c\":[11,11.5,11],\"v\":[1,1,1]}"
         );

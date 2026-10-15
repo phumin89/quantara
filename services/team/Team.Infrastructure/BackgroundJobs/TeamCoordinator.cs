@@ -193,6 +193,10 @@ public sealed class TeamCoordinator : BackgroundService, ITeamCoordinator
             {
                 await this.Finish(id, TeamRunStatus.Cancelled, null);
             }
+            catch (CodexWorkerException error)
+            {
+                await this.Finish(id, TeamRunStatus.Failed, error.Message);
+            }
             catch (Exception)
             {
                 await this.Finish(
@@ -321,6 +325,47 @@ public sealed class TeamCoordinator : BackgroundService, ITeamCoordinator
             cancellationToken.ThrowIfCancellationRequested();
             await this.UpdateStep(id, role, TeamRunStatus.Completed, report.Output, cancellationToken, report);
             previous.Add((role.ToString().ToLowerInvariant(), report.Output));
+            if (report.ResearchSymbols is { Count: > 0 } requested)
+            {
+                if (role != TeamRole.Ceo)
+                {
+                    throw new CodexWorkerException("worker_response_invalid");
+                }
+
+                using var originalContext = JsonDocument.Parse(snapshot);
+                var research = originalContext.RootElement.GetProperty("evidence").GetProperty("marketResearch");
+                if (
+                    !research.TryGetProperty("scan", out var scan)
+                    || !scan.TryGetProperty("symbols", out var universe)
+                    || requested.Count > 3
+                    || requested.Distinct(StringComparer.Ordinal).Count() != requested.Count
+                    || requested.Any(symbol =>
+                        !universe.EnumerateArray().Any(item => item.GetString() == symbol + "_THB")
+                    )
+                )
+                {
+                    throw new CodexWorkerException("worker_response_invalid");
+                }
+
+                using var refreshed = JsonDocument.Parse(
+                    await this.portfolio.ReadForMarkets(requested, cancellationToken)
+                );
+                if (refreshed.RootElement.GetProperty("accountKey").GetString() != accountKey)
+                {
+                    throw new InvalidOperationException("Account changed while collecting requested market evidence.");
+                }
+
+                var context =
+                    JsonSerializer.Deserialize<Dictionary<string, JsonElement>>(snapshot)
+                    ?? throw new InvalidOperationException("Research context is missing.");
+                context["evidence"] = refreshed.RootElement.Clone();
+                snapshot = JsonSerializer.Serialize(context, TeamCoordinator.jsonOptions);
+                if (snapshot.Length > 60000)
+                {
+                    throw new CodexWorkerException("worker_input_too_large");
+                }
+            }
+
             if (report.Proposal is not null)
             {
                 if (role != TeamRole.Reviewer || this.proposals is null)

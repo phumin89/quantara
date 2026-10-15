@@ -12,6 +12,12 @@ public sealed class ResearchHttpHandler : HttpMessageHandler
 
     public string? HistoryResponse { get; init; }
 
+    public string? IntradayHistoryResponse { get; init; }
+
+    public string? DepthResponse { get; init; }
+
+    public string? TradesResponse { get; init; }
+
     protected override Task<HttpResponseMessage> SendAsync(
         HttpRequestMessage request,
         CancellationToken cancellationToken
@@ -48,6 +54,25 @@ public sealed class ResearchHttpHandler : HttpMessageHandler
         if (path.EndsWith("history", StringComparison.Ordinal) && this.HistoryResponse is not null)
         {
             body = this.HistoryResponse;
+        }
+
+        if (
+            path.EndsWith("history", StringComparison.Ordinal)
+            && query.Contains("resolution=5", StringComparison.Ordinal)
+            && this.IntradayHistoryResponse is not null
+        )
+        {
+            body = this.IntradayHistoryResponse;
+        }
+
+        if (path.EndsWith("depth", StringComparison.Ordinal) && this.DepthResponse is not null)
+        {
+            body = this.DepthResponse;
+        }
+
+        if (path.EndsWith("trades", StringComparison.Ordinal) && this.TradesResponse is not null)
+        {
+            body = this.TradesResponse;
         }
 
         return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(body) });

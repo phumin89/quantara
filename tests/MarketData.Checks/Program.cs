@@ -58,4 +58,5 @@ Console.WriteLine("String provider errors fail closed.");
 await ResearchMarketChecks.Run();
 Console.WriteLine("Research market checks passed.");
 await ResearchEvidenceChecks.Run();
+await RequestedMarketChecks.Run();
 Console.WriteLine("Research evidence checks passed.");

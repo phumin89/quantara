@@ -37,6 +37,23 @@ if (input.objective === 'wait for cancellation') {
 } else if (input.objective === 'fail safely') {
   process.stderr.write('sensitive fixture stderr must not surface');
   process.exitCode = 1;
+} else if (input.objective === 'classified failure') {
+  process.stderr.write(
+    JSON.stringify({
+      error: {
+        code: 'worker_response_invalid',
+        message: 'sensitive response details must not cross the boundary',
+      },
+    }),
+  );
+  process.exitCode = 1;
+} else if (input.objective === 'unknown failure code') {
+  process.stderr.write(
+    JSON.stringify({
+      error: { code: 'evil_injection', message: 'secret=do-not-leak' },
+    }),
+  );
+  process.exitCode = 1;
 } else {
   process.stdout.write(
     JSON.stringify({

@@ -8,5 +8,6 @@ public sealed record TradeProposal(
     string Amount,
     string LimitPrice,
     string Reason,
-    DateTimeOffset EvidenceAt
+    DateTimeOffset EvidenceAt,
+    TradeEntryPlan? EntryPlan = null
 );

@@ -21,6 +21,22 @@ public static class CompanyLoopChecks
         await runs.Save(
             first with
             {
+                Status = TeamRunStatus.Failed,
+                Error = "Codex worker failed [worker_rate_limited].",
+            },
+            CancellationToken.None
+        );
+        var failedOverview = await loop.Read(CancellationToken.None);
+        CompanyLoopChecks.Check(
+            failedOverview.Status == CompanyLoopStatus.Error
+                && failedOverview.Enabled
+                && failedOverview.Error?.Contains("worker_rate_limited", StringComparison.Ordinal) == true
+                && failedOverview.NextRunAt == store.Schedule.NextRunAt,
+            "Failed analysis is visible without stopping or accelerating the schedule."
+        );
+        await runs.Save(
+            first with
+            {
                 Status = TeamRunStatus.Completed,
                 Steps = [new TeamStep(TeamRole.Reviewer, TeamRunStatus.Completed, "Retained review", null)],
             },

@@ -1,4 +1,5 @@
 import { CodexTeamWorker } from './CodexTeamWorker.mjs';
+import { WorkerFailure } from './WorkerFailure.mjs';
 
 try {
   let input = '';
@@ -7,12 +8,17 @@ try {
     input += chunk;
     if (input.length > 100000) throw new Error('Input is too large.');
   }
-  const result = await CodexTeamWorker.run(JSON.parse(input));
+  let request;
+  try {
+    request = JSON.parse(input);
+  } catch {
+    throw new Error('Invalid worker input.');
+  }
+  const result = await CodexTeamWorker.run(request);
   process.stdout.write(JSON.stringify(result));
-} catch {
-  // Raw SDK errors may contain prompts or authentication data.
+} catch (error) {
   process.stderr.write(
-    'The Codex worker failed. Check server authentication and runtime.\n',
+    `${JSON.stringify({ error: WorkerFailure.from(error) })}\n`,
   );
   process.exitCode = 1;
 }

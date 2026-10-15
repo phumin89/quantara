@@ -4,6 +4,7 @@ using Quantara.Team.Domain;
 using Quantara.Team.Infrastructure;
 using Team.Checks;
 
+await WorkerFailureChecks.Run();
 await SignalLoopChecks.Run();
 await DailyLearningChecks.Run();
 await Success();
@@ -21,6 +22,8 @@ InvalidObjective();
 await DailyBriefBoundary();
 await CompanyLoopChecks.Run();
 await ProposalTransportChecks.Run();
+await RestingEntryChecks.Run();
+await RequestedEvidenceChecks.Run();
 Console.WriteLine("Team checks passed.");
 
 static async Task Success()
@@ -575,6 +578,52 @@ static async Task SnapshotWhitelist()
         "bounded retained trade evidence and explicit truncation"
     );
     Check(!enriched.Contains("private", StringComparison.Ordinal), "trade field whitelist");
+    var planReason = "Pullback\nTarget (plan): THB 105\nInvalidation (plan): THB 95";
+    string[] orderStates = ["pending", "submitted", "partiallyFilled", "unknown", "filled"];
+    var activeOrders = JsonSerializer.Serialize(
+        new
+        {
+            proposals = orderStates
+                .Select(status => new
+                {
+                    id = Guid.NewGuid(),
+                    symbol = "BTC",
+                    side = "buy",
+                    amount = "100.01",
+                    limitPrice = "99.99",
+                    status,
+                    reason = planReason,
+                    secret = "private",
+                })
+                .ToArray(),
+        }
+    );
+    using var ordersHandler = new SnapshotHttpHandler(JsonSerializer.Serialize(snapshot), orders: activeOrders);
+    using var ordersHttp = new HttpClient(ordersHandler) { BaseAddress = new Uri("http://portfolio.invalid/") };
+    var ordersContext = await new PortfolioSnapshotReader(ordersHttp).Read(CancellationToken.None);
+    using var ordersJson = JsonDocument.Parse(ordersContext);
+    var openOrders = ordersJson.RootElement.GetProperty("openOrders");
+    Check(
+        openOrders.GetProperty("available").GetBoolean()
+            && !openOrders.GetProperty("truncated").GetBoolean()
+            && openOrders.GetProperty("orders").GetArrayLength() == 4
+            && openOrders.GetProperty("orders")[0].GetProperty("amount").GetString() == "100.01"
+            && openOrders.GetProperty("orders")[0].GetProperty("reason").GetString() == planReason,
+        "active proposal states and exact immutable entry plan reach research"
+    );
+    Check(!ordersContext.Contains("private", StringComparison.Ordinal), "open order whitelist");
+    using var missingOrdersHandler = new SnapshotHttpHandler(JsonSerializer.Serialize(snapshot), orders: "{}");
+    using var missingOrdersHttp = new HttpClient(missingOrdersHandler)
+    {
+        BaseAddress = new Uri("http://portfolio.invalid/"),
+    };
+    using var missingOrders = JsonDocument.Parse(
+        await new PortfolioSnapshotReader(missingOrdersHttp).Read(CancellationToken.None)
+    );
+    Check(
+        !missingOrders.RootElement.GetProperty("openOrders").GetProperty("available").GetBoolean(),
+        "unavailable order evidence is never an empty verified queue"
+    );
     Check(
         !result.Contains("private", StringComparison.Ordinal)
             && !result.Contains("credentials", StringComparison.Ordinal),
@@ -646,8 +695,7 @@ static async Task ProcessBoundary()
             await worker.Report("reviewer", "missing lesson", [], null, CancellationToken.None);
             throw new InvalidOperationException("Reviewer null lesson accepted");
         }
-        catch (InvalidOperationException error)
-            when (error.Message.Contains("learning lesson", StringComparison.Ordinal)) { }
+        catch (CodexWorkerException error) when (error.Code == "worker_response_invalid") { }
 
         try
         {

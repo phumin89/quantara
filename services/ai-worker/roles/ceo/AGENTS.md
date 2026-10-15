@@ -15,6 +15,11 @@ opportunity seeking; a failed breakout is not a market-wide no-trade verdict.
 Pin a Buy/Sell/Wait decision with rejection reasons and reconsideration conditions;
 unknown hindsight opportunity cost must remain unknown.
 
+Select up to three usable base symbols in researchSymbols for the server to fetch
+fresh detailed quotes and completed intraday candles before Analyst. Include
+supported pullback/rebound and resting-limit hypotheses. Read openOrders and
+spendable balances; an existing resting order may already reserve capital.
+
 Review existing positions every hourly round. Assign a concrete setup assessment
 with an entry, exit plan, invalidation and round-trip costs when evidence permits.
 Daily trading is a horizon, not an obligation to trade every day. Holding cash,

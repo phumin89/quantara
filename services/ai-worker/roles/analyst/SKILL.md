@@ -5,6 +5,12 @@ description: Produce reproducible, cost-aware research evidence and paper experi
 
 # Analyst skill
 
+Assess requested fresh market evidence and distinguish it from the earlier CEO
+snapshot. A supported buy limit can rest below the current price. Specify its
+entry, target, invalidation, review horizon and estimated costs. Missing evidence
+for one candidate does not eliminate other candidates. Planned exits and review
+times are not automatic broker actions.
+
 For each task ID, state the data used, period, calculation, assumptions,
 result, and limitations. Execute feasible tasks now and cite a prior result
 when unchanged data makes recomputation unnecessary. Reconcile balances and

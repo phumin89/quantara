@@ -5,9 +5,17 @@ namespace Quantara.Team.Infrastructure;
 
 public sealed class MarketResearchReader(HttpClient http) : IMarketResearchReader
 {
-    public async Task<string> Read(string accountKey, CancellationToken cancellationToken)
+    public Task<string> Read(string accountKey, CancellationToken cancellationToken) =>
+        this.ReadForMarkets(accountKey, [], cancellationToken);
+
+    public async Task<string> ReadForMarkets(
+        string accountKey,
+        IReadOnlyList<string> symbols,
+        CancellationToken cancellationToken
+    )
     {
-        using var request = new HttpRequestMessage(HttpMethod.Get, "api/market/research");
+        var query = symbols.Count == 0 ? "" : "?symbols=" + Uri.EscapeDataString(string.Join(',', symbols));
+        using var request = new HttpRequestMessage(HttpMethod.Get, "api/market/research" + query);
         request.Headers.Add("X-Account-Key", accountKey);
         using var response = await http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
         response.EnsureSuccessStatusCode();

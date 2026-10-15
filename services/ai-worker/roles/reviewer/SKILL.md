@@ -28,3 +28,9 @@ https://www.cftc.gov/LearnAndProtect/AdvisoriesAndArticles/understand_risks_of_v
 One evidence-supported THB spot limit draft may be returned as a structured
 pending proposal. It requires the owner's explicit review of the exact amount
 and price. No approval authority, order placement or account mutation is permitted.
+
+For a resting buy entry, return entryPlan with an evidence-supported target above
+entry, invalidation below entry and reviewAfterMinutes. Explain costs and failure
+conditions. Approval expiry is not the lifetime of a submitted limit order. An
+exit or cancellation remains a separate human-reviewed action; these plan fields
+do not implement stop-loss, take-profit or timed cancellation.

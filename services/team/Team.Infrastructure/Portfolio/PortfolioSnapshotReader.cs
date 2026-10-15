@@ -21,7 +21,9 @@ public sealed class PortfolioSnapshotReader : IPortfolioSnapshotReader
         this.marketResearchReader = marketResearchReader;
     }
 
-    public async Task<string> Read(CancellationToken cancellationToken)
+    public Task<string> Read(CancellationToken cancellationToken) => this.ReadForMarkets([], cancellationToken);
+
+    public async Task<string> ReadForMarkets(IReadOnlyList<string> symbols, CancellationToken cancellationToken)
     {
         var accountKey = await new CurrentAccountReader(this.http).Read(cancellationToken);
         var wallet = await this.ReadWalletEvidence(accountKey, cancellationToken);
@@ -68,7 +70,13 @@ public sealed class PortfolioSnapshotReader : IPortfolioSnapshotReader
             throw new InvalidOperationException("Account changed while collecting research evidence.");
         }
 
-        var marketResearch = await this.ReadMarketResearch(accountKey, cancellationToken);
+        var marketResearch = await this.ReadMarketResearch(accountKey, symbols, cancellationToken);
+        var openOrders = await this.ReadOpenOrders(cancellationToken);
+        if (await new CurrentAccountReader(this.http).Read(cancellationToken) != accountKey)
+        {
+            throw new InvalidOperationException("Account changed while collecting order and market evidence.");
+        }
+
         var json = JsonSerializer.Serialize(
             new
             {
@@ -99,6 +107,7 @@ public sealed class PortfolioSnapshotReader : IPortfolioSnapshotReader
                 historyUpdatedAt = root.GetProperty("historyUpdatedAt").Clone(),
                 historyCoverage = root.GetProperty("historyCoverage").GetString(),
                 marketResearch,
+                openOrders,
             },
             PortfolioSnapshotReader.jsonOptions
         );
@@ -209,7 +218,11 @@ public sealed class PortfolioSnapshotReader : IPortfolioSnapshotReader
         await new CurrentAccountReader(this.http).Read(cancellationToken);
     }
 
-    private async Task<object> ReadMarketResearch(string accountKey, CancellationToken cancellationToken)
+    private async Task<object> ReadMarketResearch(
+        string accountKey,
+        IReadOnlyList<string> symbols,
+        CancellationToken cancellationToken
+    )
     {
         if (this.marketResearchReader is null)
         {
@@ -219,7 +232,7 @@ public sealed class PortfolioSnapshotReader : IPortfolioSnapshotReader
         try
         {
             using var research = JsonDocument.Parse(
-                await this.marketResearchReader.Read(accountKey, cancellationToken)
+                await this.marketResearchReader.ReadForMarkets(accountKey, symbols, cancellationToken)
             );
             return research.RootElement.Clone();
         }
@@ -230,6 +243,61 @@ public sealed class PortfolioSnapshotReader : IPortfolioSnapshotReader
         catch (Exception)
         {
             return new { available = false, reason = "unavailable" };
+        }
+    }
+
+    private async Task<object> ReadOpenOrders(CancellationToken cancellationToken)
+    {
+        try
+        {
+            using var response = await this.http.GetAsync("api/crypto/orders", cancellationToken);
+            response.EnsureSuccessStatusCode();
+            using var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync(cancellationToken));
+            var orders = document
+                .RootElement.GetProperty("proposals")
+                .EnumerateArray()
+                .Where(order =>
+                    order.GetProperty("status").GetString()
+                        is "pending"
+                            or "submitted"
+                            or "partiallyFilled"
+                            or "submitting"
+                            or "unknown"
+                )
+                .ToArray();
+            return new
+            {
+                available = true,
+                observedAt = DateTimeOffset.UtcNow,
+                returnedOrderCount = Math.Min(orders.Length, 10),
+                truncated = orders.Length > 10 || document.RootElement.GetProperty("proposals").GetArrayLength() >= 50,
+                coverage = "At most 50 recent/prioritized account proposals were queried; at most 10 active proposals are included. Pending review is not a submitted broker order.",
+                orders = orders
+                    .Take(10)
+                    .Select(order => new
+                    {
+                        id = order.GetProperty("id").Clone(),
+                        symbol = order.GetProperty("symbol").Clone(),
+                        side = order.GetProperty("side").Clone(),
+                        amount = order.GetProperty("amount").Clone(),
+                        limitPrice = order.GetProperty("limitPrice").Clone(),
+                        status = order.GetProperty("status").Clone(),
+                        reason = order.GetProperty("reason").Clone(),
+                    })
+                    .ToArray(),
+            };
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception)
+        {
+            return new
+            {
+                available = false,
+                reason = "Open order evidence is unavailable; do not assume there are no active orders.",
+            };
         }
     }
 
