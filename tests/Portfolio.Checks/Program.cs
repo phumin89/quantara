@@ -11,6 +11,7 @@ await OrderRecoveryChecks.Run();
 await OrderSourceChecks.Run();
 await AccountEvidenceChecks.Run();
 await TelegramReviewChecks.Run();
+await TelegramMessageChecks.Run();
 
 static void Check(bool condition, string name)
 {

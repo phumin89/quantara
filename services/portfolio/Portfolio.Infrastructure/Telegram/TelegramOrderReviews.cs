@@ -120,11 +120,7 @@ public sealed class TelegramOrderReviews(
         {
             using var popupTimeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
             popupTimeout.CancelAfter(TimeSpan.FromSeconds(3));
-            await transport.Answer(
-                click.CallbackId,
-                "Review recorded. See the message for order status.",
-                popupTimeout.Token
-            );
+            await transport.Answer(click.CallbackId, "บันทึกแล้ว ดูผลในข้อความนี้", popupTimeout.Token);
         }
         catch (Exception) when (!cancellationToken.IsCancellationRequested)
         {

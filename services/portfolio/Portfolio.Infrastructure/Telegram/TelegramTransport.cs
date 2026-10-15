@@ -1,5 +1,3 @@
-using System.Globalization;
-using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
 using Quantara.Portfolio.Domain;
@@ -26,8 +24,8 @@ public sealed class TelegramTransport(HttpClient http, TelegramSettings settings
                     {
                         new[]
                         {
-                            new { text = "✅ Approve", callback_data = "a:" + token },
-                            new { text = "✖ Reject", callback_data = "r:" + token },
+                            new { text = "✅ อนุมัติ", callback_data = "a:" + token },
+                            new { text = "✖ ไม่อนุมัติ", callback_data = "r:" + token },
                         },
                     },
                 },
@@ -116,7 +114,7 @@ public sealed class TelegramTransport(HttpClient http, TelegramSettings settings
             {
                 chat_id = settings.ChatId,
                 message_id = messageId,
-                text = TelegramTransport.Text(proposal, WebUtility.HtmlEncode(status)),
+                text = TelegramTransport.Text(proposal, status),
                 parse_mode = "HTML",
                 reply_markup = new { inline_keyboard = Array.Empty<object>() },
             },
@@ -167,15 +165,5 @@ public sealed class TelegramTransport(HttpClient http, TelegramSettings settings
         }
     }
 
-    public static string Text(OrderProposal proposal, string status)
-    {
-        var buy = proposal.Side == TradeSide.Buy;
-        var amount = proposal.Amount.ToString("#,0.############################", CultureInfo.InvariantCulture);
-        var price = proposal.LimitPrice.ToString("#,0.############################", CultureInfo.InvariantCulture);
-        var reason = WebUtility.HtmlEncode(proposal.Reason);
-        var deadline = proposal
-            .ExpiresAt.ToOffset(TimeSpan.FromHours(7))
-            .ToString("HH:mm:ss", CultureInfo.InvariantCulture);
-        return $"💱 <b>REAL ORDER</b>\n\n<b>{(buy ? "Buy" : "Sell")} {WebUtility.HtmlEncode(proposal.Symbol)}</b> · {(buy ? "฿" : "")}{amount}{(buy ? "" : " " + WebUtility.HtmlEncode(proposal.Symbol))}\nLimit · ฿{price} / coin\nEst. fee · ฿{proposal.EstimatedFeeThb.ToString("0.00", CultureInfo.InvariantCulture)} (0.25% baseline)\n\n{reason}\n\n{status}\nApproval expires · {deadline} Bangkok\nApprove submits this limit order to Bitkub.\nApproval expiry does not cancel an open order.";
-    }
+    public static string Text(OrderProposal proposal, string status) => TelegramOrderMessage.Format(proposal, status);
 }
