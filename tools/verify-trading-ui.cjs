@@ -351,16 +351,38 @@ async function verifyBrowser() {
     await page.goto(
       (process.env.TEST_URL || 'http://127.0.0.1:3000') + '/daily-brief',
     );
-    await page.getByText('AutoLive OFF.', { exact: false }).waitFor();
+    await page.getByText('Paper trading', { exact: true }).waitFor();
     assert.equal(writes.length, 0, 'mount has no control POST');
+    assert.equal(
+      await page.getByText('รายงานทดสอบ: ผลกำไรยังไม่ทราบ').isVisible(),
+      false,
+      'reports are collapsed',
+    );
+    assert.equal(
+      await page
+        .getByLabel('Allocated capital (THB)', { exact: false })
+        .isVisible(),
+      false,
+      'settings are off the main page',
+    );
+    const summary = page
+      .locator('summary')
+      .filter({ hasText: 'Daily report ·' });
+    await summary.click();
     await page.getByText('รายงานทดสอบ: ผลกำไรยังไม่ทราบ').waitFor();
     await page
-      .getByRole('button', { name: 'Configure rules and limits' })
+      .getByRole('button', { name: 'Trading settings', exact: true })
       .click();
     assert.equal(await page.locator('form input[type=number]').count(), 15);
+    assert.equal(
+      await page.getByLabel('Take profit (bps)', { exact: false }).isVisible(),
+      false,
+      'technical fields are advanced',
+    );
     await page
       .getByLabel('Allocated capital (THB)', { exact: false })
       .fill('2000');
+    await page.getByRole('button', { name: 'Close trading settings' }).click();
     assert.equal(
       await page
         .getByRole('button', { name: 'Review live mandate' })
@@ -368,8 +390,15 @@ async function verifyBrowser() {
       true,
     );
     await page
+      .getByRole('button', { name: 'Trading settings', exact: true })
+      .click();
+    await page
       .getByRole('button', { name: 'Save rules and disarm live' })
       .click();
+    await page.waitForFunction(
+      () => document.querySelector('button[type=submit]')?.disabled === true,
+    );
+    await page.getByRole('button', { name: 'Close trading settings' }).click();
     await page
       .getByRole('button', { name: 'Review live mandate' })
       .waitFor({ state: 'visible' });
@@ -389,6 +418,24 @@ async function verifyBrowser() {
       exact: true,
     });
     assert.equal(await enable.isDisabled(), true, 'owner must choose expiry');
+    await page.getByText('Choose an expiry to enable auto trading.').waitFor();
+    await page
+      .getByLabel('Mandate expiry (your local time)')
+      .fill('2026-10-15T12:00');
+    assert.equal(await enable.isDisabled(), true, 'past expiry cannot enable');
+    await page.getByText('Choose a future date and time.').waitFor();
+    await page
+      .getByLabel('Mandate expiry (your local time)')
+      .fill('2026-12-17T12:00');
+    assert.equal(
+      await enable.isDisabled(),
+      true,
+      'expiry beyond 30 days cannot enable',
+    );
+    await page.getByText('Expiry must be within the next 30 days.').waitFor();
+    await page.getByRole('button', { name: '7 days', exact: true }).click();
+    assert.equal(await enable.isDisabled(), false);
+    assert.equal(writes.length, 1, 'choosing expiry never activates');
     await page
       .getByLabel('Mandate expiry (your local time)')
       .fill('2026-10-17T12:00');
@@ -417,18 +464,12 @@ async function verifyBrowser() {
     await page.getByRole('button', { name: 'Disable', exact: true }).click();
     await page.getByText('AutoLive OFF.', { exact: false }).waitFor();
     assert.equal(writes.at(-1).path, '/api/trading/disable');
+    await summary.click();
     await page.getByLabel('Date', { exact: true }).fill('2026-10-15');
     await page.getByText('No trading report for this date.').waitFor();
     await page.getByLabel('Date', { exact: true }).fill('2026-10-16');
     await page.getByText('รายงานทดสอบ: ผลกำไรยังไม่ทราบ').waitFor();
-    const hideConfiguration = page.getByRole('button', {
-      name: 'Hide configuration',
-    });
-    if (await hideConfiguration.isVisible()) await hideConfiguration.click();
-    await page.getByRole('button', { name: 'Review live mandate' }).click();
-    await page
-      .getByLabel('Mandate expiry (your local time)')
-      .fill('2026-10-17T12:00');
+    await summary.click();
     fs.mkdirSync('.impeccable/review', { recursive: true });
     for (const [name, width, height] of [
       ['desktop', 1440, 1000],
@@ -448,7 +489,32 @@ async function verifyBrowser() {
         ),
         name + ' has no horizontal overflow',
       );
+      const bounds = await page
+        .getByRole('button', { name: 'Review live mandate' })
+        .boundingBox();
+      assert(
+        bounds && bounds.y + bounds.height <= height,
+        name + ' primary action is in the first viewport',
+      );
     }
+    await page
+      .getByRole('button', { name: 'Trading settings', exact: true })
+      .click();
+    await page.getByLabel('Allowed symbols', { exact: false }).waitFor();
+    await page.screenshot({
+      path: '.impeccable/review/trading-settings-phone.png',
+      fullPage: true,
+      animations: 'disabled',
+    });
+    await page.getByRole('button', { name: 'Close trading settings' }).click();
+    await page.getByRole('button', { name: 'Review live mandate' }).click();
+    await page.getByRole('button', { name: '7 days', exact: true }).click();
+    await page.screenshot({
+      path: '.impeccable/review/trading-review-phone.png',
+      fullPage: true,
+      animations: 'disabled',
+    });
+    await page.getByRole('button', { name: 'Cancel', exact: true }).click();
     unavailable = true;
     await page.reload();
     await page.getByText('Fixture trading unavailable.').waitFor();
@@ -473,7 +539,7 @@ async function verifyBrowser() {
     await page.getByText('Fixture stale feed: entries paused.').waitFor();
     assert.deepEqual(errors, []);
     console.log(
-      'Trading browser: editable rules, exact mandate/expiry, one fake activation, selected-date Thai report, failure recovery and desktop/tablet/phone passed; every API call intercepted.',
+      'Trading browser: compact status, advanced settings, exact mandate/expiry validation, one fake activation, selected-date report, failure recovery and desktop/tablet/phone passed; every API call intercepted.',
     );
   } finally {
     await browser.close();

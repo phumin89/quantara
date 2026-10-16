@@ -9,6 +9,9 @@ async function verify() {
     channel: process.env.PLAYWRIGHT_CHANNEL,
   });
   const page = await browser.newPage();
+  await page.route('**/api/**', (route) =>
+    route.fulfill({ status: 404, json: { error: 'Unmocked fixture API' } }),
+  );
   await page.route('**/api/crypto/orders', (route) =>
     route.fulfill({ json: { proposals: [] } }),
   );
@@ -48,6 +51,18 @@ async function verify() {
       nextTest: 'Fixture next test: compare the unchanged baseline.',
     },
   };
+  const previousRun = {
+    ...run,
+    id: '118d734e-0446-492d-8b62-ffbd106d044e',
+    objective: 'Fixture: previous portfolio evidence',
+    createdAt: '2026-10-12T17:00:00+00:00',
+    updatedAt: '2026-10-12T17:03:00+00:00',
+    steps: run.steps.map((step) =>
+      step.role === 'reviewer'
+        ? { ...step, output: 'Fixture previous Reviewer summary.' }
+        : step,
+    ),
+  };
   page.on('request', (request) => {
     if (request.method() !== 'GET') writes++;
   });
@@ -71,7 +86,7 @@ async function verify() {
       status: failure ? 503 : 200,
       json: failure
         ? { error: 'Fixture storage failure' }
-        : { date, runs: date === '2026-10-13' ? [run] : [] },
+        : { date, runs: date === '2026-10-13' ? [previousRun, run] : [] },
     });
   });
   try {
@@ -87,6 +102,24 @@ async function verify() {
         document.querySelector('input[type="date"]')?.value === '2026-10-13',
     );
     assert.equal(await date.inputValue(), '2026-10-13');
+    const tradingTab = page.getByRole('tab', {
+      name: 'Trading status',
+      exact: true,
+    });
+    const teamChatTab = page.getByRole('tab', {
+      name: 'Team chat',
+      exact: true,
+    });
+    assert.equal(await tradingTab.getAttribute('aria-selected'), 'true');
+    assert.equal(await teamChatTab.getAttribute('aria-selected'), 'false');
+    assert.equal(
+      await page.getByRole('region', { name: 'Daily conversation' }).count(),
+      0,
+    );
+    await teamChatTab.focus();
+    await page.keyboard.press('Enter');
+    await page.getByRole('region', { name: 'Daily conversation' }).waitFor();
+    assert.equal(writes, 0, 'Switching views never starts work');
     const conversation = page.getByRole('region', {
       name: 'Daily conversation',
     });
@@ -94,32 +127,65 @@ async function verify() {
       .getByText('Fixture ceo report. <script>unsafe()</script>', {
         exact: true,
       })
+      .first()
       .waitFor();
+    const learningNotes = conversation.getByText('Learning notes', {
+      exact: true,
+    });
+    assert.equal(await learningNotes.count(), 2);
+    const firstNotes = learningNotes.first().locator('..');
+    assert.equal(
+      await firstNotes
+        .getByText(`Lesson: ${run.lesson.lesson}`, { exact: true })
+        .isVisible(),
+      false,
+    );
+    await learningNotes.first().click();
     await conversation
       .getByText(`Lesson: ${run.lesson.lesson}`, { exact: true })
+      .first()
       .waitFor();
     await conversation
       .getByText(`Evidence: ${run.lesson.evidence}`, { exact: true })
+      .first()
       .waitFor();
     await conversation
       .getByText(`Next test: ${run.lesson.nextTest}`, { exact: true })
+      .first()
       .waitFor();
     assert.equal(
       await page.locator('script').filter({ hasText: 'unsafe()' }).count(),
       0,
     );
     await page.getByRole('heading', { name: 'Daily summary' }).waitFor();
-    const fullReport = conversation.locator('details');
-    assert.equal(await fullReport.count(), 1);
-    const preservedLedger = fullReport.getByText('Task A1: Pending;', {
-      exact: false,
+    const researchBrief = conversation.locator('details').filter({
+      hasText: run.objective,
     });
-    assert.equal(await preservedLedger.isVisible(), false);
-    await fullReport.locator('summary').focus();
-    await page.keyboard.press('Enter');
-    assert.equal(await preservedLedger.isVisible(), true);
-    await page.keyboard.press('Enter');
-    assert.equal(await preservedLedger.isVisible(), false);
+    assert.equal(await researchBrief.count(), 1);
+    assert.equal(
+      await conversation.getByText(run.objective, { exact: true }).isVisible(),
+      false,
+    );
+    await researchBrief.locator('summary').click();
+    await conversation.getByText(run.objective, { exact: true }).waitFor();
+    assert.equal(
+      await page.getByText('Previous summaries (1)', { exact: true }).count(),
+      1,
+    );
+    const latestSummary = page.getByText('Latest Reviewer report', {
+      exact: true,
+    });
+    await page
+      .getByRole('tab', { name: 'Trading status', exact: true })
+      .click();
+    assert.equal(await latestSummary.isVisible(), false);
+    await page.getByRole('tab', { name: 'Team chat', exact: true }).click();
+    await latestSummary.waitFor();
+    await page.getByText('Previous summaries (1)', { exact: true }).click();
+    await page
+      .getByText('Fixture previous Reviewer summary.', { exact: true })
+      .first()
+      .waitFor();
     assert.equal(
       await page
         .getByRole('button', { name: 'Start task', exact: true })
@@ -144,6 +210,7 @@ async function verify() {
     await date.fill('2026-10-13');
     await conversation
       .getByText('Fixture ceo report.', { exact: false })
+      .first()
       .waitFor();
     const activeReads = reads;
     const polled = page.waitForResponse((response) =>
@@ -200,6 +267,7 @@ async function verify() {
     }
     failure = true;
     await page.reload();
+    await page.getByRole('tab', { name: 'Team chat', exact: true }).click();
     await page.getByText('Fixture storage failure', { exact: true }).waitFor();
     await conversation.getByText('Daily brief unavailable').waitFor();
     failure = false;
@@ -212,14 +280,16 @@ async function verify() {
     await recovered;
     await conversation
       .getByText('Fixture ceo report.', { exact: false })
+      .first()
       .waitFor();
     await page.goto(`${url}/team`);
+    await page.getByRole('tab', { name: 'Team chat', exact: true }).click();
     await page
       .getByRole('heading', { name: 'Daily Brief', exact: true })
       .waitFor();
     assert.equal(writes, 0, 'Opening/changing days never starts AI work');
     await page
-      .getByRole('button', { name: 'Resume company', exact: true })
+      .getByRole('button', { name: 'Resume research', exact: true })
       .click();
     await page.getByText('Company is monitoring', { exact: true }).waitFor();
     const monitoringReads = reads;
@@ -233,10 +303,11 @@ async function verify() {
       'Idle automatic company is monitored without a manual task',
     );
     await page
-      .getByRole('button', { name: 'Stop company', exact: true })
+      .getByRole('button', { name: 'Pause research', exact: true })
       .click();
     await page.getByText('AI research stopped', { exact: true }).waitFor();
     await page.reload();
+    await page.getByRole('tab', { name: 'Team chat', exact: true }).click();
     await page.getByText('AI research stopped', { exact: true }).waitFor();
     assert.equal(writes, 2, 'Only explicit company controls send writes');
     const api = await browser.newContext();

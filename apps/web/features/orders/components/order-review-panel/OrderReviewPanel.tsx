@@ -94,9 +94,52 @@ export default class OrderReviewPanel extends Component<
       );
     }
 
+    const active = this.state.proposals.filter(
+      (proposal) =>
+        ![
+          OrderStatus.Filled,
+          OrderStatus.Cancelled,
+          OrderStatus.Rejected,
+          OrderStatus.Expired,
+        ].includes(proposal.status),
+    );
+    const history = this.state.proposals.filter(
+      (proposal) => !active.includes(proposal),
+    );
+
     return (
       <Stack spacing={1}>
-        {this.state.proposals.map((proposal) => this.renderProposal(proposal))}
+        {active.map((proposal) => this.renderProposal(proposal))}
+        {active.length === 0 && (
+          <Typography
+            variant="body2"
+            color="text.secondary"
+          >
+            No proposals need attention.
+          </Typography>
+        )}
+        {history.length > 0 && (
+          <Box
+            component="details"
+            sx={{
+              '& > summary': {
+                cursor: 'pointer',
+                minHeight: 44,
+                alignContent: 'center',
+                fontSize: 14,
+                fontWeight: 600,
+              },
+            }}
+          >
+            <Box component="summary">Past proposals ({history.length})</Box>
+            <Stack
+              spacing={1}
+              sx={{ pt: 1 }}
+            >
+              {history.map((proposal) => this.renderProposal(proposal))}
+            </Stack>
+          </Box>
+        )}
       </Stack>
     );
   }
@@ -199,9 +242,12 @@ export default class OrderReviewPanel extends Component<
     try {
       const response = await this.service().list(this.request.signal);
       if (this.mounted && generation === this.generation) {
-        this.setState({ proposals: response.proposals, loading: false }, () => {
-          this.startTimer();
-        });
+        this.setState(
+          { proposals: response.proposals, loading: false, error: null },
+          () => {
+            this.startTimer();
+          },
+        );
       }
     } catch {
       if (

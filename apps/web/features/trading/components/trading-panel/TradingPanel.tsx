@@ -6,13 +6,22 @@ import {
   Box,
   Button,
   Chip,
-  Collapse,
+  Dialog,
+  DialogActions,
+  DialogContent,
+  DialogTitle,
   Divider,
+  Drawer,
+  IconButton,
   Paper,
   Stack,
   TextField,
+  Tooltip,
   Typography,
 } from '@mui/material';
+import CloseOutlinedIcon from '@mui/icons-material/CloseOutlined';
+import SettingsOutlinedIcon from '@mui/icons-material/SettingsOutlined';
+import ShowChartOutlinedIcon from '@mui/icons-material/ShowChartOutlined';
 import { TradingServiceContext } from '../../context/TradingServiceContext';
 import type { TradingOverview } from '../../contracts/TradingOverview';
 import { tradingRulesSchema } from '../../contracts/TradingRules';
@@ -186,16 +195,43 @@ export default class TradingPanel extends Component<
       overview.mandate.accountKey === overview.accountKey &&
       overview.mandate.rulesHash === overview.rulesHash &&
       Date.parse(overview.mandate.expiresAt) > Date.now();
-    const label = this.state.error
-      ? 'Status unavailable'
-      : (overview?.mode ?? 'Loading');
+    let label = 'Auto trading off';
+    let statusColor: 'default' | 'warning' | 'error' | 'success' = 'default';
+    let operatingDetail = `AutoLive ${liveOn ? 'ON' : 'OFF'}.`;
+    if (overview?.mode === 'manualReview') {
+      label = 'Manual review';
+    }
+
+    if (overview?.mode === 'paper') {
+      label = 'Paper trading';
+      operatingDetail = 'Simulation only. No real orders.';
+    }
+
+    if (liveOn) {
+      label = 'Auto trading on';
+      statusColor = 'success';
+    }
+
+    if (liveUnknown) {
+      label = 'Status unavailable';
+      statusColor = 'warning';
+      operatingDetail = 'Live status is unknown.';
+    }
+
+    if (overview?.emergencyStopped) {
+      label = 'Emergency stopped';
+      statusColor = 'error';
+    }
 
     return (
       <Paper
         variant="outlined"
-        sx={{ p: { xs: 1.5, sm: 2 }, borderRadius: '8px', minWidth: 0 }}
+        sx={{ borderRadius: '8px', minWidth: 0, overflow: 'hidden' }}
       >
-        <Stack spacing={2}>
+        <Stack
+          spacing={2}
+          sx={{ p: { xs: 2, sm: 3 } }}
+        >
           <Stack
             direction="row"
             spacing={1}
@@ -205,16 +241,23 @@ export default class TradingPanel extends Component<
               flexWrap: 'wrap',
             }}
           >
-            <Typography
-              component="h2"
-              sx={{ fontSize: 16, fontWeight: 700 }}
+            <Stack
+              direction="row"
+              spacing={1}
+              sx={{ alignItems: 'center' }}
             >
-              Trading
-            </Typography>
+              <ShowChartOutlinedIcon fontSize="small" />
+              <Typography
+                component="h2"
+                sx={{ fontSize: 18, fontWeight: 700 }}
+              >
+                Trading
+              </Typography>
+            </Stack>
             <Chip
               size="small"
-              label={label}
-              color={overview?.emergencyStopped ? 'error' : 'default'}
+              label={!overview && !this.state.error ? 'Checking status' : label}
+              color={statusColor}
             />
           </Stack>
           {this.state.error && (
@@ -243,18 +286,10 @@ export default class TradingPanel extends Component<
             <>
               <Typography
                 variant="body2"
-                sx={{ overflowWrap: 'anywhere' }}
-              >
-                Account: {overview.accountKey}
-              </Typography>
-              <Typography
-                variant="body2"
                 color="text.secondary"
               >
-                {liveUnknown
-                  ? 'Live status is unknown.'
-                  : `AutoLive ${liveOn ? 'ON' : 'OFF'}.`}{' '}
-                Heartbeat: {TradingPanel.time(overview.heartbeatAt)}
+                {operatingDetail}
+                {' · '}Last update {TradingPanel.time(overview.heartbeatAt)}
               </Typography>
               {overview.emergencyStopped && (
                 <Alert severity="error">
@@ -271,41 +306,56 @@ export default class TradingPanel extends Component<
                   '& .MuiButton-root': { minHeight: 44 },
                 }}
               >
-                <Button
-                  variant="outlined"
-                  disabled={
-                    this.state.busy ||
-                    !!this.state.error ||
-                    overview.mode === 'paper'
-                  }
-                  onClick={() => void this.setMode('paper')}
-                >
-                  Paper
-                </Button>
-                <Button
-                  variant="outlined"
-                  disabled={
-                    this.state.busy ||
-                    !!this.state.error ||
-                    overview.mode === 'manualReview'
-                  }
-                  onClick={() => void this.setMode('manualReview')}
-                >
-                  Manual review
-                </Button>
-                <Button
-                  variant="outlined"
-                  disabled={this.state.busy}
-                  onClick={() =>
-                    void this.run((signal) =>
-                      TradingServiceContext.require(this.context).disable(
-                        signal,
-                      ),
-                    )
-                  }
-                >
-                  Disable
-                </Button>
+                {!liveOn && overview.liveActivationAvailable && (
+                  <Button
+                    variant="contained"
+                    disableElevation
+                    disabled={
+                      this.state.busy ||
+                      this.state.dirty ||
+                      !!this.state.error ||
+                      overview.emergencyStopped ||
+                      overview.mode === 'autoLive'
+                    }
+                    onClick={() => {
+                      this.setState({ reviewOpen: true, expiresAt: '' });
+                    }}
+                  >
+                    Review live mandate
+                  </Button>
+                )}
+                <Tooltip title="Trading settings">
+                  <IconButton
+                    aria-label="Trading settings"
+                    onClick={() => {
+                      this.setState({ open: true });
+                    }}
+                    sx={{
+                      width: 44,
+                      height: 44,
+                      border: '1px solid #e0e0e0',
+                      borderRadius: '6px',
+                    }}
+                  >
+                    <SettingsOutlinedIcon fontSize="small" />
+                  </IconButton>
+                </Tooltip>
+                {(overview.mode === 'autoLive' ||
+                  overview.mode === 'manualReview') && (
+                  <Button
+                    variant="outlined"
+                    disabled={this.state.busy}
+                    onClick={() =>
+                      void this.run((signal) =>
+                        TradingServiceContext.require(this.context).disable(
+                          signal,
+                        ),
+                      )
+                    }
+                  >
+                    Disable
+                  </Button>
+                )}
                 <Button
                   color="error"
                   variant="outlined"
@@ -321,40 +371,25 @@ export default class TradingPanel extends Component<
                   Emergency stop
                 </Button>
               </Box>
-              <Typography
-                variant="caption"
-                color="text.secondary"
-              >
-                Paper uses simulated funds. Manual review keeps individual trade
-                approval. AutoLive runs deterministic rules while its mandate is
-                valid.
-              </Typography>
-              {overview.mandate && (
+              {this.state.dirty && (
+                <Alert severity="info">
+                  Unsaved settings. Save them in Trading settings before
+                  reviewing live trading.
+                </Alert>
+              )}
+              {overview.mandate && liveOn && (
                 <Typography
                   variant="body2"
                   sx={{ overflowWrap: 'anywhere' }}
                 >
-                  Mandate {overview.mandate.id} ·{' '}
-                  {overview.mandate.revokedAt ? 'Revoked' : 'Expires'}{' '}
+                  {overview.mandate.revokedAt
+                    ? 'Live permission revoked'
+                    : 'Live permission expires'}{' '}
                   {TradingPanel.time(
                     overview.mandate.revokedAt ?? overview.mandate.expiresAt,
                   )}
                 </Typography>
               )}
-              <Button
-                aria-expanded={this.state.open}
-                onClick={() => {
-                  this.setState({ open: !this.state.open });
-                }}
-                sx={{ alignSelf: 'flex-start', minHeight: 44 }}
-              >
-                {this.state.open
-                  ? 'Hide configuration'
-                  : 'Configure rules and limits'}
-              </Button>
-              <Collapse in={this.state.open}>
-                {this.renderConfiguration(overview)}
-              </Collapse>
               {!overview.liveActivationAvailable && (
                 <Typography
                   variant="body2"
@@ -364,34 +399,163 @@ export default class TradingPanel extends Component<
                   controls and live exchange access configured.
                 </Typography>
               )}
-              {overview.liveActivationAvailable && !liveOn && (
-                <Button
-                  variant="outlined"
-                  disabled={
-                    this.state.busy ||
-                    this.state.dirty ||
-                    !!this.state.error ||
-                    overview.emergencyStopped
-                  }
-                  onClick={() => {
-                    this.setState({
-                      reviewOpen: !this.state.reviewOpen,
-                      expiresAt: '',
-                    });
-                  }}
-                  aria-expanded={this.state.reviewOpen}
-                  sx={{ alignSelf: 'flex-start', minHeight: 44 }}
-                >
-                  {this.state.reviewOpen
-                    ? 'Close mandate review'
-                    : 'Review live mandate'}
-                </Button>
-              )}
-              <Collapse in={this.state.reviewOpen}>
-                {this.renderMandate(overview)}
-              </Collapse>
               <Divider />
-              {this.renderReports(overview)}
+              <Box
+                component="details"
+                sx={{
+                  '& > summary': {
+                    cursor: 'pointer',
+                    minHeight: 44,
+                    alignContent: 'center',
+                    fontSize: 14,
+                    fontWeight: 600,
+                  },
+                }}
+              >
+                <Box component="summary">
+                  Daily report · {this.props.date || 'Select a date'}
+                </Box>
+                {this.renderReports(overview)}
+              </Box>
+              <Drawer
+                anchor="right"
+                open={this.state.open}
+                onClose={() => {
+                  this.setState({ open: false });
+                }}
+                ModalProps={{ keepMounted: true }}
+                slotProps={{
+                  paper: {
+                    role: 'dialog',
+                    'aria-modal': true,
+                    'aria-labelledby': 'trading-settings-title',
+                    sx: {
+                      width: { xs: '100%', sm: 600 },
+                      maxWidth: '100%',
+                      p: { xs: 2, sm: 3 },
+                      borderRadius: 0,
+                    },
+                  },
+                }}
+              >
+                <Stack
+                  direction="row"
+                  sx={{
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    mb: 1,
+                    position: 'sticky',
+                    top: 0,
+                    bgcolor: 'background.paper',
+                    zIndex: 1,
+                  }}
+                >
+                  <Typography
+                    id="trading-settings-title"
+                    component="h2"
+                    sx={{ fontSize: 20, fontWeight: 700 }}
+                  >
+                    Trading settings
+                  </Typography>
+                  <IconButton
+                    aria-label="Close trading settings"
+                    onClick={() => {
+                      this.setState({ open: false });
+                    }}
+                    sx={{ width: 44, height: 44 }}
+                  >
+                    <CloseOutlinedIcon />
+                  </IconButton>
+                </Stack>
+                <Box
+                  role="region"
+                  aria-labelledby="trading-settings-title"
+                >
+                  {this.state.error && (
+                    <Alert
+                      severity="error"
+                      action={
+                        <Button
+                          color="inherit"
+                          disabled={this.state.busy}
+                          onClick={() => void this.load()}
+                        >
+                          Retry
+                        </Button>
+                      }
+                    >
+                      {this.state.error}
+                    </Alert>
+                  )}
+                  {this.renderConfiguration(overview)}
+                </Box>
+                <Divider sx={{ my: 3 }} />
+                <Typography
+                  component="h3"
+                  sx={{ fontSize: 15, fontWeight: 700, mb: 1 }}
+                >
+                  Operating mode
+                </Typography>
+                <Typography
+                  variant="body2"
+                  color="text.secondary"
+                  sx={{ mb: 1 }}
+                >
+                  Switching mode disarms live trading. Paper uses simulated
+                  funds; manual review requires approval for each trade.
+                </Typography>
+                <Stack
+                  direction="row"
+                  spacing={1}
+                >
+                  <Button
+                    variant="outlined"
+                    disabled={
+                      this.state.busy ||
+                      !!this.state.error ||
+                      overview.mode === 'paper'
+                    }
+                    onClick={() => void this.setMode('paper')}
+                  >
+                    Paper
+                  </Button>
+                  <Button
+                    variant="outlined"
+                    disabled={
+                      this.state.busy ||
+                      !!this.state.error ||
+                      overview.mode === 'manualReview'
+                    }
+                    onClick={() => void this.setMode('manualReview')}
+                  >
+                    Manual review
+                  </Button>
+                </Stack>
+              </Drawer>
+              <Dialog
+                open={this.state.reviewOpen}
+                onClose={() => {
+                  this.setState({ reviewOpen: false });
+                }}
+                maxWidth="sm"
+                fullWidth
+                aria-labelledby="live-review-title"
+              >
+                <DialogTitle id="live-review-title">
+                  Enable auto trading
+                </DialogTitle>
+                <DialogContent>{this.renderMandate(overview)}</DialogContent>
+                <DialogActions>
+                  <Button
+                    onClick={() => {
+                      this.setState({ reviewOpen: false });
+                    }}
+                    sx={{ minHeight: 44 }}
+                  >
+                    Cancel
+                  </Button>
+                </DialogActions>
+              </Dialog>
             </>
           )}
         </Stack>
@@ -413,51 +577,136 @@ export default class TradingPanel extends Component<
     );
 
     return (
-      <Stack spacing={1}>
-        <Typography variant="body2">
-          {overview.mode === 'paper' ? 'Paper' : 'Live'} book · Cash{' '}
-          {TradingPanel.money(book.cashThb)} · Equity{' '}
-          {TradingPanel.money(book.equityThb)}
-        </Typography>
-        <Typography variant="body2">
-          Position cost exposure {TradingPanel.money(String(exposure))} ·{' '}
-          {book.positions.length} positions · {openOrders.length} open orders
-        </Typography>
-        <Typography variant="body2">
-          Realized gross {TradingPanel.money(book.realizedGrossThb)} · Net{' '}
-          {TradingPanel.money(book.realizedNetThb)} · Fees{' '}
-          {TradingPanel.money(book.feesThb)} · Unrealized{' '}
-          {TradingPanel.money(book.unrealizedThb)}
-        </Typography>
-        {book.positions.map((position) => (
-          <Typography
-            key={position.symbol}
-            variant="body2"
-          >
-            {position.symbol}: {position.quantity} · Cost{' '}
-            {TradingPanel.money(position.costThb)} · Opened{' '}
-            {TradingPanel.time(position.openedAt)}
-          </Typography>
-        ))}
-        {openOrders.map((order) => (
-          <Typography
-            key={order.id}
-            variant="body2"
-            sx={{ overflowWrap: 'anywhere' }}
-          >
-            {order.side.toUpperCase()} {order.symbol} · Amount {order.amount} ·
-            Limit {order.limitPrice} THB · Remaining {order.remaining} ·{' '}
-            {order.status} · {order.reason}
-          </Typography>
-        ))}
+      <Stack spacing={2}>
+        <Box
+          component="dl"
+          aria-label={`${overview.mode === 'paper' ? 'Paper' : 'Live'} trading balances`}
+          sx={{
+            m: 0,
+            display: 'grid',
+            gridTemplateColumns: {
+              xs: 'repeat(2, minmax(0, 1fr))',
+              sm: 'repeat(4, minmax(0, 1fr))',
+            },
+            gap: 2,
+            py: 2,
+            borderBlock: '1px solid #e0e0e0',
+          }}
+        >
+          {[
+            ['Cash', TradingPanel.money(book.cashThb)],
+            ['In positions', TradingPanel.money(String(exposure))],
+            ['Realized net P&L', TradingPanel.money(book.realizedNetThb)],
+            ['Open orders', String(openOrders.length)],
+          ].map(([name, value]) => (
+            <Box key={name}>
+              <Typography
+                component="dt"
+                variant="caption"
+                color="text.secondary"
+              >
+                {name}
+              </Typography>
+              <Typography
+                component="dd"
+                sx={{
+                  m: 0,
+                  mt: 0.5,
+                  fontSize: 18,
+                  fontWeight: 600,
+                  fontVariantNumeric: 'tabular-nums',
+                }}
+              >
+                {value}
+              </Typography>
+            </Box>
+          ))}
+        </Box>
         <Typography
-          variant="caption"
+          variant="body2"
           color="text.secondary"
         >
-          Unknown P&amp;L remains Unknown until fills and cost basis are
-          verified. Disable stops new trading; it does not prove existing orders
-          were cancelled.
+          {overview.rules.symbols.join(', ')} ·{' '}
+          {TradingPanel.money(String(overview.rules.allocatedThb))} allocated ·{' '}
+          {TradingPanel.money(String(overview.rules.perOrderThb))} per order
         </Typography>
+        <Box
+          component="details"
+          sx={{
+            '& > summary': {
+              cursor: 'pointer',
+              minHeight: 44,
+              alignContent: 'center',
+              fontSize: 14,
+              fontWeight: 600,
+            },
+          }}
+        >
+          <Box component="summary">
+            Positions &amp; orders · {book.positions.length} positions ·{' '}
+            {openOrders.length} open
+          </Box>
+          <Stack
+            spacing={1.5}
+            sx={{ py: 1 }}
+          >
+            <Typography variant="body2">
+              {overview.mode === 'paper' ? 'Paper' : 'Live'} book · Equity{' '}
+              {TradingPanel.money(book.equityThb)} · Gross P&amp;L{' '}
+              {TradingPanel.money(book.realizedGrossThb)} · Fees{' '}
+              {TradingPanel.money(book.feesThb)} · Unrealized{' '}
+              {TradingPanel.money(book.unrealizedThb)}
+            </Typography>
+            {book.positions.length === 0 && openOrders.length === 0 && (
+              <Typography
+                variant="body2"
+                color="text.secondary"
+              >
+                No positions or open orders in this book.
+              </Typography>
+            )}
+            {book.positions.map((position) => (
+              <Typography
+                key={position.symbol}
+                variant="body2"
+              >
+                {position.symbol}: {position.quantity} · Cost{' '}
+                {TradingPanel.money(position.costThb)} · Opened{' '}
+                {TradingPanel.time(position.openedAt)}
+              </Typography>
+            ))}
+            {openOrders.map((order) => (
+              <Typography
+                key={order.id}
+                variant="body2"
+                sx={{ overflowWrap: 'anywhere' }}
+              >
+                {order.side.toUpperCase()} {order.symbol} · Amount{' '}
+                {order.amount} · Limit {order.limitPrice} THB · Remaining{' '}
+                {order.remaining} · {order.status} · {order.reason}
+              </Typography>
+            ))}
+            <Typography
+              variant="caption"
+              color="text.secondary"
+            >
+              P&amp;L is Unknown until fills and cost are verified. Disable
+              stops new trading; existing orders may remain open.
+            </Typography>
+            {overview.mandate && (
+              <Typography
+                variant="caption"
+                sx={{ overflowWrap: 'anywhere' }}
+              >
+                Last mandate: {overview.mandate.id} ·{' '}
+                {overview.mandate.revokedAt ? 'Revoked' : 'Expires'}{' '}
+                {TradingPanel.time(
+                  overview.mandate.revokedAt ?? overview.mandate.expiresAt,
+                )}
+              </Typography>
+            )}
+          </Stack>
+        </Box>
       </Stack>
     );
   }
@@ -486,61 +735,65 @@ export default class TradingPanel extends Component<
           {this.state.validationError && (
             <Alert severity="error">{this.state.validationError}</Alert>
           )}
-          <Typography variant="body2">
-            Save rules before reviewing the mandate. Material changes disarm
-            AutoLive. 100 basis points (bps) = 1%.
+          <Typography
+            variant="body2"
+            color="text.secondary"
+          >
+            Set your budget and limits here. The engine follows the saved rules;
+            the AI team researches separately.
           </Typography>
+          <Alert severity="warning">
+            Saving changes turns auto trading off. Review and enable again to
+            use the new rules with real money.
+          </Alert>
+          <Typography
+            component="h3"
+            sx={{ fontSize: 15, fontWeight: 700 }}
+          >
+            Budget &amp; markets
+          </Typography>
+          <input
+            type="hidden"
+            name="version"
+            value={overview.rules.version}
+          />
+          <TextField
+            label="Allowed symbols"
+            name="symbols"
+            defaultValue={overview.rules.symbols.join(', ')}
+            required
+            helperText="For example BTC, ETH. Up to 16 symbols; THB spot only."
+            disabled={this.state.busy}
+          />
+          {this.renderRuleFields(overview, false)}
           <Box
+            component="details"
             sx={{
-              display: 'grid',
-              gridTemplateColumns: {
-                xs: 'minmax(0, 1fr)',
-                md: 'repeat(2, minmax(0, 1fr))',
+              '& > summary': {
+                cursor: 'pointer',
+                minHeight: 44,
+                alignContent: 'center',
+                fontSize: 14,
+                fontWeight: 600,
               },
-              gap: 2,
             }}
           >
-            <TextField
-              select
-              label="Strategy version"
-              name="version"
-              defaultValue={overview.rules.version}
-              slotProps={{ select: { native: true } }}
-              disabled={this.state.busy}
+            <Box component="summary">
+              Advanced settings · strategy &amp; execution
+            </Box>
+            <Typography
+              variant="body2"
+              color="text.secondary"
+              sx={{ my: 2 }}
             >
-              <option value="ema20-50-breakout-v1">
-                EMA 20/50 breakout v1
-              </option>
-            </TextField>
-            <TextField
-              label="Allowed symbols"
-              name="symbols"
-              defaultValue={overview.rules.symbols.join(', ')}
-              required
-              helperText="Uppercase base symbols, comma separated; THB spot only."
-              disabled={this.state.busy}
-            />
-            {TradingPanel.fields.map((field) => (
-              <TextField
-                key={field.key}
-                label={field.label}
-                name={field.key}
-                type="number"
-                defaultValue={overview.rules[field.key]}
-                required
-                disabled={this.state.busy}
-                slotProps={{
-                  htmlInput: {
-                    min: field.min,
-                    max: field.max,
-                    step: field.step,
-                  },
-                }}
-              />
-            ))}
+              EMA 20/50 breakout v1 · 5-minute candles. 100 basis points (bps) =
+              1%.
+            </Typography>
+            {this.renderRuleFields(overview, true)}
           </Box>
           <Button
-            variant="outlined"
+            variant="contained"
+            disableElevation
             type="submit"
             disabled={
               this.state.busy || !this.state.dirty || !!this.state.error
@@ -554,12 +807,66 @@ export default class TradingPanel extends Component<
     );
   }
 
+  private renderRuleFields(
+    overview: TradingOverview,
+    advanced: boolean,
+  ): ReactNode {
+    return (
+      <Box
+        sx={{
+          display: 'grid',
+          gridTemplateColumns: {
+            xs: 'minmax(0, 1fr)',
+            sm: 'repeat(2, minmax(0, 1fr))',
+          },
+          gap: 2,
+        }}
+      >
+        {(advanced
+          ? TradingPanel.fields.slice(4)
+          : TradingPanel.fields.slice(0, 4)
+        ).map((field) => (
+          <TextField
+            key={field.key}
+            label={field.label}
+            name={field.key}
+            type="number"
+            defaultValue={overview.rules[field.key]}
+            required
+            disabled={this.state.busy}
+            slotProps={{
+              htmlInput: {
+                min: field.min,
+                max: field.max,
+                step: field.step,
+              },
+            }}
+          />
+        ))}
+      </Box>
+    );
+  }
+
   private renderMandate(overview: TradingOverview): ReactNode {
     const expiry = new Date(this.state.expiresAt);
     const validExpiry =
       Number.isFinite(expiry.getTime()) &&
       expiry.getTime() > Date.now() &&
       expiry.getTime() <= Date.now() + 30 * 24 * 60 * 60 * 1000;
+    let expiryHelp = 'Choose an expiry to enable auto trading.';
+    if (this.state.expiresAt) {
+      expiryHelp = 'Expiry must be within the next 30 days.';
+      if (
+        !Number.isFinite(expiry.getTime()) ||
+        expiry.getTime() <= Date.now()
+      ) {
+        expiryHelp = 'Choose a future date and time.';
+      }
+
+      if (validExpiry) {
+        expiryHelp = `Expires ${TradingPanel.time(expiry.toISOString())}`;
+      }
+    }
 
     return (
       <Stack
@@ -567,19 +874,15 @@ export default class TradingPanel extends Component<
         sx={{ pt: 1 }}
       >
         <Alert severity="warning">
-          Enabling once authorizes deterministic real-money spot orders within
-          these exact rules until expiry, without per-trade approval. AI reports
-          do not authorize orders.
+          Real money. The engine will buy and sell within these limits until
+          expiry, without asking for each trade. AI reports do not authorize
+          orders.
         </Alert>
         <Typography
           variant="body2"
           sx={{ overflowWrap: 'anywhere' }}
         >
           Account: {overview.accountKey}
-          <br />
-          Strategy: {overview.rules.version}
-          <br />
-          Rules hash: {overview.rulesHash}
           <br />
           THB spot symbols: {overview.rules.symbols.join(', ')}
         </Typography>
@@ -594,7 +897,7 @@ export default class TradingPanel extends Component<
             fontSize: 14,
           }}
         >
-          {TradingPanel.fields.map((field) => (
+          {TradingPanel.fields.slice(0, 4).map((field) => (
             <Box
               key={field.key}
               sx={{ display: 'contents' }}
@@ -613,23 +916,111 @@ export default class TradingPanel extends Component<
             </Box>
           ))}
         </Box>
+        <Box
+          component="details"
+          sx={{
+            '& > summary': {
+              cursor: 'pointer',
+              minHeight: 44,
+              alignContent: 'center',
+              fontSize: 14,
+              fontWeight: 600,
+            },
+          }}
+        >
+          <Box component="summary">Strategy &amp; all limits</Box>
+          <Typography
+            variant="body2"
+            sx={{ overflowWrap: 'anywhere', mb: 1 }}
+          >
+            Strategy: {overview.rules.version}
+            <br />
+            Rules hash: {overview.rulesHash}
+          </Typography>
+          <Box
+            component="dl"
+            sx={{
+              m: 0,
+              fontSize: 14,
+              display: 'grid',
+              gridTemplateColumns: 'minmax(0, 1fr) auto',
+              gap: 1,
+            }}
+          >
+            {TradingPanel.fields.slice(4).map((field) => (
+              <Box
+                key={field.key}
+                sx={{ display: 'contents' }}
+              >
+                <Box component="dt">{field.label.replace(' (bps)', '')}</Box>
+                <Box
+                  component="dd"
+                  sx={{
+                    m: 0,
+                    textAlign: 'right',
+                    fontVariantNumeric: 'tabular-nums',
+                  }}
+                >
+                  {field.key.endsWith('Bps')
+                    ? `${String(overview.rules[field.key] / 100)}%`
+                    : overview.rules[field.key]}
+                </Box>
+              </Box>
+            ))}
+          </Box>
+        </Box>
+        <Typography
+          component="h3"
+          sx={{ fontSize: 14, fontWeight: 600 }}
+        >
+          When should permission expire?
+        </Typography>
+        <Stack
+          direction="row"
+          spacing={1}
+        >
+          {[1, 7, 30].map((days) => (
+            <Button
+              key={days}
+              variant="outlined"
+              disabled={this.state.busy}
+              onClick={() => {
+                this.setState({
+                  expiresAt: TradingPanel.localDateTime(
+                    Date.now() + days * 24 * 60 * 60 * 1000,
+                  ),
+                });
+              }}
+              sx={{ minHeight: 44 }}
+            >
+              {days} {days === 1 ? 'day' : 'days'}
+            </Button>
+          ))}
+        </Stack>
         <TextField
           type="datetime-local"
           label="Mandate expiry (your local time)"
+          required
+          error={!!this.state.expiresAt && !validExpiry}
           value={this.state.expiresAt}
           onChange={(event) => {
             this.setState({ expiresAt: event.target.value });
           }}
-          slotProps={{ inputLabel: { shrink: true } }}
-          helperText={
-            validExpiry
-              ? `Expires ${TradingPanel.time(expiry.toISOString())}`
-              : 'Choose an expiry within the next 30 days.'
-          }
+          slotProps={{
+            inputLabel: { shrink: true },
+            htmlInput: {
+              min: TradingPanel.localDateTime(Date.now()),
+              max: TradingPanel.localDateTime(
+                Date.now() + 30 * 24 * 60 * 60 * 1000,
+              ),
+            },
+          }}
+          helperText={expiryHelp}
           disabled={this.state.busy}
         />
         <Button
           variant="contained"
+          disableElevation
           disabled={
             this.state.busy ||
             this.state.dirty ||
@@ -707,6 +1098,14 @@ export default class TradingPanel extends Component<
     return `฿${Number(value).toLocaleString('en-GB', { maximumFractionDigits: 2 })}`;
   }
 
+  private static localDateTime(timestamp: number): string {
+    const date = new Date(timestamp);
+
+    return new Date(timestamp - date.getTimezoneOffset() * 60_000)
+      .toISOString()
+      .slice(0, 16);
+  }
+
   private static time(value: string | null): string {
     if (value === null) {
       return 'Unavailable';
@@ -772,6 +1171,7 @@ export default class TradingPanel extends Component<
       overview.mode === 'autoLive' ||
       !Number.isFinite(expiry.getTime()) ||
       expiry.getTime() <= Date.now() ||
+      expiry.getTime() > Date.now() + 30 * 24 * 60 * 60 * 1000 ||
       this.state.overview?.rulesHash !== overview.rulesHash ||
       this.state.overview.accountKey !== overview.accountKey
     ) {

@@ -16,14 +16,16 @@ real broker orders.
 
 To activate after the deployment and verification have been reviewed:
 
-1. Open **Daily Brief → Trading → Configure rules and limits**. Review the
+1. Open **Daily Brief → Trading status → Trading settings**. Review the
    strategy version, allowed THB spot symbols, capital allocation, per-order
    size, simultaneous positions, daily loss cap, spread/slippage, data age,
    take profit, stop loss, trailing stop, time exit, cooldown, order lifetime,
-   fee model and entry volume ratio. Save changes first.
+   fee model and entry volume ratio. Strategy and execution values are in
+   **Advanced settings**. Save changes first; saving disarms live trading.
 2. Open **Review live mandate**. Verify the exact account, strategy/rules hash,
    symbols and every capital/risk cap. Choose an explicit future expiry within
-   the next 30 days. Fresh markets, verified available balances and server
+   the next 30 days, or choose a 1-, 7- or 30-day shortcut. These shortcuts
+   only fill the expiry; they never activate trading. Fresh markets, verified available balances and server
    control capability are required; a rejected activation stays visible.
 3. The owner alone presses **Enable Auto Trading** once. The persisted mandate
    binds this exact configuration and expiry. The deterministic Portfolio

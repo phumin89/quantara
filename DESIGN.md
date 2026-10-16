@@ -69,3 +69,26 @@ uses three columns on desktop and stacked rows on phones. Unknown amounts
 display a dash and an explanation, never an invented zero.
 
 Portfolio rows and history reflect actual imported Bitkub data. Retain coins after sale. Never fill empty areas with fictitious holdings, profit, charts or summary values. Clearly disclose limited exchange history, excluded broker conversions and unknown cost/P&L. Styling never changes account authority or trading permissions.
+
+## Daily Brief
+
+Daily Brief is an operating view. Open on Trading status; Team chat is a separate
+tab. Keep trading status polling mounted when changing tabs. Show the actual
+operating mode, freshness, verified balances and active order counts before
+research or retained history. Paper balances must be clearly labelled as simulated;
+unknown profit stays Unknown. The selected date applies to reports, while trading
+status and order controls always describe the current account.
+
+Keep budget and market settings in a separate side panel, with strategy and
+execution fields under Advanced settings. Preserve every saved rule. One live
+activation review presents the exact account, symbols, capital, limits, rules hash
+and owner-selected expiry. Expiry shortcuts only fill the date; they never submit.
+Explain disabled activation next to its required date field. Settings, research
+controls and trading authority remain separate.
+
+Keep active manual proposals visible; completed proposals are retained under Past
+proposals. Positions, orders and daily reports expand on demand. Team chat retains
+the desktop member rail and a mobile disclosure. Research briefs and learning
+notes are collapsed initially, with all original text available. Show the latest
+Reviewer summary first and put previous summaries in a disclosure. Preserve plain
+text rendering, focus indicators and 44px interaction targets.

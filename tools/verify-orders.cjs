@@ -9,6 +9,12 @@ async function verifyOrders() {
     channel: process.env.PLAYWRIGHT_CHANNEL,
   });
   const page = await browser.newPage();
+  await page.route('**/api/**', (route) =>
+    route.fulfill({
+      status: 503,
+      json: { error: 'Isolated fixture: unavailable.' },
+    }),
+  );
   const errors = [];
   const writes = [];
   const id = '218d734e-0446-492d-8b62-ffbd106d044e';
@@ -119,6 +125,7 @@ async function verifyOrders() {
     await page
       .getByRole('button', { name: 'Check status', exact: true })
       .click();
+    await page.locator('summary').filter({ hasText: 'Past proposals' }).click();
     await page.getByText('filled', { exact: true }).waitFor();
     assert.equal(
       writes.length,
@@ -175,6 +182,12 @@ async function verifyOrders() {
       .getByText('Approx. proceeds 2,800 THB', { exact: false })
       .waitFor();
     await page.getByRole('button', { name: 'Reject', exact: true }).click();
+    const pastProposals = page.locator('details').filter({
+      has: page.locator('summary').filter({ hasText: 'Past proposals' }),
+    });
+    if ((await pastProposals.getAttribute('open')) === null) {
+      await pastProposals.locator('summary').click();
+    }
     await page.getByText('rejected', { exact: true }).waitFor();
     assert.equal(
       writes.length,

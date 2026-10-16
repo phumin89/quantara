@@ -10,6 +10,8 @@ import {
   CircularProgress,
   Paper,
   Stack,
+  Tab,
+  Tabs,
   TextField,
   Typography,
 } from '@mui/material';
@@ -26,6 +28,7 @@ import type { DailyBriefPageState } from './DailyBriefPageState';
 import OrderReviewPanel from '../../../orders/components/order-review-panel/OrderReviewPanel';
 import BriefMessage from '../brief-message/BriefMessage';
 import TradingPanel from '../../../trading/components/trading-panel/TradingPanel';
+import { DailyBriefView } from './DailyBriefView';
 
 export default class DailyBriefPage extends Component<
   object,
@@ -70,6 +73,7 @@ export default class DailyBriefPage extends Component<
     error: null,
     membersOpen: false,
     controlling: false,
+    view: DailyBriefView.Trading,
   };
 
   private mounted: boolean = false;
@@ -96,8 +100,16 @@ export default class DailyBriefPage extends Component<
   }
 
   public override render(): ReactNode {
-    const { date, brief, loading, error, membersOpen, controlling, overview } =
-      this.state;
+    const {
+      date,
+      brief,
+      loading,
+      error,
+      membersOpen,
+      controlling,
+      overview,
+      view,
+    } = this.state;
     const company = overview?.company;
     const latest = brief?.runs.at(-1);
     const reports =
@@ -106,8 +118,20 @@ export default class DailyBriefPage extends Component<
 
     return (
       <Stack
-        spacing={3}
-        sx={{ width: '100%', maxWidth: 1280, mx: 'auto' }}
+        spacing={2}
+        sx={{
+          width: '100%',
+          maxWidth: 1280,
+          mx: 'auto',
+          '& summary': {
+            minHeight: 44,
+            alignContent: 'center',
+            '&:focus-visible': {
+              outline: '2px solid #1e40af',
+              outlineOffset: 2,
+            },
+          },
+        }}
       >
         <Box
           sx={{
@@ -128,13 +152,15 @@ export default class DailyBriefPage extends Component<
             <Typography
               variant="body2"
               color="text.secondary"
+              sx={{ display: { xs: 'none', sm: 'block' } }}
             >
-              A day in the team&apos;s work.
+              Trading at a glance. Your team, one tab away.
             </Typography>
           </Box>
           <TextField
             type="date"
             label="Date"
+            helperText="Report date · Bangkok"
             value={date}
             slotProps={{
               inputLabel: { shrink: true },
@@ -143,70 +169,9 @@ export default class DailyBriefPage extends Component<
             onChange={(event) => {
               this.selectDate(event.target.value);
             }}
-            sx={{ width: { xs: '100%', sm: 190 } }}
+            sx={{ width: { xs: 170, sm: 190 } }}
           />
         </Box>
-        <Box
-          sx={{
-            display: 'flex',
-            flexWrap: 'wrap',
-            gap: 1.5,
-            alignItems: 'center',
-            justifyContent: 'space-between',
-          }}
-        >
-          <Stack spacing={0.5}>
-            <Typography
-              variant="body2"
-              sx={{ fontWeight: 600 }}
-            >
-              {this.companyLabel(company?.status)}
-            </Typography>
-            <Typography
-              variant="caption"
-              color="text.secondary"
-            >
-              Read-only research · Market signals + hourly review
-            </Typography>
-            {company?.status === CompanyLoopStatus.Waiting &&
-              company.nextRunAt && (
-                <Typography
-                  variant="caption"
-                  color="text.secondary"
-                >
-                  Next review{' '}
-                  {new Date(company.nextRunAt).toLocaleString('en-GB', {
-                    timeZone: 'Asia/Bangkok',
-                  })}{' '}
-                  Bangkok
-                </Typography>
-              )}
-          </Stack>
-          <Button
-            variant="outlined"
-            color={
-              company?.enabled || company?.status === CompanyLoopStatus.Error
-                ? 'error'
-                : 'primary'
-            }
-            startIcon={
-              company?.enabled ||
-              company?.status === CompanyLoopStatus.Error ? (
-                <StopOutlinedIcon />
-              ) : (
-                <PlayArrowOutlinedIcon />
-              )
-            }
-            disabled={!company || controlling}
-            onClick={() => void this.controlCompany()}
-            sx={{ minHeight: 44, textTransform: 'none' }}
-          >
-            {company?.enabled || company?.status === CompanyLoopStatus.Error
-              ? 'Stop company'
-              : 'Resume company'}
-          </Button>
-        </Box>
-        {company?.error && <Alert severity="warning">{company.error}</Alert>}
         {error && (
           <Alert
             severity="error"
@@ -222,223 +187,330 @@ export default class DailyBriefPage extends Component<
             {error}
           </Alert>
         )}
-        <Box
-          sx={{
-            display: 'grid',
-            gridTemplateColumns: {
-              xs: 'minmax(0, 1fr)',
-              lg: 'minmax(0, 1fr) 260px',
-            },
-            alignItems: 'start',
-            gap: 3,
+        <Tabs
+          value={view}
+          onChange={(_, nextView: DailyBriefView) => {
+            this.setState({ view: nextView });
           }}
+          aria-label="Daily brief sections"
+          sx={{ minHeight: 44, borderBottom: '1px solid #e0e0e0' }}
+        >
+          <Tab
+            id="brief-trading-tab"
+            aria-controls="brief-trading-panel"
+            value={DailyBriefView.Trading}
+            label="Trading status"
+          />
+          <Tab
+            id="brief-team-tab"
+            aria-controls="brief-team-panel"
+            value={DailyBriefView.TeamChat}
+            label="Team chat"
+          />
+        </Tabs>
+        <Box
+          role="tabpanel"
+          id="brief-trading-panel"
+          aria-labelledby="brief-trading-tab"
+          hidden={view !== DailyBriefView.Trading}
+          aria-label="Trading status"
         >
           <Stack
-            spacing={3}
-            sx={{ minWidth: 0, order: { xs: 1, lg: 0 } }}
+            spacing={2}
+            sx={{ minWidth: 0 }}
           >
-            <OrderReviewPanel />
             <TradingPanel date={date} />
-            <Paper
-              variant="outlined"
-              sx={{ borderRadius: '8px', overflow: 'hidden' }}
+            <OrderReviewPanel />
+          </Stack>
+        </Box>
+        <Box
+          role="tabpanel"
+          id="brief-team-panel"
+          aria-labelledby="brief-team-tab"
+          hidden={view !== DailyBriefView.TeamChat}
+          aria-label="Team chat"
+        >
+          <Box
+            sx={{
+              display: 'grid',
+              gridTemplateColumns: {
+                xs: 'minmax(0, 1fr)',
+                lg: 'minmax(0, 1fr) 260px',
+              },
+              alignItems: 'start',
+              gap: 2,
+            }}
+          >
+            <Stack
+              spacing={2}
+              sx={{ minWidth: 0 }}
             >
               <Box
                 sx={{
-                  bgcolor: '#141414',
-                  color: '#fff',
-                  p: 2,
                   display: 'flex',
+                  flexWrap: 'wrap',
                   alignItems: 'center',
-                  gap: 1,
+                  justifyContent: 'space-between',
+                  gap: 1.5,
                 }}
               >
-                <ForumOutlinedIcon fontSize="small" />
-                <Typography
-                  component="h2"
-                  sx={{ fontSize: 15, fontWeight: 600, flex: 1 }}
-                >
-                  Team conversation
-                </Typography>
-                <Typography variant="caption">
-                  {reports.length} reports
-                </Typography>
-              </Box>
-              <Box
-                role="region"
-                aria-label="Daily conversation"
-                tabIndex={0}
-                aria-busy={loading}
-                sx={{
-                  bgcolor: '#f6f6f6',
-                  height: { xs: 420, md: 500 },
-                  overflowY: 'auto',
-                  p: { xs: 2, sm: 3 },
-                  '&:focus-visible': {
-                    outline: '2px solid #1e40af',
-                    outlineOffset: -2,
-                  },
-                }}
-              >
-                {loading && !brief ? (
-                  <Stack
-                    spacing={2}
-                    sx={{
-                      height: '100%',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                    }}
+                <Stack spacing={0.25}>
+                  <Typography
+                    variant="body2"
+                    sx={{ fontWeight: 600 }}
                   >
-                    <CircularProgress size={24} />
-                    <Typography color="text.secondary">
-                      Loading daily brief…
+                    {this.companyLabel(company?.status)}
+                  </Typography>
+                  <Typography
+                    variant="caption"
+                    color="text.secondary"
+                  >
+                    Read-only research · Market signals + hourly review
+                  </Typography>
+                  {company?.status === CompanyLoopStatus.Waiting &&
+                    company.nextRunAt && (
+                      <Typography
+                        variant="caption"
+                        color="text.secondary"
+                      >
+                        Next review{' '}
+                        {new Date(company.nextRunAt).toLocaleString('en-GB', {
+                          timeZone: 'Asia/Bangkok',
+                        })}{' '}
+                        Bangkok
+                      </Typography>
+                    )}
+                </Stack>
+                <Button
+                  variant="outlined"
+                  color={
+                    company?.enabled ||
+                    company?.status === CompanyLoopStatus.Error
+                      ? 'error'
+                      : 'primary'
+                  }
+                  startIcon={
+                    company?.enabled ||
+                    company?.status === CompanyLoopStatus.Error ? (
+                      <StopOutlinedIcon />
+                    ) : (
+                      <PlayArrowOutlinedIcon />
+                    )
+                  }
+                  disabled={!company || controlling}
+                  onClick={() => void this.controlCompany()}
+                  sx={{ minHeight: 44, textTransform: 'none' }}
+                >
+                  {company?.enabled ||
+                  company?.status === CompanyLoopStatus.Error
+                    ? 'Pause research'
+                    : 'Resume research'}
+                </Button>
+              </Box>
+              {company?.error && (
+                <Alert severity="warning">{company.error}</Alert>
+              )}
+              <Paper
+                variant="outlined"
+                sx={{ borderRadius: '8px', overflow: 'hidden' }}
+              >
+                <Box
+                  sx={{
+                    bgcolor: '#141414',
+                    color: '#fff',
+                    p: 2,
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 1,
+                  }}
+                >
+                  <ForumOutlinedIcon fontSize="small" />
+                  <Typography
+                    component="h2"
+                    sx={{ fontSize: 15, fontWeight: 600, flex: 1 }}
+                  >
+                    Team conversation
+                  </Typography>
+                  <Typography variant="caption">
+                    {reports.length} reports
+                  </Typography>
+                </Box>
+                <Box
+                  role="region"
+                  aria-label="Daily conversation"
+                  tabIndex={0}
+                  aria-busy={loading}
+                  sx={{
+                    bgcolor: '#f6f6f6',
+                    height: { xs: 420, md: 500 },
+                    overflowY: 'auto',
+                    p: { xs: 2, sm: 3 },
+                    '&:focus-visible': {
+                      outline: '2px solid #1e40af',
+                      outlineOffset: -2,
+                    },
+                  }}
+                >
+                  {loading && !brief ? (
+                    <Stack
+                      spacing={2}
+                      sx={{
+                        height: '100%',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                      }}
+                    >
+                      <CircularProgress size={24} />
+                      <Typography color="text.secondary">
+                        Loading daily brief…
+                      </Typography>
+                    </Stack>
+                  ) : (
+                    this.renderConversation()
+                  )}
+                </Box>
+                <Box sx={{ px: 2, py: 1, borderTop: '1px solid #e0e0e0' }}>
+                  <Typography
+                    variant="caption"
+                    color="text.secondary"
+                  >
+                    Recorded team reports · Dates in Bangkok time
+                  </Typography>
+                </Box>
+              </Paper>
+              <Paper
+                variant="outlined"
+                sx={{ p: { xs: 2, sm: 3 }, borderRadius: '8px' }}
+              >
+                <Stack spacing={2}>
+                  <Stack
+                    direction="row"
+                    spacing={1}
+                    sx={{ alignItems: 'center' }}
+                  >
+                    <AssignmentOutlinedIcon fontSize="small" />
+                    <Typography
+                      component="h2"
+                      sx={{ fontSize: 16, fontWeight: 700 }}
+                    >
+                      Daily summary
                     </Typography>
                   </Stack>
-                ) : (
-                  this.renderConversation()
-                )}
-              </Box>
-              <Box sx={{ px: 2, py: 1, borderTop: '1px solid #e0e0e0' }}>
+                  {this.renderSummary()}
+                </Stack>
+              </Paper>
+            </Stack>
+            <Paper
+              component="aside"
+              aria-label="Team members"
+              variant="outlined"
+              sx={{
+                borderRadius: '8px',
+                order: { xs: 0, lg: 1 },
+                overflow: 'hidden',
+              }}
+            >
+              <Button
+                onClick={() => {
+                  this.setState({ membersOpen: !membersOpen });
+                }}
+                aria-expanded={membersOpen}
+                startIcon={<GroupsOutlinedIcon />}
+                sx={{
+                  display: { xs: 'flex', lg: 'none' },
+                  width: '100%',
+                  justifyContent: 'flex-start',
+                  px: 2,
+                  minHeight: 44,
+                  textTransform: 'none',
+                }}
+              >
+                Members · 3
+              </Button>
+              <Box
+                sx={{
+                  p: 2.5,
+                  display: { xs: membersOpen ? 'block' : 'none', lg: 'block' },
+                }}
+              >
+                <Typography
+                  component="h2"
+                  sx={{ fontSize: 15, fontWeight: 700, mb: 3 }}
+                >
+                  Members{' '}
+                  <Box
+                    component="span"
+                    sx={{ ml: 1, color: 'text.secondary', fontWeight: 400 }}
+                  >
+                    3
+                  </Box>
+                </Typography>
+                <Stack spacing={3}>
+                  {DailyBriefPage.members.map((member) => {
+                    const step = latest?.steps.find(
+                      (item) => item.role === member.role,
+                    );
+
+                    return (
+                      <Stack
+                        key={member.role}
+                        direction="row"
+                        spacing={1.5}
+                        sx={{ alignItems: 'flex-start' }}
+                      >
+                        <Avatar
+                          sx={{
+                            width: 34,
+                            height: 34,
+                            fontSize: 14,
+                            fontWeight: 700,
+                            bgcolor: member.background,
+                            color: member.foreground,
+                          }}
+                        >
+                          {member.initials}
+                        </Avatar>
+                        <Box sx={{ minWidth: 0 }}>
+                          <Typography sx={{ fontSize: 14, fontWeight: 700 }}>
+                            {member.name}
+                          </Typography>
+                          <Typography
+                            variant="caption"
+                            color="text.secondary"
+                            sx={{ display: 'block', mb: 0.75 }}
+                          >
+                            {member.responsibility}
+                          </Typography>
+                          <Chip
+                            size="small"
+                            label={step?.status ?? 'No task'}
+                            sx={{
+                              height: 22,
+                              fontSize: 11,
+                              textTransform: 'capitalize',
+                              ...this.statusStyle(step?.status),
+                            }}
+                          />
+                        </Box>
+                      </Stack>
+                    );
+                  })}
+                </Stack>
                 <Typography
                   variant="caption"
                   color="text.secondary"
+                  sx={{
+                    display: 'block',
+                    mt: 3,
+                    pt: 2,
+                    borderTop: '1px solid #e0e0e0',
+                  }}
                 >
-                  Recorded team reports · Dates in Bangkok time
+                  {this.configurationLabel()}
                 </Typography>
               </Box>
             </Paper>
-            <Paper
-              variant="outlined"
-              sx={{ p: { xs: 2, sm: 3 }, borderRadius: '8px' }}
-            >
-              <Stack spacing={2}>
-                <Stack
-                  direction="row"
-                  spacing={1}
-                  sx={{ alignItems: 'center' }}
-                >
-                  <AssignmentOutlinedIcon fontSize="small" />
-                  <Typography
-                    component="h2"
-                    sx={{ fontSize: 16, fontWeight: 700 }}
-                  >
-                    Daily summary
-                  </Typography>
-                </Stack>
-                {this.renderSummary()}
-              </Stack>
-            </Paper>
-          </Stack>
-          <Paper
-            component="aside"
-            aria-label="Team members"
-            variant="outlined"
-            sx={{
-              borderRadius: '8px',
-              order: { xs: 0, lg: 1 },
-              overflow: 'hidden',
-            }}
-          >
-            <Button
-              onClick={() => {
-                this.setState({ membersOpen: !membersOpen });
-              }}
-              aria-expanded={membersOpen}
-              startIcon={<GroupsOutlinedIcon />}
-              sx={{
-                display: { xs: 'flex', lg: 'none' },
-                width: '100%',
-                justifyContent: 'flex-start',
-                px: 2,
-                minHeight: 44,
-                textTransform: 'none',
-              }}
-            >
-              Members · 3
-            </Button>
-            <Box
-              sx={{
-                p: 2.5,
-                display: { xs: membersOpen ? 'block' : 'none', lg: 'block' },
-              }}
-            >
-              <Typography
-                component="h2"
-                sx={{ fontSize: 15, fontWeight: 700, mb: 3 }}
-              >
-                Members{' '}
-                <Box
-                  component="span"
-                  sx={{ ml: 1, color: 'text.secondary', fontWeight: 400 }}
-                >
-                  3
-                </Box>
-              </Typography>
-              <Stack spacing={3}>
-                {DailyBriefPage.members.map((member) => {
-                  const step = latest?.steps.find(
-                    (item) => item.role === member.role,
-                  );
-
-                  return (
-                    <Stack
-                      key={member.role}
-                      direction="row"
-                      spacing={1.5}
-                      sx={{ alignItems: 'flex-start' }}
-                    >
-                      <Avatar
-                        sx={{
-                          width: 34,
-                          height: 34,
-                          fontSize: 14,
-                          fontWeight: 700,
-                          bgcolor: member.background,
-                          color: member.foreground,
-                        }}
-                      >
-                        {member.initials}
-                      </Avatar>
-                      <Box sx={{ minWidth: 0 }}>
-                        <Typography sx={{ fontSize: 14, fontWeight: 700 }}>
-                          {member.name}
-                        </Typography>
-                        <Typography
-                          variant="caption"
-                          color="text.secondary"
-                          sx={{ display: 'block', mb: 0.75 }}
-                        >
-                          {member.responsibility}
-                        </Typography>
-                        <Chip
-                          size="small"
-                          label={step?.status ?? 'No task'}
-                          sx={{
-                            height: 22,
-                            fontSize: 11,
-                            textTransform: 'capitalize',
-                            ...this.statusStyle(step?.status),
-                          }}
-                        />
-                      </Box>
-                    </Stack>
-                  );
-                })}
-              </Stack>
-              <Typography
-                variant="caption"
-                color="text.secondary"
-                sx={{
-                  display: 'block',
-                  mt: 3,
-                  pt: 2,
-                  borderTop: '1px solid #e0e0e0',
-                }}
-              >
-                {this.configurationLabel()}
-              </Typography>
-            </Box>
-          </Paper>
+          </Box>
         </Box>
       </Stack>
     );
@@ -500,12 +572,26 @@ export default class DailyBriefPage extends Component<
                   minute: '2-digit',
                 }).format(new Date(run.createdAt))}
               </Typography>
-              <Typography
-                variant="body2"
-                sx={{ fontWeight: 600, overflowWrap: 'anywhere', mt: 0.5 }}
-              >
-                {run.objective}
-              </Typography>
+              <details>
+                <Typography
+                  component="summary"
+                  variant="body2"
+                  sx={{
+                    cursor: 'pointer',
+                    fontWeight: 600,
+                    overflowWrap: 'anywhere',
+                    mt: 0.5,
+                  }}
+                >
+                  Research brief
+                </Typography>
+                <Typography
+                  variant="body2"
+                  sx={{ mt: 1, overflowWrap: 'anywhere' }}
+                >
+                  {run.objective}
+                </Typography>
+              </details>
             </Box>
             {run.steps
               .filter((step) => step.output || step.error)
@@ -567,38 +653,47 @@ export default class DailyBriefPage extends Component<
                         </Box>
                       )}
                       {step.role === TeamRole.Reviewer && run.lesson && (
-                        <Stack
-                          spacing={0.5}
-                          sx={{ mt: 1.5, overflowWrap: 'anywhere' }}
-                        >
-                          <Typography variant="body2">
-                            <Box
-                              component="span"
-                              sx={{ fontWeight: 700 }}
-                            >
-                              Lesson:
-                            </Box>{' '}
-                            {run.lesson.lesson}
+                        <details style={{ marginTop: 12 }}>
+                          <Typography
+                            component="summary"
+                            variant="body2"
+                            sx={{ cursor: 'pointer', fontWeight: 600 }}
+                          >
+                            Learning notes
                           </Typography>
-                          <Typography variant="body2">
-                            <Box
-                              component="span"
-                              sx={{ fontWeight: 700 }}
-                            >
-                              Evidence:
-                            </Box>{' '}
-                            {run.lesson.evidence}
-                          </Typography>
-                          <Typography variant="body2">
-                            <Box
-                              component="span"
-                              sx={{ fontWeight: 700 }}
-                            >
-                              Next test:
-                            </Box>{' '}
-                            {run.lesson.nextTest}
-                          </Typography>
-                        </Stack>
+                          <Stack
+                            spacing={0.5}
+                            sx={{ mt: 1, overflowWrap: 'anywhere' }}
+                          >
+                            <Typography variant="body2">
+                              <Box
+                                component="span"
+                                sx={{ fontWeight: 700 }}
+                              >
+                                Lesson:
+                              </Box>{' '}
+                              {run.lesson.lesson}
+                            </Typography>
+                            <Typography variant="body2">
+                              <Box
+                                component="span"
+                                sx={{ fontWeight: 700 }}
+                              >
+                                Evidence:
+                              </Box>{' '}
+                              {run.lesson.evidence}
+                            </Typography>
+                            <Typography variant="body2">
+                              <Box
+                                component="span"
+                                sx={{ fontWeight: 700 }}
+                              >
+                                Next test:
+                              </Box>{' '}
+                              {run.lesson.nextTest}
+                            </Typography>
+                          </Stack>
+                        </details>
                       )}
                       {step.error && (
                         <Typography
@@ -648,26 +743,64 @@ export default class DailyBriefPage extends Component<
       );
     }
 
+    const latest = summaries.at(-1);
+    const previous = summaries.slice(0, -1).reverse();
+
     return (
       <Stack spacing={2}>
-        {summaries.map((run) => (
-          <Box key={run.id}>
+        {latest && (
+          <Box key={latest.id}>
             <Typography
               variant="caption"
               color="text.secondary"
             >
-              Reviewer report · {run.objective}
+              Latest Reviewer report
             </Typography>
             <Box sx={{ mt: 1 }}>
               <BriefMessage
                 output={
-                  run.steps.find((step) => step.role === TeamRole.Reviewer)
+                  latest.steps.find((step) => step.role === TeamRole.Reviewer)
                     ?.output ?? ''
                 }
               />
             </Box>
           </Box>
-        ))}
+        )}
+        {previous.length > 0 && (
+          <details>
+            <Typography
+              component="summary"
+              variant="body2"
+              sx={{ cursor: 'pointer', fontWeight: 600 }}
+            >
+              Previous summaries ({previous.length})
+            </Typography>
+            <Stack
+              spacing={2}
+              sx={{ mt: 1.5 }}
+            >
+              {previous.map((run) => (
+                <Box key={run.id}>
+                  <Typography
+                    variant="caption"
+                    color="text.secondary"
+                  >
+                    Reviewer report
+                  </Typography>
+                  <Box sx={{ mt: 1 }}>
+                    <BriefMessage
+                      output={
+                        run.steps.find(
+                          (step) => step.role === TeamRole.Reviewer,
+                        )?.output ?? ''
+                      }
+                    />
+                  </Box>
+                </Box>
+              ))}
+            </Stack>
+          </details>
+        )}
       </Stack>
     );
   }

@@ -1,5 +1,6 @@
 import type { DailyBrief } from '../../contracts/DailyBrief';
 import type { TeamOverview } from '../../contracts/TeamOverview';
+import type { DailyBriefView } from './DailyBriefView';
 
 export interface DailyBriefPageState {
   readonly date: string;
@@ -9,4 +10,5 @@ export interface DailyBriefPageState {
   readonly error: string | null;
   readonly membersOpen: boolean;
   readonly controlling: boolean;
+  readonly view: DailyBriefView;
 }
