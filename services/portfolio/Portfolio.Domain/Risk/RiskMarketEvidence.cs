@@ -13,5 +13,6 @@ public sealed record RiskMarketEvidence(
     int PriceScale,
     int AmountScale,
     bool Enabled,
-    bool StopVerified
+    bool StopVerified,
+    bool Resting = false
 );

@@ -4,7 +4,12 @@ using Quantara.Portfolio.Domain.Trading;
 
 namespace Quantara.Portfolio.Application;
 
-public sealed class TradingReportDelivery(ITradingStore store, ITradingNotifier notifier, TimeProvider time)
+public sealed class TradingReportDelivery(
+    ITradingStore store,
+    ITradingNotifier notifier,
+    TimeProvider time,
+    SemaphoreSlim? gate = null
+)
 {
     private int correctionCursor;
 
@@ -64,6 +69,23 @@ public sealed class TradingReportDelivery(ITradingStore store, ITradingNotifier 
         await this.DeliverReport(now, cancellationToken);
     }
 
+    private async Task<bool> Save(TradingState state, long expectedRevision, CancellationToken cancellationToken)
+    {
+        if (gate is not null)
+        {
+            await gate.WaitAsync(cancellationToken);
+        }
+
+        try
+        {
+            return await store.Save(state, expectedRevision, cancellationToken);
+        }
+        finally
+        {
+            gate?.Release();
+        }
+    }
+
     private async Task Prepare(string date, TradingMode mode, DateTimeOffset now, CancellationToken cancellationToken)
     {
         var state = await store.Read(cancellationToken);
@@ -92,7 +114,7 @@ public sealed class TradingReportDelivery(ITradingStore store, ITradingNotifier 
             if (previous.ClosedAt is null && candidate.ClosedAt is not null)
             {
                 var closed = previous with { ClosedAt = candidate.ClosedAt };
-                await store.Save(
+                await this.Save(
                     state with
                     {
                         Revision = state.Revision + 1,
@@ -110,12 +132,13 @@ public sealed class TradingReportDelivery(ITradingStore store, ITradingNotifier 
         {
             MessageId = previous?.MessageId,
             Status =
-                !notifier.IsConfigured ? "unconfigured"
+                state.Rules.Adaptive is not null ? "local"
+                : !notifier.IsConfigured ? "unconfigured"
                 : previous is null || previous.Status is "prepared" or "unconfigured" || previous.MessageId is > 0
                     ? "prepared"
                 : "unknown",
         };
-        await store.Save(
+        await this.Save(
             state with
             {
                 Revision = state.Revision + 1,
@@ -136,7 +159,7 @@ public sealed class TradingReportDelivery(ITradingStore store, ITradingNotifier 
         }
 
         if (
-            !await store.Save(
+            !await this.Save(
                 state with
                 {
                     Revision = state.Revision + 1,
@@ -174,7 +197,7 @@ public sealed class TradingReportDelivery(ITradingStore store, ITradingNotifier 
         {
             var state = await store.Read(CancellationToken.None);
             if (
-                await store.Save(
+                await this.Save(
                     state with
                     {
                         Revision = state.Revision + 1,
@@ -197,6 +220,11 @@ public sealed class TradingReportDelivery(ITradingStore store, ITradingNotifier 
     private async Task DeliverReport(DateTimeOffset now, CancellationToken cancellationToken)
     {
         var state = await store.Read(cancellationToken);
+        if (state.Rules.Adaptive is not null)
+        {
+            return;
+        }
+
         var report = state
             .Reports.Where(item =>
                 item.Status == "prepared"
@@ -213,7 +241,7 @@ public sealed class TradingReportDelivery(ITradingStore store, ITradingNotifier 
 
         var claimed = report with { Status = report.MessageId is > 0 ? "editing" : "sending", ClaimedAt = now };
         if (
-            !await store.Save(
+            !await this.Save(
                 state with
                 {
                     Revision = state.Revision + 1,
@@ -262,7 +290,7 @@ public sealed class TradingReportDelivery(ITradingStore store, ITradingNotifier 
         {
             var state = await store.Read(CancellationToken.None);
             if (
-                await store.Save(
+                await this.Save(
                     state with
                     {
                         Revision = state.Revision + 1,

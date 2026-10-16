@@ -32,33 +32,7 @@ public static class TradingStrategy
 
         if (holding is not null)
         {
-            if (holding.Symbol != market.Symbol || holding.Quantity <= 0m || holding.CostThb <= 0m)
-            {
-                return new(TradingAction.Wait, "Invalid holding", candle, market.Bid);
-            }
-
-            var average = holding.AverageCost;
-            if (market.Bid <= average * (1m - rules.StopLossBps / 10000m))
-            {
-                return new(TradingAction.Sell, "Stop loss", candle, market.Bid);
-            }
-
-            if (market.Bid >= average * (1m + rules.TakeProfitBps / 10000m))
-            {
-                return new(TradingAction.Sell, "Take profit", candle, market.Bid);
-            }
-
-            if (holding.PeakBid > average && market.Bid <= holding.PeakBid * (1m - rules.TrailingStopBps / 10000m))
-            {
-                return new(TradingAction.Sell, "Trailing stop", candle, market.Bid);
-            }
-
-            if (now - holding.OpenedAt >= TimeSpan.FromMinutes(rules.TimeExitMinutes))
-            {
-                return new(TradingAction.Sell, "Time exit", candle, market.Bid);
-            }
-
-            return new(TradingAction.Wait, "Position monitored", candle, market.Bid);
+            return EvaluateExit(rules, market, holding, now);
         }
 
         if (market.Bars.Count < 51)
@@ -123,6 +97,49 @@ public static class TradingStrategy
         }
 
         return new(TradingAction.Wait, "No entry signal", latest.Timestamp, market.Bid);
+    }
+
+    public static TradingDecision EvaluateExit(
+        TradingRuleSet rules,
+        TradingBook market,
+        TradingHolding holding,
+        DateTimeOffset now
+    )
+    {
+        rules.Validate();
+        var candle = market.Bars.Count == 0 ? 0 : market.Bars[^1].Timestamp;
+        if (
+            holding.Symbol != market.Symbol
+            || holding.Quantity <= 0
+            || holding.CostThb <= 0
+            || market.Bid <= 0
+            || !(market.SellEnabled ?? market.Enabled)
+            || market.ObservedAt > now
+            || now - market.ObservedAt > TimeSpan.FromSeconds(rules.MaxDataAgeSeconds)
+        )
+        {
+            return new(TradingAction.Wait, "Invalid holding or exit quote", candle, market.Bid);
+        }
+
+        var average = holding.AverageCost;
+        if (market.Bid <= average * (1 - rules.StopLossBps / 10000m))
+        {
+            return new(TradingAction.Sell, "Stop loss", candle, market.Bid);
+        }
+
+        if (market.Bid >= average * (1 + rules.TakeProfitBps / 10000m))
+        {
+            return new(TradingAction.Sell, "Take profit", candle, market.Bid);
+        }
+
+        if (holding.PeakBid > average && market.Bid <= holding.PeakBid * (1 - rules.TrailingStopBps / 10000m))
+        {
+            return new(TradingAction.Sell, "Trailing stop", candle, market.Bid);
+        }
+
+        return now - holding.OpenedAt >= TimeSpan.FromMinutes(rules.TimeExitMinutes)
+            ? new(TradingAction.Sell, "Time exit", candle, market.Bid)
+            : new(TradingAction.Wait, "Position monitored", candle, market.Bid);
     }
 
     private static decimal Ema(IReadOnlyList<TradingBar> bars, int period)

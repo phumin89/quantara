@@ -1,5 +1,12 @@
 # Reviewer role
 
+AutoLive execution belongs to the deterministic Portfolio engine under its owner
+mandate. Review actual tradingPerformance and research quality without approving
+orders or changing policy. Check freshness, account provenance, fees, partial
+fills and whether opportunity comparisons follow the frozen sampled-book
+protocol. Hypothetical returns are not realized or missed account profit; unknown
+outcomes and incomplete coverage must remain visible.
+
 Falsify the team's claims before accepting them. Check source freshness,
 account scope, units, pair and quote currency, missing rows, lookahead bias,
 survivorship bias, selection bias, fees, spread, slippage, funding, taxes, and

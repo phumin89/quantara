@@ -60,8 +60,11 @@ orders, derivatives, transfers or withdrawals. See [trading](trading.md).
 ## Deterministic trading authority
 
 The 2026-10-16 owner direction in `newfeature.md` authorizes one live activation
-for an exact account, strategy/rules hash, allowed symbols, capital/risk caps and
-expiry. Within that unchanged, unexpired mandate, the Portfolio-owned worker
+for an exact account, versioned strategy/policy hash, eligible THB universe,
+capital/risk caps and expiry. Adaptive mode uses actual account capital,
+includes future deposits and supports up to 16 positions; legacy fixed-symbol
+JSON remains compatible and is never silently widened. Within that unchanged,
+unexpired mandate, the Portfolio-owned worker
 evaluates completed five-minute candles and manages spot LIMIT entry/exit orders
 without individual approval. It does not call the legacy approval command.
 AI/Team remain research only and never grant or choose this order authority.
@@ -80,8 +83,10 @@ Unknown profit/equity when evidence is incomplete.
 
 The class-based Daily Brief trading panel uses validated feature contracts,
 Context and lazy service bindings. It displays the server's mode, heartbeat,
-exposure, orders and selected-day Thai report. The owner configures rules and
-reviews account/hash/caps with an explicit expiry before one Enable action.
+exposure, orders and selected-day Thai report. The owner uses **Set up and
+review** for the adaptive preset, then reviews account, scope, caps and expiry
+before one Enable action. Staged setup values are never presented as active
+account data.
 Next.js guards local-origin JSON controls, bounds request bodies, validates
 actions and adds `X-Quantara-Trading-Control` only on the server. Portfolio
 checks its owner token separately. Docker preparation generates and preserves
@@ -333,6 +338,9 @@ observations, with timestamps and missing coverage explicit. Up to five largest
 absolute moves are descriptive hindsight diagnostics; they are not executable
 returns, net missed profits, a cash benchmark or a tested strategy. Daily realized
 profit remains unknown until complete fill/cost reconciliation is available.
+The `observed-book-v1` benchmark retains at most eight concurrent hypothetical
+samples in a seven-day model window. It is never presented as a
+missed real profit, proven edge or activation signal.
 Reviewer returns validated typed Lesson/Evidence/NextTest fields (each at most
 500 characters); the model output schema requires a non-null object for Reviewer
 and null for CEO/Analyst. UTF-8 research transport preserves Thai text within the

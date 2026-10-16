@@ -65,7 +65,8 @@ var riskStore = new SqlRiskStore(connectionString, accountKey);
 await riskStore.Initialize(CancellationToken.None);
 builder.Services.AddSingleton<IRiskStore>(riskStore);
 builder.Services.AddSingleton<IReadOnlyRiskStore>(riskStore);
-builder.Services.AddScoped<RiskCapitalReader>();
+builder.Services.AddSingleton<RiskCapitalReader>();
+builder.Services.AddSingleton<AutonomousRiskService>();
 builder.Services.AddScoped<IRiskSizingService, RiskSizingService>();
 builder.Services.AddSingleton<IOrderStore>(orders);
 builder.Services.AddSingleton<IReadOnlyOrderStore>(orders);
@@ -87,6 +88,7 @@ builder.Services.AddSingleton<TradingOverviewProjection>();
 builder.Services.AddSingleton(new SemaphoreSlim(1, 1));
 builder.Services.AddSingleton<ITradingControl, TradingControl>();
 builder.Services.AddSingleton<TradingEngine>();
+builder.Services.AddSingleton<AutonomousMarketMonitor>();
 builder.Services.AddSingleton<TradingReportDelivery>();
 builder.Services.AddHostedService<TradingWorker>();
 builder

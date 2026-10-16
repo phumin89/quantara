@@ -7,6 +7,7 @@ using Team.Checks;
 await WorkerFailureChecks.Run();
 await SignalLoopChecks.Run();
 await DailyLearningChecks.Run();
+await AutonomousContextChecks.Run();
 await Success();
 await ResearchMemory();
 await AccountScopedReviewMemory();

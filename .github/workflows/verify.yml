@@ -33,6 +33,7 @@ jobs:
       - run: dotnet run --no-build --project tests/Portfolio.Checks/Portfolio.Checks.csproj
       - run: dotnet run --no-build --project tests/Portfolio.Api.Checks/Portfolio.Api.Checks.csproj
       - run: node tools/verify-trading-ui.cjs
+      - run: node tools/verify-autonomous-ui.cjs
       - run: dotnet run --no-build --project tests/MarketData.Checks/MarketData.Checks.csproj
       - run: dotnet run --no-build --project tests/Team.Checks/Team.Checks.csproj
       - run: npm audit --audit-level=high

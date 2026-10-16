@@ -13,5 +13,6 @@ public sealed record TradingBook(
     int PriceScale = 2,
     int BaseScale = 8,
     int QuoteScale = 2,
-    bool Enabled = true
+    bool Enabled = true,
+    bool? SellEnabled = null
 );

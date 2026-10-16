@@ -81,8 +81,10 @@ status and order controls always describe the current account.
 
 Keep budget and market settings in a separate side panel, with strategy and
 execution fields under Advanced settings. Preserve every saved rule. One live
-activation review presents the exact account, symbols, capital, limits, rules hash
-and owner-selected expiry. Expiry shortcuts only fill the date; they never submit.
+activation review presents the exact account, eligible-market scope or legacy
+symbols, verified capital, limits, rules hash and owner-selected expiry.
+Adaptive setup does not show fixed-symbol or fixed-order fields as active
+requirements. Expiry shortcuts only fill the date; they never submit.
 Explain disabled activation next to its required date field. Settings, research
 controls and trading authority remain separate.
 

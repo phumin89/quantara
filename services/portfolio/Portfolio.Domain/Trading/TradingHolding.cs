@@ -10,4 +10,10 @@ public sealed record TradingHolding(
 )
 {
     public decimal AverageCost => this.Quantity == 0m ? 0m : this.CostThb / this.Quantity;
+
+    public decimal? StopPrice { get; init; }
+
+    public decimal? TargetPrice { get; init; }
+
+    public decimal? TrailingDistance { get; init; }
 }

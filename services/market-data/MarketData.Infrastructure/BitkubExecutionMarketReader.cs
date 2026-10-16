@@ -19,6 +19,10 @@ public sealed class BitkubExecutionMarketReader : IExecutionMarketReader
 
     private readonly TimeProvider timeProvider;
 
+    private readonly object universeLock = new();
+
+    private (DateTimeOffset ExpiresAt, string Payload)? universeCache;
+
     private readonly ConcurrentDictionary<string, (long Slot, IReadOnlyList<MarketCandle> Candles)> history = new(
         StringComparer.Ordinal
     );
@@ -34,7 +38,11 @@ public sealed class BitkubExecutionMarketReader : IExecutionMarketReader
         this.timeProvider = timeProvider ?? TimeProvider.System;
     }
 
-    public async Task<string> Read(IReadOnlyList<string> symbols, CancellationToken cancellationToken)
+    public async Task<string> Read(
+        IReadOnlyList<string> symbols,
+        CancellationToken cancellationToken,
+        bool includeHistory = true
+    )
     {
         ValidateSymbols(symbols);
         using var budget = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
@@ -67,7 +75,7 @@ public sealed class BitkubExecutionMarketReader : IExecutionMarketReader
                     await parallelism.WaitAsync(budget.Token);
                     try
                     {
-                        var market = await this.ReadMarket(symbol, metadata, snapshot, budget.Token);
+                        var market = await this.ReadMarket(symbol, metadata, snapshot, includeHistory, budget.Token);
                         return (Market: market, Symbol: symbol, Error: (string?)null);
                     }
                     finally
@@ -89,6 +97,102 @@ public sealed class BitkubExecutionMarketReader : IExecutionMarketReader
             results.Where(result => result.Market is not null).Select(result => result.Market),
             results.Where(result => result.Error is not null).Select(result => (result.Symbol, result.Error ?? ""))
         );
+    }
+
+    public async Task<string> ReadUniverse(CancellationToken cancellationToken)
+    {
+        lock (this.universeLock)
+        {
+            if (this.universeCache is { } cached && cached.ExpiresAt > this.timeProvider.GetUtcNow())
+            {
+                return cached.Payload;
+            }
+        }
+
+        using var budget = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        budget.CancelAfter(TimeSpan.FromSeconds(8));
+        try
+        {
+            var symbols = await this.Get("/api/v3/market/symbols", budget.Token);
+            var ticker = await this.Get("/api/v3/market/ticker", budget.Token);
+            EnsureUniverseMetadata(symbols);
+            if (ticker.ValueKind != JsonValueKind.Array)
+            {
+                throw new InvalidDataException("Public ticker response is invalid.");
+            }
+
+            var scan = MarketUniverseScanner.Scan(symbols, ticker);
+            var eligible = scan
+                .Entries.Where(entry => entry.Usable && IsTradableRule(entry.SourceRule))
+                .OrderByDescending(entry => entry.Volume24h)
+                .ThenBy(entry => entry.Symbol, StringComparer.Ordinal)
+                .ToArray();
+            var observedAt = this.timeProvider.GetUtcNow();
+            var payload = JsonSerializer.Serialize(
+                new
+                {
+                    observedAt,
+                    symbols = eligible.Select(entry => entry.Symbol[..^4]).ToArray(),
+                    totalMarkets = scan.UniverseCount,
+                    excludedMarkets = Math.Max(0, scan.UniverseCount - eligible.Length),
+                    error = (string?)null,
+                },
+                jsonOptions
+            );
+            if (Encoding.UTF8.GetByteCount(payload) > 1_048_576)
+            {
+                throw new InvalidDataException("Public market universe exceeds its size limit.");
+            }
+
+            lock (this.universeLock)
+            {
+                this.universeCache = (observedAt.AddSeconds(60), payload);
+            }
+
+            return payload;
+        }
+        catch (Exception exception) when (IsEvidenceFailure(exception, cancellationToken))
+        {
+            return JsonSerializer.Serialize(
+                new
+                {
+                    observedAt = this.timeProvider.GetUtcNow(),
+                    symbols = Array.Empty<string>(),
+                    totalMarkets = 0,
+                    excludedMarkets = 0,
+                    error = exception is OperationCanceledException
+                        ? "Public market universe timed out."
+                        : "Public market universe could not be verified.",
+                },
+                jsonOptions
+            );
+        }
+    }
+
+    private static bool IsTradableRule(JsonElement rule)
+    {
+        return rule.TryGetProperty("freeze_buy", out var buy)
+            && rule.TryGetProperty("freeze_sell", out var sell)
+            && bool.TryParse(buy.ToString(), out var frozenBuy)
+            && bool.TryParse(sell.ToString(), out var frozenSell)
+            && !frozenBuy
+            && !frozenSell;
+    }
+
+    private static void EnsureUniverseMetadata(JsonElement root)
+    {
+        if (
+            root.ValueKind != JsonValueKind.Object
+            || !root.TryGetProperty("result", out var result)
+            || result.ValueKind != JsonValueKind.Array
+            || errorFields.Any(field =>
+                root.TryGetProperty(field, out var value)
+                && (!decimal.TryParse(value.ToString(), CultureInfo.InvariantCulture, out var code) || code != 0)
+            )
+        )
+        {
+            throw new InvalidDataException("Public market metadata is invalid.");
+        }
     }
 
     private static void ValidateSymbols(IReadOnlyList<string> symbols)
@@ -174,6 +278,7 @@ public sealed class BitkubExecutionMarketReader : IExecutionMarketReader
         string symbol,
         JsonElement metadata,
         IntradaySnapshot? snapshot,
+        bool includeHistory,
         CancellationToken cancellationToken
     )
     {
@@ -222,23 +327,29 @@ public sealed class BitkubExecutionMarketReader : IExecutionMarketReader
             throw new InvalidDataException("Public order book is crossed.");
         }
 
-        var bars = await this.ReadBars(symbol, snapshot, cancellationToken);
-        return new
+        var bars = includeHistory ? await this.ReadBars(symbol, snapshot, cancellationToken) : [];
+        var market = new Dictionary<string, object?>
         {
-            symbol,
-            observedAt,
-            bid = bid.Price,
-            ask = ask.Price,
-            bidQuantity = bid.Quantity,
-            askQuantity = ask.Quantity,
-            bars,
-            minimumNotional,
-            priceStep,
-            priceScale,
-            baseScale,
-            quoteScale,
-            enabled = !freezeBuy && !freezeSell,
+            ["symbol"] = symbol,
+            ["observedAt"] = observedAt,
+            ["bid"] = bid.Price,
+            ["ask"] = ask.Price,
+            ["bidQuantity"] = bid.Quantity,
+            ["askQuantity"] = ask.Quantity,
+            ["bars"] = bars,
+            ["minimumNotional"] = minimumNotional,
+            ["priceStep"] = priceStep,
+            ["priceScale"] = priceScale,
+            ["baseScale"] = baseScale,
+            ["quoteScale"] = quoteScale,
+            ["enabled"] = !freezeBuy && !freezeSell,
         };
+        if (!includeHistory)
+        {
+            market["sellEnabled"] = !freezeSell;
+        }
+
+        return market;
     }
 
     private async Task<IReadOnlyList<MarketCandle>> ReadBars(

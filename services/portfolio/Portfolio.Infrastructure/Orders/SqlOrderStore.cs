@@ -110,6 +110,7 @@ public sealed class SqlOrderStore(string connectionString, string accountKey) : 
             UPDATE dbo.OrderProposals WITH (UPDLOCK,HOLDLOCK) SET State='Submitting'
             WHERE AccountKey=@account AND Id=@id AND State='Pending' AND ExpiresAt>@now
             AND NOT EXISTS(SELECT 1 FROM dbo.OrderProposals WITH(UPDLOCK,HOLDLOCK) WHERE AccountKey=@account AND State IN ('Submitting','Unknown'))
+            AND NOT EXISTS(SELECT 1 FROM dbo.TradingRuntime WITH(UPDLOCK,HOLDLOCK) WHERE AccountKey=@account AND JSON_VALUE(Payload,'$.mode')='autoLive')
             AND (JSON_VALUE(dbo.OrderProposals.Payload,'$.Sizing.PolicyHash') IS NULL OR EXISTS(SELECT 1 FROM dbo.TradingRuntime WITH(UPDLOCK,HOLDLOCK) WHERE AccountKey=@account AND JSON_VALUE(Payload,'$.mode')='manualReview'))
             AND EXISTS(SELECT 1 FROM dbo.RiskSettings WITH(UPDLOCK,HOLDLOCK) WHERE AccountKey=@account AND ((Profile='Disabled' AND JSON_VALUE(dbo.OrderProposals.Payload,'$.Sizing.PolicyHash') IS NULL) OR PolicyHash=JSON_VALUE(dbo.OrderProposals.Payload,'$.Sizing.PolicyHash')));
             """,

@@ -2,6 +2,7 @@ using System.Globalization;
 using System.Security.Cryptography;
 using System.Text;
 using Quantara.Portfolio.Domain;
+using Quantara.Portfolio.Domain.Risk;
 using Quantara.Portfolio.Domain.Trading;
 
 namespace Quantara.Portfolio.Application;
@@ -13,7 +14,9 @@ public sealed class TradingEngine(
     IAccountContext account,
     SemaphoreSlim gate,
     TimeProvider time,
-    IReadOnlyOrderStore? legacyOrders = null
+    IReadOnlyOrderStore? legacyOrders = null,
+    AutonomousMarketMonitor? autonomous = null,
+    AutonomousRiskService? adaptiveRisk = null
 )
 {
     public async Task Tick(CancellationToken cancellationToken)
@@ -79,16 +82,30 @@ public sealed class TradingEngine(
                 }
 
                 state = await this.Reconcile(state, now, cancellationToken);
-                var books = await markets.Read(state.Rules.Symbols, cancellationToken);
+                var adaptive = state.Rules.Adaptive;
+                var scan = adaptive is not null
+                    ? await (
+                        autonomous ?? throw new InvalidOperationException("Autonomous market monitor is unavailable.")
+                    ).Read(state, cancellationToken)
+                    : null;
+                if (scan is not null)
+                {
+                    var funded = ApplyFunding(state, scan.Capital);
+                    state = await this.Save(state, funded with { Autonomy = scan.Status }, cancellationToken);
+                }
+
+                var books = scan?.Books ?? await markets.Read(state.Rules.Symbols, cancellationToken);
                 now = time.GetUtcNow();
                 if (books.Select(book => book.Symbol).Distinct(StringComparer.Ordinal).Count() != books.Count)
                 {
                     throw new InvalidDataException("Duplicate market identity.");
                 }
 
-                var stale = state.Rules.Symbols.Any(symbol =>
-                    !books.Any(book => book.Symbol == symbol && Fresh(book, state.Rules, now))
-                );
+                var stale =
+                    adaptive is null
+                    && state.Rules.Symbols.Any(symbol =>
+                        !books.Any(book => book.Symbol == symbol && Fresh(book, state.Rules, now))
+                    );
                 var uncertain = state.Live.Orders.Any(order =>
                     order.Status is "submitting" or "unknown" || order.CancellationState is "claimed" or "unknown"
                 );
@@ -117,7 +134,7 @@ public sealed class TradingEngine(
                 {
                     next = TradingAuthority.Fault(next, "Uncertain broker order — reconciliation required", now);
                 }
-                else if (dailyLoss <= -state.Rules.DailyLossThb)
+                else if (dailyLoss <= -LossCap(state))
                 {
                     next = TradingAuthority.Fault(next, "Daily loss limit reached", now);
                 }
@@ -128,6 +145,24 @@ public sealed class TradingEngine(
 
                 state = await this.Save(state, next, cancellationToken);
                 state = await this.FillPaper(state, books, now, cancellationToken);
+                if (adaptive is not null)
+                {
+                    var reviewed = state
+                        .Shadows.Where(sample => sample.CreatedAt >= now.AddDays(-7))
+                        .Select(sample =>
+                            TradingShadowProtocol.Advance(
+                                sample,
+                                books.SingleOrDefault(book => book.Symbol == sample.Symbol),
+                                now
+                            )
+                        )
+                        .ToArray();
+                    if (!reviewed.SequenceEqual(state.Shadows))
+                    {
+                        state = await this.Save(state, state with { Shadows = reviewed }, cancellationToken);
+                    }
+                }
+
                 if (state.Mode is not (TradingMode.Paper or TradingMode.AutoLive) || state.EmergencyStopped)
                 {
                     return;
@@ -146,22 +181,61 @@ public sealed class TradingEngine(
                     return;
                 }
 
-                foreach (var symbol in state.Rules.Symbols)
+                var ranked = adaptive is null ? state.Rules.Symbols : RankMarkets(state, books, now);
+                foreach (var symbol in ranked)
                 {
                     var book = books.SingleOrDefault(item => item.Symbol == symbol);
-                    if (book is null || !Fresh(book, state.Rules, now))
+                    var ledger = live ? state.Live : state.Paper;
+                    var position = ledger.Positions.SingleOrDefault(item => item.Symbol == symbol && item.Quantity > 0);
+                    if (book is null || !Fresh(book, state.Rules, now, position is null))
                     {
                         continue;
                     }
 
-                    var ledger = live ? state.Live : state.Paper;
                     if (ledger.Orders.Any(order => order.Symbol == symbol && TradingLedgerAccounting.Active(order)))
                     {
                         continue;
                     }
 
-                    var position = ledger.Positions.SingleOrDefault(item => item.Symbol == symbol && item.Quantity > 0);
-                    var decision = TradingStrategy.Evaluate(state.Rules, book, position, now);
+                    var decision = Evaluate(state.Rules, book, position, now);
+                    if (
+                        adaptive is not null
+                        && decision.Action == TradingAction.Buy
+                        && decision.StopPrice is not null
+                        && scan is not null
+                        && scan.EntrySymbols.Contains(symbol, StringComparer.Ordinal)
+                    )
+                    {
+                        var sampleKey =
+                            state.RulesHash
+                            + ":"
+                            + symbol
+                            + ":"
+                            + decision.Candle.ToString(CultureInfo.InvariantCulture)
+                            + ":"
+                            + decision.StrategyVersion;
+                        if (
+                            !state.Shadows.Any(sample => sample.Key == sampleKey)
+                            && state.Shadows.Count(sample =>
+                                sample.State is TradingShadowState.Waiting or TradingShadowState.Open
+                            ) < 8
+                        )
+                        {
+                            state = await this.Save(
+                                state,
+                                state with
+                                {
+                                    Shadows = state
+                                        .Shadows.Append(
+                                            TradingShadowProtocol.Capture(sampleKey, state.Rules, book, decision, now)
+                                        )
+                                        .ToArray(),
+                                },
+                                cancellationToken
+                            );
+                        }
+                    }
+
                     if (decision.Action == TradingAction.Sell)
                     {
                         decision = decision with { Candle = now.ToUnixTimeSeconds() / 300 * 300 - 300 };
@@ -169,6 +243,15 @@ public sealed class TradingEngine(
 
                     if (decision.Action == TradingAction.Buy)
                     {
+                        if (scan is not null && !scan.EntrySymbols.Contains(symbol, StringComparer.Ordinal))
+                        {
+                            decision = decision with
+                            {
+                                Action = TradingAction.Wait,
+                                Reason = "Owned market monitored for exits only; outside the entry universe.",
+                            };
+                        }
+
                         var equity = TradingLedgerAccounting.Equity(ledger, books, now, state.Rules.MaxDataAgeSeconds);
                         var loss = DailyResult(ledger, equity, now);
                         var slots = ledger
@@ -181,7 +264,7 @@ public sealed class TradingEngine(
                             .Orders.Where(order => order.Symbol == symbol)
                             .OrderBy(order => order.CreatedAt)
                             .LastOrDefault();
-                        if (loss is null || loss <= -state.Rules.DailyLossThb)
+                        if (loss is null || loss <= -LossCap(state))
                         {
                             decision = decision with
                             {
@@ -192,11 +275,14 @@ public sealed class TradingEngine(
                         else if (
                             stale
                             || slots >= state.Rules.MaxPositions
-                            || ledger.Positions.Sum(item => item.CostThb)
-                                + TradingLedgerAccounting.ReservedCash(ledger)
-                                + state.Rules.PerOrderThb
-                                > state.Rules.AllocatedThb
-                            || ledger.CashThb - TradingLedgerAccounting.ReservedCash(ledger) < state.Rules.PerOrderThb
+                            || adaptive is null
+                                && ledger.Positions.Sum(item => item.CostThb)
+                                    + TradingLedgerAccounting.ReservedCash(ledger)
+                                    + state.Rules.PerOrderThb
+                                    > state.Rules.AllocatedThb
+                            || adaptive is null
+                                && ledger.CashThb - TradingLedgerAccounting.ReservedCash(ledger)
+                                    < state.Rules.PerOrderThb
                             || previous is not null
                                 && now - (previous.LastInspectedAt ?? previous.CreatedAt)
                                     < TimeSpan.FromMinutes(state.Rules.CooldownMinutes)
@@ -208,6 +294,32 @@ public sealed class TradingEngine(
                                 Reason = "Capacity, available cash, cooldown or feed guard",
                             };
                         }
+                    }
+
+                    if (state.Autonomy is { } status)
+                    {
+                        state = await this.Save(
+                            state,
+                            state with
+                            {
+                                Autonomy = status with
+                                {
+                                    Markets = status
+                                        .Markets.Where(item => item.Symbol != symbol)
+                                        .Append(
+                                            new TradingScanObservation(
+                                                symbol,
+                                                now,
+                                                decision.Reason,
+                                                decision.StrategyVersion,
+                                                AdaptiveTradingStrategy.OpportunityScore(state.Rules, book, decision)
+                                            )
+                                        )
+                                        .ToArray(),
+                                },
+                            },
+                            cancellationToken
+                        );
                     }
 
                     var key = Key(state, symbol, decision);
@@ -231,22 +343,86 @@ public sealed class TradingEngine(
                         var side = decision.Action == TradingAction.Buy ? TradeSide.Buy : TradeSide.Sell;
                         var limit = Floor(
                             (
-                                side == TradeSide.Buy
-                                    ? book.Ask * (1 + state.Rules.SlippageBps / 10000m)
-                                    : book.Bid * (1 - state.Rules.SlippageBps / 10000m)
+                                side == TradeSide.Buy && decision.EntryLimit is { } restingLimit ? restingLimit
+                                : side == TradeSide.Buy ? book.Ask * (1 + state.Rules.SlippageBps / 10000m)
+                                : book.Bid * (1 - state.Rules.SlippageBps / 10000m)
                             ),
                             book.PriceStep
                         );
+                        var intentId = new Guid(SHA256.HashData(Encoding.UTF8.GetBytes(key)).AsSpan(0, 16));
+                        RiskSizingSnapshot? sizing = null;
+                        if (adaptive is not null && side == TradeSide.Buy)
+                        {
+                            sizing = await (
+                                adaptiveRisk
+                                ?? throw new InvalidOperationException("Autonomous risk service is unavailable.")
+                            ).Size(
+                                intentId,
+                                state.Rules,
+                                book,
+                                limit,
+                                new RiskSignal(
+                                    decision.StopPrice,
+                                    decision.StopCandle,
+                                    DateTimeOffset.FromUnixTimeSeconds(decision.Candle + 300),
+                                    decision.StrategyVersion ?? decision.Reason
+                                ),
+                                decision.EntryLimit is not null,
+                                cancellationToken,
+                                live
+                                    ? null
+                                    : PaperCapitalSnapshot.Create(
+                                        account.AccountKey,
+                                        state.Paper,
+                                        books,
+                                        state.Rules,
+                                        now
+                                    )
+                            );
+                            if (!sizing.Decision.Accepted)
+                            {
+                                next = next with
+                                {
+                                    Autonomy = next.Autonomy is { } rejectedStatus
+                                        ? rejectedStatus with
+                                        {
+                                            Markets = rejectedStatus
+                                                .Markets.Select(item =>
+                                                    item.Symbol == symbol
+                                                        ? item with
+                                                        {
+                                                            Reason = sizing.Decision.Explanation,
+                                                        }
+                                                        : item
+                                                )
+                                                .ToArray(),
+                                        }
+                                        : null,
+                                    Decisions = state
+                                        .Decisions.Append(
+                                            record with
+                                            {
+                                                Action = TradingAction.Wait,
+                                                Reason = sizing.Decision.Explanation,
+                                            }
+                                        )
+                                        .ToArray(),
+                                };
+                                state = await this.Save(state, next, cancellationToken);
+                                continue;
+                            }
+                        }
+
                         var amount =
                             side == TradeSide.Buy
-                                ? Floor(state.Rules.PerOrderThb, Scale(book.QuoteScale))
+                                ? Floor(sizing?.Decision.Amount ?? state.Rules.PerOrderThb, Scale(book.QuoteScale))
                                 : Floor(
                                     Math.Min(
                                         (
                                             position
                                             ?? throw new InvalidDataException("Exit requires an owned position.")
                                         ).Quantity,
-                                        state.Rules.PerOrderThb / limit
+                                        adaptive is not null ? position.Quantity : state.Rules.PerOrderThb / limit
                                     ),
                                     Scale(book.BaseScale)
                                 );
@@ -256,10 +432,13 @@ public sealed class TradingEngine(
                             book.PriceStep,
                             book.PriceScale,
                             side == TradeSide.Buy ? book.QuoteScale : book.BaseScale,
-                            book.Enabled
+                            side == TradeSide.Sell && adaptive is not null
+                                ? book.SellEnabled ?? book.Enabled
+                                : book.Enabled
                         );
                         if (
                             side == TradeSide.Sell
+                            && adaptive is null
                             && position is not null
                             && position.Quantity * limit > state.Rules.PerOrderThb
                             && (position.Quantity - amount) * limit < book.MinimumNotional
@@ -269,7 +448,7 @@ public sealed class TradingEngine(
                         }
 
                         var intent = new TradingIntent(
-                            new Guid(SHA256.HashData(Encoding.UTF8.GetBytes(key)).AsSpan(0, 16)),
+                            intentId,
                             symbol,
                             side,
                             amount,
@@ -279,7 +458,8 @@ public sealed class TradingEngine(
                             decision.Candle,
                             state.RulesHash,
                             decision.Reason,
-                            "pending"
+                            "pending",
+                            Sizing: sizing
                         );
                         try
                         {
@@ -313,7 +493,45 @@ public sealed class TradingEngine(
                 }
                 else
                 {
-                    await this.FillPaper(state, books, now, cancellationToken);
+                    state = await this.FillPaper(state, books, now, cancellationToken);
+                }
+
+                if (state.Autonomy is { } finalStatus)
+                {
+                    var ledger = live ? state.Live : state.Paper;
+                    var active = ledger.Orders.Count(TradingLedgerAccounting.Active);
+                    var activity =
+                        state.Fault
+                        ?? finalStatus.Capital?.Blocker
+                        ?? (
+                            active > 0 ? $"Monitoring {active} open order(s); fills are confirmed with the broker."
+                            : ledger.Positions.Any(position => position.Quantity > 0)
+                                ? "Monitoring positions and evaluating exit conditions."
+                            : finalStatus.UniverseAt is null ? finalStatus.Activity
+                            : "Scanning markets; no entry has passed signal, cost and capital checks yet."
+                        );
+                    await this.Save(
+                        state,
+                        state with
+                        {
+                            Autonomy = finalStatus with
+                            {
+                                Activity = activity,
+                                ObservedAt = time.GetUtcNow(),
+                                NextCheckAt = time.GetUtcNow().AddSeconds(10),
+                                Capital = live
+                                    ? finalStatus.Capital
+                                    : PaperCapitalSnapshot.Create(
+                                        account.AccountKey,
+                                        state.Paper,
+                                        books,
+                                        state.Rules,
+                                        now
+                                    ),
+                            },
+                        },
+                        cancellationToken
+                    );
                 }
             }
             catch (Exception error)
@@ -339,6 +557,29 @@ public sealed class TradingEngine(
         {
             gate.Release();
         }
+    }
+
+    private static string[] RankMarkets(TradingState state, IReadOnlyList<TradingBook> books, DateTimeOffset now)
+    {
+        var ledger = state.Mode == TradingMode.AutoLive ? state.Live : state.Paper;
+        return books
+            .Select(book =>
+            {
+                var holding = ledger.Positions.SingleOrDefault(position =>
+                    position.Symbol == book.Symbol && position.Quantity > 0
+                );
+                var decision = Evaluate(state.Rules, book, holding, now);
+                return (
+                    book.Symbol,
+                    Exit: decision.Action == TradingAction.Sell,
+                    Score: AdaptiveTradingStrategy.OpportunityScore(state.Rules, book, decision)
+                );
+            })
+            .OrderByDescending(item => item.Exit)
+            .ThenByDescending(item => item.Score)
+            .ThenBy(item => item.Symbol, StringComparer.Ordinal)
+            .Select(item => item.Symbol)
+            .ToArray();
     }
 
     private async Task<TradingState> Reconcile(
@@ -399,6 +640,32 @@ public sealed class TradingEngine(
                 }
 
                 ledger = TradingLedgerAccounting.Apply(ledger, fill);
+                if (fill.Side == TradeSide.Buy && original.Sizing is { } sizing)
+                {
+                    ledger = ledger with
+                    {
+                        Positions = ledger
+                            .Positions.Select(position =>
+                                position.Symbol == original.Symbol
+                                    ? position with
+                                    {
+                                        StopPrice = sizing.Signal.StopPrice,
+                                        TargetPrice =
+                                            original.LimitPrice
+                                            + decimal.Max(
+                                                sizing.Market.Atr * 2,
+                                                original.LimitPrice * state.Rules.TakeProfitBps / 10000m
+                                            ),
+                                        TrailingDistance = decimal.Max(
+                                            sizing.Market.Atr,
+                                            original.LimitPrice * state.Rules.TrailingStopBps / 10000m
+                                        ),
+                                    }
+                                    : position
+                            )
+                            .ToArray(),
+                    };
+                }
             }
 
             var fills = ledger.Fills.Where(fill => fill.IntentId == original.Id).ToArray();
@@ -426,7 +693,24 @@ public sealed class TradingEngine(
                 intent = intent with { CancellationState = intent.CancellationState is null ? null : "confirmed" };
             }
 
-            state = await this.Save(state, state with { Live = Replace(ledger, intent) }, cancellationToken);
+            var accountChanged = ledger.Fills.Count != state.Live.Fills.Count || intent.Status != original.Status;
+            var notices = ledger
+                .Fills.Where(fill => !state.Live.Fills.Any(previous => previous.BrokerFillId == fill.BrokerFillId))
+                .Select(fill => TradingFillNotice.Create(fill, inspectedAt))
+                .Where(notice => !state.Alerts.Any(alert => alert.Key == notice.Key));
+            state = await this.Save(
+                state,
+                state with
+                {
+                    Live = Replace(ledger, intent),
+                    Alerts = state.Alerts.Concat(notices).ToArray(),
+                },
+                cancellationToken
+            );
+            if (accountChanged)
+            {
+                adaptiveRisk?.Invalidate();
+            }
         }
 
         return state;
@@ -447,6 +731,22 @@ public sealed class TradingEngine(
             }
 
             var book = books.SingleOrDefault(item => item.Symbol == original.Symbol);
+            if (
+                original.Status == "pending"
+                && time.GetUtcNow() - original.CreatedAt >= TimeSpan.FromMinutes(state.Rules.OrderLifetimeMinutes)
+            )
+            {
+                state = await this.Save(
+                    state,
+                    state with
+                    {
+                        Live = Replace(state.Live, original with { Status = "cancelled" }),
+                    },
+                    cancellationToken
+                );
+                continue;
+            }
+
             if (original.Status != "pending")
             {
                 var holding = state.Live.Positions.SingleOrDefault(position =>
@@ -455,8 +755,10 @@ public sealed class TradingEngine(
                 var exitNeeded =
                     original.Side == TradeSide.Buy
                     && book is not null
-                    && holding is not null
-                    && TradingStrategy.Evaluate(state.Rules, book, holding, now).Action == TradingAction.Sell;
+                    && (
+                        (holding is not null && Evaluate(state.Rules, book, holding, now).Action == TradingAction.Sell)
+                        || original.Sizing?.Signal.StopPrice is { } stop && book.Bid <= stop
+                    );
                 if (
                     original.Status is "submitted" or "partial"
                     && original.CancellationState is null
@@ -513,7 +815,7 @@ public sealed class TradingEngine(
 
             if (
                 book is null
-                || !Fresh(book, state.Rules, now)
+                || !Fresh(book, state.Rules, now, original.Side != TradeSide.Sell)
                 || original.RulesHash != state.RulesHash
                 || state.Live.Orders.Any(order =>
                     order.Status is "submitting" or "unknown" || order.CancellationState is "claimed" or "unknown"
@@ -526,7 +828,7 @@ public sealed class TradingEngine(
             var market = await exchange.Market(original.Symbol, original.Side, cancellationToken);
             OrderRules.Validate(Proposal(original), market);
             var balances = await exchange.Balances(cancellationToken);
-            if (!Fresh(book, state.Rules, time.GetUtcNow()))
+            if (!Fresh(book, state.Rules, time.GetUtcNow(), original.Side != TradeSide.Sell))
             {
                 return state;
             }
@@ -550,7 +852,7 @@ public sealed class TradingEngine(
                     state.Live,
                     TradingLedgerAccounting.Equity(state.Live, books, time.GetUtcNow(), state.Rules.MaxDataAgeSeconds),
                     time.GetUtcNow()
-                ) <= -state.Rules.DailyLossThb
+                ) <= -LossCap(state)
             )
             {
                 state = await this.Save(
@@ -565,6 +867,40 @@ public sealed class TradingEngine(
             }
 
             var currency = original.Side == TradeSide.Buy ? "THB" : original.Symbol;
+            if (original.Side == TradeSide.Buy && state.Rules.Adaptive is not null)
+            {
+                var retained = original.Sizing;
+                var current =
+                    retained is not null
+                    && retained.PolicyHash == state.RulesHash
+                    && retained.AccountKey == account.AccountKey
+                        ? await (
+                            adaptiveRisk
+                            ?? throw new InvalidOperationException("Autonomous risk service is unavailable.")
+                        ).Size(
+                            original.Id,
+                            state.Rules,
+                            book,
+                            original.LimitPrice,
+                            retained.Signal,
+                            retained.Market.Resting,
+                            cancellationToken
+                        )
+                        : null;
+                if (current is null || !current.Decision.Accepted || current.Decision.Amount < original.Amount)
+                {
+                    state = await this.Save(
+                        state,
+                        state with
+                        {
+                            Live = Replace(state.Live, original with { Status = "cancelled" }),
+                        },
+                        cancellationToken
+                    );
+                    continue;
+                }
+            }
+
             var available = balances.SingleOrDefault(balance => balance.Symbol == currency)?.Available;
             var reserved = state
                 .Live.Orders.Where(order =>
@@ -576,6 +912,7 @@ public sealed class TradingEngine(
                 || available < original.Amount
                 || original.Side == TradeSide.Buy && state.Live.CashThb - reserved < original.Amount
                 || original.Side == TradeSide.Buy
+                    && state.Rules.Adaptive is null
                     && state.Live.Positions.Sum(position => position.CostThb) + reserved + original.Amount
                         > state.Rules.AllocatedThb
                 || state.Live.Positions.Any(position =>
@@ -624,6 +961,7 @@ public sealed class TradingEngine(
                 intent = intent with { Status = "unknown", LastInspectedAt = now };
             }
 
+            adaptiveRisk?.Invalidate();
             var next = state with { Live = Replace(state.Live, intent) };
             if (intent.Status == "unknown")
             {
@@ -653,7 +991,11 @@ public sealed class TradingEngine(
             }
 
             var book = books.SingleOrDefault(book => book.Symbol == order.Symbol);
-            if (book is null || !Fresh(book, state.Rules, now) || book.ObservedAt <= order.LastFillObservation)
+            if (
+                book is null
+                || !Fresh(book, state.Rules, now, order.Side != TradeSide.Sell)
+                || book.ObservedAt <= order.LastFillObservation
+            )
             {
                 continue;
             }
@@ -664,7 +1006,7 @@ public sealed class TradingEngine(
             if (
                 order.Side == TradeSide.Buy
                 && holding is not null
-                && TradingStrategy.Evaluate(state.Rules, book, holding, now).Action == TradingAction.Sell
+                && Evaluate(state.Rules, book, holding, now).Action == TradingAction.Sell
             )
             {
                 ledger = Replace(ledger, order with { Status = "cancelled", LastInspectedAt = now });
@@ -700,6 +1042,33 @@ public sealed class TradingEngine(
                 now
             );
             ledger = TradingLedgerAccounting.Apply(ledger, fill);
+            if (order.Side == TradeSide.Buy && order.Sizing is { } sizing)
+            {
+                ledger = ledger with
+                {
+                    Positions = ledger
+                        .Positions.Select(position =>
+                            position.Symbol == order.Symbol
+                                ? position with
+                                {
+                                    StopPrice = sizing.Signal.StopPrice,
+                                    TargetPrice =
+                                        order.LimitPrice
+                                        + decimal.Max(
+                                            sizing.Market.Atr * 2,
+                                            order.LimitPrice * state.Rules.TakeProfitBps / 10000m
+                                        ),
+                                    TrailingDistance = decimal.Max(
+                                        sizing.Market.Atr,
+                                        order.LimitPrice * state.Rules.TrailingStopBps / 10000m
+                                    ),
+                                }
+                                : position
+                        )
+                        .ToArray(),
+                };
+            }
+
             var remaining =
                 order.Remaining - (order.Side == TradeSide.Buy ? execution.GrossThb : execution.BaseQuantity);
             var dust = order.Side == TradeSide.Buy ? 0.01m : 0m;
@@ -731,7 +1100,7 @@ public sealed class TradingEngine(
             .Positions.Select(position =>
             {
                 var book = books.SingleOrDefault(book => book.Symbol == position.Symbol);
-                return book is not null && Fresh(book, rules, now)
+                return book is not null && Fresh(book, rules, now, false)
                     ? position with
                     {
                         PeakBid = Math.Max(position.PeakBid, book.Bid),
@@ -765,8 +1134,8 @@ public sealed class TradingEngine(
         };
     }
 
-    private static bool Fresh(TradingBook book, TradingRuleSet rules, DateTimeOffset now) =>
-        book.Enabled
+    private static bool Fresh(TradingBook book, TradingRuleSet rules, DateTimeOffset now, bool entry = true) =>
+        (rules.Adaptive is not null && !entry ? book.SellEnabled ?? book.Enabled : book.Enabled)
         && book.Bid > 0
         && book.Ask >= book.Bid
         && book.PriceStep > 0
@@ -775,7 +1144,7 @@ public sealed class TradingEngine(
         && book.PriceScale is >= 0 and <= 18
         && book.ObservedAt <= now
         && now - book.ObservedAt <= TimeSpan.FromSeconds(rules.MaxDataAgeSeconds)
-        && (book.Ask - book.Bid) / book.Bid * 10000m <= rules.MaxSpreadBps;
+        && (rules.Adaptive is not null && !entry || (book.Ask - book.Bid) / book.Bid * 10000m <= rules.MaxSpreadBps);
 
     private static decimal? DailyResult(TradingLedger ledger, decimal? equity, DateTimeOffset now)
     {
@@ -796,6 +1165,52 @@ public sealed class TradingEngine(
                 + equity
                 - ledger.CashThb
                 - ledger.Positions.Sum(position => position.CostThb);
+    }
+
+    private static decimal LossCap(TradingState state) =>
+        state.Rules.Adaptive is { } policy
+            ? (
+                state.Mode == TradingMode.Paper
+                    ? (state.Paper.Equity.Count > 0 ? state.Paper.Equity[^1].EquityThb : null) ?? state.Paper.FundingThb
+                    : state.Autonomy?.Capital?.EquityThb ?? 0
+            ) * policy.DailyLossFraction
+            : state.Rules.DailyLossThb;
+
+    private static TradingDecision Evaluate(
+        TradingRuleSet rules,
+        TradingBook book,
+        TradingHolding? holding,
+        DateTimeOffset now
+    ) =>
+        rules.Adaptive is null
+            ? TradingStrategy.Evaluate(rules, book, holding, now)
+            : AdaptiveTradingStrategy.Evaluate(rules, book, holding, now);
+
+    private static TradingState ApplyFunding(TradingState state, CapitalReadResult capital)
+    {
+        if (state.Mode != TradingMode.AutoLive)
+        {
+            return state;
+        }
+
+        var unseen = capital
+            .Evidence.CashFlows.Where(flow => !state.ObservedFundingFlows.Contains(flow.Id, StringComparer.Ordinal))
+            .ToArray();
+        var adjustment = unseen
+            .Where(flow => flow.Symbol == "THB")
+            .Sum(flow => flow.Kind == CashFlowKind.Deposit ? flow.Quantity : -flow.Quantity);
+        return state with
+        {
+            Live = state.Live with
+            {
+                CashThb = state.Live.CashThb + adjustment,
+                FundingThb = state.Live.FundingThb + adjustment,
+            },
+            ObservedFundingFlows = state
+                .ObservedFundingFlows.Concat(unseen.Select(flow => flow.Id))
+                .Distinct(StringComparer.Ordinal)
+                .ToArray(),
+        };
     }
 
     private static TradingLedger Replace(TradingLedger ledger, TradingIntent intent) =>

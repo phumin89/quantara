@@ -176,10 +176,27 @@ public sealed class SqlTradingStore : ITradingStore
         }
 
         this.Validate(previous);
+        if (
+            state.Mode == TradingMode.AutoLive
+            && state.Live.Orders.Any(order =>
+                order.Status == "submitting"
+                && !previous.Live.Orders.Any(old => old.Id == order.Id && old.Status == "submitting")
+            )
+        )
+        {
+            await using var uncertain = new SqlCommand(
+                "IF EXISTS(SELECT 1 FROM dbo.OrderProposals WITH(UPDLOCK,HOLDLOCK) WHERE AccountKey=@account AND State IN ('Submitting','Unknown')) THROW 50000,'Manual submission requires reconciliation before autonomous submission.',1;",
+                connection,
+                transaction
+            );
+            this.Account(uncertain);
+            await uncertain.ExecuteNonQueryAsync(cancellationToken);
+        }
+
         if (state.Mode == TradingMode.AutoLive && previous.Mode != TradingMode.AutoLive)
         {
             await using var pending = new SqlCommand(
-                "IF EXISTS(SELECT 1 FROM dbo.OrderProposals WITH(UPDLOCK,HOLDLOCK) WHERE AccountKey=@account AND JSON_VALUE(Payload,'$.Sizing.PolicyHash') IS NOT NULL AND (State IN ('Submitting','Unknown','Submitted','PartiallyFilled') OR State='Pending' AND ExpiresAt>@now)) THROW 50000,'Complete adaptive manual orders before enabling Auto Trading.',1;",
+                "IF EXISTS(SELECT 1 FROM dbo.OrderProposals WITH(UPDLOCK,HOLDLOCK) WHERE AccountKey=@account AND (State IN ('Submitting','Unknown') OR JSON_VALUE(Payload,'$.Sizing.PolicyHash') IS NOT NULL AND (State IN ('Submitted','PartiallyFilled') OR State='Pending' AND ExpiresAt>@now))) THROW 50000,'Reconcile manual orders before enabling Auto Trading.',1;",
                 connection,
                 transaction
             );
@@ -355,6 +372,8 @@ public sealed class SqlTradingStore : ITradingStore
                     || intent.Candle != old.Candle
                     || intent.RulesHash != old.RulesHash
                     || intent.Reason != old.Reason
+                    || JsonSerializer.Serialize(intent.Sizing, SqlTradingStore.jsonOptions)
+                        != JsonSerializer.Serialize(old.Sizing, SqlTradingStore.jsonOptions)
                 )
             )
             {

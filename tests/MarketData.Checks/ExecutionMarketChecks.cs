@@ -47,6 +47,7 @@ public sealed class ExecutionMarketChecks : HttpMessageHandler
             "Explicit outside-feed market was omitted."
         );
         Check(result.RootElement.GetProperty("errors").GetArrayLength() == 0, "Valid execution evidence failed.");
+        Check(!near.TryGetProperty("sellEnabled", out _), "Default market contracts retain their legacy shape.");
         var bars = near.GetProperty("bars");
         var boundary = handler
             .requests.First(uri => uri.AbsolutePath.EndsWith("history", StringComparison.Ordinal))
@@ -75,6 +76,16 @@ public sealed class ExecutionMarketChecks : HttpMessageHandler
             handler.requests.Count(uri => uri.AbsolutePath.EndsWith("history", StringComparison.Ordinal)) == 2
                 && handler.requests.Count(uri => uri.AbsolutePath.EndsWith("depth", StringComparison.Ordinal)) == 4,
             "Completed history should be cached by candle slot while every order book stays fresh."
+        );
+
+        using var quotesOnly = JsonDocument.Parse(
+            await reader.Read(["BTC"], CancellationToken.None, includeHistory: false)
+        );
+        Check(
+            quotesOnly.RootElement.GetProperty("markets")[0].GetProperty("bars").GetArrayLength() == 0
+                && quotesOnly.RootElement.GetProperty("markets")[0].GetProperty("sellEnabled").GetBoolean()
+                && handler.requests.Count(uri => uri.AbsolutePath.EndsWith("history", StringComparison.Ordinal)) == 2,
+            "Exit quotes and account valuation must not wait for candle history."
         );
 
         foreach (

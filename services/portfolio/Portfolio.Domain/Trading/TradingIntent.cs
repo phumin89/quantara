@@ -15,5 +15,6 @@ public sealed record TradingIntent(
     string? BrokerOrderId = null,
     DateTimeOffset? LastFillObservation = null,
     string? CancellationState = null,
-    DateTimeOffset? LastInspectedAt = null
+    DateTimeOffset? LastInspectedAt = null,
+    Quantara.Portfolio.Domain.Risk.RiskSizingSnapshot? Sizing = null
 );

@@ -7,7 +7,8 @@ public sealed class ApproveOrderHandler(
     IOrderStore store,
     IOrderBroker broker,
     TimeProvider time,
-    IRiskSizingService? risk = null
+    IRiskSizingService? risk = null,
+    IReadOnlyTradingStore? trading = null
 ) : ICommandHandler<ApproveOrderCommand, OrderView>
 {
     public async ValueTask<OrderView> Handle(ApproveOrderCommand command, CancellationToken cancellationToken)
@@ -28,6 +29,16 @@ public sealed class ApproveOrderHandler(
         if (time.GetUtcNow() >= proposal.ExpiresAt)
         {
             throw new OrderValidationException("Approval expired. Create and review a new proposal.");
+        }
+
+        if (
+            trading is not null
+            && (await trading.Read(cancellationToken)).Mode == Quantara.Portfolio.Domain.Trading.TradingMode.AutoLive
+        )
+        {
+            throw new OrderValidationException(
+                "Disable Auto Trading before submitting a separately reviewed manual order."
+            );
         }
 
         var market = await broker.Market(proposal.Symbol, proposal.Side, cancellationToken);

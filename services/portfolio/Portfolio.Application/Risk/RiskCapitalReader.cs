@@ -17,15 +17,21 @@ public sealed class RiskCapitalReader(
         string? candidate,
         Guid? excludeProposal,
         RiskPolicy policy,
-        CancellationToken cancellationToken
+        CancellationToken cancellationToken,
+        RiskAccountEvidence? observed = null,
+        Guid? excludeEngineIntent = null,
+        IReadOnlyList<TradingBook>? observedMarkets = null,
+        bool valuationOnly = false
     )
     {
-        var evidence = await reader.Read(cancellationToken);
+        var evidence = observed ?? await reader.Read(cancellationToken);
         var now = time.GetUtcNow();
         var local = (await orders.Exposure(now, cancellationToken))
             .Where(order => order.Id != excludeProposal)
             .ToArray();
-        var autonomous = (await trading.Read(cancellationToken)).Live.Orders;
+        var autonomous = (await trading.Read(cancellationToken))
+            .Live.Orders.Where(order => order.Id != excludeEngineIntent)
+            .ToArray();
         var pending = local.Where(order => order.State == OrderState.Pending && order.ExpiresAt > now).ToArray();
         var pendingEngine = autonomous.Where(order => order.Status == "pending").ToArray();
         var balances = evidence.Balances;
@@ -53,9 +59,20 @@ public sealed class RiskCapitalReader(
             .Distinct(StringComparer.Ordinal)
             .ToArray();
         var books = new List<TradingBook>();
-        foreach (var chunk in symbols.Chunk(16))
+        if (observedMarkets is not null)
         {
-            books.AddRange(await markets.Read(chunk, cancellationToken));
+            books.AddRange(observedMarkets.Where(book => symbols.Contains(book.Symbol, StringComparer.Ordinal)));
+        }
+        else
+        {
+            foreach (var chunk in symbols.Chunk(16))
+            {
+                books.AddRange(
+                    valuationOnly
+                        ? await markets.ReadValuations(chunk, cancellationToken)
+                        : await markets.Read(chunk, cancellationToken)
+                );
+            }
         }
 
         if (

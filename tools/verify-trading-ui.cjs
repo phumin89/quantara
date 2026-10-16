@@ -404,7 +404,48 @@ async function verifyBrowser() {
           ...current,
           mode: 'paper',
           rules: body.rules,
-          rulesHash: 'saved-fixture-hash',
+          rulesHash:
+            body.rules.version === 'adaptive-intraday-v1'
+              ? 'adaptive-fixture-hash'
+              : 'saved-fixture-hash',
+          autonomy: body.rules.adaptive
+            ? {
+                observedAt: '2026-10-16T04:00:00Z',
+                universeAt: '2026-10-16T04:00:00Z',
+                totalMarkets: 120,
+                eligibleMarkets: 115,
+                checkedMarkets: 64,
+                activity:
+                  'Scanning markets; monitoring an ETH pullback candidate.',
+                nextCheckAt: '2026-10-16T04:00:10Z',
+                capital: {
+                  observedAt: '2026-10-16T04:00:00Z',
+                  availableThb: '5000',
+                  equityThb: '5000',
+                  exposureThb: '0',
+                  reservedThb: '0',
+                  blocker: null,
+                },
+                candidates: [
+                  {
+                    symbol: 'ETH',
+                    at: '2026-10-16T04:00:00Z',
+                    reason:
+                      'Waiting for support; next completed candle required.',
+                    strategyVersion: 'pullback-v1',
+                  },
+                ],
+                dailyProfitTargetThb: '500',
+                realizedNetTodayThb: '12.5',
+                opportunityReview: {
+                  protocol: 'observed-book-v1',
+                  sampleLimit: 8,
+                  assumptions:
+                    'Sampled hypothetical books and fees. Separate from actual account profit.',
+                  days: [],
+                },
+              }
+            : null,
         };
       else if (path.endsWith('/activate'))
         current = {
@@ -471,7 +512,7 @@ async function verifyBrowser() {
     await page.getByRole('button', { name: 'Close trading settings' }).click();
     assert.equal(
       await page
-        .getByRole('button', { name: 'Review live mandate' })
+        .getByRole('button', { name: 'Set up and review', exact: true })
         .isDisabled(),
       true,
     );
@@ -486,7 +527,7 @@ async function verifyBrowser() {
     );
     await page.getByRole('button', { name: 'Close trading settings' }).click();
     await page
-      .getByRole('button', { name: 'Review live mandate' })
+      .getByRole('button', { name: 'Set up and review', exact: true })
       .waitFor({ state: 'visible' });
     await page.waitForFunction(
       () =>
@@ -498,7 +539,24 @@ async function verifyBrowser() {
       Object.keys(rules).sort(),
     );
     assert.equal(writes[0].body.rules.allocatedThb, 2000);
-    await page.getByRole('button', { name: 'Review live mandate' }).click();
+    await page
+      .getByRole('button', { name: 'Set up and review', exact: true })
+      .click();
+    await page
+      .getByText('Scope: all eligible Bitkub THB spot markets', {
+        exact: false,
+      })
+      .waitFor();
+    assert.equal(
+      writes.filter((write) => write.path.endsWith('/config')).length,
+      2,
+    );
+    assert.equal(
+      writes.filter((write) => write.path.endsWith('/activate')).length,
+      0,
+      'setup never activates',
+    );
+    assert.deepEqual(writes.at(-1).body.rules.symbols, []);
     const enable = page.getByRole('button', {
       name: 'Enable Auto Trading',
       exact: true,
@@ -521,7 +579,7 @@ async function verifyBrowser() {
     await page.getByText('Expiry must be within the next 30 days.').waitFor();
     await page.getByRole('button', { name: '7 days', exact: true }).click();
     assert.equal(await enable.isDisabled(), false);
-    assert.equal(writes.length, 1, 'choosing expiry never activates');
+    assert.equal(writes.length, 2, 'choosing expiry never activates');
     await page
       .getByLabel('Mandate expiry (your local time)')
       .fill('2026-10-17T12:00');
@@ -531,11 +589,11 @@ async function verifyBrowser() {
       button.click();
     });
     await page.getByText('AutoLive ON.', { exact: false }).waitFor();
-    assert.equal(writes.length, 2, 'double activation click sends one request');
-    assert.deepEqual(writes[1].body, {
+    assert.equal(writes.length, 3, 'double activation click sends one request');
+    assert.deepEqual(writes[2].body, {
       accountKey: current.accountKey,
-      rulesHash: 'saved-fixture-hash',
-      expiresAt: writes[1].body.expiresAt,
+      rulesHash: 'adaptive-fixture-hash',
+      expiresAt: writes[2].body.expiresAt,
       acknowledgement: 'enable-auto-trading',
     });
     current = { ...current, heartbeatAt: '2026-10-16T03:00:00Z' };
@@ -543,7 +601,7 @@ async function verifyBrowser() {
     await page.getByText('Live status is unknown.', { exact: false }).waitFor();
     assert.equal(
       writes.length,
-      2,
+      3,
       'stale worker status never grants or revokes authority',
     );
     current = { ...current, heartbeatAt: '2026-10-16T04:00:00Z' };
@@ -586,7 +644,16 @@ async function verifyBrowser() {
     await page
       .getByRole('button', { name: 'Trading settings', exact: true })
       .click();
-    await page.getByLabel('Allowed symbols', { exact: false }).waitFor();
+    assert.equal(
+      await page.getByLabel('Allowed symbols', { exact: false }).count(),
+      0,
+      'adaptive mode requires no fixed symbols',
+    );
+    await page
+      .locator('summary')
+      .filter({ hasText: 'Advanced settings' })
+      .click();
+    await page.getByLabel('Maximum exposure (%)', { exact: false }).waitFor();
     await page.screenshot({
       path: '.impeccable/review/trading-settings-phone.png',
       fullPage: true,
@@ -612,7 +679,7 @@ async function verifyBrowser() {
     );
     assert.equal(
       writes.length,
-      3,
+      4,
       'poll/reload/date changes never control trading',
     );
     unavailable = false;

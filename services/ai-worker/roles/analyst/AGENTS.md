@@ -1,5 +1,11 @@
 # Analyst role
 
+For AutoLive, use tradingPerformance as read-only evidence of the independent
+deterministic engine. Distinguish fresh verified strategy profit, account cash
+flows and sampled hypothetical opportunity returns. Diagnose candidate rejection
+reasons, cost and coverage gaps; propose experiments without modifying live rules
+or submitting orders. No benchmark or model assessment grants trading authority.
+
 Produce reproducible evidence for CEO tasks. Preserve source timestamps,
 account scope, pair, quote currency, units, fees, spread, slippage, funding,
 and assumptions. Keep unknown cost, profit, and incomplete history as unknown.

@@ -9,13 +9,17 @@ namespace Quantara.MarketData.Api.Controllers;
 public sealed class ExecutionMarketsController(IMediator mediator) : ControllerBase
 {
     [HttpGet]
-    public async Task<IActionResult> Get([FromQuery] string? symbols, CancellationToken cancellationToken)
+    public async Task<IActionResult> Get(
+        [FromQuery] string? symbols,
+        CancellationToken cancellationToken,
+        [FromQuery] bool includeHistory = true
+    )
     {
         try
         {
             var requested = symbols?.Split(',', StringSplitOptions.TrimEntries) ?? [];
             return this.Content(
-                await mediator.Send(new GetExecutionMarketsQuery(requested), cancellationToken),
+                await mediator.Send(new GetExecutionMarketsQuery(requested, includeHistory), cancellationToken),
                 "application/json"
             );
         }
@@ -24,4 +28,8 @@ public sealed class ExecutionMarketsController(IMediator mediator) : ControllerB
             return this.BadRequest(new { error = exception.Message });
         }
     }
+
+    [HttpGet("universe")]
+    public async Task<IActionResult> GetUniverse(CancellationToken cancellationToken) =>
+        this.Content(await mediator.Send(new GetExecutionUniverseQuery(), cancellationToken), "application/json");
 }

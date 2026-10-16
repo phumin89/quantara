@@ -19,7 +19,10 @@ public sealed class TradingWorker(TradingEngine engine, TradingReportDelivery re
         "Trading report delivery unavailable; uncertain notifications are not resent."
     );
 
-    protected override async Task ExecuteAsync(CancellationToken stoppingToken)
+    protected override Task ExecuteAsync(CancellationToken stoppingToken) =>
+        Task.WhenAll(this.RunEngine(stoppingToken), this.RunReports(stoppingToken));
+
+    private async Task RunEngine(CancellationToken stoppingToken)
     {
         while (!stoppingToken.IsCancellationRequested)
         {
@@ -32,6 +35,14 @@ public sealed class TradingWorker(TradingEngine engine, TradingReportDelivery re
                 TradingWorker.engineFailed(logger, null);
             }
 
+            await Task.Delay(TimeSpan.FromSeconds(10), stoppingToken);
+        }
+    }
+
+    private async Task RunReports(CancellationToken stoppingToken)
+    {
+        while (!stoppingToken.IsCancellationRequested)
+        {
             try
             {
                 await reports.Tick(stoppingToken);
@@ -41,7 +52,7 @@ public sealed class TradingWorker(TradingEngine engine, TradingReportDelivery re
                 TradingWorker.deliveryFailed(logger, null);
             }
 
-            await Task.Delay(TimeSpan.FromSeconds(10), stoppingToken);
+            await Task.Delay(TimeSpan.FromSeconds(30), stoppingToken);
         }
     }
 }

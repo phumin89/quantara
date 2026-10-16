@@ -56,6 +56,58 @@ export const tradingOverviewSchema = z.object({
   heartbeatAt: timestampSchema.nullable(),
   fault: z.string().nullable(),
   liveActivationAvailable: z.boolean(),
+  autonomy: z
+    .strictObject({
+      observedAt: timestampSchema,
+      universeAt: timestampSchema.nullable(),
+      totalMarkets: z.number().int().nonnegative(),
+      eligibleMarkets: z.number().int().nonnegative(),
+      checkedMarkets: z.number().int().nonnegative(),
+      activity: z.string().min(1),
+      nextCheckAt: timestampSchema.nullable(),
+      capital: z
+        .strictObject({
+          observedAt: timestampSchema,
+          availableThb: decimalSchema.nullable(),
+          equityThb: decimalSchema.nullable(),
+          exposureThb: decimalSchema.nullable(),
+          reservedThb: decimalSchema.nullable(),
+          blocker: z.string().nullable(),
+        })
+        .nullable(),
+      candidates: z.array(
+        z.strictObject({
+          symbol: z.string().min(1),
+          at: timestampSchema,
+          reason: z.string().min(1),
+          strategyVersion: z.string().nullable(),
+          score: decimalSchema.nullable().optional(),
+        }),
+      ),
+      dailyProfitTargetThb: decimalSchema,
+      opportunityReview: z
+        .strictObject({
+          protocol: z.literal('observed-book-v1'),
+          sampleLimit: z.number().int().min(1).max(8),
+          assumptions: z.string().min(1).max(1000),
+          days: z
+            .array(
+              z.strictObject({
+                date: z.iso.date(),
+                captured: z.number().int().nonnegative(),
+                closed: z.number().int().nonnegative(),
+                waiting: z.number().int().nonnegative(),
+                unknown: z.number().int().nonnegative(),
+                meanNetReturnFraction: z.number().nullable(),
+              }),
+            )
+            .max(7),
+        })
+        .optional(),
+      realizedNetTodayThb: decimalSchema.nullable(),
+    })
+    .nullable()
+    .optional(),
   paper: bookSchema,
   live: bookSchema,
   reports: z.array(
@@ -65,7 +117,7 @@ export const tradingOverviewSchema = z.object({
       revision: z.number().int().positive(),
       createdAt: timestampSchema,
       text: z.string(),
-      status: z.enum(['prepared', 'sent', 'uncertain', 'pending']),
+      status: z.enum(['prepared', 'sent', 'uncertain', 'pending', 'local']),
       startingEquityThb: decimalSchema.nullable(),
       endingEquityThb: decimalSchema.nullable(),
       realizedNetThb: decimalSchema.nullable(),

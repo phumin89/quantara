@@ -4,6 +4,7 @@ using Quantara.MarketData.Infrastructure;
 IntradaySignalChecks.Run();
 AdaptiveMarketChecks.Run();
 PublicTickerChecks.Run();
+await ExecutionUniverseChecks.Run();
 
 static void Assert(bool condition, string message)
 {

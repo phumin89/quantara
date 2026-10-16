@@ -36,12 +36,17 @@ public sealed record TradingRuleSet
 
     public int OrderLifetimeMinutes { get; init; } = 15;
 
+    public AdaptiveTradingPolicy? Adaptive { get; init; }
+
     public void Validate()
     {
         if (
-            this.Version != "ema20-50-breakout-v1"
+            this.Version is not ("ema20-50-breakout-v1" or "adaptive-intraday-v1")
+            || (this.Version == "adaptive-intraday-v1") != (this.Adaptive is not null)
             || this.Symbols is null
-            || this.Symbols.Length is < 1 or > 16
+            || this.Symbols.Length > 16
+            || this.Version == "ema20-50-breakout-v1" && this.Symbols.Length == 0
+            || this.Version == "adaptive-intraday-v1" && this.Symbols.Length != 0
             || this.Symbols.Any(symbol =>
                 string.IsNullOrEmpty(symbol)
                 || symbol.Length > 30
@@ -51,6 +56,19 @@ public sealed record TradingRuleSet
         )
         {
             throw new ArgumentException("Invalid trading rule symbols or version.");
+        }
+
+        this.Adaptive?.Validate();
+        if (
+            this.Adaptive is { } adaptive
+            && (
+                adaptive.Risk.EstimatedFeeRate != this.FeeBps / 10000m
+                || adaptive.Risk.MaximumSpreadFraction != this.MaxSpreadBps / 10000m
+                || adaptive.Risk.MaximumDataAgeSeconds != this.MaxDataAgeSeconds
+            )
+        )
+        {
+            throw new ArgumentException("Adaptive risk and execution fee, spread and freshness limits must match.");
         }
 
         if (

@@ -1,13 +1,19 @@
 using System.Globalization;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using Quantara.Portfolio.Domain;
+using Quantara.Portfolio.Domain.Risk;
 using Quantara.Portfolio.Domain.Trading;
 
 namespace Quantara.Portfolio.Application;
 
 public sealed class TradingOverviewProjection(IAccountContext account, TradingControlOptions options, TimeProvider time)
 {
-    private static readonly JsonSerializerOptions jsonOptions = new(JsonSerializerDefaults.Web);
+    private static readonly JsonSerializerOptions jsonOptions = new(JsonSerializerDefaults.Web)
+    {
+        Converters = { new JsonStringEnumConverter<RiskProfile>(JsonNamingPolicy.CamelCase, false) },
+        TypeInfoResolver = TradingJsonCompatibility.CreateResolver(),
+    };
 
     public string Serialize(TradingState state) =>
         JsonSerializer.Serialize(
@@ -31,6 +37,7 @@ public sealed class TradingOverviewProjection(IAccountContext account, TradingCo
                 state.EmergencyStopped,
                 state.HeartbeatAt,
                 state.Fault,
+                autonomy = Autonomy(state, time.GetUtcNow()),
                 liveActivationAvailable = options.LiveActivationAvailable
                     && !string.IsNullOrWhiteSpace(options.OwnerToken),
                 paper = Book(state.Paper, state.Rules.MaxDataAgeSeconds, time.GetUtcNow()),
@@ -44,6 +51,66 @@ public sealed class TradingOverviewProjection(IAccountContext account, TradingCo
         JsonSerializer.Serialize(new { reports = Reports(state) }, TradingOverviewProjection.jsonOptions);
 
     private static string Mode(TradingMode mode) => JsonNamingPolicy.CamelCase.ConvertName(mode.ToString());
+
+    private static object? Autonomy(TradingState state, DateTimeOffset now)
+    {
+        if (state.Rules.Adaptive is not { } policy || state.Autonomy is not { } status)
+        {
+            return null;
+        }
+
+        var today = now.ToOffset(TimeSpan.FromHours(7)).Date;
+        var ledger = state.Mode == TradingMode.Paper ? state.Paper : state.Live;
+        var sells = ledger
+            .Fills.Where(fill =>
+                fill.Side == TradeSide.Sell && fill.OccurredAt.ToOffset(TimeSpan.FromHours(7)).Date == today
+            )
+            .ToArray();
+        return new
+        {
+            status.ObservedAt,
+            status.UniverseAt,
+            status.TotalMarkets,
+            status.EligibleMarkets,
+            checkedMarkets = status.Markets.Count,
+            status.Activity,
+            status.NextCheckAt,
+            capital = status.Capital is not { } capital
+                ? null
+                : new
+                {
+                    capital.ObservedAt,
+                    availableThb = NullableDecimal(capital.SpendableThb),
+                    equityThb = NullableDecimal(capital.EquityThb),
+                    exposureThb = NullableDecimal(capital.ExposureThb),
+                    reservedThb = NullableDecimal(capital.ReservedThb),
+                    capital.Blocker,
+                },
+            candidates = status
+                .Markets.OrderByDescending(item => item.Score)
+                .ThenByDescending(item => item.At)
+                .Take(16)
+                .Select(item => new
+                {
+                    item.Symbol,
+                    item.At,
+                    item.Reason,
+                    item.StrategyVersion,
+                    score = NullableDecimal(item.Score),
+                }),
+            dailyProfitTargetThb = Decimal(policy.DailyProfitTargetThb),
+            opportunityReview = new
+            {
+                protocol = TradingShadowProtocol.Version,
+                sampleLimit = 8,
+                assumptions = "Sampled hypothetical entries using subsequent observed books, visible liquidity and fees. Budget is ten exchange minimum notionals per sample. Seven-day model window; not actual fills or missed account profit.",
+                days = TradingOpportunityReview.Days(state, now),
+            },
+            realizedNetTodayThb = sells.Any(fill => fill.RealizedNetThb is null)
+                ? null
+                : Decimal(sells.Sum(fill => fill.RealizedNetThb ?? 0)),
+        };
+    }
 
     private static string Decimal(decimal value) =>
         value.ToString("0.############################", CultureInfo.InvariantCulture);
@@ -66,6 +133,7 @@ public sealed class TradingOverviewProjection(IAccountContext account, TradingCo
                         status = report.Status switch
                         {
                             "sent" => "sent",
+                            "local" => "local",
                             "prepared" => "prepared",
                             "unconfigured" or "pending" => "pending",
                             _ => "uncertain",

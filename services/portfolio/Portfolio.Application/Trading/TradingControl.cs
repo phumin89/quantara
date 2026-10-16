@@ -11,7 +11,8 @@ public sealed class TradingControl(
     TradingControlOptions options,
     SemaphoreSlim gate,
     TimeProvider time,
-    IReadOnlyOrderStore? reviewedOrders = null
+    IReadOnlyOrderStore? reviewedOrders = null,
+    AutonomousRiskService? adaptiveRisk = null
 ) : ITradingControl
 {
     public async Task<TradingState> Configure(TradingRuleSet rules, CancellationToken cancellationToken)
@@ -39,7 +40,9 @@ public sealed class TradingControl(
                 state
                     .Paper.Positions.Concat(state.Live.Positions)
                     .Any(position =>
-                        position.Quantity > 0 && !rules.Symbols.Contains(position.Symbol, StringComparer.Ordinal)
+                        rules.Adaptive is null
+                        && position.Quantity > 0
+                        && !rules.Symbols.Contains(position.Symbol, StringComparer.Ordinal)
                     )
             )
             {
@@ -63,8 +66,12 @@ public sealed class TradingControl(
                     RulesHash = TradingRuleHash.Compute(rules),
                     Mode = state.Mode == TradingMode.AutoLive ? TradingMode.Stopped : state.Mode,
                     Mandate = state.Mandate is null ? null : state.Mandate with { RevokedAt = now },
-                    Paper = Resize(state.Paper, rules.AllocatedThb, now),
-                    Live = state.Live.FundingThb > 0 ? Resize(state.Live, rules.AllocatedThb, now) : state.Live,
+                    Paper = rules.Adaptive is null ? Resize(state.Paper, rules.AllocatedThb, now) : state.Paper,
+                    Live =
+                        rules.Adaptive is null && state.Live.FundingThb > 0
+                            ? Resize(state.Live, rules.AllocatedThb, now)
+                            : state.Live,
+                    Autonomy = null,
                 },
                 cancellationToken
             );
@@ -155,12 +162,19 @@ public sealed class TradingControl(
 
             if (
                 reviewedOrders is not null
-                && (await reviewedOrders.Exposure(now, cancellationToken)).Any(order => order.Sizing is not null)
+                && (await reviewedOrders.Exposure(now, cancellationToken)).Any(order =>
+                    order.Sizing is not null || order.State is OrderState.Submitting or OrderState.Unknown
+                )
             )
             {
                 throw new ArgumentException(
-                    "Complete or reject outstanding adaptive manual orders before enabling Auto Trading."
+                    "Reconcile uncertain manual submissions and complete adaptive manual orders before enabling Auto Trading."
                 );
+            }
+
+            if (state.Rules.Adaptive is not null)
+            {
+                return await this.ActivateAdaptive(state, expiresAt, cancellationToken);
             }
 
             var books = await markets.Read(state.Rules.Symbols, cancellationToken);
@@ -250,6 +264,83 @@ public sealed class TradingControl(
         {
             gate.Release();
         }
+    }
+
+    private async Task<TradingState> ActivateAdaptive(
+        TradingState state,
+        DateTimeOffset expiresAt,
+        CancellationToken cancellationToken
+    )
+    {
+        var service = adaptiveRisk ?? throw new InvalidOperationException("Autonomous risk service is unavailable.");
+        var universe = await markets.ReadUniverse(cancellationToken);
+        var capital = await service.Read(state.Rules, true, cancellationToken);
+        var now = time.GetUtcNow();
+        if (
+            expiresAt <= now
+            || universe.Error is not null
+            || universe.ObservedAt > now
+            || now - universe.ObservedAt > TimeSpan.FromSeconds(state.Rules.MaxDataAgeSeconds)
+            || capital.Snapshot.Blocker is not null
+            || capital.Snapshot.HasUncertainOrders
+            || capital.Snapshot.EquityThb is null or <= 0
+            || capital.Snapshot.SpendableThb is null
+            || capital.Snapshot.AccountKey != account.AccountKey
+        )
+        {
+            throw new ArgumentException(
+                capital.Snapshot.Blocker
+                    ?? "Fresh verified account capital and market universe are required before enabling."
+            );
+        }
+
+        if (
+            state.Live.Positions.Any(position =>
+                position.Quantity > 0
+                && (
+                    capital.Evidence.Balances.SingleOrDefault(balance => balance.Symbol == position.Symbol)?.Available
+                        is not decimal available
+                    || available < position.Quantity
+                )
+            )
+        )
+        {
+            throw new ArgumentException("Reconcile existing owned positions before enabling the new policy.");
+        }
+
+        var cash = capital.Evidence.Balances.Single(balance => balance.Symbol == "THB").Quantity;
+        var difference = cash - state.Live.CashThb;
+        var live = state.Live with
+        {
+            CashThb = cash,
+            FundingThb = state.Live.FundingThb + difference,
+            OpenedAt = state.Live.FundingThb == 0 ? now : state.Live.OpenedAt,
+        };
+        var policy = state.Rules.Adaptive ?? throw new InvalidOperationException("An adaptive policy is required.");
+        var eligible = universe.Symbols.Except(policy.ExcludedSymbols, StringComparer.Ordinal).Count();
+        return await this.Save(
+            state,
+            state with
+            {
+                Mode = TradingMode.AutoLive,
+                EmergencyStopped = false,
+                Fault = null,
+                Live = live,
+                Mandate = new TradingMandate(Guid.NewGuid(), account.AccountKey, state.RulesHash, now, expiresAt, null),
+                ObservedFundingFlows = capital.Evidence.CashFlows.Select(flow => flow.Id).ToArray(),
+                Autonomy = new(
+                    now,
+                    universe.ObservedAt,
+                    universe.TotalMarkets,
+                    eligible,
+                    [],
+                    capital.Snapshot,
+                    "Monitoring markets under the reviewed adaptive policy.",
+                    now.AddSeconds(10)
+                ),
+            },
+            cancellationToken
+        );
     }
 
     public async Task<TradingState> Disable(bool emergency, CancellationToken cancellationToken)

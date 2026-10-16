@@ -111,6 +111,13 @@ async function verifyContracts() {
         .waitFor();
     }
     side = 'buy';
+    const historyRegion = page.getByRole('region', {
+      name: 'TEST trade history',
+    });
+    // The response can render before the expanding panel finishes moving.
+    await historyRegion
+      .locator('xpath=ancestor::*[contains(@class,"MuiCollapse-entered")]')
+      .waitFor();
     await page
       .getByRole('region', { name: 'TEST trade history' })
       .getByRole('button', { name: 'Retry', exact: true })

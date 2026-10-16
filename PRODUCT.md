@@ -8,16 +8,17 @@ Web application, responsive on desktop, tablet and phone.
 
 ## Stack
 
-Next.js, TypeScript and Material UI. Read-only backend: C#, ASP.NET Core,
-Mediator and SQL Server. Two services: MarketData for public prices and symbols,
-Portfolio for account reads and its database. Team owns AI task orchestration
+Next.js, TypeScript and Material UI. Backend: C#, ASP.NET Core,
+Mediator and SQL Server. MarketData owns public prices, symbols and candles;
+Portfolio owns account evidence, trading and its database. Team owns AI task orchestration
 and a separate SQL Server database; its isolated Node worker uses Codex SDK.
 
 ## Product Purpose
 
-An AI company operated by its owner. The owner identified automatic Bitkub
-reading and trading as a future feature. No trading capability or authority
-is implemented by the current frontend shell.
+An AI company operated by its owner. Bitkub THB spot trading is an owner-enabled
+Portfolio capability: the adaptive engine scans an eligible versioned universe
+and sizes from verified account capital. AI research never authorizes or selects
+broker orders.
 
 ## Current Scope
 
@@ -26,13 +27,15 @@ Crypto at `/crypto` shows actual balances, prices and imported trade history.
 Both are reachable through
 the shared left navigation without a full document reload.
 The interface language is English, including accessible control labels.
-No simulated portfolio data or external transactions. The backend reads
-Bitkub and persists imported records in SQL Server. Closed coins remain
+Crypto displays real imported account evidence. Paper trading is explicitly
+simulated; real spot LIMIT transactions require owner-enabled trading authority.
+The backend persists imported records in SQL Server. Closed coins remain
 visible. Missing history never authorizes inferred cost or profit; broker
 conversions and activity outside the available window are incomplete.
 Build and verify one feature at a time.
 
-AI team at `/team` lets the owner start and stop one report task. CEO plans,
+Daily Brief at `/daily-brief` opens with compact trading status and optional
+team chat. The owner can stop/resume automatic read-only research. CEO plans,
 Analyst uses a whitelisted portfolio snapshot, and Reviewer checks prior output.
 Actual outputs and state transitions are retained in Team's SQL database.
 Authentication/runtime/storage failures remain visible; the app never substitutes

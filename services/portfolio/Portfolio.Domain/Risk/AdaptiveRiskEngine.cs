@@ -123,7 +123,7 @@ public static class AdaptiveRiskEngine
         else
         {
             if (
-                market.Ask > limit
+                market.Ask > limit && !market.Resting
                 || market.BuyCapacityThb <= 0
                 || asset is not null && (asset.PriceThb is null || asset.Quantity < 0 || asset.CommittedBuyThb < 0)
             )
@@ -178,6 +178,11 @@ public static class AdaptiveRiskEngine
             CultureInfo.InvariantCulture,
             $"Size limited by {code}; {notional / equity:P2} of verified equity. Estimated costs {cost:0.00} THB (fees and entry mark spread); stop/ATR scenario {downside:0.00} THB. Stops and LIMIT fills are not guaranteed; gaps may lose the entire position. No strategy win rate was assumed."
         );
+        if (market.Resting)
+        {
+            explanation += " Resting budget is capped using observed depth; future liquidity and fills are unknown.";
+        }
+
         return new(true, code, amount, notional, notional / equity, projected, downside, cost, explanation);
     }
 

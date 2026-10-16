@@ -72,7 +72,7 @@ public sealed class PortfolioSnapshotReader : IPortfolioSnapshotReader
 
         var marketResearch = await this.ReadMarketResearch(accountKey, symbols, cancellationToken);
         var openOrders = await this.ReadOpenOrders(cancellationToken);
-        var tradingMode = await this.ReadTradingMode(accountKey, cancellationToken);
+        var tradingOverview = await this.ReadTradingMode(accountKey, cancellationToken);
         if (await new CurrentAccountReader(this.http).Read(cancellationToken) != accountKey)
         {
             throw new InvalidOperationException("Account changed while collecting order and market evidence.");
@@ -82,7 +82,8 @@ public sealed class PortfolioSnapshotReader : IPortfolioSnapshotReader
             new
             {
                 accountKey,
-                tradingMode,
+                tradingMode = TradingMode(tradingOverview),
+                tradingPerformance = TradingPerformance(tradingOverview),
                 walletEvidence = wallet.Evidence,
                 positions,
                 summary = new
@@ -309,7 +310,7 @@ public sealed class PortfolioSnapshotReader : IPortfolioSnapshotReader
         }
     }
 
-    private async Task<string?> ReadTradingMode(string accountKey, CancellationToken cancellationToken)
+    private async Task<JsonElement?> ReadTradingMode(string accountKey, CancellationToken cancellationToken)
     {
         JsonElement overview;
         try
@@ -345,13 +346,141 @@ public sealed class PortfolioSnapshotReader : IPortfolioSnapshotReader
             throw new InvalidOperationException("Trading mode evidence belongs to a different or unknown account.");
         }
 
-        return
-            overview.TryGetProperty("mode", out var mode)
-            && mode.ValueKind == JsonValueKind.String
-            && mode.GetString() is "stopped" or "paper" or "manualReview" or "autoLive"
+        return overview;
+    }
+
+    private static string? TradingMode(JsonElement? overview) =>
+        overview is { } value
+        && value.TryGetProperty("mode", out var mode)
+        && mode.ValueKind == JsonValueKind.String
+        && mode.GetString() is "stopped" or "paper" or "manualReview" or "autoLive"
             ? mode.GetString()
             : null;
+
+    private static Dictionary<string, object?> TradingPerformance(JsonElement? overview)
+    {
+        if (
+            TradingMode(overview) is null
+            || overview is not { } value
+            || !value.TryGetProperty("autonomy", out var performance)
+        )
+        {
+            return new() { ["available"] = false, ["reason"] = "unavailable" };
+        }
+
+        if (
+            performance.ValueKind != JsonValueKind.Object
+            || !value.TryGetProperty("heartbeatAt", out var heartbeat)
+            || heartbeat.ValueKind != JsonValueKind.String
+            || !DateTimeOffset.TryParse(heartbeat.GetString(), out var heartbeatAt)
+            || DateTimeOffset.UtcNow - heartbeatAt > TimeSpan.FromSeconds(120)
+            || DateTimeOffset.UtcNow - heartbeatAt < TimeSpan.FromSeconds(-5)
+        )
+        {
+            return new() { ["available"] = false, ["reason"] = "stale" };
+        }
+
+        var result = new Dictionary<string, object?>
+        {
+            ["available"] = true,
+            ["mode"] = TradingMode(overview),
+            ["heartbeatAt"] = heartbeatAt,
+            ["fault"] = ReadText(value, "fault"),
+            ["dailyProfitTargetThb"] = ReadBoundedDecimalString(performance, "dailyProfitTargetThb"),
+            ["realizedNetTodayThb"] = ReadBoundedDecimalString(performance, "realizedNetTodayThb"),
+            ["scanCoverage"] = new
+            {
+                totalMarkets = ReadInteger(performance, "totalMarkets"),
+                eligibleMarkets = ReadInteger(performance, "eligibleMarkets"),
+                checkedMarkets = ReadInteger(performance, "checkedMarkets"),
+            },
+            ["activity"] = ReadText(performance, "activity"),
+            ["opportunityReview"] = ReadOpportunityReview(performance),
+            ["candidateReasons"] =
+                performance.TryGetProperty("candidates", out var reasons) && reasons.ValueKind == JsonValueKind.Array
+                    ? reasons
+                        .EnumerateArray()
+                        .Where(item => item.ValueKind == JsonValueKind.Object)
+                        .Select(item => ReadText(item, "reason"))
+                        .OfType<string>()
+                        .Take(8)
+                        .ToArray()
+                    : Array.Empty<string>(),
+        };
+        return result;
     }
+
+    private static string? ReadText(JsonElement value, string property) =>
+        value.TryGetProperty(property, out var item) && item.ValueKind == JsonValueKind.String
+            ? item.GetString() is { Length: <= 512 } text
+                ? text
+                : null
+            : null;
+
+    private static Dictionary<string, object?>? ReadOpportunityReview(JsonElement performance)
+    {
+        if (
+            !performance.TryGetProperty("opportunityReview", out var review)
+            || review.ValueKind != JsonValueKind.Object
+            || ReadText(review, "protocol") != "observed-book-v1"
+            || !review.TryGetProperty("days", out var days)
+            || days.ValueKind != JsonValueKind.Array
+        )
+        {
+            return null;
+        }
+
+        return new()
+        {
+            ["protocol"] = "observed-book-v1",
+            ["assumptions"] = ReadText(review, "assumptions"),
+            ["days"] = days.EnumerateArray()
+                .Where(day => day.ValueKind == JsonValueKind.Object)
+                .Take(7)
+                .Select(day => new
+                {
+                    date = ReadText(day, "date"),
+                    captured = ReadInteger(day, "captured"),
+                    closed = ReadInteger(day, "closed"),
+                    waiting = ReadInteger(day, "waiting"),
+                    unknown = ReadInteger(day, "unknown"),
+                    meanNetReturnFraction = day.TryGetProperty("meanNetReturnFraction", out var fraction)
+                    && fraction.ValueKind == JsonValueKind.Number
+                    && fraction.TryGetDecimal(out var value)
+                    && value is >= -1 and <= 1000
+                        ? value
+                        : (decimal?)null,
+                })
+                .ToArray(),
+        };
+    }
+
+    private static decimal? ReadBoundedDecimalString(JsonElement value, string property)
+    {
+        if (
+            !value.TryGetProperty(property, out var item)
+            || item.ValueKind != JsonValueKind.String
+            || !decimal.TryParse(
+                item.GetString(),
+                System.Globalization.NumberStyles.Float,
+                System.Globalization.CultureInfo.InvariantCulture,
+                out var number
+            )
+        )
+        {
+            return null;
+        }
+
+        return number is >= -1_000_000_000_000m and <= 1_000_000_000_000m ? number : null;
+    }
+
+    private static int? ReadInteger(JsonElement value, string property) =>
+        value.TryGetProperty(property, out var item)
+        && item.ValueKind == JsonValueKind.Number
+        && item.TryGetInt32(out var number)
+        && number is >= 0 and <= 1000
+            ? number
+            : null;
 
     private async Task<object[]> ReadHistories(IEnumerable<string> symbols, CancellationToken cancellationToken)
     {

@@ -6,5 +6,15 @@ public sealed class FakeRiskEvidenceReader(RiskAccountEvidence evidence) : IRisk
 {
     public RiskAccountEvidence Evidence { get; set; } = evidence;
 
-    public Task<RiskAccountEvidence> Read(CancellationToken cancellationToken) => Task.FromResult(this.Evidence);
+    public TaskCompletionSource? BeforeRead { get; set; }
+
+    public async Task<RiskAccountEvidence> Read(CancellationToken cancellationToken)
+    {
+        if (this.BeforeRead is { } pending)
+        {
+            await pending.Task.WaitAsync(cancellationToken);
+        }
+
+        return this.Evidence;
+    }
 }

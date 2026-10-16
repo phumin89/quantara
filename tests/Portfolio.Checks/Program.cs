@@ -8,6 +8,12 @@ using Quantara.Portfolio.Infrastructure;
 
 await OrderChecks.Run();
 await AdaptiveRiskChecks.Run();
+await AutonomousTradingChecks.Run();
+await AutonomousAuthorityChecks.Run();
+await TradingShadowChecks.Run();
+await AutonomousCompatibilityChecks.Run();
+await TradingFillNoticeChecks.Run();
+await AdaptiveTradingStrategyChecks.Run();
 await RiskEvidenceChecks.Run();
 await RiskPipelineChecks.Run();
 await RiskFillChecks.Run();

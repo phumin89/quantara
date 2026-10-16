@@ -14,4 +14,11 @@ public sealed record TradingState(
     IReadOnlyList<TradingDecisionRecord> Decisions,
     IReadOnlyList<TradingDailyReport> Reports,
     IReadOnlyList<TradingAlert> Alerts
-);
+)
+{
+    public AutonomousTradingStatus? Autonomy { get; init; }
+
+    public string[] ObservedFundingFlows { get; init; } = [];
+
+    public IReadOnlyList<TradingShadow> Shadows { get; init; } = [];
+}

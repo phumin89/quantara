@@ -9,6 +9,11 @@ public sealed class FakeTradingMarketReader(IReadOnlyList<TradingBook> books) : 
 
     public Action? BeforeRead { get; set; }
 
+    public TradingUniverse? Universe { get; set; }
+
+    public Task<TradingUniverse> ReadUniverse(CancellationToken cancellationToken) =>
+        Task.FromResult(this.Universe ?? new TradingUniverse(DateTimeOffset.MinValue, [], 0, 0, "Not configured."));
+
     public Task<IReadOnlyList<TradingBook>> Read(IReadOnlyList<string> symbols, CancellationToken cancellationToken)
     {
         this.BeforeRead?.Invoke();

@@ -284,6 +284,8 @@ export default class TradingPanel extends Component<
           )}
           {overview && (
             <>
+              {overview.rules.version === 'adaptive-intraday-v1' &&
+                this.renderAutonomy(overview)}
               <Typography
                 variant="body2"
                 color="text.secondary"
@@ -297,7 +299,6 @@ export default class TradingPanel extends Component<
                   orders and positions still require reconciliation.
                 </Alert>
               )}
-              {this.renderBook(overview)}
               <Box
                 sx={{
                   display: 'flex',
@@ -318,10 +319,16 @@ export default class TradingPanel extends Component<
                       overview.mode === 'autoLive'
                     }
                     onClick={() => {
-                      this.setState({ reviewOpen: true, expiresAt: '' });
+                      if (overview.rules.version === 'adaptive-intraday-v1') {
+                        this.setState({ reviewOpen: true, expiresAt: '' });
+                      } else {
+                        void this.prepareAdaptiveSetup(overview);
+                      }
                     }}
                   >
-                    Review live mandate
+                    {overview.rules.version === 'adaptive-intraday-v1'
+                      ? 'Review live mandate'
+                      : 'Set up and review'}
                   </Button>
                 )}
                 <Tooltip title="Trading settings">
@@ -371,6 +378,7 @@ export default class TradingPanel extends Component<
                   Emergency stop
                 </Button>
               </Box>
+              {this.renderBook(overview)}
               {this.state.dirty && (
                 <Alert severity="info">
                   Unsaved settings. Save them in Trading settings before
@@ -564,6 +572,8 @@ export default class TradingPanel extends Component<
   }
 
   private renderBook(overview: TradingOverview): ReactNode {
+    const adaptive = overview.rules.version === 'adaptive-intraday-v1';
+    const autonomy = overview.autonomy;
     const book = overview.mode === 'paper' ? overview.paper : overview.live;
     const openOrders = book.orders.filter(
       (order) =>
@@ -575,6 +585,12 @@ export default class TradingPanel extends Component<
       (sum, position) => sum + Number(position.costThb),
       0,
     );
+    let bookLabel = 'Live';
+    if (adaptive) {
+      bookLabel = overview.mode === 'paper' ? 'Simulated strategy' : 'Strategy';
+    } else if (overview.mode === 'paper') {
+      bookLabel = 'Paper';
+    }
 
     return (
       <Stack spacing={2}>
@@ -594,9 +610,26 @@ export default class TradingPanel extends Component<
           }}
         >
           {[
-            ['Cash', TradingPanel.money(book.cashThb)],
-            ['In positions', TradingPanel.money(String(exposure))],
-            ['Realized net P&L', TradingPanel.money(book.realizedNetThb)],
+            [
+              adaptive ? 'Available THB' : 'Cash',
+              adaptive
+                ? TradingPanel.money(autonomy?.capital?.availableThb ?? null)
+                : TradingPanel.money(book.cashThb),
+            ],
+            [
+              adaptive ? 'Exposure incl. orders' : 'In positions',
+              adaptive
+                ? TradingPanel.money(autonomy?.capital?.exposureThb ?? null)
+                : TradingPanel.money(String(exposure)),
+            ],
+            [
+              adaptive ? 'Net today' : 'Realized net P&L',
+              TradingPanel.money(
+                adaptive
+                  ? (autonomy?.realizedNetTodayThb ?? null)
+                  : book.realizedNetThb,
+              ),
+            ],
             ['Open orders', String(openOrders.length)],
           ].map(([name, value]) => (
             <Box key={name}>
@@ -622,14 +655,16 @@ export default class TradingPanel extends Component<
             </Box>
           ))}
         </Box>
-        <Typography
-          variant="body2"
-          color="text.secondary"
-        >
-          {overview.rules.symbols.join(', ')} ·{' '}
-          {TradingPanel.money(String(overview.rules.allocatedThb))} allocated ·{' '}
-          {TradingPanel.money(String(overview.rules.perOrderThb))} per order
-        </Typography>
+        {!adaptive && (
+          <Typography
+            variant="body2"
+            color="text.secondary"
+          >
+            {overview.rules.symbols.join(', ')} ·{' '}
+            {TradingPanel.money(String(overview.rules.allocatedThb))} allocated
+            · {TradingPanel.money(String(overview.rules.perOrderThb))} per order
+          </Typography>
+        )}
         <Box
           component="details"
           sx={{
@@ -651,9 +686,13 @@ export default class TradingPanel extends Component<
             sx={{ py: 1 }}
           >
             <Typography variant="body2">
-              {overview.mode === 'paper' ? 'Paper' : 'Live'} book · Equity{' '}
-              {TradingPanel.money(book.equityThb)} · Gross P&amp;L{' '}
-              {TradingPanel.money(book.realizedGrossThb)} · Fees{' '}
+              {bookLabel} book · Equity{' '}
+              {TradingPanel.money(
+                adaptive
+                  ? (autonomy?.capital?.equityThb ?? null)
+                  : book.equityThb,
+              )}{' '}
+              · Gross P&amp;L {TradingPanel.money(book.realizedGrossThb)} · Fees{' '}
               {TradingPanel.money(book.feesThb)} · Unrealized{' '}
               {TradingPanel.money(book.unrealizedThb)}
             </Typography>
@@ -711,6 +750,130 @@ export default class TradingPanel extends Component<
     );
   }
 
+  private renderAutonomy(overview: TradingOverview): ReactNode {
+    const autonomy = overview.autonomy;
+    if (!autonomy) {
+      return (
+        <Alert severity="info">
+          Autonomous status is refreshing. No account or market values are shown
+          until a verified snapshot is available.
+        </Alert>
+      );
+    }
+
+    const capital = autonomy.capital;
+    const target = TradingPanel.money(autonomy.dailyProfitTargetThb);
+    const progress = `Daily target ${target}`;
+
+    return (
+      <Box>
+        <Stack spacing={1}>
+          <Stack
+            direction="row"
+            sx={{ justifyContent: 'space-between', gap: 1, flexWrap: 'wrap' }}
+          >
+            <Typography
+              component="h3"
+              sx={{ fontSize: 15, fontWeight: 700 }}
+            >
+              Autonomous trading
+            </Typography>
+            <Chip
+              size="small"
+              label={progress}
+              color="primary"
+            />
+          </Stack>
+          <Typography variant="body2">
+            {autonomy.activity} · {autonomy.eligibleMarkets} of{' '}
+            {autonomy.totalMarkets} markets eligible
+          </Typography>
+          <Typography
+            variant="body2"
+            color="text.secondary"
+          >
+            Checked {autonomy.checkedMarkets} markets · Next check{' '}
+            {autonomy.nextCheckAt === null
+              ? 'Unavailable'
+              : new Date(autonomy.nextCheckAt).toLocaleTimeString('en-GB', {
+                  timeZone: 'Asia/Bangkok',
+                }) + ' Bangkok'}
+          </Typography>
+          {capital && (
+            <Typography variant="body2">
+              Equity {TradingPanel.money(capital.equityThb)} · Reserved{' '}
+              {TradingPanel.money(capital.reservedThb)}
+            </Typography>
+          )}
+          {capital?.blocker && <Alert severity="info">{capital.blocker}</Alert>}
+          {autonomy.opportunityReview && (
+            <Box component="details">
+              <Box
+                component="summary"
+                sx={{
+                  cursor: 'pointer',
+                  minHeight: 44,
+                  alignContent: 'center',
+                  fontWeight: 600,
+                }}
+              >
+                Opportunity review
+              </Box>
+              <Typography
+                variant="body2"
+                color="text.secondary"
+              >
+                {autonomy.opportunityReview.assumptions}
+              </Typography>
+              {autonomy.opportunityReview.days.length === 0 && (
+                <Typography variant="body2">
+                  Collecting benchmark observations.
+                </Typography>
+              )}
+              {autonomy.opportunityReview.days.map((day) => (
+                <Typography
+                  key={day.date}
+                  variant="body2"
+                >
+                  {day.date} · {day.closed} closed samples · {day.waiting}{' '}
+                  pending · {day.unknown} unknown · Mean net return{' '}
+                  {day.meanNetReturnFraction === null
+                    ? 'Unknown'
+                    : `${(day.meanNetReturnFraction * 100).toFixed(2)}%`}
+                </Typography>
+              ))}
+            </Box>
+          )}
+          {autonomy.candidates.length > 0 && (
+            <Box component="details">
+              <Box
+                component="summary"
+                sx={{
+                  cursor: 'pointer',
+                  minHeight: 44,
+                  alignContent: 'center',
+                  fontWeight: 600,
+                }}
+              >
+                Candidates · {autonomy.candidates.length}
+              </Box>
+              <Stack spacing={0.5}>
+                {autonomy.candidates.map((candidate) => (
+                  <Typography
+                    key={`${candidate.symbol}-${candidate.at}`}
+                    variant="body2"
+                  >
+                    {candidate.symbol} · {candidate.reason}
+                  </Typography>
+                ))}
+              </Stack>
+            </Box>
+          )}
+        </Stack>
+      </Box>
+    );
+  }
+
   private renderConfiguration(overview: TradingOverview): ReactNode {
     return (
       <Box
@@ -742,30 +905,50 @@ export default class TradingPanel extends Component<
             Set your budget and limits here. The engine follows the saved rules;
             the AI team researches separately.
           </Typography>
+          {overview.rules.version === 'adaptive-intraday-v1' ? (
+            <Alert severity="info">
+              Adaptive mode scans eligible THB spot markets and sizes orders
+              from verified account capital. Fixed symbols and per-order amounts
+              are not used.
+            </Alert>
+          ) : (
+            <Button
+              variant="outlined"
+              disabled={this.state.busy || !!this.state.error}
+              onClick={() => void this.prepareAdaptiveSetup(overview)}
+              sx={{ alignSelf: 'flex-start', minHeight: 44 }}
+            >
+              Set up and review autonomous trading
+            </Button>
+          )}
           <Alert severity="warning">
             Saving changes turns auto trading off. Review and enable again to
             use the new rules with real money.
           </Alert>
-          <Typography
-            component="h3"
-            sx={{ fontSize: 15, fontWeight: 700 }}
-          >
-            Budget &amp; markets
-          </Typography>
-          <input
-            type="hidden"
-            name="version"
-            value={overview.rules.version}
-          />
-          <TextField
-            label="Allowed symbols"
-            name="symbols"
-            defaultValue={overview.rules.symbols.join(', ')}
-            required
-            helperText="For example BTC, ETH. Up to 16 symbols; THB spot only."
-            disabled={this.state.busy}
-          />
-          {this.renderRuleFields(overview, false)}
+          {overview.rules.version !== 'adaptive-intraday-v1' && (
+            <>
+              <Typography
+                component="h3"
+                sx={{ fontSize: 15, fontWeight: 700 }}
+              >
+                Budget &amp; markets
+              </Typography>
+              <input
+                type="hidden"
+                name="version"
+                value={overview.rules.version}
+              />
+              <TextField
+                label="Allowed symbols"
+                name="symbols"
+                defaultValue={overview.rules.symbols.join(', ')}
+                required
+                helperText="For example BTC, ETH. Up to 16 symbols; THB spot only."
+                disabled={this.state.busy}
+              />
+              {this.renderRuleFields(overview, false)}
+            </>
+          )}
           <Box
             component="details"
             sx={{
@@ -786,10 +969,59 @@ export default class TradingPanel extends Component<
               color="text.secondary"
               sx={{ my: 2 }}
             >
-              EMA 20/50 breakout v1 · 5-minute candles. 100 basis points (bps) =
-              1%.
+              {overview.rules.version === 'adaptive-intraday-v1'
+                ? 'Adaptive execution settings are derived from the verified account and market policy.'
+                : 'EMA 20/50 breakout v1 · 5-minute candles. 100 basis points (bps) = 1%.'}
             </Typography>
             {this.renderRuleFields(overview, true)}
+            {overview.rules.adaptive && (
+              <Box
+                sx={{
+                  display: 'grid',
+                  gridTemplateColumns: { xs: '1fr', sm: '1fr 1fr' },
+                  gap: 2,
+                  mt: 2,
+                }}
+              >
+                {(
+                  [
+                    [
+                      'maximumExposureFraction',
+                      'Maximum exposure (%)',
+                      overview.rules.adaptive.risk.maximumExposureFraction,
+                    ],
+                    [
+                      'maximumConcentrationFraction',
+                      'Maximum concentration (%)',
+                      overview.rules.adaptive.risk.maximumConcentrationFraction,
+                    ],
+                    [
+                      'riskToStopFraction',
+                      'Risk to stop scenario (%)',
+                      overview.rules.adaptive.risk.riskToStopFraction,
+                    ],
+                    [
+                      'dailyLossFraction',
+                      'Daily loss cap (% of current equity)',
+                      overview.rules.adaptive.dailyLossFraction,
+                    ],
+                  ] as const
+                ).map(([name, label, value]) => (
+                  <TextField
+                    key={name}
+                    name={name}
+                    label={label}
+                    type="number"
+                    defaultValue={value * 100}
+                    required
+                    disabled={this.state.busy}
+                    slotProps={{
+                      htmlInput: { min: 0.01, max: 100, step: 'any' },
+                    }}
+                  />
+                ))}
+              </Box>
+            )}
           </Box>
           <Button
             variant="contained"
@@ -883,39 +1115,62 @@ export default class TradingPanel extends Component<
           sx={{ overflowWrap: 'anywhere' }}
         >
           Account: {overview.accountKey}
-          <br />
-          THB spot symbols: {overview.rules.symbols.join(', ')}
         </Typography>
-        <Box
-          component="dl"
-          sx={{
-            m: 0,
-            display: 'grid',
-            gridTemplateColumns: 'minmax(0, 1fr) auto',
-            columnGap: 2,
-            rowGap: 0.5,
-            fontSize: 14,
-          }}
-        >
-          {TradingPanel.fields.slice(0, 4).map((field) => (
-            <Box
-              key={field.key}
-              sx={{ display: 'contents' }}
-            >
-              <Box component="dt">{field.label}</Box>
+        {overview.rules.version === 'adaptive-intraday-v1' ? (
+          <Alert severity="info">
+            Scope: all eligible Bitkub THB spot markets, excluding{' '}
+            {overview.rules.adaptive?.excludedSymbols.join(', ') ||
+              'configured exclusions'}
+            . Capital: all available THB, including future deposits. Risk: up to{' '}
+            {TradingPanel.percent(
+              overview.rules.adaptive?.risk.maximumExposureFraction,
+            )}{' '}
+            exposure and{' '}
+            {TradingPanel.percent(
+              overview.rules.adaptive?.risk.maximumConcentrationFraction,
+            )}{' '}
+            concentration, with a{' '}
+            {TradingPanel.percent(
+              overview.rules.adaptive?.risk.riskToStopFraction,
+            )}{' '}
+            stop-risk scenario and{' '}
+            {TradingPanel.percent(overview.rules.adaptive?.dailyLossFraction)}{' '}
+            daily loss cap on current equity. These are limits and scenarios,
+            not a guaranteed maximum loss. Strategies: breakout, pullback and
+            range candidates. Maximum positions: {overview.rules.maxPositions}.
+          </Alert>
+        ) : (
+          <Box
+            component="dl"
+            sx={{
+              m: 0,
+              display: 'grid',
+              gridTemplateColumns: 'minmax(0, 1fr) auto',
+              columnGap: 2,
+              rowGap: 0.5,
+              fontSize: 14,
+            }}
+          >
+            {TradingPanel.fields.slice(0, 4).map((field) => (
               <Box
-                component="dd"
-                sx={{
-                  m: 0,
-                  textAlign: 'right',
-                  fontVariantNumeric: 'tabular-nums',
-                }}
+                key={field.key}
+                sx={{ display: 'contents' }}
               >
-                {overview.rules[field.key]}
+                <Box component="dt">{field.label}</Box>
+                <Box
+                  component="dd"
+                  sx={{
+                    m: 0,
+                    textAlign: 'right',
+                    fontVariantNumeric: 'tabular-nums',
+                  }}
+                >
+                  {overview.rules[field.key]}
+                </Box>
               </Box>
-            </Box>
-          ))}
-        </Box>
+            ))}
+          </Box>
+        )}
         <Box
           component="details"
           sx={{
@@ -928,7 +1183,11 @@ export default class TradingPanel extends Component<
             },
           }}
         >
-          <Box component="summary">Strategy &amp; all limits</Box>
+          <Box component="summary">
+            {overview.rules.version === 'adaptive-intraday-v1'
+              ? 'Strategy & account policy'
+              : 'Strategy & all limits'}
+          </Box>
           <Typography
             variant="body2"
             sx={{ overflowWrap: 'anywhere', mb: 1 }}
@@ -947,26 +1206,27 @@ export default class TradingPanel extends Component<
               gap: 1,
             }}
           >
-            {TradingPanel.fields.slice(4).map((field) => (
-              <Box
-                key={field.key}
-                sx={{ display: 'contents' }}
-              >
-                <Box component="dt">{field.label.replace(' (bps)', '')}</Box>
+            {overview.rules.version !== 'adaptive-intraday-v1' &&
+              TradingPanel.fields.slice(4).map((field) => (
                 <Box
-                  component="dd"
-                  sx={{
-                    m: 0,
-                    textAlign: 'right',
-                    fontVariantNumeric: 'tabular-nums',
-                  }}
+                  key={field.key}
+                  sx={{ display: 'contents' }}
                 >
-                  {field.key.endsWith('Bps')
-                    ? `${String(overview.rules[field.key] / 100)}%`
-                    : overview.rules[field.key]}
+                  <Box component="dt">{field.label.replace(' (bps)', '')}</Box>
+                  <Box
+                    component="dd"
+                    sx={{
+                      m: 0,
+                      textAlign: 'right',
+                      fontVariantNumeric: 'tabular-nums',
+                    }}
+                  >
+                    {field.key.endsWith('Bps')
+                      ? `${String(overview.rules[field.key] / 100)}%`
+                      : overview.rules[field.key]}
+                  </Box>
                 </Box>
-              </Box>
-            ))}
+              ))}
           </Box>
         </Box>
         <Typography
@@ -1063,7 +1323,7 @@ export default class TradingPanel extends Component<
           <>
             <Typography variant="body2">
               {report.mode} · Revision {report.revision} · Delivery{' '}
-              {report.status}
+              {report.status === 'local' ? 'Saved in app' : report.status}
             </Typography>
             <Typography variant="body2">
               Starting equity {TradingPanel.money(report.startingEquityThb)} ·
@@ -1098,6 +1358,12 @@ export default class TradingPanel extends Component<
     return `฿${Number(value).toLocaleString('en-GB', { maximumFractionDigits: 2 })}`;
   }
 
+  private static percent(value: number | undefined): string {
+    return value === undefined
+      ? 'Unknown'
+      : `${(value * 100).toLocaleString('en-GB', { maximumFractionDigits: 2 })}%`;
+  }
+
   private static localDateTime(timestamp: number): string {
     const date = new Date(timestamp);
 
@@ -1121,20 +1387,44 @@ export default class TradingPanel extends Component<
     }
 
     const numbers = Object.fromEntries(
-      TradingPanel.fields.map((field) => [
-        field.key,
-        Number(data.get(field.key)),
-      ]),
+      TradingPanel.fields
+        .filter((field) => data.has(field.key))
+        .map((field) => [field.key, Number(data.get(field.key))]),
     );
     const symbols = data.get('symbols');
-    const rules = tradingRulesSchema.safeParse({
+    const candidate = {
       ...overview.rules,
       ...numbers,
-      version: data.get('version'),
-      symbols: (typeof symbols === 'string' ? symbols : '')
-        .split(',')
-        .map((symbol) => symbol.trim()),
-    });
+      symbols: overview.rules.adaptive
+        ? []
+        : (typeof symbols === 'string' ? symbols : '')
+            .split(',')
+            .map((symbol) => symbol.trim()),
+    };
+    const adaptive = candidate.adaptive;
+    const rules = tradingRulesSchema.safeParse(
+      adaptive
+        ? {
+            ...candidate,
+            adaptive: {
+              ...adaptive,
+              dailyLossFraction: Number(data.get('dailyLossFraction')) / 100,
+              risk: {
+                ...adaptive.risk,
+                maximumExposureFraction:
+                  Number(data.get('maximumExposureFraction')) / 100,
+                maximumConcentrationFraction:
+                  Number(data.get('maximumConcentrationFraction')) / 100,
+                riskToStopFraction:
+                  Number(data.get('riskToStopFraction')) / 100,
+                estimatedFeeRate: candidate.feeBps / 10000,
+                maximumSpreadFraction: candidate.maxSpreadBps / 10000,
+                maximumDataAgeSeconds: candidate.maxDataAgeSeconds,
+              },
+            },
+          }
+        : candidate,
+    );
     if (!rules.success) {
       this.setState({
         validationError:
@@ -1152,6 +1442,59 @@ export default class TradingPanel extends Component<
         ),
       true,
     );
+  }
+
+  private async prepareAdaptiveSetup(overview: TradingOverview): Promise<void> {
+    const rules = tradingRulesSchema.safeParse({
+      ...overview.rules,
+      version: 'adaptive-intraday-v1',
+      symbols: [],
+      maxPositions: 16,
+      adaptive: {
+        universeVersion: 'bitkub-thb-spot-v1',
+        includeFutureDeposits: true,
+        excludedSymbols: ['USDT', 'USDC', 'DAI'],
+        risk: {
+          profile: 'aggressive',
+          maximumExposureFraction: 1,
+          maximumConcentrationFraction: 1,
+          riskToStopFraction: 0.05,
+          atrMultiplier: 1,
+          maximumSpreadFraction: overview.rules.maxSpreadBps / 10000,
+          estimatedFeeRate: overview.rules.feeBps / 10000,
+          maximumDataAgeSeconds: overview.rules.maxDataAgeSeconds,
+          maximumSignalAgeSeconds: 600,
+        },
+        dailyLossFraction: 0.1,
+        dailyProfitTargetThb: 500,
+      },
+    });
+
+    if (!rules.success) {
+      this.setState({
+        validationError:
+          rules.error.issues.at(0)?.message ??
+          'Unable to prepare adaptive trading.',
+      });
+
+      return;
+    }
+
+    await this.run(
+      (signal) =>
+        TradingServiceContext.require(this.context).configure(
+          rules.data,
+          signal,
+        ),
+      true,
+    );
+    if (this.mounted) {
+      this.setState((state) =>
+        state.overview?.rules.version === 'adaptive-intraday-v1' && !state.error
+          ? { reviewOpen: true, expiresAt: '' }
+          : null,
+      );
+    }
   }
 
   private async setMode(mode: 'paper' | 'manualReview'): Promise<void> {
