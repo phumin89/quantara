@@ -23,6 +23,21 @@ export const orderViewSchema = z.object({
   status: orderStatusSchema,
   brokerOrderId: z.string().nullable(),
   message: z.string().nullable(),
+  sizing: z
+    .object({
+      policyHash: z.string().regex(/^[a-f0-9]{64}$/),
+      observedAt: z.iso.datetime({ offset: true }),
+      equityThb: z.string().regex(/^\d+(?:\.\d+)?$/),
+      allocationFraction: z.string().regex(/^\d+(?:\.\d+)?$/),
+      estimatedDownsideThb: z.string().regex(/^\d+(?:\.\d+)?$/),
+      estimatedCostThb: z.string().regex(/^\d+(?:\.\d+)?$/),
+      projectedExposureThb: z.string().regex(/^\d+(?:\.\d+)?$/),
+      code: z.string().min(1).max(64),
+      explanation: z.string().min(1).max(1000),
+    })
+    .strict()
+    .nullable()
+    .optional(),
 });
 
 export type OrderView = z.infer<typeof orderViewSchema>;

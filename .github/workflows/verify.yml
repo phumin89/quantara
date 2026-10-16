@@ -56,6 +56,7 @@ jobs:
       - run: npm run test:lifecycle
       - run: npm run test:team-ui
       - run: npm run test:orders
+      - run: npm run test:risk
       - run: node tools/verify-trading-ui.cjs --browser
   secrets:
     runs-on: ubuntu-latest

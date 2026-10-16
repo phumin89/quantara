@@ -19,6 +19,7 @@ import PortfolioSummary from '../portfolio-summary/PortfolioSummary';
 import PortfolioFilters from '../portfolio-filters/PortfolioFilters';
 import PortfolioTable from '../portfolio-table/PortfolioTable';
 import type { CryptoPageState } from './CryptoPageState';
+import RiskPanel from '../risk-panel/RiskPanel';
 
 export default class CryptoPage extends Component<object, CryptoPageState> {
   public static override readonly contextType = CryptoServiceContext.value;
@@ -196,6 +197,7 @@ export default class CryptoPage extends Component<object, CryptoPageState> {
         {data && (
           <>
             <PortfolioSummary data={data} />
+            <RiskPanel />
             <PortfolioFilters
               filter={filter}
               onChange={this.handleFilterChange}

@@ -3,6 +3,7 @@ import type { ICryptoServices } from '../../../features/crypto/context/ICryptoSe
 import type { ITeamService } from '../../../features/team/services/ITeamService';
 import type { IOrdersService } from '../../../features/orders/services/IOrdersService';
 import type { ITradingService } from '../../../features/trading/services/ITradingService';
+import type { IRiskService } from '../../../features/crypto/services/IRiskService';
 
 export interface ServiceProviderProps {
   readonly children: ReactNode;
@@ -10,4 +11,5 @@ export interface ServiceProviderProps {
   readonly teamService?: ITeamService;
   readonly ordersService?: IOrdersService;
   readonly tradingService?: ITradingService;
+  readonly riskService?: IRiskService;
 }

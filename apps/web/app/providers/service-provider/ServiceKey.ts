@@ -5,4 +5,5 @@ export enum ServiceKey {
   Team = 'team',
   Orders = 'orders',
   Trading = 'trading',
+  Risk = 'risk',
 }

@@ -17,6 +17,9 @@ import { OrdersServices } from './OrdersServices';
 import { TradingServiceContext } from '../../../features/trading/context/TradingServiceContext';
 import type { ITradingService } from '../../../features/trading/services/ITradingService';
 import { TradingServices } from './TradingServices';
+import { RiskServiceContext } from '../../../features/crypto/context/RiskServiceContext';
+import type { IRiskService } from '../../../features/crypto/services/IRiskService';
+import { RiskServices } from './RiskServices';
 
 export default class ServiceProvider extends PureComponent<ServiceProviderProps> {
   private readonly services: ICryptoServices;
@@ -26,6 +29,8 @@ export default class ServiceProvider extends PureComponent<ServiceProviderProps>
   private readonly ordersService: IOrdersService;
 
   private readonly tradingService: ITradingService;
+
+  private readonly riskService: IRiskService;
 
   public constructor(props: ServiceProviderProps) {
     super(props);
@@ -37,6 +42,7 @@ export default class ServiceProvider extends PureComponent<ServiceProviderProps>
     this.ordersService = props.ordersService ?? new OrdersServices(container);
     this.tradingService =
       props.tradingService ?? new TradingServices(container);
+    this.riskService = props.riskService ?? new RiskServices(container);
   }
 
   public override render(): ReactNode {
@@ -45,7 +51,9 @@ export default class ServiceProvider extends PureComponent<ServiceProviderProps>
         <TeamServiceContext.value.Provider value={this.teamService}>
           <OrdersServiceContext.value.Provider value={this.ordersService}>
             <TradingServiceContext.value.Provider value={this.tradingService}>
-              {this.props.children}
+              <RiskServiceContext.value.Provider value={this.riskService}>
+                {this.props.children}
+              </RiskServiceContext.value.Provider>
             </TradingServiceContext.value.Provider>
           </OrdersServiceContext.value.Provider>
         </TeamServiceContext.value.Provider>

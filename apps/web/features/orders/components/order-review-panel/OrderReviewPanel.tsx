@@ -174,6 +174,32 @@ export default class OrderReviewPanel extends Component<
           >
             {this.statusLabel(proposal, remaining)}
           </Typography>
+          {proposal.sizing && (
+            <details>
+              <Typography
+                component="summary"
+                variant="caption"
+                sx={{
+                  cursor: 'pointer',
+                  fontWeight: 600,
+                  minHeight: 44,
+                  alignContent: 'center',
+                }}
+              >
+                Why this size ·{' '}
+                {(Number(proposal.sizing.allocationFraction) * 100).toFixed(2)}%
+                allocated · estimated downside{' '}
+                {proposal.sizing.estimatedDownsideThb} THB
+              </Typography>
+              <Typography
+                variant="caption"
+                color="text.secondary"
+                sx={{ display: 'block', mt: 0.5 }}
+              >
+                {proposal.sizing.explanation}
+              </Typography>
+            </details>
+          )}
           {proposal.message && (
             <Alert
               severity={

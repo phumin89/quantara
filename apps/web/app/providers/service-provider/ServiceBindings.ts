@@ -8,6 +8,7 @@ import { ServiceKey } from './ServiceKey';
 import type { ServiceRegistry } from './ServiceRegistry';
 import { OrdersService } from '../../../features/orders/services/OrdersService';
 import { TradingService } from '../../../features/trading/services/TradingService';
+import { RiskService } from '../../../features/crypto/services/RiskService';
 
 export class ServiceBindings {
   public static readonly factories: ServiceFactories<ServiceRegistry> = {
@@ -17,6 +18,7 @@ export class ServiceBindings {
     [ServiceKey.Team]: ServiceBindings.createTeam,
     [ServiceKey.Orders]: ServiceBindings.createOrders,
     [ServiceKey.Trading]: ServiceBindings.createTrading,
+    [ServiceKey.Risk]: ServiceBindings.createRisk,
   };
 
   private static createRequest(this: void): RequestService {
@@ -56,5 +58,12 @@ export class ServiceBindings {
     container: IServiceContainer<ServiceRegistry>,
   ): TradingService {
     return new TradingService(container.resolve(ServiceKey.Request));
+  }
+
+  private static createRisk(
+    this: void,
+    container: IServiceContainer<ServiceRegistry>,
+  ): RiskService {
+    return new RiskService(container.resolve(ServiceKey.Request));
   }
 }

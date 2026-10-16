@@ -27,6 +27,12 @@ const {
 const {
   RequestService,
 } = require('../apps/web/shared/services/RequestService.ts');
+const {
+  RiskController,
+} = require('../apps/web/app/api/crypto/risk/RiskController.ts');
+const {
+  riskPolicySchema,
+} = require('../apps/web/features/crypto/contracts/RiskPolicy.ts');
 
 const rules = {
   version: 'ema20-50-breakout-v1',
@@ -113,6 +119,27 @@ async function verifyTransport() {
     TradingController.action(request(action, body, headers), {
       params: Promise.resolve({ action }),
     });
+  const riskRequest = (action, body, headers = {}) =>
+    new NextRequest(
+      'http://127.0.0.1:3000/api/crypto/risk' + (action ? '/' + action : ''),
+      {
+        method: action ? 'POST' : 'GET',
+        headers: {
+          host: '127.0.0.1:3000',
+          ...(action ? { 'content-type': 'application/json' } : {}),
+          ...headers,
+        },
+        ...(action
+          ? { body: typeof body === 'string' ? body : JSON.stringify(body) }
+          : {}),
+      },
+    );
+  const actRisk = (action, body, headers) => {
+    const request = riskRequest(action, body, headers);
+    return action === 'refresh'
+      ? RiskController.refresh(request)
+      : RiskController.configure(request);
+  };
   try {
     global.fetch = async (target, init) => {
       calls.push({ target, init });
@@ -239,6 +266,65 @@ async function verifyTransport() {
         ...rules,
         version: 'unimplemented-strategy',
       }).success,
+      false,
+    );
+    const riskHash =
+      '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef';
+    const riskPolicy = {
+      profile: 'aggressive',
+      maximumExposureFraction: 1,
+      maximumConcentrationFraction: 1,
+      riskToStopFraction: 0.05,
+      atrMultiplier: 1,
+      maximumSpreadFraction: 0.005,
+      estimatedFeeRate: 0.0025,
+      maximumDataAgeSeconds: 90,
+      maximumSignalAgeSeconds: 600,
+    };
+    assert.equal((await RiskController.get(riskRequest())).status, 200);
+    assert.equal(
+      calls.at(-1).target,
+      'http://portfolio.fixture.invalid:5050/api/crypto/risk',
+    );
+    assert.equal((await actRisk('refresh', {})).status, 200);
+    assert.equal(
+      calls.at(-1).target,
+      'http://portfolio.fixture.invalid:5050/api/crypto/risk/refresh',
+    );
+    assert.equal(
+      (
+        await actRisk('policy', {
+          policy: riskPolicy,
+          expectedPolicyHash: riskHash,
+        })
+      ).status,
+      200,
+    );
+    assert.equal(
+      calls.at(-1).target,
+      'http://portfolio.fixture.invalid:5050/api/crypto/risk/policy',
+    );
+    assert.deepEqual(JSON.parse(calls.at(-1).init.body), {
+      policy: riskPolicy,
+      expectedPolicyHash: riskHash,
+    });
+    for (const invalid of [
+      {
+        policy: { ...riskPolicy, maximumExposureFraction: 1.1 },
+        expectedPolicyHash: riskHash,
+      },
+      { policy: riskPolicy, expectedPolicyHash: 'short' },
+      {
+        policy: { ...riskPolicy, maximumDataAgeSeconds: 9 },
+        expectedPolicyHash: riskHash,
+      },
+    ]) {
+      assert.equal((await actRisk('policy', invalid)).status, 400);
+    }
+    assert.equal(riskPolicySchema.safeParse(riskPolicy).success, true);
+    assert.equal(
+      riskPolicySchema.safeParse({ ...riskPolicy, estimatedFeeRate: 0.02 })
+        .success,
       false,
     );
     for (const filename of [

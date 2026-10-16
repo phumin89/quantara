@@ -8,6 +8,12 @@ async function verifyContracts() {
   });
   try {
     const page = await browser.newPage();
+    await page.route('**/api/**', (route) =>
+      route.fulfill({
+        status: 503,
+        json: { error: 'Isolated fixture: unavailable.' },
+      }),
+    );
     const invalidSymbol = await page.request.get(
       `${url}/api/crypto/history?coin=bad%2Fsymbol`,
     );
@@ -105,8 +111,14 @@ async function verifyContracts() {
         .waitFor();
     }
     side = 'buy';
-    await page.getByRole('button', { name: 'Retry', exact: true }).click();
-    await page.getByText('buy', { exact: true }).waitFor();
+    await page
+      .getByRole('region', { name: 'TEST trade history' })
+      .getByRole('button', { name: 'Retry', exact: true })
+      .click();
+    await page
+      .getByRole('region', { name: 'TEST trade history' })
+      .getByText('buy', { exact: true })
+      .waitFor();
     console.log(
       'Invalid status/side enums rejected; valid lowercase trade side recovers.',
     );
