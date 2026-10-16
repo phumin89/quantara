@@ -84,7 +84,8 @@ if ($IsWindows) {
     $fileAccess = Get-Acl -LiteralPath $fixtureEnvironment
     $ownerSid = [Security.Principal.WindowsIdentity]::GetCurrent().User.Value
     $rules = @($fileAccess.GetAccessRules($true, $true, [Security.Principal.SecurityIdentifier]))
-    if (!$fileAccess.AreAccessRulesProtected -or $rules.Count -ne 1 -or $rules[0].IdentityReference.Value -ne $ownerSid) {
+    if ($fileAccess.GetOwner([Security.Principal.SecurityIdentifier]).Value -ne $ownerSid -or
+        !$fileAccess.AreAccessRulesProtected -or $rules.Count -ne 1 -or $rules[0].IdentityReference.Value -ne $ownerSid) {
         throw 'The runtime environment must be readable only by its owner.'
     }
 } elseif ([IO.File]::GetUnixFileMode($fixtureEnvironment) -ne ([IO.UnixFileMode]::UserRead -bor [IO.UnixFileMode]::UserWrite)) {

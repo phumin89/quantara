@@ -102,8 +102,21 @@ function Initialize-QuantaraTradingControlToken {
     }
     $temporary = $Path + '.' + [Guid]::NewGuid().ToString('N') + '.tmp'
     try {
-        # Create an empty file, restrict access, then write credentials before the atomic replacement.
-        [IO.File]::Open($temporary, [IO.FileMode]::CreateNew).Dispose()
+        # Elevated Windows sessions can default ownership to Administrators. Create only this
+        # new temporary file with the current SID; never take ownership of an existing file.
+        if ($IsWindows) {
+            $owner = [Security.Principal.WindowsIdentity]::GetCurrent().User
+            $access = [Security.AccessControl.FileSecurity]::new()
+            $access.SetOwner($owner)
+            $access.SetAccessRuleProtection($true, $false)
+            $access.AddAccessRule([Security.AccessControl.FileSystemAccessRule]::new(
+                $owner, [Security.AccessControl.FileSystemRights]::FullControl, [Security.AccessControl.AccessControlType]::Allow))
+            [IO.FileSystemAclExtensions]::Create([IO.FileInfo]::new($temporary), [IO.FileMode]::CreateNew,
+                [Security.AccessControl.FileSystemRights]::FullControl, [IO.FileShare]::None, 4096,
+                [IO.FileOptions]::None, $access).Dispose()
+        } else {
+            [IO.File]::Open($temporary, [IO.FileMode]::CreateNew).Dispose()
+        }
         Set-QuantaraPrivateRuntimeFile -Path $temporary
         [IO.File]::WriteAllText($temporary, $content, [Text.UTF8Encoding]::new($false))
         [IO.File]::Move($temporary, $Path, $true)
