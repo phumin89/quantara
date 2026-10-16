@@ -7,6 +7,7 @@ using Quantara.Portfolio.Domain;
 using Quantara.Portfolio.Infrastructure;
 
 await OrderChecks.Run();
+await AdaptiveRiskChecks.Run();
 await OrderRecoveryChecks.Run();
 await OrderSourceChecks.Run();
 await AccountEvidenceChecks.Run();
