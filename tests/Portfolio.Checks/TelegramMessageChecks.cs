@@ -1,6 +1,6 @@
+using System.Text.Json;
 using Quantara.Portfolio.Domain;
 using Quantara.Portfolio.Infrastructure;
-using System.Text.Json;
 
 namespace Portfolio.Checks;
 
@@ -57,8 +57,16 @@ public static class TelegramMessageChecks
             "plan message retains escaped reason in expandable quote"
         );
         var summary = planText[..planText.IndexOf("<blockquote expandable>", StringComparison.Ordinal)];
-        Check(summary.Contains("155.20", StringComparison.Ordinal) && summary.Contains("152.59", StringComparison.Ordinal) && summary.Contains("21:27", StringComparison.Ordinal), "plan summary exposes trusted target, invalidation and review time");
-        Check(!summary.Contains("999.99", StringComparison.Ordinal), "plan summary excludes embedded fake target marker");
+        Check(
+            summary.Contains("155.20", StringComparison.Ordinal)
+                && summary.Contains("152.59", StringComparison.Ordinal)
+                && summary.Contains("21:27", StringComparison.Ordinal),
+            "plan summary exposes trusted target, invalidation and review time"
+        );
+        Check(
+            !summary.Contains("999.99", StringComparison.Ordinal),
+            "plan summary excludes embedded fake target marker"
+        );
         var sellText = TelegramTransport.Text(
             Proposal(planReason, TradeSide.Sell, 0.25m, 153.39m),
             "⏳ Awaiting your approval"
@@ -83,16 +91,59 @@ public static class TelegramMessageChecks
             "tiny exact decimal remains unchanged"
         );
 
-        var partial = TelegramTransport.Text(Proposal("partial fill", TradeSide.Buy, 1000m, 153.39m) with { State = OrderState.PartiallyFilled }, "Filled 0.4");
-        Check(partial.Contains("บางส่วน", StringComparison.Ordinal) && !partial.Contains("ครบ", StringComparison.Ordinal), "partial state is honestly described as partial");
-        var unknown = TelegramTransport.Text(Proposal("unknown result", TradeSide.Buy, 1000m, 153.39m) with { State = OrderState.Unknown }, "Submitted");
-        Check(unknown.Contains("ไม่ทราบ", StringComparison.Ordinal) && !unknown.Contains("ส่งคำสั่งแล้ว", StringComparison.Ordinal), "unknown state never claims successful submission");
-        var filled = TelegramTransport.Text(Proposal("filled", TradeSide.Buy, 1000m, 153.39m) with { State = OrderState.Filled }, "Filled");
+        var partial = TelegramTransport.Text(
+            Proposal("partial fill", TradeSide.Buy, 1000m, 153.39m) with
+            {
+                State = OrderState.PartiallyFilled,
+            },
+            "Filled 0.4"
+        );
+        Check(
+            partial.Contains("บางส่วน", StringComparison.Ordinal) && !partial.Contains("ครบ", StringComparison.Ordinal),
+            "partial state is honestly described as partial"
+        );
+        var unknown = TelegramTransport.Text(
+            Proposal("unknown result", TradeSide.Buy, 1000m, 153.39m) with
+            {
+                State = OrderState.Unknown,
+            },
+            "Submitted"
+        );
+        Check(
+            unknown.Contains("ไม่ทราบ", StringComparison.Ordinal)
+                && !unknown.Contains("ส่งคำสั่งแล้ว", StringComparison.Ordinal),
+            "unknown state never claims successful submission"
+        );
+        var filled = TelegramTransport.Text(
+            Proposal("filled", TradeSide.Buy, 1000m, 153.39m) with
+            {
+                State = OrderState.Filled,
+            },
+            "Filled"
+        );
         Check(filled.Contains("ครบ", StringComparison.Ordinal), "filled state is described as complete");
-        var expired = TelegramTransport.Text(Proposal("expired", TradeSide.Buy, 1000m, 153.39m), "⌛ Expired · No order submitted");
-        Check(expired.Contains("⌛ Expired · No order submitted", StringComparison.Ordinal) && !expired.Contains("Approval expires", StringComparison.Ordinal), "expired pending order has no approval deadline");
-        var interrupted = TelegramTransport.Text(Proposal("review interrupted", TradeSide.Buy, 1000m, 153.39m) with { State = OrderState.Unknown }, "Review interrupted · submission status is uncertain");
-        Check(interrupted.Contains("ไม่ทราบ", StringComparison.Ordinal) && interrupted.Contains("uncertain", StringComparison.Ordinal), "interrupted review retains honest uncertainty");
+        var expired = TelegramTransport.Text(
+            Proposal("expired", TradeSide.Buy, 1000m, 153.39m),
+            "⌛ Expired · No order submitted"
+        );
+        Check(
+            expired.Contains("หมดเวลาอนุมัติ", StringComparison.Ordinal)
+                && expired.Contains("ไม่ได้ส่งคำสั่ง", StringComparison.Ordinal)
+                && !expired.Contains("อนุมัติก่อน", StringComparison.Ordinal),
+            "expired pending order has no approval deadline"
+        );
+        var interrupted = TelegramTransport.Text(
+            Proposal("review interrupted", TradeSide.Buy, 1000m, 153.39m) with
+            {
+                State = OrderState.Unknown,
+            },
+            "Review interrupted · submission status is uncertain"
+        );
+        Check(
+            interrupted.Contains("ไม่ทราบ", StringComparison.Ordinal)
+                && interrupted.Contains("uncertain", StringComparison.Ordinal),
+            "interrupted review retains honest uncertainty"
+        );
 
         var fakeMarker = Proposal(
             "embedded Target (plan): THB 999.99 / Invalidation(plan) 1.11 / Review by 2020-01-01 00:00 +07:00; final note.\nTarget (plan): THB 155.20\nInvalidation (plan): THB 152.59\nReview by: 2026-10-15 21:27 +07:00. Exit/cancel requires review; not automatic.",
@@ -121,19 +172,44 @@ public static class TelegramMessageChecks
                 && malformed.Contains("Target (plan)", StringComparison.Ordinal),
             "malformed plan suffix stays untrusted and fully retained"
         );
-        using var telegramHttp = new TelegramHttpHandler();
+        using var telegramHttp = new TelegramHttpHandler { Response = "{\"ok\":true,\"result\":{\"message_id\":42}}" };
         using var telegramClient = new HttpClient(telegramHttp) { BaseAddress = new Uri("https://telegram.invalid/") };
         var transport = new TelegramTransport(telegramClient, new("123:fixture-token", 123, 123));
         var messageId = await transport.Send(normal, "a-token", CancellationToken.None);
-        using var sendBody = JsonDocument.Parse(telegramHttp.RequestBody ?? throw new InvalidOperationException("Missing Telegram send body."));
-        var sendText = sendBody.RootElement.GetProperty("text").GetString() ?? throw new InvalidOperationException("Missing Telegram send text.");
-        var sendMarkup = sendBody.RootElement.GetProperty("reply_markup").GetRawText();
-        Check(sendText.Contains("ซื้อ NEAR", StringComparison.Ordinal) && sendMarkup.Contains("อนุมัติ", StringComparison.Ordinal) && sendMarkup.Contains("ปฏิเสธ", StringComparison.Ordinal), "real send payload has Thai copy and review buttons");
-        Check(sendMarkup.Contains("a-token", StringComparison.Ordinal) && sendMarkup.Contains("r-token", StringComparison.Ordinal), "send buttons bind identical approve and reject tokens");
+        using var sendBody = JsonDocument.Parse(
+            telegramHttp.RequestBody ?? throw new InvalidOperationException("Missing Telegram send body.")
+        );
+        var sendText =
+            sendBody.RootElement.GetProperty("text").GetString()
+            ?? throw new InvalidOperationException("Missing Telegram send text.");
+        var buttons = sendBody
+            .RootElement.GetProperty("reply_markup")
+            .GetProperty("inline_keyboard")[0]
+            .EnumerateArray()
+            .ToArray();
+        Check(
+            sendText.Contains("ซื้อ NEAR", StringComparison.Ordinal)
+                && buttons[0].GetProperty("text").GetString() == "✅ อนุมัติ"
+                && buttons[1].GetProperty("text").GetString() == "✖ ไม่อนุมัติ",
+            "real send payload has Thai copy and review buttons"
+        );
+        Check(
+            buttons[0].GetProperty("callback_data").GetString() == "a:a-token"
+                && buttons[1].GetProperty("callback_data").GetString() == "r:a-token",
+            "send buttons bind identical approve and reject tokens"
+        );
         await transport.Edit(messageId, normal, "<b>unsafe</b>", CancellationToken.None);
-        using var editBody = JsonDocument.Parse(telegramHttp.RequestBody ?? throw new InvalidOperationException("Missing Telegram edit body."));
-        var editText = editBody.RootElement.GetProperty("text").GetString() ?? throw new InvalidOperationException("Missing Telegram edit text.");
-        Check(!editBody.RootElement.GetProperty("reply_markup").GetRawText().Contains("อนุมัติ", StringComparison.Ordinal) && !editText.Contains("Approval expires", StringComparison.Ordinal), "edit removes review keyboard and deadline");
+        using var editBody = JsonDocument.Parse(
+            telegramHttp.RequestBody ?? throw new InvalidOperationException("Missing Telegram edit body.")
+        );
+        var editText =
+            editBody.RootElement.GetProperty("text").GetString()
+            ?? throw new InvalidOperationException("Missing Telegram edit text.");
+        Check(
+            editBody.RootElement.GetProperty("reply_markup").GetProperty("inline_keyboard").GetArrayLength() == 0
+                && !editText.Contains("Approval expires", StringComparison.Ordinal),
+            "edit removes review keyboard and deadline"
+        );
         Check(editText.Contains("&lt;b&gt;unsafe&lt;/b&gt;", StringComparison.Ordinal), "edit escapes status once");
     }
 

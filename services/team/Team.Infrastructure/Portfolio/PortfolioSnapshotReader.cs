@@ -72,6 +72,7 @@ public sealed class PortfolioSnapshotReader : IPortfolioSnapshotReader
 
         var marketResearch = await this.ReadMarketResearch(accountKey, symbols, cancellationToken);
         var openOrders = await this.ReadOpenOrders(cancellationToken);
+        var tradingMode = await this.ReadTradingMode(accountKey, cancellationToken);
         if (await new CurrentAccountReader(this.http).Read(cancellationToken) != accountKey)
         {
             throw new InvalidOperationException("Account changed while collecting order and market evidence.");
@@ -81,6 +82,7 @@ public sealed class PortfolioSnapshotReader : IPortfolioSnapshotReader
             new
             {
                 accountKey,
+                tradingMode,
                 walletEvidence = wallet.Evidence,
                 positions,
                 summary = new
@@ -299,6 +301,50 @@ public sealed class PortfolioSnapshotReader : IPortfolioSnapshotReader
                 reason = "Open order evidence is unavailable; do not assume there are no active orders.",
             };
         }
+    }
+
+    private async Task<string?> ReadTradingMode(string accountKey, CancellationToken cancellationToken)
+    {
+        JsonElement overview;
+        try
+        {
+            using var response = await this.http.GetAsync("api/trading", cancellationToken);
+            response.EnsureSuccessStatusCode();
+            using var document = await JsonDocument.ParseAsync(
+                await response.Content.ReadAsStreamAsync(cancellationToken),
+                cancellationToken: cancellationToken
+            );
+            overview = document.RootElement.Clone();
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception)
+        {
+            return null;
+        }
+
+        if (overview.ValueKind != JsonValueKind.Object)
+        {
+            return null;
+        }
+
+        if (
+            !overview.TryGetProperty("accountKey", out var account)
+            || account.ValueKind != JsonValueKind.String
+            || account.GetString() != accountKey
+        )
+        {
+            throw new InvalidOperationException("Trading mode evidence belongs to a different or unknown account.");
+        }
+
+        return
+            overview.TryGetProperty("mode", out var mode)
+            && mode.ValueKind == JsonValueKind.String
+            && mode.GetString() is "stopped" or "paper" or "manualReview" or "autoLive"
+            ? mode.GetString()
+            : null;
     }
 
     private async Task<object[]> ReadHistories(IEnumerable<string> symbols, CancellationToken cancellationToken)

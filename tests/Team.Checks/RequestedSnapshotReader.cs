@@ -34,6 +34,7 @@ public sealed class RequestedSnapshotReader : IPortfolioSnapshotReader
             new
             {
                 accountKey = account,
+                tradingMode = "manualReview",
                 walletEvidence = new
                 {
                     accountKey = account,

@@ -61,6 +61,57 @@ function Invoke-QuantaraCompose {
             '--env-file', (Join-Path $plan.Directory 'runtime.env')) + $Arguments)
 }
 
+function Set-QuantaraPrivateRuntimeFile {
+    param([Parameter(Mandatory)][string] $Path)
+
+    if ($IsWindows) {
+        $owner = [Security.Principal.WindowsIdentity]::GetCurrent().User
+        $file = [IO.FileInfo]::new($Path)
+        $ownership = [IO.FileSystemAclExtensions]::GetAccessControl($file, [Security.AccessControl.AccessControlSections]::Owner)
+        if ($ownership.GetOwner([Security.Principal.SecurityIdentifier]).Value -ne $owner.Value) {
+            throw 'The private runtime environment belongs to another Windows user.'
+        }
+        $access = [IO.FileSystemAclExtensions]::GetAccessControl($file, [Security.AccessControl.AccessControlSections]::Access)
+        $access.SetAccessRuleProtection($true, $false)
+        foreach ($rule in @($access.GetAccessRules($true, $true, [Security.Principal.SecurityIdentifier]))) { $access.RemoveAccessRuleAll($rule) }
+        $access.AddAccessRule([Security.AccessControl.FileSystemAccessRule]::new(
+            $owner, [Security.AccessControl.FileSystemRights]::FullControl, [Security.AccessControl.AccessControlType]::Allow))
+        [IO.FileSystemAclExtensions]::SetAccessControl($file, $access)
+    } else {
+        [IO.File]::SetUnixFileMode($Path, ([IO.UnixFileMode]::UserRead -bor [IO.UnixFileMode]::UserWrite))
+    }
+}
+
+function Initialize-QuantaraTradingControlToken {
+    param([Parameter(Mandatory)][string] $Path, [string] $InitialContent = '')
+
+    $content = $InitialContent
+    if (Test-Path -LiteralPath $Path) {
+        Set-QuantaraPrivateRuntimeFile -Path $Path
+        $content = [IO.File]::ReadAllText($Path)
+    }
+    $entries = [regex]::Matches($content, '(?m)^[ \t]*QUANTARA_TRADING_CONTROL_TOKEN[ \t]*=([^\r\n]*)')
+    if ($entries.Count -gt 1 -or ($entries.Count -eq 1 -and $entries[0].Groups[1].Value -notmatch '^[A-Fa-f0-9]{64}$')) {
+        throw 'The existing trading control token is invalid or duplicated; preserve it and review the runtime configuration.'
+    }
+    if ($entries.Count -eq 1 -and (Test-Path -LiteralPath $Path)) { return }
+    if ($entries.Count -eq 0) {
+        $token = [Convert]::ToHexString([Security.Cryptography.RandomNumberGenerator]::GetBytes(32))
+        $separator = if ($content.Length -gt 0 -and !$content.EndsWith("`n")) { "`n" } else { '' }
+        $content += $separator + 'QUANTARA_TRADING_CONTROL_TOKEN=' + $token + "`n"
+    }
+    $temporary = $Path + '.' + [Guid]::NewGuid().ToString('N') + '.tmp'
+    try {
+        # Create an empty file, restrict access, then write credentials before the atomic replacement.
+        [IO.File]::Open($temporary, [IO.FileMode]::CreateNew).Dispose()
+        Set-QuantaraPrivateRuntimeFile -Path $temporary
+        [IO.File]::WriteAllText($temporary, $content, [Text.UTF8Encoding]::new($false))
+        [IO.File]::Move($temporary, $Path, $true)
+    } finally {
+        if (Test-Path -LiteralPath $temporary) { Remove-Item -LiteralPath $temporary }
+    }
+}
+
 function Invoke-QuantaraSql {
     param([Parameter(Mandatory)][string] $Database, [Parameter(Mandatory)][string] $Query, [string] $SourcePipe)
     if ($Database -notin @('master', 'Quantara', 'QuantaraTeam', 'QuantaraMarketData')) { throw 'Unrecognized database owner.' }
@@ -176,4 +227,4 @@ function Start-QuantaraMigrationFence {
 
 Export-ModuleMember -Function Get-QuantaraDockerPlan, Invoke-QuantaraTool, Invoke-QuantaraCompose,
     Invoke-QuantaraSql, Get-QuantaraBackupSql, Get-QuantaraRestoreSql, Assert-QuantaraSnapshotMatch,
-    Get-QuantaraMigrationFenceSql, Start-QuantaraMigrationFence
+    Get-QuantaraMigrationFenceSql, Start-QuantaraMigrationFence, Initialize-QuantaraTradingControlToken

@@ -4,6 +4,7 @@ import type { IRequestService } from '../../../shared/services/IRequestService';
 import type { ITeamService } from '../../../features/team/services/ITeamService';
 import { ServiceKey } from './ServiceKey';
 import type { IOrdersService } from '../../../features/orders/services/IOrdersService';
+import type { ITradingService } from '../../../features/trading/services/ITradingService';
 
 export interface ServiceRegistry {
   readonly [ServiceKey.Request]: IRequestService;
@@ -11,4 +12,5 @@ export interface ServiceRegistry {
   readonly [ServiceKey.History]: IHistoryService;
   readonly [ServiceKey.Team]: ITeamService;
   readonly [ServiceKey.Orders]: IOrdersService;
+  readonly [ServiceKey.Trading]: ITradingService;
 }

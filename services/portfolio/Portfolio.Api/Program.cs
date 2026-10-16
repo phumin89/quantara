@@ -1,6 +1,7 @@
 using System.Security.Cryptography;
 using System.Text;
 using Mediator;
+using Quantara.Portfolio.Api;
 using Quantara.Portfolio.Application;
 using Quantara.Portfolio.Infrastructure;
 
@@ -63,6 +64,37 @@ builder.Services.AddSingleton<IOrderStore>(orders);
 builder.Services.AddSingleton<IReadOnlyOrderStore>(orders);
 builder.Services.AddHostedService<OrderStatusMonitor>();
 builder.Services.AddSingleton(TimeProvider.System);
+var tradingStore = new SqlTradingStore(connectionString, accountKey, TimeProvider.System);
+await tradingStore.Initialize(CancellationToken.None);
+builder.Services.AddSingleton<ITradingStore>(tradingStore);
+builder.Services.AddSingleton<IReadOnlyTradingStore>(tradingStore);
+var tradingOptions = new TradingControlOptions(
+    builder.Configuration["Trading:OwnerToken"] ?? Credential("QUANTARA_TRADING_CONTROL_TOKEN")
+)
+{
+    LiveActivationAvailable =
+        !string.IsNullOrWhiteSpace(credentials.Key) && !string.IsNullOrWhiteSpace(credentials.Secret),
+};
+builder.Services.AddSingleton(tradingOptions);
+builder.Services.AddSingleton<TradingOverviewProjection>();
+builder.Services.AddSingleton(new SemaphoreSlim(1, 1));
+builder.Services.AddSingleton<ITradingControl, TradingControl>();
+builder.Services.AddSingleton<TradingEngine>();
+builder.Services.AddSingleton<TradingReportDelivery>();
+builder.Services.AddHostedService<TradingWorker>();
+builder
+    .Services.AddHttpClient<ITradingNotifier>(
+        (services, http) =>
+        {
+            http.BaseAddress = new Uri("https://api.telegram.org/");
+            http.Timeout = TimeSpan.FromSeconds(15);
+        }
+    )
+    .RemoveAllLoggers()
+    .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler { AllowAutoRedirect = false })
+    .AddTypedClient<ITradingNotifier>(
+        (http, services) => new TradingNotifier(http, services.GetService<TelegramSettings>())
+    );
 if (!string.IsNullOrWhiteSpace(Credential("TELEGRAM_BOT_TOKEN")))
 {
     if (
@@ -88,6 +120,7 @@ if (!string.IsNullOrWhiteSpace(Credential("TELEGRAM_BOT_TOKEN")))
             http.BaseAddress = new Uri("https://api.telegram.org/");
             http.Timeout = TimeSpan.FromSeconds(15);
         })
+        .RemoveAllLoggers()
         .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler { AllowAutoRedirect = false });
     builder.Services.AddSingleton<TelegramOrderReviews>();
     builder.Services.AddHostedService<TelegramReviewWorker>();
@@ -125,6 +158,20 @@ builder
         http.Timeout = TimeSpan.FromSeconds(20);
     })
     .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler { AllowAutoRedirect = false });
+builder
+    .Services.AddHttpClient<ITradingMarketReader, TradingMarketReader>(http =>
+    {
+        http.BaseAddress = marketDataUrl;
+        http.Timeout = TimeSpan.FromSeconds(10);
+    })
+    .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler { AllowAutoRedirect = false });
+builder
+    .Services.AddHttpClient<ITradingExchange, BitkubTradingExchange>(http =>
+    {
+        http.BaseAddress = new Uri("https://api.bitkub.com");
+        http.Timeout = TimeSpan.FromSeconds(20);
+    })
+    .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler { AllowAutoRedirect = false });
 builder.Services.AddSingleton<PortfolioSync>();
 builder.Services.AddSingleton<IPortfolioSync>(services => services.GetRequiredService<PortfolioSync>());
 builder.Services.AddHostedService(services => services.GetRequiredService<PortfolioSync>());
@@ -140,6 +187,36 @@ app.Use(
     async (context, next) =>
     {
         context.Response.Headers.CacheControl = "no-store";
+        var tradingRequest = context.Request.Path.StartsWithSegments("/api/trading");
+        if (tradingRequest)
+        {
+            if (
+                !TradingRequestPolicy.Allows(
+                    context.Request,
+                    builder.Configuration["Hosting:InternalHost"],
+                    tradingOptions
+                )
+            )
+            {
+                context.Response.StatusCode = 403;
+                await context.Response.WriteAsJsonAsync(
+                    new { error = "Local authorized trading controls are required." }
+                );
+                return;
+            }
+
+            if (
+                context.Request.ContentLength > 8192
+                || !HttpMethods.IsGet(context.Request.Method)
+                    && !await TradingRequestPolicy.BodyWithinLimit(context.Request, context.RequestAborted)
+            )
+            {
+                context.Response.StatusCode = 413;
+                await context.Response.WriteAsJsonAsync(new { error = "Trading request is too large." });
+                return;
+            }
+        }
+
         if (
             context.Request.Path.StartsWithSegments("/api/crypto/orders")
             || context.Request.Path.StartsWithSegments("/api/crypto/account")
@@ -192,6 +269,21 @@ app.Use(
             await next();
         }
         catch (OperationCanceledException) when (context.RequestAborted.IsCancellationRequested) { }
+        catch (ArgumentException error) when (tradingRequest)
+        {
+            context.Response.StatusCode = 400;
+            await context.Response.WriteAsJsonAsync(new { error = error.Message });
+        }
+        catch (InvalidOperationException error) when (tradingRequest)
+        {
+            context.Response.StatusCode = 409;
+            await context.Response.WriteAsJsonAsync(new { error = error.Message });
+        }
+        catch (BadHttpRequestException error) when (tradingRequest && error.StatusCode == 413)
+        {
+            context.Response.StatusCode = 413;
+            await context.Response.WriteAsJsonAsync(new { error = "Trading request is too large." });
+        }
         catch (OrderValidationException error)
         {
             context.Response.StatusCode = 409;

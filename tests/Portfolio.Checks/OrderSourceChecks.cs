@@ -1,5 +1,6 @@
 using Quantara.Portfolio.Application;
 using Quantara.Portfolio.Domain;
+using Quantara.Portfolio.Domain.Trading;
 using Quantara.Portfolio.Infrastructure;
 
 namespace Portfolio.Checks;
@@ -32,6 +33,26 @@ public static class OrderSourceChecks
         await OrderSourceChecks.Refused(create, command with { ExpectedAccountKey = new string('b', 64) });
         await OrderSourceChecks.Refused(create, command with { ExpectedAccountKey = null });
         await OrderSourceChecks.Refused(create, command with { Amount = "200" });
+        var trading = new FakeTradingStore(TradingStateFactory.Create(time.GetUtcNow()));
+        var guarded = new CreateOrderHandler(store, broker, time, new AccountContext(account), trading);
+        foreach (var mode in new[] { TradingMode.Paper, TradingMode.Stopped, TradingMode.AutoLive })
+        {
+            trading.State = trading.State with { Mode = mode };
+            await OrderSourceChecks.Refused(guarded, command with { SourceRunId = Guid.NewGuid() });
+            await OrderSourceChecks.Refused(guarded, command);
+            OrderSourceChecks.Check(
+                (await store.Find(first.Id, CancellationToken.None))?.State == OrderState.Pending
+                    && broker.Submissions == 0,
+                "Non-manual AI publication cannot alter retained pending proposals or submit orders."
+            );
+        }
+
+        trading.State = trading.State with { Mode = TradingMode.ManualReview };
+        var manual = await guarded.Handle(command, CancellationToken.None);
+        OrderSourceChecks.Check(
+            manual.Id == first.Id && manual.ExpiresAt == first.ExpiresAt,
+            "Explicit ManualReview preserves the existing immutable proposal."
+        );
         broker.FailPrepare = true;
         var approve = new ApproveOrderHandler(store, broker, time);
         try

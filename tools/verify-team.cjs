@@ -235,9 +235,9 @@ async function verify() {
     await page
       .getByRole('button', { name: 'Stop company', exact: true })
       .click();
-    await page.getByText('Company stopped', { exact: true }).waitFor();
+    await page.getByText('AI research stopped', { exact: true }).waitFor();
     await page.reload();
-    await page.getByText('Company stopped', { exact: true }).waitFor();
+    await page.getByText('AI research stopped', { exact: true }).waitFor();
     assert.equal(writes, 2, 'Only explicit company controls send writes');
     const api = await browser.newContext();
     for (const badDate of [

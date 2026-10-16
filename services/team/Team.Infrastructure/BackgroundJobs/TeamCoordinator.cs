@@ -243,6 +243,11 @@ public sealed class TeamCoordinator : BackgroundService, ITeamCoordinator
             throw new InvalidOperationException("Portfolio snapshot account key is invalid.");
         }
 
+        var manualReview =
+            snapshotDocument.RootElement.TryGetProperty("tradingMode", out var mode)
+            && mode.ValueKind == JsonValueKind.String
+            && mode.GetString() == "manualReview";
+
         var current =
             await this.store.Find(id, cancellationToken) ?? throw new InvalidOperationException("Run missing.");
         await this.gate.WaitAsync(cancellationToken);
@@ -323,6 +328,17 @@ public sealed class TeamCoordinator : BackgroundService, ITeamCoordinator
                 cancellationToken
             );
             cancellationToken.ThrowIfCancellationRequested();
+            if (report.Proposal is not null && !manualReview)
+            {
+                report = report with
+                {
+                    Proposal = null,
+                    Output =
+                        report.Output
+                        + "\n\nข้อเสนอถูกข้าม: โหมดปัจจุบันเป็นการวิจัยเท่านั้น การสร้างข้อเสนอรออนุมัติต้องอยู่ใน ManualReview",
+                };
+            }
+
             await this.UpdateStep(id, role, TeamRunStatus.Completed, report.Output, cancellationToken, report);
             previous.Add((role.ToString().ToLowerInvariant(), report.Output));
             if (report.ResearchSymbols is { Count: > 0 } requested)
@@ -354,6 +370,11 @@ public sealed class TeamCoordinator : BackgroundService, ITeamCoordinator
                 {
                     throw new InvalidOperationException("Account changed while collecting requested market evidence.");
                 }
+
+                manualReview =
+                    refreshed.RootElement.TryGetProperty("tradingMode", out var refreshedMode)
+                    && refreshedMode.ValueKind == JsonValueKind.String
+                    && refreshedMode.GetString() == "manualReview";
 
                 var context =
                     JsonSerializer.Deserialize<Dictionary<string, JsonElement>>(snapshot)

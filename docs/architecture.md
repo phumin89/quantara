@@ -52,9 +52,49 @@ MarketData defaults to port 5051, Portfolio to 5050, Team to 5052 and Web to 300
 Service addresses are configuration, not Domain dependencies. Broker credentials
 stay in Portfolio's server environment or the root .env allowlist. Startup does
 not authorize transactions. Team produces reports through an isolated Codex SDK
-worker. Separately, Portfolio now supports individually human-reviewed THB spot
-limit orders. There are no automatic orders, market orders, derivatives,
-transfers, withdrawals or RiskEngine.
+worker. Portfolio supports individually human-reviewed THB spot limit proposals
+and a separate deterministic trading worker governed by an owner-enabled
+AutoLive mandate. New trading state defaults to Paper. There are no market
+orders, derivatives, transfers or withdrawals. See [trading](trading.md).
+
+## Deterministic trading authority
+
+The 2026-10-16 owner direction in `newfeature.md` authorizes one live activation
+for an exact account, strategy/rules hash, allowed symbols, capital/risk caps and
+expiry. Within that unchanged, unexpired mandate, the Portfolio-owned worker
+evaluates completed five-minute candles and manages spot LIMIT entry/exit orders
+without individual approval. It does not call the legacy approval command.
+AI/Team remain research only and never grant or choose this order authority.
+ManualReview remains a separate individually approved path. Material rule or
+account changes, expiry, Disable and Emergency stop disarm AutoLive; timers and
+restart recovery cannot create a new mandate.
+
+Portfolio owns additive account-partitioned trading state, versioned rules,
+mandates, decisions, durable order intents, fills, positions, risk counters,
+alerts and report delivery. Its existing SQL database and retained ledger remain
+intact. Durable execution claims precede broker side effects; uncertain
+submissions stay blocked until exact reconciliation, without resending. Public
+market evidence arrives from MarketData over HTTP. Paper uses simulated funds
+and fills; live accounting uses actual fills and known cost basis, preserving
+Unknown profit/equity when evidence is incomplete.
+
+The class-based Daily Brief trading panel uses validated feature contracts,
+Context and lazy service bindings. It displays the server's mode, heartbeat,
+exposure, orders and selected-day Thai report. The owner configures rules and
+reviews account/hash/caps with an explicit expiry before one Enable action.
+Next.js guards local-origin JSON controls, bounds request bodies, validates
+actions and adds `X-Quantara-Trading-Control` only on the server. Portfolio
+checks its owner token separately. Docker preparation generates and preserves
+the token in private `runtime.env`; only Portfolio and the web server receive
+it. Server setup, page mounting, polling, research and tests never enable live
+trading. The application remains a loopback, single-owner deployment.
+
+At 23:59 Asia/Bangkok, verified accounting produces a concise Thai daily report.
+Delivery claims and corrections are retained. Missing fills or cost basis do
+not become zero profit. Critical alerts cover risk/stop, stale data, uncertain
+execution, reconciliation mismatch and prolonged outages. The worker runs
+independently of the browser but still requires the PC, network, Docker and
+services to remain available.
 
 ## Individually reviewed orders
 
@@ -238,7 +278,7 @@ Feasible setups describe an observed signal, entry, amount, planned
 exit, invalidation and round-trip costs. Daily is not a required trade quota;
 no-trade rounds state evidence and a concrete reconsideration condition. Exit
 plans are report text, not installed stop-loss, take-profit or timed-exit orders.
-Any later exit requires a new individually reviewed proposal. Daily BTC history
+In the research/manual path, any later exit requires a new individually reviewed proposal. Daily BTC history
 does not supply intraday candles for other markets or prove a trading edge.
 Incomplete simulated-fill protocols, strategy backtests, historical account PnL
 or retrospective opportunity-cost calculations block their own claims rather

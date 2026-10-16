@@ -3,7 +3,8 @@
 Next.js/TypeScript/Material UI workspace with independently runnable C# services.
 Crypto tracks Bitkub balances and retained history. CEO, Analyst and Reviewer
 research through Codex SDK and may propose spot LIMIT orders for explicit human
-approval. Background research never approves or submits orders.
+approval. A separate deterministic Portfolio worker supports Paper and an
+owner-enabled AutoLive mandate. Background research never approves or submits orders.
 
 ## Structure
 
@@ -30,10 +31,11 @@ npm run dev
 
 Web: http://127.0.0.1:3000. Portfolio: port 5050. MarketData: port 5051. Production frontend: `npm run build`, then `npm start`. Both services expose `/health`; Portfolio checks SQL connectivity and persisted ledger readability.
 
-For continuous operation on this Windows PC, see
-[local runtime setup](docs/local-runtime.md). It installs hidden per-user service
-watchers, restart recovery and a temporary idle-sleep request. Real orders still
-require individual human approval.
+The canonical continuous runtime is [Docker](docs/docker-runtime.md), with
+retained SQL databases and server-only credentials. The older
+[local runtime setup](docs/local-runtime.md) remains a development and verified
+reverse-migration path; do not run both against the canonical data. A powered-off
+or sleeping PC, stopped Docker or lost network cannot trade.
 
 Portfolio reads only BITKUB_API_KEY and BITKUB_API_SECRET from environment variables or the repository-root `.env`. MarketData never receives credentials. Configure `ConnectionStrings__Quantara` for another SQL Server; local default is the existing MSSQLLocalDB Quantara database. Set `Services__MarketDataUrl` on Portfolio and `PORTFOLIO_SERVICE_URL` on the Next.js server when services run elsewhere.
 
@@ -45,8 +47,11 @@ Home remains empty; Crypto shows actual balances, retained closed coins and trad
 
 Bitkub exchange history is limited to about 90 days and excludes broker conversions.
 Cost and profit remain unknown until complete accounting is verified. Real spot
-LIMIT proposals require individual human review; withdrawals, transfers and
-leverage are not supported. Saans is not bundled; the documented system font
+LIMIT proposals in ManualReview require individual human review. AutoLive uses
+one owner activation for the exact unchanged, unexpired mandate, with no
+per-trade approval. New accounts default to Paper; this implementation does not
+activate live trading. Withdrawals, transfers and leverage are not supported.
+See [trading controls and recovery](docs/trading.md). Saans is not bundled; the documented system font
 fallback is used.
 
 ## Verification
@@ -65,6 +70,11 @@ dotnet run --project tests/MarketData.Checks/MarketData.Checks.csproj
 Opt into real SQL verification with `-- --sql` on Portfolio.Checks. It uses a separate deterministic test account, not the owner's partition. Stop running services before rebuilding their assemblies on Windows.
 
 Browser checks with frontend running: `npm run test:ui`, `npm run test:contracts`. Real-data `npm run test:crypto` also needs both services and configured credentials. Install Chromium with `npx playwright install chromium`, or use installed Edge via `$env:PLAYWRIGHT_CHANNEL = 'msedge'`. Test fixtures/failure injection remain confined to the isolated test browser.
+
+Trading transport checks run with `node tools/verify-trading-ui.cjs`; add
+`--browser` with the frontend running for fully intercepted mandate/configuration
+fixtures and desktop/tablet/phone inspection. These checks never use a real
+account or send a broker request.
 
 Use `npm run test:crypto -- --fixtures` for deterministic responsive Crypto
 checks without broker credentials; it intercepts requests only inside the test
@@ -131,7 +141,9 @@ CEO chooses analysis priorities, Analyst follows the plan, and Reviewer checks
 the evidence. The next round uses the previous review as bounded untrusted context.
 Hourly reviews and deduplicated signal assessments run without overlapping
 rounds or a missed-round backlog. Each role has a 180-second process timeout.
-Research runs overnight; only an explicit human approval can submit a real order.
+Research runs overnight; research proposals keep individual human approval.
+The separate deterministic AutoLive worker can submit within an owner-enabled
+mandate; no research output, model or Team schedule grants that authority.
 
 CompanySchedule is a new table in Team's database; existing TeamRuns and Portfolio
 schema/history stay intact. The next hour is reserved before starting a round,

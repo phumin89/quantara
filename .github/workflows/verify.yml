@@ -31,6 +31,8 @@ jobs:
       - run: dotnet run --project tests/Analyzer.Checks/Analyzer.Checks.csproj
       - run: node tools/verify-editor-rules.cjs
       - run: dotnet run --no-build --project tests/Portfolio.Checks/Portfolio.Checks.csproj
+      - run: dotnet run --no-build --project tests/Portfolio.Api.Checks/Portfolio.Api.Checks.csproj
+      - run: node tools/verify-trading-ui.cjs
       - run: dotnet run --no-build --project tests/MarketData.Checks/MarketData.Checks.csproj
       - run: dotnet run --no-build --project tests/Team.Checks/Team.Checks.csproj
       - run: npm audit --audit-level=high
@@ -54,6 +56,7 @@ jobs:
       - run: npm run test:lifecycle
       - run: npm run test:team-ui
       - run: npm run test:orders
+      - run: node tools/verify-trading-ui.cjs --browser
   secrets:
     runs-on: ubuntu-latest
     steps:

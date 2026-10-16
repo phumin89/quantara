@@ -24,6 +24,7 @@ await CompanyLoopChecks.Run();
 await ProposalTransportChecks.Run();
 await RestingEntryChecks.Run();
 await RequestedEvidenceChecks.Run();
+await TradingModeProposalChecks.Run();
 Console.WriteLine("Team checks passed.");
 
 static async Task Success()
@@ -186,7 +187,12 @@ static async Task ProposalPublication()
         (role, _, _) => Task.FromResult(new ResearchReport(role, role == "reviewer" ? proposal : null))
     );
     var store = new FakeTeamRunStore();
-    await using var coordinator = await Start(store, worker, publisher);
+    await using var coordinator = await Start(
+        store,
+        worker,
+        publisher,
+        new FakePortfolioSnapshotReader { TradingMode = "manualReview" }
+    );
     var run = await coordinator.Start("proposal", CancellationToken.None);
     var result = await store.WaitFor(
         run.Id,
@@ -202,7 +208,12 @@ static async Task ProposalPublication()
         (role, _, _) => Task.FromResult(new ResearchReport(role, role == "analyst" ? proposal : null))
     );
     var rejectedStore = new FakeTeamRunStore();
-    await using var rejected = await Start(rejectedStore, analystWorker, rejectedPublisher);
+    await using var rejected = await Start(
+        rejectedStore,
+        analystWorker,
+        rejectedPublisher,
+        new FakePortfolioSnapshotReader { TradingMode = "manualReview" }
+    );
     var rejectedRun = await rejected.Start("bad proposal", CancellationToken.None);
     var rejectedResult = await rejectedStore.WaitFor(
         rejectedRun.Id,
@@ -216,7 +227,12 @@ static async Task ProposalPublication()
 
     publisher.Fail = true;
     var failingStore = new FakeTeamRunStore();
-    await using var failing = await Start(failingStore, worker, publisher);
+    await using var failing = await Start(
+        failingStore,
+        worker,
+        publisher,
+        new FakePortfolioSnapshotReader { TradingMode = "manualReview" }
+    );
     var failingRun = await failing.Start("publisher failure", CancellationToken.None);
     var failed = await failingStore.WaitFor(failingRun.Id, item => item.Status == TeamRunStatus.Failed, TimeoutToken());
     Check(failed.Status == TeamRunStatus.Failed, "publisher failure visible");
@@ -463,10 +479,16 @@ static TeamRun RunAt(Guid id, DateTimeOffset createdAt)
 static async Task<TeamCoordinatorLease> Start(
     FakeTeamRunStore store,
     FakeCodexWorker worker,
-    IOrderProposalPublisher? publisher = null
+    IOrderProposalPublisher? publisher = null,
+    IPortfolioSnapshotReader? snapshotReader = null
 )
 {
-    var coordinator = new TeamCoordinator(store, worker, new FakePortfolioSnapshotReader(), publisher);
+    var coordinator = new TeamCoordinator(
+        store,
+        worker,
+        snapshotReader ?? new FakePortfolioSnapshotReader(),
+        publisher
+    );
     await coordinator.StartAsync(CancellationToken.None);
     await coordinator.Initialization.WaitAsync(TimeSpan.FromSeconds(5));
     return new TeamCoordinatorLease(coordinator);

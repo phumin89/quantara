@@ -25,6 +25,7 @@ import { CompanyLoopStatus } from '../../contracts/CompanyLoopStatus';
 import type { DailyBriefPageState } from './DailyBriefPageState';
 import OrderReviewPanel from '../../../orders/components/order-review-panel/OrderReviewPanel';
 import BriefMessage from '../brief-message/BriefMessage';
+import TradingPanel from '../../../trading/components/trading-panel/TradingPanel';
 
 export default class DailyBriefPage extends Component<
   object,
@@ -165,7 +166,7 @@ export default class DailyBriefPage extends Component<
               variant="caption"
               color="text.secondary"
             >
-              Market signals + hourly review · Approval required
+              Read-only research · Market signals + hourly review
             </Typography>
             {company?.status === CompanyLoopStatus.Waiting &&
               company.nextRunAt && (
@@ -237,6 +238,7 @@ export default class DailyBriefPage extends Component<
             sx={{ minWidth: 0, order: { xs: 1, lg: 0 } }}
           >
             <OrderReviewPanel />
+            <TradingPanel date={date} />
             <Paper
               variant="outlined"
               sx={{ borderRadius: '8px', overflow: 'hidden' }}
@@ -787,7 +789,7 @@ export default class DailyBriefPage extends Component<
   private companyLabel(status: CompanyLoopStatus | undefined): string {
     switch (status) {
       case CompanyLoopStatus.Stopped:
-        return 'Company stopped';
+        return 'AI research stopped';
       case CompanyLoopStatus.WaitingForCodex:
         return 'Waiting for Codex sign-in';
       case CompanyLoopStatus.WaitingForPortfolio:

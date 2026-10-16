@@ -21,6 +21,13 @@ Assert-Text $compose 'healthcheck:' 'Compose services must define health checks.
 Assert-Text $compose 'verified' 'Compose must enforce the readiness marker.'
 if (([regex]::Matches($compose, '127\.0\.0\.1:\d+:\d+')).Count -ne 1) { throw 'Only the web service may publish a host port.' }
 Assert-Text $compose 'mcr\.microsoft\.com/mssql/server@sha256:[a-f0-9]{64}' 'SQL upgrades must require an explicit image digest change.'
+$portfolioBlock = [regex]::Match($compose, '(?ms)^  portfolio:\r?\n.*?(?=^  team:)').Value
+$teamBlock = [regex]::Match($compose, '(?ms)^  team:\r?\n.*?(?=^  web:)').Value
+$webBlock = [regex]::Match($compose, '(?ms)^  web:\r?\n.*?(?=^networks:)').Value
+Assert-Text $portfolioBlock 'Trading__OwnerToken: \$\{QUANTARA_TRADING_CONTROL_TOKEN:\?' 'Portfolio requires the private owner token.'
+Assert-Text $webBlock 'QUANTARA_TRADING_CONTROL_TOKEN: \$\{QUANTARA_TRADING_CONTROL_TOKEN:\?' 'The web server requires the same private owner token.'
+if ($teamBlock -match 'TRADING_CONTROL_TOKEN|Trading__OwnerToken' -or $compose -match 'NEXT_PUBLIC_.*TRADING') { throw 'Trading authority must never enter Team or browser configuration.' }
+if (([regex]::Matches($compose, '\$\{QUANTARA_TRADING_CONTROL_TOKEN:\?')).Count -ne 2) { throw 'Only Portfolio and the web server may receive the trading control token.' }
 
 $dockerFiles = @(
     (Join-Path $root 'docker/Api.Dockerfile'),
@@ -57,10 +64,41 @@ Assert-Text $fence 'BEGIN TRANSACTION;[\s\S]*TABLOCKX,HOLDLOCK[\s\S]*ROLLBACK TR
 Expect-Throw { Get-QuantaraMigrationFenceSql -Nonce 'invalid' } 'Invalid fence identity was accepted.'
 $launcher = Get-Content -LiteralPath (Join-Path $PSScriptRoot 'Start-QuantaraDocker.ps1') -Raw
 Assert-Text $launcher "'up', '-d', '--no-recreate', '--wait'" 'Routine startup must preserve existing containers.'
+Assert-Text $launcher "\`$state.Phase -eq 'Active' -and \`$Action -ne 'Prepare'" 'Prepare must not start an already active runtime.'
+Assert-Text $launcher 'Initialize-QuantaraTradingControlToken -Path \$runtimeEnv' 'Prepare must initialize and preserve the private token.'
 Import-Module (Join-Path $PSScriptRoot 'QuantaraRuntime.psm1') -Force
 $fixtureRoot = Join-Path $root ('work/docker-ownership-' + [Guid]::NewGuid().ToString('N'))
 $fixtureDirectory = Join-Path $fixtureRoot '.runtime/docker'
 New-Item -ItemType Directory -Path $fixtureDirectory -Force | Out-Null
+$fixtureEnvironment = Join-Path $fixtureDirectory 'runtime.env'
+$initialEnvironment = "# Retained fixture settings`nQUANTARA_PORTFOLIO_PASSWORD=unchanged-fixture`n"
+$privateOutput = @(Initialize-QuantaraTradingControlToken -Path $fixtureEnvironment -InitialContent $initialEnvironment)
+if ($privateOutput.Count) { throw 'Token initialization must not emit secrets.' }
+$firstEnvironment = [IO.File]::ReadAllText($fixtureEnvironment)
+if (!$firstEnvironment.StartsWith($initialEnvironment) -or $firstEnvironment -notmatch '(?m)^QUANTARA_TRADING_CONTROL_TOKEN=[A-F0-9]{64}\r?$') {
+    throw 'Token generation must preserve existing settings and create a cryptographically random token.'
+}
+Initialize-QuantaraTradingControlToken -Path $fixtureEnvironment
+if ([IO.File]::ReadAllText($fixtureEnvironment) -cne $firstEnvironment) { throw 'Repeated preparation rotated the token or changed retained credentials.' }
+if ($IsWindows) {
+    $fileAccess = Get-Acl -LiteralPath $fixtureEnvironment
+    $ownerSid = [Security.Principal.WindowsIdentity]::GetCurrent().User.Value
+    $rules = @($fileAccess.GetAccessRules($true, $true, [Security.Principal.SecurityIdentifier]))
+    if (!$fileAccess.AreAccessRulesProtected -or $rules.Count -ne 1 -or $rules[0].IdentityReference.Value -ne $ownerSid) {
+        throw 'The runtime environment must be readable only by its owner.'
+    }
+} elseif ([IO.File]::GetUnixFileMode($fixtureEnvironment) -ne ([IO.UnixFileMode]::UserRead -bor [IO.UnixFileMode]::UserWrite)) {
+    throw 'The runtime environment must have owner-only Unix permissions.'
+}
+[IO.File]::WriteAllText($fixtureEnvironment, $initialEnvironment)
+Initialize-QuantaraTradingControlToken -Path $fixtureEnvironment
+if (![IO.File]::ReadAllText($fixtureEnvironment).StartsWith($initialEnvironment)) { throw 'Adding a token changed retained runtime credentials.' }
+foreach ($invalidToken in @('invalid-fixture', (('A' * 64) + "`nQUANTARA_TRADING_CONTROL_TOKEN=" + ('B' * 64)))) {
+    $invalidEnvironment = $initialEnvironment + 'QUANTARA_TRADING_CONTROL_TOKEN=' + $invalidToken + "`n"
+    [IO.File]::WriteAllText($fixtureEnvironment, $invalidEnvironment)
+    Expect-Throw { Initialize-QuantaraTradingControlToken -Path $fixtureEnvironment } 'Invalid or duplicate runtime tokens were accepted.'
+    if ([IO.File]::ReadAllText($fixtureEnvironment) -cne $invalidEnvironment) { throw 'Invalid token state must remain preserved for review.' }
+}
 $fixtureState = Join-Path $fixtureDirectory 'state.json'
 foreach ($phase in @('Prepared', 'Pausing', 'SourcePaused', 'Restored', 'Active', 'Native')) {
     @{ Version = 1; Phase = $phase } | ConvertTo-Json | Set-Content -LiteralPath $fixtureState

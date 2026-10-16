@@ -4,4 +4,5 @@ export enum ServiceKey {
   History = 'history',
   Team = 'team',
   Orders = 'orders',
+  Trading = 'trading',
 }

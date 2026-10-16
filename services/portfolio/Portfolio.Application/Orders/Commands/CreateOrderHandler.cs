@@ -1,6 +1,7 @@
 using System.Globalization;
 using Mediator;
 using Quantara.Portfolio.Domain;
+using Quantara.Portfolio.Domain.Trading;
 
 namespace Quantara.Portfolio.Application;
 
@@ -8,7 +9,8 @@ public sealed class CreateOrderHandler(
     IOrderStore store,
     IOrderBroker broker,
     TimeProvider time,
-    IAccountContext? account = null
+    IAccountContext? account = null,
+    IReadOnlyTradingStore? trading = null
 ) : ICommandHandler<CreateOrderCommand, OrderView>
 {
     public async ValueTask<OrderView> Handle(CreateOrderCommand command, CancellationToken cancellationToken)
@@ -40,6 +42,13 @@ public sealed class CreateOrderHandler(
             {
                 throw new OrderValidationException(
                     "Proposal account changed or source task is missing. Run fresh research."
+                );
+            }
+
+            if (trading is not null && (await trading.Read(cancellationToken)).Mode != TradingMode.ManualReview)
+            {
+                throw new OrderValidationException(
+                    "AI proposals require ManualReview mode. Research does not authorize a pending order in the current mode."
                 );
             }
 

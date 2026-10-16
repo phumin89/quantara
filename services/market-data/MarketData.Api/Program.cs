@@ -42,6 +42,11 @@ builder.Services.AddSingleton(services => new LiveMarketFeed(
 ));
 builder.Services.AddSingleton<IIntradayMarketReader>(services => services.GetRequiredService<LiveMarketFeed>());
 builder.Services.AddHostedService(services => services.GetRequiredService<LiveMarketFeed>());
+builder.Services.AddSingleton<IExecutionMarketReader>(services => new BitkubExecutionMarketReader(
+    services.GetRequiredService<IHttpClientFactory>().CreateClient("live-market"),
+    services.GetRequiredService<IIntradayMarketReader>(),
+    services.GetRequiredService<TimeProvider>()
+));
 builder
     .Services.AddHttpClient<BitkubMarketDataReader>(client =>
     {

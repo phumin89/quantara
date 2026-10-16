@@ -101,7 +101,7 @@ try {
         Write-Output 'Native watchers resumed using their unchanged original databases. Staging backups and SQL volume were retained.'
         return
     }
-    if ($Action -eq 'Start' -or $state.Phase -eq 'Active') { Start-Containers; return }
+    if ($Action -eq 'Start' -or ($state.Phase -eq 'Active' -and $Action -ne 'Prepare')) { Start-Containers; return }
     if ($state.Phase -eq 'Native') { throw 'A rolled-back staging database is retained. Review/archive the staging deployment before preparing a new migration; it will not be overwritten.' }
 
     foreach ($directory in @('auth', 'backups', 'ready')) {
@@ -116,8 +116,10 @@ try {
             $values['QUANTARA_' + $database.Key + '_CONNECTION'] =
                 "Server=sql,1433;Database=$($database.Name);User ID=$($database.Login);Password=$password;Encrypt=true;TrustServerCertificate=true;"
         }
-        $values.Keys | Sort-Object | ForEach-Object { "$_=$($values[$_])" } |
-            Set-Content -LiteralPath $runtimeEnv -Encoding utf8
+        $initialContent = ($values.Keys | Sort-Object | ForEach-Object { "$_=$($values[$_])" }) -join "`n"
+        Initialize-QuantaraTradingControlToken -Path $runtimeEnv -InitialContent $initialContent
+    } else {
+        Initialize-QuantaraTradingControlToken -Path $runtimeEnv
     }
     $credentialsPath = Join-Path $plan.Root '.env'
     $credentials = Read-EnvironmentFile $credentialsPath
@@ -150,7 +152,7 @@ try {
     Invoke-QuantaraCompose -Arguments @('build', '--pull') -TimeoutSeconds 1200 |
         Set-Content -LiteralPath (Join-Path $plan.Directory 'build.log')
     Invoke-QuantaraCompose -Arguments @('pull', 'sql') | Out-Null
-    if ($Action -eq 'Prepare') { Write-Output 'Images and private configuration prepared. Native services are unchanged.'; return }
+    if ($Action -eq 'Prepare') { Write-Output 'Images and private configuration prepared. Running services and live-trading authority are unchanged.'; return }
 
     $binding = Get-Content -LiteralPath (Join-Path $plan.Root '.runtime/sql-instance.json') -Raw | ConvertFrom-Json
     $sid = [Security.Principal.WindowsIdentity]::GetCurrent().User.Value

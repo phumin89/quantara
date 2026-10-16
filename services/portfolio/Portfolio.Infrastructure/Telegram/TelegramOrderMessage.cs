@@ -75,7 +75,7 @@ public static class TelegramOrderMessage
             OrderState.PartiallyFilled => "🟡 จับคู่ได้บางส่วน",
             OrderState.Filled => "✅ จับคู่ครบแล้ว",
             OrderState.Submitting => "⏳ กำลังส่งคำสั่ง · ยังไม่ยืนยันผล",
-            OrderState.Unknown => "⚠ ยังยืนยันผลคำสั่งไม่ได้",
+            OrderState.Unknown => "⚠ ไม่ทราบผลคำสั่ง · ยังยืนยันการส่งไม่ได้",
             OrderState.Cancelled => "✖ ยกเลิกคำสั่งแล้ว",
             OrderState.Rejected => "✖ คำสั่งถูกปฏิเสธ",
             OrderState.Expired => "⌛ หมดเวลาอนุมัติ · ไม่ได้ส่งคำสั่ง",

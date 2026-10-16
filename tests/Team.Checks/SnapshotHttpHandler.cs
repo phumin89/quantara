@@ -15,17 +15,23 @@ public sealed class SnapshotHttpHandler : HttpMessageHandler
 
     private readonly string orders;
 
+    private readonly string trading;
+
+    public int TradingReads { get; private set; }
+
     public SnapshotHttpHandler(
         string json,
         string? history = null,
         string? account = null,
         string? walletEvidence = null,
-        string? orders = null
+        string? orders = null,
+        string? trading = null
     )
     {
         this.json = json;
         this.history = history;
         this.orders = orders ?? "{\"proposals\":[]}";
+        this.trading = trading ?? $"{{\"accountKey\":\"{new string('a', 64)}\",\"mode\":\"paper\"}}";
         this.account =
             account ?? "{\"accountKey\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"}";
         this.walletEvidence =
@@ -38,6 +44,15 @@ public sealed class SnapshotHttpHandler : HttpMessageHandler
         CancellationToken cancellationToken
     )
     {
+        if (request.RequestUri?.AbsolutePath == "/api/trading")
+        {
+            this.TradingReads += 1;
+            if (request.Method != HttpMethod.Get || request.Headers.Contains("X-Quantara-Trading-Control"))
+            {
+                throw new InvalidOperationException("Research trading-mode reads must carry no control authority.");
+            }
+        }
+
         return Task.FromResult(
             new HttpResponseMessage(HttpStatusCode.OK)
             {
@@ -50,6 +65,7 @@ public sealed class SnapshotHttpHandler : HttpMessageHandler
                             ? this.history ?? "{}"
                         : request.RequestUri?.AbsolutePath.EndsWith("/orders", StringComparison.Ordinal) == true
                             ? this.orders
+                        : request.RequestUri?.AbsolutePath == "/api/trading" ? this.trading
                         : this.json,
                     Encoding.UTF8,
                     "application/json"
