@@ -9,6 +9,8 @@ public sealed class FakeOrderBroker : IOrderBroker
 
     public decimal Available { get; set; } = 1000m;
 
+    public Balance[]? ExactBalances { get; set; }
+
     public int Submissions { get; private set; }
 
     internal void CountSubmission() => this.Submissions += 1;
@@ -38,7 +40,9 @@ public sealed class FakeOrderBroker : IOrderBroker
             this.AdvanceOnBalance.Now = this.AdvanceOnBalance.Now.AddMinutes(3);
         }
 
-        return Task.FromResult<Balance[]>([new("THB", 1000m, this.Available), new("BTC", 1000m, this.Available)]);
+        return Task.FromResult<Balance[]>(
+            this.ExactBalances ?? [new("THB", 1000m, this.Available), new("BTC", 1000m, this.Available)]
+        );
     }
 
     public Task<IPreparedOrderSubmission> Prepare(OrderProposal proposal, CancellationToken cancellationToken)

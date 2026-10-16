@@ -4,6 +4,7 @@ using Mediator;
 using Quantara.Portfolio.Api;
 using Quantara.Portfolio.Application;
 using Quantara.Portfolio.Infrastructure;
+using Quantara.Portfolio.Infrastructure.Risk;
 
 var builder = WebApplication.CreateBuilder(args);
 builder.WebHost.UseUrls(builder.Configuration["Hosting:ListenUrl"] ?? "http://127.0.0.1:5050");
@@ -60,6 +61,12 @@ await store.Initialize(configuredConnection is null, CancellationToken.None);
 var orders = new SqlOrderStore(connectionString, accountKey);
 builder.Services.AddSingleton<IAccountContext>(new AccountContext(accountKey));
 await orders.Initialize(CancellationToken.None);
+var riskStore = new SqlRiskStore(connectionString, accountKey);
+await riskStore.Initialize(CancellationToken.None);
+builder.Services.AddSingleton<IRiskStore>(riskStore);
+builder.Services.AddSingleton<IReadOnlyRiskStore>(riskStore);
+builder.Services.AddScoped<RiskCapitalReader>();
+builder.Services.AddScoped<IRiskSizingService, RiskSizingService>();
 builder.Services.AddSingleton<IOrderStore>(orders);
 builder.Services.AddSingleton<IReadOnlyOrderStore>(orders);
 builder.Services.AddHostedService<OrderStatusMonitor>();
@@ -138,6 +145,7 @@ builder
     })
     .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler { AllowAutoRedirect = false });
 builder.Services.AddTransient<IAccountEvidenceReader>(services => services.GetRequiredService<BitkubAccountReader>());
+builder.Services.AddTransient<IRiskEvidenceReader, BitkubRiskEvidenceReader>();
 builder
     .Services.AddHttpClient<IOrderBroker, BitkubOrderBroker>(http =>
     {
@@ -187,7 +195,9 @@ app.Use(
     async (context, next) =>
     {
         context.Response.Headers.CacheControl = "no-store";
-        var tradingRequest = context.Request.Path.StartsWithSegments("/api/trading");
+        var tradingRequest =
+            context.Request.Path.StartsWithSegments("/api/trading")
+            || context.Request.Path.StartsWithSegments("/api/crypto/risk");
         if (tradingRequest)
         {
             if (

@@ -10,5 +10,6 @@ public sealed record CreateOrderRequest(
     [property: JsonRequired] string LimitPrice,
     [property: JsonRequired] string Reason,
     Guid? SourceRunId = null,
-    string? ExpectedAccountKey = null
+    string? ExpectedAccountKey = null,
+    Quantara.Portfolio.Domain.Risk.RiskSignal? RiskSignal = null
 );

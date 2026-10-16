@@ -193,6 +193,12 @@ public sealed class PortfolioSnapshotReader : IPortfolioSnapshotReader
                     sourceBalanceCount = symbols.Count,
                     omittedZeroBalanceCount = symbols.Count - relevantBalances.Count,
                     fee = root.GetProperty("fee").Clone(),
+                    sizingProfile = root.TryGetProperty("sizingProfile", out var sizingProfile)
+                        ? sizingProfile.GetString()
+                        : "disabled",
+                    riskPolicyHash = root.TryGetProperty("riskPolicyHash", out var riskPolicyHash)
+                        ? riskPolicyHash.GetString()
+                        : null,
                 }
             ),
             availableThb

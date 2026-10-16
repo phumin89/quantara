@@ -16,6 +16,8 @@ public sealed class InspectionHttpHandler : HttpMessageHandler
 
     public bool FailTime { get; set; }
 
+    public string? HistoryJson { get; set; }
+
     public int Posts { get; private set; }
 
     protected override Task<HttpResponseMessage> SendAsync(
@@ -54,9 +56,10 @@ public sealed class InspectionHttpHandler : HttpMessageHandler
         }
 
         var client = this.Match ? this.ClientId : "different-client";
+        var history = this.HistoryJson is null ? "" : ",\"history\":" + this.HistoryJson;
         var body =
             path.StartsWith("/api/v3/market/order-info", StringComparison.Ordinal)
-                ? $"{{\"error\":0,\"result\":{{\"id\":\"order-1\",\"client_id\":\"{client}\",\"status\":\"{this.Status}\",\"partial_filled\":{this.Partial.ToString().ToLowerInvariant()}}}}}"
+                ? $"{{\"error\":0,\"result\":{{\"id\":\"order-1\",\"client_id\":\"{client}\",\"status\":\"{this.Status}\",\"partial_filled\":{this.Partial.ToString().ToLowerInvariant()}{history}}}}}"
             : path.StartsWith("/api/v3/market/my-open-orders", StringComparison.Ordinal)
                 ? $"{{\"error\":0,\"result\":[{{\"id\":\"order-1\",\"side\":\"buy\",\"client_id\":\"{client}\"}}]}}"
             : "{\"error\":0,\"result\":[]}";

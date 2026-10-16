@@ -3,8 +3,12 @@ using Quantara.Portfolio.Domain;
 
 namespace Quantara.Portfolio.Application;
 
-public sealed class ApproveOrderHandler(IOrderStore store, IOrderBroker broker, TimeProvider time)
-    : ICommandHandler<ApproveOrderCommand, OrderView>
+public sealed class ApproveOrderHandler(
+    IOrderStore store,
+    IOrderBroker broker,
+    TimeProvider time,
+    IRiskSizingService? risk = null
+) : ICommandHandler<ApproveOrderCommand, OrderView>
 {
     public async ValueTask<OrderView> Handle(ApproveOrderCommand command, CancellationToken cancellationToken)
     {
@@ -35,12 +39,43 @@ public sealed class ApproveOrderHandler(IOrderStore store, IOrderBroker broker, 
             );
         }
 
+        var riskCapital = risk is null ? null : await risk.Revalidate(proposal, cancellationToken);
+        if (risk is null && proposal.Sizing is not null)
+        {
+            throw new OrderValidationException("Adaptive risk validation is unavailable. No order was sent.");
+        }
+
         var balances = await broker.Balances(cancellationToken);
+        if (
+            riskCapital is not null
+            && (
+                balances.Any(balance =>
+                    balance.Quantity
+                        != (riskCapital.Assets.SingleOrDefault(asset => asset.Symbol == balance.Symbol)?.Quantity ?? 0)
+                    || balance.Available
+                        != (riskCapital.Assets.SingleOrDefault(asset => asset.Symbol == balance.Symbol)?.Available ?? 0)
+                )
+                || riskCapital.Assets.Any(asset =>
+                    asset.Quantity > 0 && !balances.Any(balance => balance.Symbol == asset.Symbol)
+                )
+            )
+        )
+        {
+            throw new OrderValidationException(
+                "Account balances changed after sizing. Request a fresh proposal; the reviewed amount was not changed."
+            );
+        }
+
         var currency = proposal.Side == TradeSide.Buy ? "THB" : proposal.Symbol;
         var available = balances
             .FirstOrDefault(balance => balance.Symbol.Equals(currency, StringComparison.OrdinalIgnoreCase))
             ?.Available;
-        if (available is null || available < proposal.Amount)
+        var required =
+            proposal.Side == TradeSide.Buy && proposal.Sizing is not null
+                ? proposal.Amount
+                    + decimal.Ceiling(proposal.Amount * proposal.Sizing.Policy.EstimatedFeeRate * 100m) / 100m
+                : proposal.Amount;
+        if (available is null || available < required)
         {
             throw new OrderValidationException("Insufficient available balance for this order.");
         }

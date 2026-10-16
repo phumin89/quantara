@@ -1,5 +1,6 @@
 using System.Text.Json;
 using Quantara.Portfolio.Domain;
+using Quantara.Portfolio.Domain.Risk;
 using Quantara.Portfolio.Infrastructure;
 
 namespace Portfolio.Checks;
@@ -22,6 +23,74 @@ public static class TelegramMessageChecks
         Check(
             normalText.Contains("อนุมัติก่อน", StringComparison.Ordinal),
             "pending message explains approval is required"
+        );
+
+        var adaptive = normal with
+        {
+            Sizing = new RiskSizingSnapshot(
+                Guid.NewGuid(),
+                "fixture-account",
+                "secret-policy-hash",
+                new RiskPolicy { Profile = RiskProfile.Aggressive },
+                new CapitalSnapshot(
+                    "fixture-account",
+                    new DateTimeOffset(2026, 10, 15, 20, 0, 0, TimeSpan.FromHours(7)),
+                    5000m,
+                    5000m,
+                    0m,
+                    0m,
+                    [],
+                    false,
+                    null
+                ),
+                new RiskSignal(152m, 42, new DateTimeOffset(2026, 10, 15, 20, 0, 0, TimeSpan.FromHours(7)), "fixture"),
+                new RiskMarketEvidence(
+                    "NEAR",
+                    new DateTimeOffset(2026, 10, 15, 20, 0, 0, TimeSpan.FromHours(7)),
+                    153m,
+                    153.39m,
+                    5000m,
+                    50m,
+                    1m,
+                    1m,
+                    0.01m,
+                    2,
+                    6,
+                    true,
+                    true
+                ),
+                new RiskSizingDecision(
+                    true,
+                    "riskToStop",
+                    6.5m,
+                    1000m,
+                    0.2m,
+                    1000m,
+                    9.27m,
+                    2.50m,
+                    "English internal explanation"
+                ),
+                1000m
+            ),
+        };
+        var adaptiveText = TelegramTransport.Text(adaptive, "⏳ Awaiting your approval");
+        Check(adaptiveText.Contains("20.00%", StringComparison.Ordinal), "adaptive message shows portfolio allocation");
+        Check(adaptiveText.Contains("9.27 บาท", StringComparison.Ordinal), "adaptive message shows estimated downside");
+        Check(
+            adaptiveText.Contains("ความเสี่ยงถึงจุดหยุด", StringComparison.Ordinal),
+            "adaptive message translates limiting reason"
+        );
+        Check(
+            adaptiveText.Contains("ไม่รับประกันขาดทุนสูงสุด", StringComparison.Ordinal),
+            "adaptive message avoids a max-loss guarantee"
+        );
+        Check(
+            !adaptiveText.Contains("secret-policy-hash", StringComparison.Ordinal),
+            "adaptive message omits policy hash"
+        );
+        Check(
+            !adaptiveText.Contains("English internal explanation", StringComparison.Ordinal),
+            "adaptive message omits raw internal explanation"
         );
 
         var submittedProposal = normal with { State = OrderState.Submitted };

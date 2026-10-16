@@ -4,10 +4,11 @@ using System.Text;
 using System.Text.Json;
 using Quantara.Portfolio.Application;
 using Quantara.Portfolio.Domain;
+using Quantara.Portfolio.Domain.Risk;
 
 namespace Quantara.Portfolio.Infrastructure;
 
-public sealed class BitkubOrderInspector(HttpClient http, BitkubCredentials credentials)
+public sealed class BitkubOrderInspector(HttpClient http, BitkubCredentials credentials, TimeProvider? time = null)
 {
     public async Task<OrderInspection> Inspect(OrderProposal proposal, CancellationToken cancellationToken)
     {
@@ -95,8 +96,93 @@ public sealed class BitkubOrderInspector(HttpClient http, BitkubCredentials cred
             "unfilled" => OrderState.Submitted,
             _ => throw new InvalidDataException("Unknown broker order status."),
         };
-        return new(state, id, $"Verified with Bitkub: {state}. This check never places or resends an order.");
+        return new(state, id, $"Verified with Bitkub: {state}. This check never places or resends an order.")
+        {
+            Fills = ReadFills(order, proposal, state, (time ?? TimeProvider.System).GetUtcNow()),
+        };
     }
+
+    private static RiskVerifiedFill[]? ReadFills(
+        JsonElement order,
+        OrderProposal proposal,
+        OrderState state,
+        DateTimeOffset now
+    )
+    {
+        if (!order.TryGetProperty("history", out var history))
+        {
+            if (proposal.Sizing is not null)
+            {
+                throw new InvalidDataException("Verified fill and fee history is unavailable.");
+            }
+
+            return null;
+        }
+
+        if (history.GetArrayLength() > 100000)
+        {
+            throw new InvalidDataException("Fill history exceeded the evidence budget.");
+        }
+
+        var fills = new Dictionary<string, RiskVerifiedFill>(StringComparer.Ordinal);
+        decimal filledAmount = 0;
+        foreach (var row in history.EnumerateArray())
+        {
+            var transactionId = row.GetProperty("txn_id").GetString();
+            var amount = Number(row, "amount");
+            var price = Number(row, "rate");
+            var fee = Number(row, "fee");
+            var credit = Number(row, "credit");
+            var at = DateTimeOffset.FromUnixTimeMilliseconds(row.GetProperty("timestamp").GetInt64());
+            if (
+                string.IsNullOrWhiteSpace(transactionId)
+                || transactionId.Length > 128
+                || amount <= 0
+                || price <= 0
+                || fee < 0
+                || credit < 0
+                || credit > fee
+                || at < proposal.CreatedAt.AddSeconds(-5)
+                || at > now.AddSeconds(5)
+            )
+            {
+                throw new InvalidDataException("Invalid verified fill or fee evidence.");
+            }
+
+            var fill = new RiskVerifiedFill(
+                transactionId,
+                proposal.Side == TradeSide.Buy ? amount / price : amount,
+                price,
+                fee,
+                credit,
+                at
+            );
+            if (!fills.TryAdd(transactionId, fill))
+            {
+                if (fills[transactionId] != fill)
+                {
+                    throw new InvalidDataException("Conflicting fill transaction identity.");
+                }
+
+                continue;
+            }
+
+            filledAmount += amount;
+        }
+
+        if (
+            filledAmount > proposal.Amount
+            || state is OrderState.Filled or OrderState.PartiallyFilled && fills.Count == 0
+        )
+        {
+            throw new InvalidDataException("Fill history does not match the reviewed order amount or state.");
+        }
+
+        return fills.Values.ToArray();
+    }
+
+    private static decimal Number(JsonElement row, string field) =>
+        decimal.Parse(row.GetProperty(field).ToString(), NumberStyles.Float, CultureInfo.InvariantCulture);
 
     private static string? Find(JsonElement rows, OrderProposal proposal, string idField, string side) =>
         rows.EnumerateArray()

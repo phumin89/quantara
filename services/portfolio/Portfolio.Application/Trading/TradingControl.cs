@@ -10,7 +10,8 @@ public sealed class TradingControl(
     IAccountContext account,
     TradingControlOptions options,
     SemaphoreSlim gate,
-    TimeProvider time
+    TimeProvider time,
+    IReadOnlyOrderStore? reviewedOrders = null
 ) : ITradingControl
 {
     public async Task<TradingState> Configure(TradingRuleSet rules, CancellationToken cancellationToken)
@@ -150,6 +151,16 @@ public sealed class TradingControl(
             if (state.Live.Orders.Any(TradingLedgerAccounting.Active))
             {
                 throw new ArgumentException("Reconcile all outstanding strategy orders before activation.");
+            }
+
+            if (
+                reviewedOrders is not null
+                && (await reviewedOrders.Exposure(now, cancellationToken)).Any(order => order.Sizing is not null)
+            )
+            {
+                throw new ArgumentException(
+                    "Complete or reject outstanding adaptive manual orders before enabling Auto Trading."
+                );
             }
 
             var books = await markets.Read(state.Rules.Symbols, cancellationToken);

@@ -10,7 +10,8 @@ public sealed class CreateOrderHandler(
     IOrderBroker broker,
     TimeProvider time,
     IAccountContext? account = null,
-    IReadOnlyTradingStore? trading = null
+    IReadOnlyTradingStore? trading = null,
+    IRiskSizingService? risk = null
 ) : ICommandHandler<CreateOrderCommand, OrderView>
 {
     public async ValueTask<OrderView> Handle(CreateOrderCommand command, CancellationToken cancellationToken)
@@ -58,9 +59,17 @@ public sealed class CreateOrderHandler(
                 if (
                     existing.Symbol != symbol
                     || existing.Side != command.Side
-                    || existing.Amount != amount
+                    || (existing.Sizing?.RequestedAmount ?? existing.Amount) != amount
                     || existing.LimitPrice != price
                     || existing.Reason != command.Reason.Trim()
+                    || existing.Sizing is { } sizing
+                        && (
+                            command.RiskSignal is not { } input
+                            || sizing.Signal.StopPrice != input.StopPrice
+                            || sizing.Signal.EvidenceAt != input.EvidenceAt
+                            || sizing.Signal.StrategyEvidence != input.StrategyEvidence
+                            || input.StopCandle is not null && sizing.Signal.StopCandle != input.StopCandle
+                        )
                 )
                 {
                     throw new OrderValidationException("Source task already has a different immutable proposal.");
@@ -71,9 +80,14 @@ public sealed class CreateOrderHandler(
         }
 
         var market = await broker.Market(symbol, command.Side, cancellationToken);
+        var proposalId = command.SourceRunId ?? Guid.NewGuid();
+        var riskSizing = risk is null
+            ? null
+            : await risk.Size(proposalId, symbol, command.Side, amount, price, command.RiskSignal, cancellationToken);
+        amount = riskSizing?.Decision.Amount ?? amount;
         var now = time.GetUtcNow();
         var proposal = new OrderProposal(
-            command.SourceRunId ?? Guid.NewGuid(),
+            proposalId,
             symbol,
             command.Side,
             amount,
@@ -85,7 +99,10 @@ public sealed class CreateOrderHandler(
             OrderState.Pending,
             null,
             null
-        );
+        )
+        {
+            Sizing = riskSizing,
+        };
         OrderRules.Validate(proposal, market);
         await store.Create(proposal, cancellationToken);
         return OrderView.From(proposal, now);

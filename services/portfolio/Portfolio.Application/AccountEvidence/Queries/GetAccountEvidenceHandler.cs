@@ -5,7 +5,8 @@ namespace Quantara.Portfolio.Application;
 public sealed class GetAccountEvidenceHandler(
     IAccountEvidenceReader reader,
     IAccountContext account,
-    TimeProvider timeProvider
+    TimeProvider timeProvider,
+    IReadOnlyRiskStore? risk = null
 ) : IQueryHandler<GetAccountEvidenceQuery, AccountEvidenceView>
 {
     private const decimal estimatedFeeRate = 0.0025m;
@@ -16,6 +17,7 @@ public sealed class GetAccountEvidenceHandler(
     )
     {
         var balances = await reader.ReadBalances(cancellationToken);
+        var policy = risk is null ? RiskPolicyHash.Default() : await risk.ReadPolicy(cancellationToken);
         var evidence = balances
             .Select(balance => new AccountBalanceEvidence(balance.Symbol, balance.Quantity, balance.Available))
             .ToArray();
@@ -28,6 +30,10 @@ public sealed class GetAccountEvidenceHandler(
                 "estimated",
                 "Published THB standard rate, reviewed 2026-10-13: https://support.bitkub.com/en/solutions/articles?id=151000035191 . Charged after fills; THB rounded up to 2 decimals. Actual account fee/credits not verified; no discount assumed."
             )
-        );
+        )
+        {
+            SizingProfile = policy.Policy.Profile.ToString().ToLowerInvariant(),
+            RiskPolicyHash = policy.PolicyHash,
+        };
     }
 }

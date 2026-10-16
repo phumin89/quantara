@@ -25,6 +25,7 @@ await ProposalTransportChecks.Run();
 await RestingEntryChecks.Run();
 await RequestedEvidenceChecks.Run();
 await TradingModeProposalChecks.Run();
+await AdaptiveSizingChecks.Run();
 Console.WriteLine("Team checks passed.");
 
 static async Task Success()

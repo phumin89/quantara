@@ -15,7 +15,10 @@ public sealed record OrderProposal(
     string? Message
 )
 {
+    public Quantara.Portfolio.Domain.Risk.RiskSizingSnapshot? Sizing { get; init; }
+
     public decimal NotionalThb => this.Side == TradeSide.Buy ? this.Amount : this.Amount * this.LimitPrice;
 
-    public decimal EstimatedFeeThb => decimal.Ceiling(this.NotionalThb * 0.0025m * 100m) / 100m;
+    public decimal EstimatedFeeThb =>
+        decimal.Ceiling(this.NotionalThb * (this.Sizing?.Policy.EstimatedFeeRate ?? 0.0025m) * 100m) / 100m;
 }

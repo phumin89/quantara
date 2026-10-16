@@ -17,7 +17,8 @@ public sealed record OrderView(
     DateTimeOffset ExpiresAt,
     string Status,
     string? BrokerOrderId,
-    string? Message
+    string? Message,
+    RiskSizingView? Sizing = null
 )
 {
     public static OrderView From(OrderProposal proposal, DateTimeOffset now) =>
@@ -37,6 +38,7 @@ public sealed record OrderView(
                 .ToString()
                 .ToLowerInvariant(),
             proposal.BrokerOrderId,
-            proposal.Message
+            proposal.Message,
+            proposal.Sizing is null ? null : RiskSizingView.From(proposal.Sizing)
         );
 }

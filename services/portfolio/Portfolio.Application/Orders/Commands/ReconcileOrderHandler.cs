@@ -3,8 +3,12 @@ using Quantara.Portfolio.Domain;
 
 namespace Quantara.Portfolio.Application;
 
-public sealed class ReconcileOrderHandler(IOrderStore store, IOrderBroker broker, TimeProvider time)
-    : ICommandHandler<ReconcileOrderCommand, OrderView>
+public sealed class ReconcileOrderHandler(
+    IOrderStore store,
+    IOrderBroker broker,
+    TimeProvider time,
+    IRiskStore? risk = null
+) : ICommandHandler<ReconcileOrderCommand, OrderView>
 {
     public async ValueTask<OrderView> Handle(ReconcileOrderCommand command, CancellationToken cancellationToken)
     {
@@ -37,6 +41,12 @@ public sealed class ReconcileOrderHandler(IOrderStore store, IOrderBroker broker
         )
         {
             throw new OrderValidationException("Broker returned an unsupported outcome.");
+        }
+
+        if (risk is not null && observed.Fills is { Count: > 0 } fills)
+        {
+            // Persist verified accounting before marking an order terminal. Repeating a GET never resubmits it.
+            await risk.RecordFills(proposal.Id, fills, cancellationToken);
         }
 
         await store.UpdateObserved(

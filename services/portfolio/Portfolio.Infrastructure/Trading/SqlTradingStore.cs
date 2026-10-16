@@ -131,6 +131,17 @@ public sealed class SqlTradingStore : ITradingStore
         await connection.OpenAsync(cancellationToken);
         await using var transaction = (SqlTransaction)
             await connection.BeginTransactionAsync(IsolationLevel.Serializable, cancellationToken);
+        if (state.Mode == TradingMode.AutoLive)
+        {
+            await using var accountLock = new SqlCommand(
+                "DECLARE @result int; EXEC @result=sp_getapplock @Resource=@account,@LockMode='Exclusive',@LockOwner='Transaction',@LockTimeout=5000; IF @result<0 THROW 50000,'Trading account is busy.',1;",
+                connection,
+                transaction
+            );
+            this.Account(accountLock);
+            await accountLock.ExecuteNonQueryAsync(cancellationToken);
+        }
+
         await using var find = new SqlCommand(
             "SELECT Revision,Payload FROM dbo.TradingRuntime WITH(UPDLOCK,HOLDLOCK) WHERE AccountKey=@account;",
             connection,
@@ -165,6 +176,18 @@ public sealed class SqlTradingStore : ITradingStore
         }
 
         this.Validate(previous);
+        if (state.Mode == TradingMode.AutoLive && previous.Mode != TradingMode.AutoLive)
+        {
+            await using var pending = new SqlCommand(
+                "IF EXISTS(SELECT 1 FROM dbo.OrderProposals WITH(UPDLOCK,HOLDLOCK) WHERE AccountKey=@account AND JSON_VALUE(Payload,'$.Sizing.PolicyHash') IS NOT NULL AND (State IN ('Submitting','Unknown','Submitted','PartiallyFilled') OR State='Pending' AND ExpiresAt>@now)) THROW 50000,'Complete adaptive manual orders before enabling Auto Trading.',1;",
+                connection,
+                transaction
+            );
+            this.Account(pending);
+            pending.Parameters.Add("@now", SqlDbType.DateTimeOffset).Value = this.time.GetUtcNow();
+            await pending.ExecuteNonQueryAsync(cancellationToken);
+        }
+
         await this.SaveMirrors(connection, transaction, state, previous, cancellationToken);
         await using var update = new SqlCommand(
             "UPDATE dbo.TradingRuntime SET Revision=@revision,Payload=@payload WHERE AccountKey=@account;",

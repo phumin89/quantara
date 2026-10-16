@@ -1,4 +1,6 @@
 using System.Text.Json;
+using System.Text.Json.Serialization;
+using Quantara.Portfolio.Domain.Risk;
 
 namespace Quantara.Portfolio.Infrastructure;
 
@@ -20,5 +22,6 @@ public static class PortfolioJson
         options.Converters.Add(new PositionStatusJsonConverter());
         options.Converters.Add(new CostStatusJsonConverter());
         options.Converters.Add(new TradeSideJsonConverter());
+        options.Converters.Add(new JsonStringEnumConverter<RiskProfile>(JsonNamingPolicy.CamelCase, false));
     }
 }

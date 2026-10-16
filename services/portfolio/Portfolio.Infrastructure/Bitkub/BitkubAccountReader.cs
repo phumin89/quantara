@@ -111,7 +111,7 @@ public sealed class BitkubAccountReader(HttpClient http, BitkubCredentials crede
         );
     }
 
-    private async Task<JsonDocument> Get(string path, bool signed, CancellationToken cancellationToken)
+    internal async Task<JsonDocument> Get(string path, bool signed, CancellationToken cancellationToken)
     {
         if (signed && (string.IsNullOrWhiteSpace(credentials.Key) || string.IsNullOrWhiteSpace(credentials.Secret)))
         {

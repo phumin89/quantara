@@ -56,6 +56,26 @@ public sealed class SqlOrderStore(string connectionString, string accountKey) : 
             : null;
     }
 
+    public async Task<IReadOnlyList<OrderProposal>> Exposure(DateTimeOffset now, CancellationToken cancellationToken)
+    {
+        await using var connection = new SqlConnection(connectionString);
+        await connection.OpenAsync(cancellationToken);
+        await using var command = new SqlCommand(
+            "SELECT Payload,State FROM dbo.OrderProposals WHERE AccountKey=@account AND (State IN ('Submitting','Unknown','Submitted','PartiallyFilled') OR State='Pending' AND ExpiresAt>@now);",
+            connection
+        );
+        Account(command, accountKey);
+        command.Parameters.Add("@now", SqlDbType.DateTimeOffset).Value = now;
+        var result = new List<OrderProposal>();
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        while (await reader.ReadAsync(cancellationToken))
+        {
+            result.Add(Read(reader.GetString(0), reader.GetString(1)));
+        }
+
+        return result;
+    }
+
     public async Task Create(OrderProposal proposal, CancellationToken cancellationToken)
     {
         await using var connection = new SqlConnection(connectionString);
@@ -83,7 +103,16 @@ public sealed class SqlOrderStore(string connectionString, string accountKey) : 
             await connection.BeginTransactionAsync(IsolationLevel.Serializable, cancellationToken);
         // One in-flight or uncertain submission per account; atomic across tabs and API hosts.
         await using var command = new SqlCommand(
-            "UPDATE dbo.OrderProposals WITH (UPDLOCK, HOLDLOCK) SET State='Submitting' WHERE AccountKey=@account AND Id=@id AND State='Pending' AND ExpiresAt>@now AND NOT EXISTS (SELECT 1 FROM dbo.OrderProposals WITH (UPDLOCK,HOLDLOCK) WHERE AccountKey=@account AND State IN ('Submitting','Unknown'));",
+            """
+            DECLARE @lockResult int;
+            EXEC @lockResult=sp_getapplock @Resource=@account,@LockMode='Exclusive',@LockOwner='Transaction',@LockTimeout=5000;
+            IF @lockResult<0 THROW 50000,'Order account is busy.',1;
+            UPDATE dbo.OrderProposals WITH (UPDLOCK,HOLDLOCK) SET State='Submitting'
+            WHERE AccountKey=@account AND Id=@id AND State='Pending' AND ExpiresAt>@now
+            AND NOT EXISTS(SELECT 1 FROM dbo.OrderProposals WITH(UPDLOCK,HOLDLOCK) WHERE AccountKey=@account AND State IN ('Submitting','Unknown'))
+            AND (JSON_VALUE(dbo.OrderProposals.Payload,'$.Sizing.PolicyHash') IS NULL OR EXISTS(SELECT 1 FROM dbo.TradingRuntime WITH(UPDLOCK,HOLDLOCK) WHERE AccountKey=@account AND JSON_VALUE(Payload,'$.mode')='manualReview'))
+            AND EXISTS(SELECT 1 FROM dbo.RiskSettings WITH(UPDLOCK,HOLDLOCK) WHERE AccountKey=@account AND ((Profile='Disabled' AND JSON_VALUE(dbo.OrderProposals.Payload,'$.Sizing.PolicyHash') IS NULL) OR PolicyHash=JSON_VALUE(dbo.OrderProposals.Payload,'$.Sizing.PolicyHash')));
+            """,
             connection,
             transaction
         );

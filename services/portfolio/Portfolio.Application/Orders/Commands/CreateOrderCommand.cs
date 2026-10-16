@@ -10,5 +10,6 @@ public sealed record CreateOrderCommand(
     string LimitPrice,
     string Reason,
     Guid? SourceRunId = null,
-    string? ExpectedAccountKey = null
+    string? ExpectedAccountKey = null,
+    Quantara.Portfolio.Domain.Risk.RiskSignal? RiskSignal = null
 ) : ICommand<OrderView>;

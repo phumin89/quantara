@@ -17,6 +17,29 @@ public static class TradeProposalValidator
         }
 
         var wallet = evidence.GetProperty("walletEvidence");
+        var sizingProfile = wallet.TryGetProperty("sizingProfile", out var profileValue)
+            ? profileValue.GetString()
+            : "disabled";
+        if (sizingProfile is not ("aggressive" or "disabled"))
+        {
+            throw new InvalidOperationException("Trade proposal sizing profile is invalid.");
+        }
+
+        if (sizingProfile == "aggressive")
+        {
+            if (
+                !wallet.TryGetProperty("riskPolicyHash", out var hashValue)
+                || hashValue.GetString() is not { Length: 64 } policyHash
+                || !policyHash.All(Uri.IsHexDigit)
+                || proposal.Side == TradeProposalSide.Buy && proposal.EntryPlan is null
+            )
+            {
+                throw new InvalidOperationException(
+                    "Aggressive proposals require a verified risk policy and a buy entry plan."
+                );
+            }
+        }
+
         if (wallet.GetProperty("accountKey").GetString() != accountKey)
         {
             throw new InvalidOperationException("Trade proposal wallet evidence is bound to another account.");
@@ -91,7 +114,7 @@ public static class TradeProposalValidator
             || availableBalance.GetProperty("available").ValueKind == JsonValueKind.Null
                 ? (decimal?)null
                 : availableBalance.GetProperty("available").GetDecimal();
-        if (available is null || amount > available)
+        if (available is null || available <= 0 || (sizingProfile == "disabled" && amount > available))
         {
             throw new InvalidOperationException("Trade proposal exceeds the observed account balance.");
         }

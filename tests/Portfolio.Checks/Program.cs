@@ -8,6 +8,9 @@ using Quantara.Portfolio.Infrastructure;
 
 await OrderChecks.Run();
 await AdaptiveRiskChecks.Run();
+await RiskEvidenceChecks.Run();
+await RiskPipelineChecks.Run();
+await RiskFillChecks.Run();
 await OrderRecoveryChecks.Run();
 await OrderSourceChecks.Run();
 await AccountEvidenceChecks.Run();

@@ -2,6 +2,7 @@ using System.Globalization;
 using System.Net.Http.Json;
 using System.Text.Json;
 using Quantara.Team.Application;
+using Quantara.Team.Domain;
 
 namespace Quantara.Team.Infrastructure;
 
@@ -20,6 +21,25 @@ public sealed class OrderProposalPublisher(HttpClient http) : IOrderProposalPubl
             throw new InvalidOperationException("Proposal evidence is stale. Fresh research is required.");
         }
 
+        object? riskSignal =
+            proposal.Side == TradeProposalSide.Buy && proposal.EntryPlan is { } entry
+                ? new
+                {
+                    stopPrice = decimal.Parse(entry.InvalidationPrice, CultureInfo.InvariantCulture),
+                    stopCandle = (long?)null,
+                    evidenceAt = proposal.EvidenceAt,
+                    strategyEvidence = "reviewer-entry-plan",
+                }
+            : proposal.Side == TradeProposalSide.Sell
+                ? new
+                {
+                    stopPrice = (decimal?)null,
+                    stopCandle = (long?)null,
+                    evidenceAt = proposal.EvidenceAt,
+                    strategyEvidence = "reviewer-exit-thesis",
+                }
+            : null;
+
         using var request = new HttpRequestMessage(HttpMethod.Post, "api/crypto/orders")
         {
             Content = JsonContent.Create(
@@ -32,6 +52,7 @@ public sealed class OrderProposalPublisher(HttpClient http) : IOrderProposalPubl
                     Reason = TradeProposalDescription.Format(proposal),
                     sourceRunId = runId,
                     expectedAccountKey = accountKey,
+                    riskSignal,
                 }
             ),
         };

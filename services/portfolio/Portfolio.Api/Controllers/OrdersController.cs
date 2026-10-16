@@ -23,7 +23,8 @@ public sealed class OrdersController(IMediator mediator) : ControllerBase
                     request.LimitPrice,
                     request.Reason,
                     request.SourceRunId,
-                    request.ExpectedAccountKey
+                    request.ExpectedAccountKey,
+                    request.RiskSignal
                 ),
                 cancellationToken
             )

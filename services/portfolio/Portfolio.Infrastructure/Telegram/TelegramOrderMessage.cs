@@ -26,7 +26,17 @@ public static class TelegramOrderMessage
             + price
             + " บาท/เหรียญ\nค่าธรรมเนียมประมาณ: "
             + proposal.EstimatedFeeThb.ToString("0.00", CultureInfo.InvariantCulture)
-            + " บาท (0.25%)";
+            + " บาท ("
+            + ((proposal.Sizing?.Policy.EstimatedFeeRate ?? 0.0025m) * 100m).ToString(
+                "0.##",
+                CultureInfo.InvariantCulture
+            )
+            + "%)";
+
+        if (proposal.Sizing is { } sizing)
+        {
+            text += "\n" + AdaptiveSizing(sizing);
+        }
 
         var plan = EntryPlan(proposal);
         if (plan.Length > 0)
@@ -144,6 +154,34 @@ public static class TelegramOrderMessage
             + reviewAt.ToOffset(TimeSpan.FromHours(7)).ToString("dd/MM HH:mm", CultureInfo.InvariantCulture)
             + " น. (ไทย)\nการขายต้องอนุมัติแยก · ไม่มีขาย/ตัดขาดทุนอัตโนมัติ";
     }
+
+    private static string AdaptiveSizing(Quantara.Portfolio.Domain.Risk.RiskSizingSnapshot sizing)
+    {
+        var decision = sizing.Decision;
+        var allocation = decision.AllocationFraction is { } fraction
+            ? (fraction * 100).ToString("0.00", CultureInfo.InvariantCulture) + "%"
+            : "ไม่ทราบ";
+        var downside = decision.EstimatedDownsideThb?.ToString("0.00", CultureInfo.InvariantCulture) ?? "ไม่ทราบ";
+        return "📐 ขนาดจาก Adaptive Risk: ใช้ "
+            + allocation
+            + " ของพอร์ต · ประเมินความเสียหายถึงจุดหยุดประมาณ "
+            + downside
+            + " บาท\nเหตุผลจำกัดขนาด: "
+            + LimitingReason(decision.Code)
+            + "\n⚠ เป็นเพียงการประมาณการ; stop และการจับคู่ไม่รับประกันขาดทุนสูงสุด";
+    }
+
+    private static string LimitingReason(string code) =>
+        code switch
+        {
+            "availableCash" => "เงินสดที่ใช้ได้",
+            "portfolioExposure" => "สัดส่วนความเสี่ยงรวมของพอร์ต",
+            "concentration" => "สัดส่วนเหรียญนี้ในพอร์ต",
+            "riskToStop" => "ความเสี่ยงถึงจุดหยุด",
+            "liquidity" => "สภาพคล่องใน order book",
+            "availableAssets" => "เหรียญที่ขายได้หลังหักคำสั่งค้าง",
+            _ => "เงื่อนไขความเสี่ยงของระบบ",
+        };
 
     private static string Number(decimal value) =>
         value.ToString("#,0.############################", CultureInfo.InvariantCulture);

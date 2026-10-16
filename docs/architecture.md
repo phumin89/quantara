@@ -465,3 +465,7 @@ components render views through named Props; ConnectionStatusPresenter uses
 explicit access modifiers and readonly state to encapsulate state precedence
 and appearance. Filtering is a pure operation that returns a new array.
 Nested ternaries, explicit any and non-exhaustive enum switches fail ESLint.
+
+Adaptive risk sizing and its current manual-review boundaries are documented in
+[adaptive-risk.md](adaptive-risk.md). AutoLive and all-coin-universe trading
+remain separate owner-controlled capabilities.
