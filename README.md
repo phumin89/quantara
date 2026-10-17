@@ -1,170 +1,294 @@
-# Quantara
+# Quantara 🚀
 
-Next.js/TypeScript/Material UI workspace with independently runnable C# services.
-Crypto tracks Bitkub balances and retained history. CEO, Analyst and Reviewer
-research through Codex SDK and may propose spot LIMIT orders for explicit human
-approval. A separate deterministic Portfolio worker supports Paper and an
-owner-enabled AutoLive mandate. Background research never approves or submits orders.
+A trading workspace for Bitkub THB spot markets, with portfolio tracking,
+real-time market monitoring, and an AI research team.
 
-## Structure
+**Check your portfolio. Follow the team's research. See what the trading engine is doing.**
 
-- `apps/web`: routes and API proxy, class components, feature services/contracts,
-  shared navigation/theme and scoped DI.
-- `services/market-data`: public Bitkub coins, THB prices and intraday candles in its own SQL database. No broker credentials.
-- `services/portfolio`: signed account reads, retained history, portfolio projection and its SQL Server database.
-- `services/team`: controller, Mediator CQRS, orchestration and its own SQL Server
-  database. `services/ai-worker` is the Node/Codex SDK process adapter.
-- Each service has separate Api, Application, Domain and Infrastructure projects. Controllers delegate to Mediator CQRS handlers; Domain has no framework dependencies.
-- `tests`: Portfolio, MarketData and architecture checks. One C# type or React component per named file.
+[Get started](#-get-started) · [Trading modes](#-trading-modes) ·
+[Development](#-development) · [Documentation](#-documentation)
 
-Open `Quantara.sln` in Visual Studio, or this root folder in VS Code. Editor settings, analyzers, typed ESLint and strict compiler flags are committed alongside CI checks.
+## ✨ What you'll find
 
-## Run
+- **💰 Crypto** — actual balances, available THB, retained closed coins, and trade fills.
+- **📋 Daily Brief** — trading status first, with team chat and reports one tab away.
+  Choose a Bangkok date to revisit a day's research and summary.
+- **⚡ Real-time monitoring** — fresh quotes evaluate owned-position exits;
+  new entries still require completed five-minute candles.
+- **🧠 AI research** — CEO, Analyst, and Reviewer collaborate through Codex SDK.
+- **📱 Telegram updates** — concise Thai confirmed-fill notifications and
+  critical alerts; individual review buttons belong to the ManualReview workflow.
 
-Install frontend dependencies once with `npm ci`, then use three terminals:
+Market subscriptions are bounded: owned positions and open orders stay in the
+watch set, with up to 16 rotating candidates and 64 watched symbols in total.
+The broader market scan runs separately.
 
-```powershell
-npm run dev:market-data
-npm run dev:api
-npm run dev
-```
+Portfolio totals never invent missing prices, costs, or profit. Incomplete
+accounting stays **Unknown**, and saved history survives a failed refresh.
 
-Web: http://127.0.0.1:3000. Portfolio: port 5050. MarketData: port 5051. Production frontend: `npm run build`, then `npm start`. Both services expose `/health`; Portfolio checks SQL connectivity and persisted ledger readability.
+## 🧰 The stack
 
-The canonical continuous runtime is [Docker](docs/docker-runtime.md), with
-retained SQL databases and server-only credentials. The older
-[local runtime setup](docs/local-runtime.md) remains a development and verified
-reverse-migration path; do not run both against the canonical data. A powered-off
-or sleeping PC, stopped Docker or lost network cannot trade.
+| Area             | Technology                                                    |
+| ---------------- | ------------------------------------------------------------- |
+| Frontend         | Next.js, TypeScript, React class components, Material UI      |
+| Backend          | C# / .NET 10, thin controllers, Mediator CQRS                 |
+| Data             | SQL Server, with a separate database for each service         |
+| Market events    | Bitkub WebSockets → MarketData → private HTTP SSE → Portfolio |
+| AI research      | Node.js, Codex SDK, existing Codex ChatGPT login              |
+| Local deployment | Docker Compose                                                |
 
-Portfolio reads only BITKUB_API_KEY and BITKUB_API_SECRET from environment variables or the repository-root `.env`. MarketData never receives credentials. Configure `ConnectionStrings__Quantara` for another SQL Server; local default is the existing MSSQLLocalDB Quantara database. Set `Services__MarketDataUrl` on Portfolio and `PORTFOLIO_SERVICE_URL` on the Next.js server when services run elsewhere.
+## 🚀 Get started
 
-The Portfolio database preserves the original `CryptoPortfolioLedger` table, account-key fingerprint and JSON fields. Its idempotent SQL migration creates missing schema and never drops data. API-key rotation creates a separate partition. Old source is archived locally under ignored `work/prestructure`; `.env` remains outside Git.
+Use **Node.js 24** for the workspace tooling and the **.NET 10 SDK** for native
+C# development. Docker Desktop with Linux containers runs the continuous local
+deployment, including SQL Server.
 
-## Behavior
+### 🐳 Docker — the continuous runtime
 
-Home remains empty; Crypto shows actual balances, retained closed coins and trade fills. Available THB excludes reserved funds. Total assets means held crypto only; a missing price makes the total unknown. Filters do not alter the summary. Snapshot errors retain saved records and offer Retry. Status details expose separate wallet/price/history update times.
-
-Bitkub exchange history is limited to about 90 days and excludes broker conversions.
-Cost and profit remain unknown until complete accounting is verified. Real spot
-LIMIT proposals in ManualReview require individual human review. AutoLive uses
-one owner activation for the exact unchanged, unexpired mandate, with no
-per-trade approval. New accounts default to Paper; this implementation does not
-activate live trading. Withdrawals, transfers and leverage are not supported.
-See [trading controls and recovery](docs/trading.md). Saans is not bundled; the documented system font
-fallback is used.
-
-## Verification
+For the **first verified setup**, follow the
+[Docker runtime guide](docs/docker-runtime.md):
 
 ```powershell
-npm run format:check
-npm run check
-npm run build
-dotnet build Quantara.sln
-npm run test:architecture
-npm run test:editor
-dotnet run --project tests/Portfolio.Checks/Portfolio.Checks.csproj
-dotnet run --project tests/MarketData.Checks/MarketData.Checks.csproj
+.\tools\Start-QuantaraDocker.ps1 -Action Prepare
+.\tools\Start-QuantaraDocker.ps1 -Action Migrate
+.\tools\Start-QuantaraDocker.ps1 -Action Start
+.\tools\Start-QuantaraDocker.ps1 -Action Status
 ```
 
-Opt into real SQL verification with `-- --sql` on Portfolio.Checks. It uses a separate deterministic test account, not the owner's partition. Stop running services before rebuilding their assemblies on Windows.
+Then open **[http://127.0.0.1:3000](http://127.0.0.1:3000)**.
 
-Browser checks with frontend running: `npm run test:ui`, `npm run test:contracts`. Real-data `npm run test:crypto` also needs both services and configured credentials. Install Chromium with `npx playwright install chromium`, or use installed Edge via `$env:PLAYWRIGHT_CHANNEL = 'msedge'`. Test fixtures/failure injection remain confined to the isolated test browser.
+Already have an active Docker deployment?
 
-Trading transport checks run with `node tools/verify-trading-ui.cjs`; add
-`--browser` with the frontend running for fully intercepted mandate/configuration
-fixtures and desktop/tablet/phone inspection. These checks never use a real
-account or send a broker request.
+- **Start** preserves existing containers.
+- **Prepare** prepares configuration and images; it does not deploy updates.
+- Image updates need reviewed maintenance, current database backups, and
+  **Auto Trading disabled first**.
+- Keep Docker as the canonical data owner. Do not run a native runtime against
+  a stale copy of its databases.
 
-Use `npm run test:crypto -- --fixtures` for deterministic responsive Crypto
-checks without broker credentials; it intercepts requests only inside the test
-browser. CI uses this mode, never simulated portfolio data in the application.
+Only the web app is published to the host. APIs and SQL stay on private Compose
+networks. Continuous operation still needs the PC awake, Docker running, and
+network access.
 
-CI runs formatting, lint/type checks, builds, deterministic checks, architecture checks, dependency audit, isolated browser checks and Gitleaks scanning. It never needs broker credentials or starts real account imports. GitHub branch protection must require these checks to enforce merge gates; the workflow alone does not change remote branch policy.
+### 💻 Native development
 
-Project-owned Roslyn diagnostics QNT001/QNT002 enforce one type per matching
-file in C# editors/builds. QNT003 rejects null-forgiving suppression and QNT004
-requires explicit sealed/abstract/static class intent. ESLint's
-`quantara/file-ownership` reports multiple components/types and mismatched names
-while typing. `npm run test:editor` proves these rules reject invalid probes and
-accept valid source without adding bad code to the application.
+Install workspace dependencies:
 
-## Automatic formatting
+```powershell
+npm ci
+```
 
-Run `npm run format` to fix the entire repository's frontend and C# formatting.
-It applies ESLint fixes and Prettier to the frontend, then pinned CSharpier and
-Roslyn code fixes to C#. This includes QNT005 member spacing and readable C#
-blocks. Run `npm run format:check` for a non-writing CI check; both commands use
-the same rules. Formatting does not resolve architecture or business errors.
-The QNT005 code fix is also available from the C# editor's Quick Fix action.
+Run each process in its own terminal:
 
-Frontend builds automatically run `format:web`, including direct workspace
-builds. C# project and solution builds format each application's project before
-compilation; editor design-time checks and formatter bootstrap projects are
-excluded. Formatter failures stop the build. To explicitly skip C# autoformat,
-use `dotnet build Quantara.sln -p:QuantaraAutoFormat=false`. CI still runs the
-non-writing `format:check` gate before any build.
+| Command                   | Starts         | Native address                          |
+| ------------------------- | -------------- | --------------------------------------- |
+| `npm run dev`             | Web app        | [localhost:3000](http://127.0.0.1:3000) |
+| `npm run dev:api`         | Portfolio API  | `127.0.0.1:5050`                        |
+| `npm run dev:market-data` | MarketData API | `127.0.0.1:5051`                        |
+| `npm run dev:team`        | AI team API    | `127.0.0.1:5052`                        |
 
-Prettier uses width 80, semicolons, single-quoted TypeScript strings and
-double-quoted JSX attributes. CSharpier uses width 120, four spaces and LF.
-Widths guide wrapping rather than imposing a hard limit on string literals.
-JSON keeps double quotes; C# uses double quotes for strings and single quotes
-for characters. The CSharpier VS Code extension is the C# formatter.
+The APIs expose `/health`; Portfolio also checks SQL connectivity and retained
+ledger readability. For a production frontend build, run `npm run build`, then
+`npm start`.
 
-React UI uses class components and lifecycle methods. Named Props define component
-contracts; ConnectionStatusPresenter encapsulates connection-state decisions
-and appearance. Enums represent portfolio filters, position status, trade side
-and cost status. C# domain enums remain independent of JSON; API/SQL converters
-retain historical string spellings and reject unknown or numeric values.
-`npm run test:presentation` checks state priority and filtering without a browser.
+See [local runtime setup](docs/local-runtime.md) for native SQL and process
+ownership. Native development and the canonical Docker runtime must not run as
+competing hosts.
 
-## AI team
+## 🎛️ Trading modes
 
-Start `npm run dev:team` alongside the frontend and Portfolio service. Team listens
-on loopback port 5052; `TEAM_SERVICE_URL` configures the server-side web proxy.
-Team uses the existing Codex ChatGPT login. Sign in locally with Codex if needed;
-`Codex__AuthHome` selects its credential directory (otherwise `CODEX_HOME` or
-the owner's `~/.codex`). Tokens never enter prompts, logs, browser code or Git.
-No API key is needed. Team does not read broker credentials from `.env`.
+| Mode                | What happens                                           | Who authorizes real orders?                        |
+| ------------------- | ------------------------------------------------------ | -------------------------------------------------- |
+| 🧪 **Paper**        | Simulated funds, fees, and limit fills                 | No real orders                                     |
+| 👀 **ManualReview** | Individual spot LIMIT proposals await review           | The owner approves each proposal                   |
+| ⚡ **AutoLive**     | The deterministic engine trades within a valid mandate | The owner enables the exact policy and expiry once |
+| ⏸️ **Stopped**      | Trading is disabled                                    | A restart does not reactivate it                   |
 
-Team uses a separate local `QuantaraTeam` SQL Server database and creates missing
-schema only. Set `ConnectionStrings__Team` for an existing remote database and
-`Services__PortfolioUrl` for Portfolio's address. `Codex__NodePath` may select an
-absolute Node executable; otherwise Node is resolved from PATH. `npm ci` installs
-the pinned Codex SDK/runtime. Do not run multiple Team hosts against the same
-database; startup recovery marks interrupted tasks failed rather than replaying them.
+> New trading state starts in **Paper**. Setup, deployment, research, and tests
+> never enable AutoLive.
 
-At `/daily-brief` (`/team` remains an alias), choose a Bangkok date to read recorded
-role reports and Reviewer summaries. A new company's research loop is enabled by
-the owner's 2026-10-13 direction. When login, SQL and portfolio data are ready,
-CEO chooses analysis priorities, Analyst follows the plan, and Reviewer checks
-the evidence. The next round uses the previous review as bounded untrusted context.
-Hourly reviews and deduplicated signal assessments run without overlapping
-rounds or a missed-round backlog. Each role has a 180-second process timeout.
-Research runs overnight; research proposals keep individual human approval.
-The separate deterministic AutoLive worker can submit within an owner-enabled
-mandate; no research output, model or Team schedule grants that authority.
+- AutoLive's mandate binds the account, strategy/rules hash, market scope,
+  capital/risk limits, and expiry. It has no per-trade approval step.
+- Material changes, expiry, **Disable**, and **Emergency stop** disarm live
+  authority. Re-enabling requires an explicit owner action.
+- AI research cannot enable AutoLive, choose its orders, or submit transactions.
+- Trading is **THB spot LIMIT only**. Withdrawals, transfers, and leverage are
+  not supported. A limit intent does not guarantee a fill or an exit price.
 
-CompanySchedule is a new table in Team's database; existing TeamRuns and Portfolio
-schema/history stay intact. The next hour is reserved before starting a round,
-so uncertain failures/restarts do not immediately repeat model calls. Dependency
-readiness is checked every 30 seconds. Due rounds request the existing Portfolio
-read-only sync and wait for completion; failed readiness can request another sync
-after five minutes. Stop company persists the disabled state and cancels active
-work; Resume makes the next round due. Saved stops survive restarts. Closing the
-web page does not stop the server. No model work occurs when prerequisites fail.
+For activation, accounting, recovery, and real-time behavior, read
+[trading controls](docs/trading.md) and [adaptive risk](docs/adaptive-risk.md).
 
-The worker receives only explicitly allowed environment variables and a temporary
-working directory. A narrow launch mode in Team.Api forwards SDK execution to the
-pinned Codex CLI with `--ignore-user-config --ephemeral`, sharing only the existing
-auth cache for normal token refresh. Personal config, MCP servers and plugins are
-not imported. Shell, app tools, web search and sandbox network are disabled; the
-model receives only whitelisted portfolio fields. Raw worker errors never reach
-prompts, logs or the browser. Model inference still contacts OpenAI.
-Windows policy failures stay visible; this app does not bypass Application Control.
+## 🗂️ Project map
 
-Run `npm run test:ai-worker`, `npm run test:team` and `npm run test:team-ui` for
-deterministic process-boundary, orchestration and isolated browser checks. These
-checks do not spend AI credits, call Bitkub or require SQL secrets. Real SQL and
-authenticated model execution are separate opt-in verification; fixture success
-does not prove those integrations are available on a particular machine.
+| Path                   | Responsibility                                                           | Database             |
+| ---------------------- | ------------------------------------------------------------------------ | -------------------- |
+| `apps/web`             | Pages, API proxy, feature services, navigation, theme, and scoped DI     | —                    |
+| `services/portfolio`   | Account reads, retained history, risk, trading, and order reconciliation | `Quantara`           |
+| `services/market-data` | Public coins, prices, order books, and completed intraday candles        | `QuantaraMarketData` |
+| `services/team`        | AI orchestration, research rounds, role reports, and memory              | `QuantaraTeam`       |
+| `services/ai-worker`   | Isolated Node/Codex SDK process adapter                                  | —                    |
+| `tests`                | Deterministic service, architecture, and editor checks                   | Test fixtures        |
+| `tools` / `docker`     | Formatting, verification, runtime helpers, and deployment                | —                    |
+
+Each C# service separates **Api → Application → Domain** responsibilities, with
+Infrastructure implementing application interfaces. Services communicate through
+HTTP and do not share database ownership or another service's assemblies.
+
+A few conventions keep the code predictable:
+
+- One C# type or React component/named type per matching file.
+- Class-based React components, typed Context, and a lazy ServiceContainer.
+- Thin controllers and Mediator CQRS; framework-free Domain projects.
+- Strict compiler, analyzer, ESLint, and transport-validation rules.
+
+Open **`Quantara.sln` in Visual Studio**, or the **repository folder in VS Code**.
+The editor and CI use the checked-in rules.
+
+## 🔐 Configuration
+
+Broker credentials stay in Portfolio's server environment or the root
+`.env`. Never commit or expose them to the browser, MarketData, Team, or model
+workers.
+
+| Setting                                     | Used by                  | Purpose                                                    |
+| ------------------------------------------- | ------------------------ | ---------------------------------------------------------- |
+| `BITKUB_API_KEY`, `BITKUB_API_SECRET`       | Portfolio                | Signed account access                                      |
+| `ConnectionStrings__Quantara`               | Portfolio                | Portfolio SQL connection                                   |
+| `ConnectionStrings__MarketData`             | MarketData               | MarketData SQL connection                                  |
+| `ConnectionStrings__Team`                   | Team                     | Team SQL connection                                        |
+| `Services__MarketDataUrl`                   | Portfolio                | MarketData service address                                 |
+| `Services__PortfolioUrl`                    | Team                     | Portfolio service address                                  |
+| `PORTFOLIO_SERVICE_URL`, `TEAM_SERVICE_URL` | Next.js server           | Backend proxy addresses                                    |
+| `MarketEvents__Token`                       | MarketData and Portfolio | Matching private stream/watch token for native development |
+
+Docker preparation generates and preserves private owner-control and market-event
+tokens in `.runtime/docker/runtime.env`; it does not change the root `.env`.
+The market-event token goes only to MarketData and Portfolio. See
+[private server configuration](docs/trading.md#private-server-configuration).
+
+Existing Portfolio tables, JSON fields, and account partitions are retained.
+Schema initialization creates missing structures without dropping data; API-key
+rotation creates a separate account partition.
+
+Bitkub history imports cover its available window, about 90 days, and exclude
+broker conversions. Cost and profit stay Unknown until accounting is verified.
+
+## 🧠 Meet the AI team
+
+| Role     | Focus                                                 |
+| -------- | ----------------------------------------------------- |
+| CEO      | Chooses research priorities and coordinates the round |
+| Analyst  | Investigates the plan using supplied evidence         |
+| Reviewer | Checks conclusions and writes the summary             |
+
+Team uses the existing **Codex ChatGPT login**, with no separate API key.
+Sign in locally with Codex if needed. Team never reads broker credentials.
+
+- Hourly reviews and deduplicated signal assessments run without overlapping
+  rounds or replaying a missed-round backlog.
+- **Stop company** persists the disabled state and cancels active research;
+  **Resume** makes the next round due.
+- Closing the browser does not stop the server.
+- Research prerequisites must be ready before model work begins.
+- Run only one Team host per database; interrupted tasks are marked failed
+  rather than replayed at startup.
+
+<details>
+<summary>AI setup and isolation details</summary>
+
+- `Codex__AuthHome` selects the credential directory; otherwise Team uses
+  `CODEX_HOME` or the owner's `~/.codex`.
+- `Codex__NodePath` can select an absolute Node executable. `npm ci` installs
+  the pinned SDK/runtime.
+- The worker uses a temporary workspace, allowlisted environment/data, and
+  `--ignore-user-config --ephemeral`.
+- Personal configuration, MCP servers, plugins, shell, web search, and tool
+  network access are not imported or enabled. Model inference still contacts
+  OpenAI.
+- Each role has a 180-second timeout. Tokens and raw worker errors never enter
+  prompts, browser code, or Git.
+- Real SQL and authenticated model checks are opt-in; fixture success alone
+  does not prove those integrations are available.
+
+</details>
+
+## 🛠️ Development
+
+### Format once, let the tools handle the layout
+
+| Command                     | Purpose                                  |
+| --------------------------- | ---------------------------------------- |
+| `npm run format`            | Fix frontend and C# formatting           |
+| `npm run format:check`      | Check formatting without rewriting files |
+| `npm run check`             | Run frontend lint and type checks        |
+| `npm run build`             | Build the production frontend            |
+| `dotnet build Quantara.sln` | Build the C# solution                    |
+
+Frontend builds run ESLint fixes and Prettier automatically. C# builds run
+CSharpier and Roslyn formatting fixes before compilation. Formatter failures
+stop the build; CI checks formatting before building.
+
+- **TypeScript:** width 80, semicolons, single-quoted strings.
+- **JSX / JSON:** double-quoted attributes / strings.
+- **C#:** width 120, four spaces, LF, and double-quoted strings.
+- Widths guide wrapping; long string literals are not hard line-length failures.
+- The C# member-spacing Quick Fix is also available in the editor.
+
+Stop native services before rebuilding their loaded assemblies on Windows.
+To skip C# autoformat explicitly, use
+`dotnet build Quantara.sln -p:QuantaraAutoFormat=false`.
+
+### ✅ Useful checks
+
+| Command                     | Checks                                                      |
+| --------------------------- | ----------------------------------------------------------- |
+| `npm run test:architecture` | Service/layer boundaries and file ownership                 |
+| `npm run test:editor`       | Compiler/analyzer and editor rule enforcement               |
+| `npm run test:trading`      | Portfolio, API, MarketData, and trading transport fixtures  |
+| `npm run test:ai-worker`    | Isolated worker/process boundaries without a real AI call   |
+| `npm run test:team`         | Team orchestration and research rules                       |
+| `npm run test:docker`       | Runtime helpers, configuration, and private token isolation |
+
+<details>
+<summary>Browser checks and optional integrations</summary>
+
+With an isolated frontend running:
+
+```powershell
+npm run test:ui
+npm run test:contracts
+npm run test:crypto -- --fixtures
+node tools/verify-trading-ui.cjs --browser
+```
+
+Use `npx playwright install chromium`, or select installed Edge with
+`$env:PLAYWRIGHT_CHANNEL = 'msedge'`. Fixtures intercept requests only inside the
+test browser; the application never switches to fake portfolio data.
+
+- `npm run test:team-ui` checks the Daily Brief research UI.
+- `npm run test:presentation` checks state priority and filters without a browser.
+- Portfolio and MarketData checks can also run directly:
+  `dotnet run --project tests/Portfolio.Checks/Portfolio.Checks.csproj` and
+  `dotnet run --project tests/MarketData.Checks/MarketData.Checks.csproj`.
+- Real SQL verification is opt-in with `-- --sql` on Portfolio.Checks and uses
+  a separate test account.
+- Real-data `npm run test:crypto` needs running services and configured
+  credentials. Keep it separate from isolated fixture checks.
+
+</details>
+
+CI runs formatting, lint/type checks, builds, deterministic and browser checks,
+architecture checks, dependency audit, and secret scanning. It needs no broker
+credentials. GitHub branch protection must separately require the workflow's
+checks; the workflow does not configure branch policy.
+
+## 📚 Documentation
+
+| Looking for…                                    | Start here                               |
+| ----------------------------------------------- | ---------------------------------------- |
+| Continuous local deployment and maintenance     | [Docker runtime](docs/docker-runtime.md) |
+| Native development and data ownership           | [Local runtime](docs/local-runtime.md)   |
+| Trading modes, real-time behavior, and recovery | [Trading](docs/trading.md)               |
+| Adaptive capital and risk sizing                | [Adaptive risk](docs/adaptive-risk.md)   |
+| Service boundaries and frontend structure       | [Architecture](docs/architecture.md)     |
+| UI conventions and visual direction             | [Design](docs/design.md)                 |
