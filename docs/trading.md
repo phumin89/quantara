@@ -216,7 +216,7 @@ the 23:59 Bangkok daily report stays in the app for adaptive mode.
 
 Daily Brief shows private-stream connectivity and watched count. Collapsed
 diagnostics expose watched/dirty symbols, coalesced/dropped triggers, rolling
-received-to-local-decision p50/p95 (512 samples), latest decision-to-submit age,
+received-to-local-decision p50/p95 (512 samples), latest decision-to-submit latency,
 and exit/reconciliation timestamps. Stream connectivity alone does not prove
 every public market is healthy or an order filled. Latency excludes exchange/API
 round trips and is not a fill guarantee; fake-load measurements are reported
