@@ -7,7 +7,12 @@ using Quantara.Portfolio.Domain.Trading;
 
 namespace Quantara.Portfolio.Application;
 
-public sealed class TradingOverviewProjection(IAccountContext account, TradingControlOptions options, TimeProvider time)
+public sealed class TradingOverviewProjection(
+    IAccountContext account,
+    TradingControlOptions options,
+    TimeProvider time,
+    TradingEventDispatcher? events = null
+)
 {
     private static readonly JsonSerializerOptions jsonOptions = new(JsonSerializerDefaults.Web)
     {
@@ -37,6 +42,7 @@ public sealed class TradingOverviewProjection(IAccountContext account, TradingCo
                 state.EmergencyStopped,
                 state.HeartbeatAt,
                 state.Fault,
+                realtime = events?.Snapshot(),
                 autonomy = Autonomy(state, time.GetUtcNow()),
                 liveActivationAvailable = options.LiveActivationAvailable
                     && !string.IsNullOrWhiteSpace(options.OwnerToken),

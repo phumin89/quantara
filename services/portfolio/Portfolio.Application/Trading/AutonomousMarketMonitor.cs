@@ -14,7 +14,26 @@ public sealed class AutonomousMarketMonitor(ITradingMarketReader markets, Autono
 
     private string? latestHash;
 
-    public async Task<AutonomousTradingBatch> Read(TradingState state, CancellationToken cancellationToken)
+    private long version;
+
+    public long Version => Volatile.Read(ref this.version);
+
+    public long? LatestClosedCandle =>
+        Volatile
+            .Read(ref this.latest)
+            ?.Books.Where(book => book.Bars.Count > 0)
+            .Select(book => (long?)book.Bars[^1].Timestamp)
+            .Max();
+
+    public Task<AutonomousTradingBatch> Read(TradingState state, CancellationToken cancellationToken) =>
+        this.Read(state, null, true, cancellationToken);
+
+    public async Task<AutonomousTradingBatch> Read(
+        TradingState state,
+        IReadOnlyList<TradingBook>? observed,
+        bool startScan,
+        CancellationToken cancellationToken
+    )
     {
         var hash = state.RulesHash;
         if (this.scanning is { IsCompleted: true } completed)
@@ -26,6 +45,7 @@ public sealed class AutonomousMarketMonitor(ITradingMarketReader markets, Autono
                 {
                     this.latest = result;
                     this.latestHash = hash;
+                    Interlocked.Increment(ref this.version);
                 }
             }
             catch (Exception error)
@@ -38,7 +58,7 @@ public sealed class AutonomousMarketMonitor(ITradingMarketReader markets, Autono
             this.scanning = null;
         }
 
-        if (this.scanning is null)
+        if (this.scanning is null && startScan)
         {
             this.scanningHash = hash;
             this.scanning = this.ReadCore(state, cancellationToken);
@@ -46,6 +66,7 @@ public sealed class AutonomousMarketMonitor(ITradingMarketReader markets, Autono
             {
                 this.latest = await this.scanning;
                 this.latestHash = hash;
+                Interlocked.Increment(ref this.version);
                 this.scanning = null;
             }
         }
@@ -64,9 +85,14 @@ public sealed class AutonomousMarketMonitor(ITradingMarketReader markets, Autono
             .Distinct(StringComparer.Ordinal)
             .ToArray();
         var books = new List<TradingBook>();
-        foreach (var batch in owned.Chunk(16))
+        foreach (var batch in observed is null ? owned.Chunk(16) : [])
         {
             books.AddRange(await markets.ReadValuations(batch, cancellationToken));
+        }
+
+        if (observed is not null)
+        {
+            books.AddRange(observed.Where(book => owned.Contains(book.Symbol, StringComparer.Ordinal)));
         }
 
         var now = time.GetUtcNow();
@@ -82,10 +108,10 @@ public sealed class AutonomousMarketMonitor(ITradingMarketReader markets, Autono
                 null,
                 0,
                 0,
-                [],
+                state.Autonomy?.Markets ?? [],
                 state.Autonomy?.Capital,
                 "Preparing market and account evidence; existing positions remain monitored.",
-                now.AddSeconds(10)
+                now.AddMinutes(1)
             );
         var eligible =
             current is not null
@@ -103,7 +129,18 @@ public sealed class AutonomousMarketMonitor(ITradingMarketReader markets, Autono
                         Bars = current?.Books.SingleOrDefault(item => item.Symbol == book.Symbol)?.Bars ?? book.Bars,
                     }
                 )
-                .Concat((current?.Books ?? []).Where(book => !owned.Contains(book.Symbol, StringComparer.Ordinal)))
+                .Concat(
+                    (current?.Books ?? [])
+                        .Where(book => !owned.Contains(book.Symbol, StringComparer.Ordinal))
+                        .Select(book =>
+                            observed?.SingleOrDefault(item => item.Symbol == book.Symbol) is { } quote
+                                ? quote with
+                                {
+                                    Bars = book.Bars,
+                                }
+                                : book
+                        )
+                )
                 .ToArray(),
             eligible,
             current?.Capital ?? emptyCapital
@@ -122,6 +159,7 @@ public sealed class AutonomousMarketMonitor(ITradingMarketReader markets, Autono
             this.universe = await markets.ReadUniverse(cancellationToken);
         }
 
+        now = time.GetUtcNow();
         var universe = this.universe;
         var policy = state.Rules.Adaptive ?? throw new InvalidOperationException("An adaptive policy is required.");
         var valid =
@@ -130,7 +168,9 @@ public sealed class AutonomousMarketMonitor(ITradingMarketReader markets, Autono
             && now - universe.ObservedAt <= TimeSpan.FromSeconds(state.Rules.MaxDataAgeSeconds);
         var eligible = valid ? universe.Symbols.Except(policy.ExcludedSymbols, StringComparer.Ordinal).ToArray() : [];
         var retained = state.Autonomy?.Markets ?? [];
-        var observations = retained.Where(item => eligible.Contains(item.Symbol, StringComparer.Ordinal)).ToArray();
+        var observations = (
+            valid ? retained.Where(item => eligible.Contains(item.Symbol, StringComparer.Ordinal)) : retained
+        ).ToArray();
         var owned = state
             .Live.Positions.Concat(state.Paper.Positions)
             .Where(position => position.Quantity > 0)
@@ -206,7 +246,7 @@ public sealed class AutonomousMarketMonitor(ITradingMarketReader markets, Autono
                 combined,
                 capital.Snapshot,
                 activity,
-                now.AddSeconds(10)
+                now.AddMinutes(1)
             ),
             books,
             eligible,

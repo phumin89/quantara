@@ -16,10 +16,43 @@ public sealed class TradingEngine(
     TimeProvider time,
     IReadOnlyOrderStore? legacyOrders = null,
     AutonomousMarketMonitor? autonomous = null,
-    AutonomousRiskService? adaptiveRisk = null
+    AutonomousRiskService? adaptiveRisk = null,
+    TradingEventDispatcher? events = null
 )
 {
-    public async Task Tick(CancellationToken cancellationToken)
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<Guid, TradingPreparedObservation> ready = new();
+
+    public Task Tick(CancellationToken cancellationToken) => this.Run(null, cancellationToken);
+
+    public Task Process(TradingMarketEvent marketEvent, CancellationToken cancellationToken) =>
+        this.Run(marketEvent, cancellationToken);
+
+    public async Task PrepareReconciliation(CancellationToken cancellationToken)
+    {
+        var state = await store.Read(cancellationToken);
+        var activeIds = state.Live.Orders.Where(TradingLedgerAccounting.Active).Select(order => order.Id).ToHashSet();
+        foreach (var id in this.ready.Keys.Where(id => !activeIds.Contains(id)))
+        {
+            this.ready.TryRemove(id, out _);
+        }
+
+        foreach (
+            var order in state.Live.Orders.Where(order =>
+                TradingLedgerAccounting.Active(order) && order.Status != "pending"
+            )
+        )
+        {
+            if (order.LastInspectedAt is { } inspected && time.GetUtcNow() - inspected < TimeSpan.FromSeconds(30))
+            {
+                continue;
+            }
+
+            var observation = await exchange.Inspect(order, cancellationToken);
+            this.ready[order.Id] = new(order, observation, time.GetUtcNow());
+        }
+    }
+
+    private async Task Run(TradingMarketEvent? trigger, CancellationToken cancellationToken)
     {
         await gate.WaitAsync(cancellationToken);
         try
@@ -81,12 +114,37 @@ public sealed class TradingEngine(
                     );
                 }
 
-                state = await this.Reconcile(state, now, cancellationToken);
+                var entries = trigger is null || trigger.Kind == TradingEventKind.CandleClosed;
+                if (trigger is null || trigger.Kind == TradingEventKind.Reconcile)
+                {
+                    state = await this.Reconcile(state, now, trigger is not null, cancellationToken);
+                    events?.RecordReconciliation(time.GetUtcNow());
+                }
+
                 var adaptive = state.Rules.Adaptive;
+                IReadOnlyList<TradingBook>? observed = trigger is null ? null : events?.LatestBooks() ?? [];
+                if (
+                    trigger is
+                    { Kind: TradingEventKind.BookChanged or TradingEventKind.QuoteChanged, Book: { } eventBook }
+                )
+                {
+                    observed = (observed ?? [])
+                        .Where(book => book.Symbol != eventBook.Symbol)
+                        .Append(eventBook)
+                        .ToArray();
+                }
+
                 var scan = adaptive is not null
                     ? await (
                         autonomous ?? throw new InvalidOperationException("Autonomous market monitor is unavailable.")
-                    ).Read(state, cancellationToken)
+                    ).Read(
+                        state,
+                        observed,
+                        trigger is null
+                            || trigger.Kind == TradingEventKind.Research
+                            || trigger.Kind == TradingEventKind.CandleClosed && trigger.Sequence > 0,
+                        cancellationToken
+                    )
                     : null;
                 if (scan is not null)
                 {
@@ -94,7 +152,9 @@ public sealed class TradingEngine(
                     state = await this.Save(state, funded with { Autonomy = scan.Status }, cancellationToken);
                 }
 
-                var books = scan?.Books ?? await markets.Read(state.Rules.Symbols, cancellationToken);
+                var books =
+                    scan?.Books
+                    ?? (trigger is null ? await markets.Read(state.Rules.Symbols, cancellationToken) : observed ?? []);
                 now = time.GetUtcNow();
                 if (books.Select(book => book.Symbol).Distinct(StringComparer.Ordinal).Count() != books.Count)
                 {
@@ -182,15 +242,23 @@ public sealed class TradingEngine(
                 }
 
                 var ranked = adaptive is null ? state.Rules.Symbols : RankMarkets(state, books, now);
+                var exitEvaluated = false;
                 foreach (var symbol in ranked)
                 {
                     var book = books.SingleOrDefault(item => item.Symbol == symbol);
                     var ledger = live ? state.Live : state.Paper;
                     var position = ledger.Positions.SingleOrDefault(item => item.Symbol == symbol && item.Quantity > 0);
+                    if (!entries && position is null)
+                    {
+                        continue;
+                    }
+
                     if (book is null || !Fresh(book, state.Rules, now, position is null))
                     {
                         continue;
                     }
+
+                    exitEvaluated |= position is not null;
 
                     if (ledger.Orders.Any(order => order.Symbol == symbol && TradingLedgerAccounting.Active(order)))
                     {
@@ -198,6 +266,15 @@ public sealed class TradingEngine(
                     }
 
                     var decision = Evaluate(state.Rules, book, position, now);
+                    if (
+                        decision.Action == TradingAction.Buy
+                        && trigger is not null
+                        && trigger.CandleAt != decision.Candle
+                    )
+                    {
+                        continue;
+                    }
+
                     if (
                         adaptive is not null
                         && decision.Action == TradingAction.Buy
@@ -487,9 +564,25 @@ public sealed class TradingEngine(
                     state = await this.Save(state, next, cancellationToken);
                 }
 
+                if (
+                    trigger is
+                    {
+                        Kind: TradingEventKind.BookChanged
+                            or TradingEventKind.QuoteChanged
+                            or TradingEventKind.CandleClosed
+                    }
+                )
+                {
+                    events?.RecordDecision(
+                        System.Diagnostics.Stopwatch.GetElapsedTime(trigger.ReceivedTimestamp),
+                        time.GetUtcNow(),
+                        exitEvaluated
+                    );
+                }
+
                 if (live)
                 {
-                    state = await this.Execute(state, books, now, cancellationToken);
+                    state = await this.Execute(state, books, now, entries, cancellationToken);
                 }
                 else
                 {
@@ -585,6 +678,7 @@ public sealed class TradingEngine(
     private async Task<TradingState> Reconcile(
         TradingState state,
         DateTimeOffset now,
+        bool preparedOnly,
         CancellationToken cancellationToken
     )
     {
@@ -599,8 +693,27 @@ public sealed class TradingEngine(
                 continue;
             }
 
-            var observation = await exchange.Inspect(original, cancellationToken);
-            var inspectedAt = time.GetUtcNow();
+            TradingOrderObservation observation;
+            DateTimeOffset inspectedAt;
+            if (preparedOnly)
+            {
+                if (
+                    !this.ready.TryRemove(original.Id, out var prepared)
+                    || prepared.Intent.BrokerOrderId != original.BrokerOrderId
+                )
+                {
+                    continue;
+                }
+
+                observation = prepared.Observation;
+                inspectedAt = prepared.ObservedAt;
+            }
+            else
+            {
+                observation = await exchange.Inspect(original, cancellationToken);
+                inspectedAt = time.GetUtcNow();
+            }
+
             if (observation.Status is not ("unknown" or "submitted" or "partial" or "filled" or "cancelled"))
             {
                 throw new InvalidDataException("Invalid reconciliation state.");
@@ -720,6 +833,7 @@ public sealed class TradingEngine(
         TradingState state,
         IReadOnlyList<TradingBook> books,
         DateTimeOffset now,
+        bool entries,
         CancellationToken cancellationToken
     )
     {
@@ -744,6 +858,11 @@ public sealed class TradingEngine(
                     },
                     cancellationToken
                 );
+                continue;
+            }
+
+            if (original.Status == "pending" && original.Side == TradeSide.Buy && !entries)
+            {
                 continue;
             }
 
@@ -828,6 +947,13 @@ public sealed class TradingEngine(
             var market = await exchange.Market(original.Symbol, original.Side, cancellationToken);
             OrderRules.Validate(Proposal(original), market);
             var balances = await exchange.Balances(cancellationToken);
+            var quote = events?.LatestBook(original.Symbol);
+            if (events is not null && quote is null)
+            {
+                return state;
+            }
+
+            book = quote is null ? book : quote with { Bars = book.Bars };
             if (!Fresh(book, state.Rules, time.GetUtcNow(), original.Side != TradeSide.Sell))
             {
                 return state;
@@ -934,11 +1060,19 @@ public sealed class TradingEngine(
 
             // This durable CAS is the only entry into the autonomous broker POST path.
             state = await this.Save(state, state with { Live = Replace(state.Live, intent) }, cancellationToken);
+            events?.RecordSubmission(
+                TimeSpan.FromMilliseconds(Math.Max(0, (time.GetUtcNow() - original.CreatedAt).TotalMilliseconds))
+            );
             var submissionAuthority = await store.Read(cancellationToken);
             if (
                 !TradingAuthority.Valid(submissionAuthority, account.AccountKey, time.GetUtcNow())
                 || submissionAuthority.Mandate?.Id != state.Mandate?.Id
                 || submissionAuthority.Live.Orders.Single(order => order.Id == intent.Id).Status != "submitting"
+                || events is not null
+                    && (
+                        events.LatestBook(original.Symbol) is not { } finalQuote
+                        || !Fresh(finalQuote, state.Rules, time.GetUtcNow(), original.Side != TradeSide.Sell)
+                    )
             )
             {
                 return submissionAuthority;

@@ -85,6 +85,7 @@ var tradingOptions = new TradingControlOptions(
 };
 builder.Services.AddSingleton(tradingOptions);
 builder.Services.AddSingleton<TradingOverviewProjection>();
+builder.Services.AddSingleton<TradingEventDispatcher>();
 builder.Services.AddSingleton(new SemaphoreSlim(1, 1));
 builder.Services.AddSingleton<ITradingControl, TradingControl>();
 builder.Services.AddSingleton<TradingEngine>();
@@ -160,6 +161,22 @@ if (marketDataUrl.Scheme is not ("http" or "https") || !string.IsNullOrEmpty(mar
 {
     throw new InvalidOperationException("Configure a valid MarketData service URL without embedded credentials.");
 }
+
+builder
+    .Services.AddHttpClient(
+        "market-events",
+        http =>
+        {
+            http.BaseAddress = marketDataUrl;
+            http.Timeout = Timeout.InfiniteTimeSpan;
+        }
+    )
+    .RemoveAllLoggers()
+    .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler { AllowAutoRedirect = false });
+builder.Services.AddSingleton<ITradingEventSource>(services => new TradingEventSource(
+    services.GetRequiredService<IHttpClientFactory>().CreateClient("market-events"),
+    builder.Configuration["MarketEvents:Token"] ?? ""
+));
 
 builder
     .Services.AddHttpClient<IMarketDataClient, MarketDataClient>(http =>
