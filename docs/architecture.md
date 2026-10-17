@@ -81,6 +81,18 @@ market evidence arrives from MarketData over HTTP. Paper uses simulated funds
 and fills; live accounting uses actual fills and known cost basis, preserving
 Unknown profit/equity when evidence is incomplete.
 
+MarketData also streams typed public quote/book/completed-candle events over
+private authenticated SSE. Required holdings and open orders keep their sockets;
+at most sixteen other candidates rotate within a 64-symbol watch limit. Portfolio
+coalesces events in a bounded exit-first dispatcher and retains dirty owned
+symbols on overflow. Research/capital scans, read-only broker inspections and
+report delivery run outside the decision gate. Completed candles authorize entry
+evaluation; fresh owned quotes evaluate exits without a decision polling loop.
+Independent deadline/reconciliation timers and bounded disconnect fallback remain.
+The stream has its own private token, supplied only to MarketData and Portfolio;
+it grants market-data access, never trading authority. No persisted schema or
+rule hash changes. See [real-time decisions](trading.md#real-time-market-decisions).
+
 The class-based Daily Brief trading panel uses validated feature contracts,
 Context and lazy service bindings. It displays the server's mode, heartbeat,
 exposure, orders and selected-day Thai report. The owner uses **Set up and

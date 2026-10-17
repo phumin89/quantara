@@ -22,12 +22,17 @@ Assert-Text $compose 'verified' 'Compose must enforce the readiness marker.'
 if (([regex]::Matches($compose, '127\.0\.0\.1:\d+:\d+')).Count -ne 1) { throw 'Only the web service may publish a host port.' }
 Assert-Text $compose 'mcr\.microsoft\.com/mssql/server@sha256:[a-f0-9]{64}' 'SQL upgrades must require an explicit image digest change.'
 $portfolioBlock = [regex]::Match($compose, '(?ms)^  portfolio:\r?\n.*?(?=^  team:)').Value
+$marketDataBlock = [regex]::Match($compose, '(?ms)^  market-data:\r?\n.*?(?=^  portfolio:)').Value
 $teamBlock = [regex]::Match($compose, '(?ms)^  team:\r?\n.*?(?=^  web:)').Value
 $webBlock = [regex]::Match($compose, '(?ms)^  web:\r?\n.*?(?=^networks:)').Value
 Assert-Text $portfolioBlock 'Trading__OwnerToken: \$\{QUANTARA_TRADING_CONTROL_TOKEN:\?' 'Portfolio requires the private owner token.'
 Assert-Text $webBlock 'QUANTARA_TRADING_CONTROL_TOKEN: \$\{QUANTARA_TRADING_CONTROL_TOKEN:\?' 'The web server requires the same private owner token.'
+Assert-Text $marketDataBlock 'MarketEvents__Token: \$\{QUANTARA_MARKET_EVENTS_TOKEN:\?' 'MarketData requires the private market events token.'
+Assert-Text $portfolioBlock 'MarketEvents__Token: \$\{QUANTARA_MARKET_EVENTS_TOKEN:\?' 'Portfolio requires the private market events token.'
 if ($teamBlock -match 'TRADING_CONTROL_TOKEN|Trading__OwnerToken' -or $compose -match 'NEXT_PUBLIC_.*TRADING') { throw 'Trading authority must never enter Team or browser configuration.' }
 if (([regex]::Matches($compose, '\$\{QUANTARA_TRADING_CONTROL_TOKEN:\?')).Count -ne 2) { throw 'Only Portfolio and the web server may receive the trading control token.' }
+if ($teamBlock -match 'MARKET_EVENTS_TOKEN|MarketEvents__Token' -or $webBlock -match 'MARKET_EVENTS_TOKEN|MarketEvents__Token') { throw 'Market events authority must never enter Team or browser configuration.' }
+if (([regex]::Matches($compose, '\$\{QUANTARA_MARKET_EVENTS_TOKEN:\?')).Count -ne 2) { throw 'Only MarketData and Portfolio may receive the market events token.' }
 
 $dockerFiles = @(
     (Join-Path $root 'docker/Api.Dockerfile'),
@@ -66,6 +71,7 @@ $launcher = Get-Content -LiteralPath (Join-Path $PSScriptRoot 'Start-QuantaraDoc
 Assert-Text $launcher "'up', '-d', '--no-recreate', '--wait'" 'Routine startup must preserve existing containers.'
 Assert-Text $launcher "\`$state.Phase -eq 'Active' -and \`$Action -ne 'Prepare'" 'Prepare must not start an already active runtime.'
 Assert-Text $launcher 'Initialize-QuantaraTradingControlToken -Path \$runtimeEnv' 'Prepare must initialize and preserve the private token.'
+Assert-Text $launcher 'Initialize-QuantaraTradingControlToken -Path \$runtimeEnv -Name ''QUANTARA_MARKET_EVENTS_TOKEN''' 'Prepare must initialize and preserve the private market events token.'
 Import-Module (Join-Path $PSScriptRoot 'QuantaraRuntime.psm1') -Force
 $fixtureRoot = Join-Path $root ('work/docker-ownership-' + [Guid]::NewGuid().ToString('N'))
 $fixtureDirectory = Join-Path $fixtureRoot '.runtime/docker'
@@ -80,6 +86,19 @@ if (!$firstEnvironment.StartsWith($initialEnvironment) -or $firstEnvironment -no
 }
 Initialize-QuantaraTradingControlToken -Path $fixtureEnvironment
 if ([IO.File]::ReadAllText($fixtureEnvironment) -cne $firstEnvironment) { throw 'Repeated preparation rotated the token or changed retained credentials.' }
+$marketEnvironment = [IO.File]::ReadAllText($fixtureEnvironment)
+Initialize-QuantaraTradingControlToken -Path $fixtureEnvironment -Name 'QUANTARA_MARKET_EVENTS_TOKEN'
+$withMarketToken = [IO.File]::ReadAllText($fixtureEnvironment)
+if (!$withMarketToken.StartsWith($marketEnvironment) -or $withMarketToken -notmatch '(?m)^QUANTARA_MARKET_EVENTS_TOKEN=[A-F0-9]{64}\r?$') {
+    throw 'Market events token generation must preserve existing settings and create a cryptographically random token.'
+}
+Initialize-QuantaraTradingControlToken -Path $fixtureEnvironment -Name 'QUANTARA_MARKET_EVENTS_TOKEN'
+if ([IO.File]::ReadAllText($fixtureEnvironment) -cne $withMarketToken) { throw 'Repeated preparation rotated the market events token or changed retained credentials.' }
+$secondFixtureEnvironment = Join-Path $fixtureDirectory 'second-runtime.env'
+Initialize-QuantaraTradingControlToken -Path $secondFixtureEnvironment -InitialContent $initialEnvironment -Name 'QUANTARA_MARKET_EVENTS_TOKEN'
+$firstMarketToken = [regex]::Match($withMarketToken, '(?m)^QUANTARA_MARKET_EVENTS_TOKEN=([A-F0-9]{64})').Groups[1].Value
+$secondMarketToken = [regex]::Match([IO.File]::ReadAllText($secondFixtureEnvironment), '(?m)^QUANTARA_MARKET_EVENTS_TOKEN=([A-F0-9]{64})').Groups[1].Value
+if (!$firstMarketToken -or !$secondMarketToken -or $firstMarketToken -ceq $secondMarketToken) { throw 'Independent market events token initializations must be random.' }
 if ($IsWindows) {
     $fileAccess = Get-Acl -LiteralPath $fixtureEnvironment
     $ownerSid = [Security.Principal.WindowsIdentity]::GetCurrent().User.Value

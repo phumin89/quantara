@@ -293,6 +293,7 @@ export default class TradingPanel extends Component<
                 {operatingDetail}
                 {' · '}Last update {TradingPanel.time(overview.heartbeatAt)}
               </Typography>
+              {overview.realtime && this.renderRealtime(overview)}
               {overview.emergencyStopped && (
                 <Alert severity="error">
                   Emergency stop is active. New entries are blocked. Existing
@@ -1079,6 +1080,106 @@ export default class TradingPanel extends Component<
     );
   }
 
+  private renderRealtime(overview: TradingOverview): ReactNode {
+    const realtime = overview.realtime;
+    if (!realtime) {
+      return null;
+    }
+
+    const eventAgeMs = realtime.lastEventAt
+      ? Date.now() - Date.parse(realtime.lastEventAt)
+      : NaN;
+    const fresh =
+      Number.isFinite(eventAgeMs) &&
+      eventAgeMs >= -5_000 &&
+      eventAgeMs <= 45_000;
+    const connected = realtime.connected && fresh;
+    const age = realtime.lastEventAt
+      ? TradingPanel.age(realtime.lastEventAt)
+      : 'Unknown';
+
+    return (
+      <Box>
+        <Stack
+          direction="row"
+          spacing={1}
+          sx={{ alignItems: 'center', flexWrap: 'wrap' }}
+        >
+          <Chip
+            size="small"
+            color={connected ? 'success' : 'warning'}
+            label={`${connected ? 'Connected' : 'Disconnected'} · ${realtime.watchedSymbols.length.toString()} watched`}
+          />
+          {!fresh && realtime.lastEventAt && (
+            <Typography
+              variant="caption"
+              color="text.secondary"
+            >
+              Last event {age}
+            </Typography>
+          )}
+        </Stack>
+        <Box
+          component="details"
+          sx={{
+            mt: 0.5,
+            '& > summary': {
+              cursor: 'pointer',
+              minHeight: 36,
+              alignContent: 'center',
+              fontSize: 13,
+              color: 'text.secondary',
+            },
+          }}
+        >
+          <Box component="summary">Feed diagnostics</Box>
+          <Typography
+            variant="caption"
+            component="div"
+          >
+            Watched: {realtime.watchedSymbols.join(', ') || 'None'} · Dirty:{' '}
+            {realtime.dirtySymbols.join(', ') || 'None'}
+          </Typography>
+          <Typography
+            variant="caption"
+            component="div"
+          >
+            Coalesced: {realtime.coalesced} · Dropped: {realtime.dropped}
+          </Typography>
+          <Typography
+            variant="caption"
+            component="div"
+          >
+            Received → decision p50/p95:{' '}
+            {TradingPanel.milliseconds(realtime.decisionP50Ms)} /{' '}
+            {TradingPanel.milliseconds(realtime.decisionP95Ms)}
+          </Typography>
+          <Typography
+            variant="caption"
+            component="div"
+          >
+            Decision → submit:{' '}
+            {TradingPanel.milliseconds(realtime.lastSubmitLatencyMs)}
+          </Typography>
+          <Typography
+            variant="caption"
+            component="div"
+          >
+            Last exit evaluation:{' '}
+            {TradingPanel.timeWithAge(realtime.lastExitEvaluationAt)}
+          </Typography>
+          <Typography
+            variant="caption"
+            component="div"
+          >
+            Last reconciliation:{' '}
+            {TradingPanel.timeWithAge(realtime.lastReconciliationAt)}
+          </Typography>
+        </Box>
+      </Box>
+    );
+  }
+
   private renderMandate(overview: TradingOverview): ReactNode {
     const expiry = new Date(this.state.expiresAt);
     const validExpiry =
@@ -1378,6 +1479,25 @@ export default class TradingPanel extends Component<
     }
 
     return `${new Date(value).toLocaleString('en-GB', { timeZone: 'Asia/Bangkok' })} Bangkok`;
+  }
+
+  private static age(value: string): string {
+    const ageMs = Math.max(0, Date.now() - Date.parse(value));
+    if (ageMs < 60_000) {
+      return `${Math.floor(ageMs / 1000).toString()}s ago`;
+    }
+
+    return `${Math.floor(ageMs / 60_000).toString()}m ago`;
+  }
+
+  private static timeWithAge(value: string | null): string {
+    return value === null
+      ? 'Unknown'
+      : `${TradingPanel.time(value)} (${TradingPanel.age(value)})`;
+  }
+
+  private static milliseconds(value: number | null): string {
+    return value === null ? 'Unknown' : `${value.toLocaleString('en-GB')} ms`;
   }
 
   private async save(data: FormData): Promise<void> {

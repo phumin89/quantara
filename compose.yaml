@@ -73,6 +73,7 @@ services:
     command: [dotnet, /app/MarketData.Api.dll]
     environment:
       Hosting__ListenUrl: http://0.0.0.0:5051
+      MarketEvents__Token: ${QUANTARA_MARKET_EVENTS_TOKEN:?Run Start-QuantaraDocker.ps1 -Action Prepare first}
       ConnectionStrings__MarketData: ${QUANTARA_MARKET_CONNECTION:?Run Start-QuantaraDocker.ps1 first}
       TZ: Asia/Bangkok
     networks:
@@ -97,6 +98,7 @@ services:
       Hosting__InternalHost: portfolio
       ConnectionStrings__Quantara: ${QUANTARA_PORTFOLIO_CONNECTION:?Run Start-QuantaraDocker.ps1 first}
       Services__MarketDataUrl: http://market-data:5051
+      MarketEvents__Token: ${QUANTARA_MARKET_EVENTS_TOKEN:?Run Start-QuantaraDocker.ps1 -Action Prepare first}
       Trading__OwnerToken: ${QUANTARA_TRADING_CONTROL_TOKEN:?Run Start-QuantaraDocker.ps1 -Action Prepare first}
       TZ: Asia/Bangkok
     networks:

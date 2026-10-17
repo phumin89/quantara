@@ -108,6 +108,22 @@ export const tradingOverviewSchema = z.object({
     })
     .nullable()
     .optional(),
+  realtime: z
+    .object({
+      connected: z.boolean(),
+      lastEventAt: timestampSchema.nullable(),
+      watchedSymbols: z.array(z.string().regex(/^[A-Z0-9]{1,30}$/)).max(64),
+      dirtySymbols: z.array(z.string().regex(/^[A-Z0-9]{1,30}$/)).max(64),
+      coalesced: z.number().int().nonnegative(),
+      dropped: z.number().int().nonnegative(),
+      decisionP50Ms: z.number().nonnegative().nullable(),
+      decisionP95Ms: z.number().nonnegative().nullable(),
+      lastExitEvaluationAt: timestampSchema.nullable(),
+      lastReconciliationAt: timestampSchema.nullable(),
+      lastSubmitLatencyMs: z.number().nonnegative().nullable(),
+    })
+    .nullable()
+    .optional(),
   paper: bookSchema,
   live: bookSchema,
   reports: z.array(

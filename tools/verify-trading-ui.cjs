@@ -73,6 +73,19 @@ const overview = {
   heartbeatAt: '2026-10-16T04:00:00Z',
   fault: null,
   liveActivationAvailable: true,
+  realtime: {
+    connected: true,
+    lastEventAt: '2026-10-16T04:00:00Z',
+    watchedSymbols: ['BTC'],
+    dirtySymbols: [],
+    coalesced: 2,
+    dropped: 0,
+    decisionP50Ms: 120,
+    decisionP95Ms: 1800,
+    lastExitEvaluationAt: '2026-10-16T03:59:58Z',
+    lastReconciliationAt: '2026-10-16T03:59:30Z',
+    lastSubmitLatencyMs: null,
+  },
   paper: book,
   live: book,
   reports: [
@@ -479,6 +492,16 @@ async function verifyBrowser() {
       (process.env.TEST_URL || 'http://127.0.0.1:3000') + '/daily-brief',
     );
     await page.getByText('Paper trading', { exact: true }).waitFor();
+    await page.getByText('Connected · 1 watched', { exact: true }).waitFor();
+    await page.getByText('Feed diagnostics', { exact: true }).click();
+    await page
+      .getByText('Received → decision p50/p95: 120 ms / 1,800 ms', {
+        exact: true,
+      })
+      .waitFor();
+    await page
+      .getByText('Decision → submit: Unknown', { exact: true })
+      .waitFor();
     assert.equal(writes.length, 0, 'mount has no control POST');
     assert.equal(
       await page.getByText('รายงานทดสอบ: ผลกำไรยังไม่ทราบ').isVisible(),

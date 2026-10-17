@@ -121,6 +121,7 @@ try {
     } else {
         Initialize-QuantaraTradingControlToken -Path $runtimeEnv
     }
+    Initialize-QuantaraTradingControlToken -Path $runtimeEnv -Name 'QUANTARA_MARKET_EVENTS_TOKEN'
     $credentialsPath = Join-Path $plan.Root '.env'
     $credentials = Read-EnvironmentFile $credentialsPath
     foreach ($required in @('BITKUB_API_KEY', 'BITKUB_API_SECRET')) {

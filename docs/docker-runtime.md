@@ -15,6 +15,15 @@ Run the explicit sequence from the repository root:
 
 The first `Migrate` builds the images before pausing native services, fences in-flight orders and AI reports, creates verified `COPY_ONLY`/`CHECKSUM` backups for all three databases, and records per-table schema and data SHA-256 fingerprints. It restores with explicit logical file moves, refuses replacement, and verifies the restored data again after a real SQL container restart. Each owner has a distinct database login. The ready marker is written before the first application start, and the native task guard prevents duplicate schedulers. Rollback is available only before runtime activation, while the marker is absent. Runtime activation is separate from enabling AutoLive. After runtime activation, do not resume a stale native database; use a reverse, verified migration from the latest canonical Docker database. Retained source files and backup artifacts are kept for that review.
 
+Preparation additionally preserves/generates an independent 32-byte random
+`QUANTARA_MARKET_EVENTS_TOKEN`. Only MarketData and Portfolio receive it as
+`MarketEvents__Token` for their private SSE/watch connection. Team, the web server
+and model workers receive neither this value nor access to execution authority
+through the stream. Existing runtime files keep SQL credentials and both tokens
+unchanged. Apply the new binding to both services in the same reviewed maintenance
+window, with AutoLive disabled and canonical backups retained. Missing or mismatched
+tokens fail closed; preparing configuration never changes a mandate.
+
 The web service is published only on `127.0.0.1:3000`. The database network is internal. Codex authentication is mounted writable only into Team at `/codex-auth`; it is never copied into an image. Compose uses `restart: unless-stopped` and health checks, but a hung or unhealthy process is not repaired by restart policy alone. `Start` preserves existing containers and their configuration; image or configuration upgrades require controlled maintenance with a current-data backup and review. `Status` lists runtime state and container status.
 
 The migration creates one owned Docker Desktop executable scheduled task for the

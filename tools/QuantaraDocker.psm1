@@ -83,14 +83,15 @@ function Set-QuantaraPrivateRuntimeFile {
 }
 
 function Initialize-QuantaraTradingControlToken {
-    param([Parameter(Mandatory)][string] $Path, [string] $InitialContent = '')
+    param([Parameter(Mandatory)][string] $Path, [string] $InitialContent = '',
+        [ValidateSet('QUANTARA_TRADING_CONTROL_TOKEN', 'QUANTARA_MARKET_EVENTS_TOKEN')][string] $Name = 'QUANTARA_TRADING_CONTROL_TOKEN')
 
     $content = $InitialContent
     if (Test-Path -LiteralPath $Path) {
         Set-QuantaraPrivateRuntimeFile -Path $Path
         $content = [IO.File]::ReadAllText($Path)
     }
-    $entries = [regex]::Matches($content, '(?m)^[ \t]*QUANTARA_TRADING_CONTROL_TOKEN[ \t]*=([^\r\n]*)')
+    $entries = [regex]::Matches($content, ('(?m)^[ \t]*' + [regex]::Escape($Name) + '[ \t]*=([^\r\n]*)'))
     if ($entries.Count -gt 1 -or ($entries.Count -eq 1 -and $entries[0].Groups[1].Value -notmatch '^[A-Fa-f0-9]{64}$')) {
         throw 'The existing trading control token is invalid or duplicated; preserve it and review the runtime configuration.'
     }
@@ -98,7 +99,7 @@ function Initialize-QuantaraTradingControlToken {
     if ($entries.Count -eq 0) {
         $token = [Convert]::ToHexString([Security.Cryptography.RandomNumberGenerator]::GetBytes(32))
         $separator = if ($content.Length -gt 0 -and !$content.EndsWith("`n")) { "`n" } else { '' }
-        $content += $separator + 'QUANTARA_TRADING_CONTROL_TOKEN=' + $token + "`n"
+        $content += $separator + $Name + '=' + $token + "`n"
     }
     $temporary = $Path + '.' + [Guid]::NewGuid().ToString('N') + '.tmp'
     try {

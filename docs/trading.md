@@ -82,12 +82,12 @@ without the legacy entry notional cap. A frozen buy side or an entry spread limi
 does not prevent a permitted sell. Unfilled entries expire or are cancelled on
 verified invalidation; cancellation uncertainty prevents replacement.
 
-The engine waits ten seconds between ticks, plus dependency latency. Background
+The engine consumes priority market events. Background
 research rotates detailed candle/depth batches of sixteen across the eligible
 universe and isolates missing market evidence. Fresh owned-position quotes do not
 wait for candle history or the background account scan. Broker status checks retain
 their separate thirty-second minimum interval. Coverage and timestamps expose
-actual progress; the whole universe is not refreshed simultaneously every tick.
+actual progress; the whole universe is not refreshed simultaneously.
 
 Only new fills belonging to this strategy enter its live book. Existing manual
 holdings and orders retain their original history and are not silently assigned
@@ -168,6 +168,68 @@ A powered-off or sleeping PC, lost network, stopped Docker or stopped/unhealthy
 service cannot trade. Compose restart policies and health checks do not provide
 uninterrupted availability or guarantee execution during an outage.
 
+## Real-time market decisions
+
+MarketData reuses its public Bitkub WebSockets and SQL-owned completed five-minute
+candles. Portfolio subscribes to a private authenticated SSE stream of typed
+`QuoteChanged`, `BookChanged`, `CandleClosed`, `FeedUnavailable` and heartbeat
+events. No broker keys enter MarketData. Public order books retain actual bid/ask
+quantities and the older side's timestamp; incomplete, crossed or disconnected
+books never become executable prices. Candle history is not synthesized.
+
+Holdings and active orders in both retained books are required watches, including
+buy-frozen markets that still permit selling. Up to 16 remaining candidates rotate
+every 30 seconds, within a total limit of 64 watched symbols. Required watches
+refresh every two seconds and retain their socket sessions across rotation.
+This is bounded real-time coverage, not simultaneous coverage of every listing.
+The separate fair universe scan still checks other eligible markets.
+
+Each SSE subscriber has a bounded 256-key coalescing buffer. Portfolio has a
+128-event priority queue, at most 64 dirty symbols and three reserved timer lanes.
+Owned exits run before reconciliation, completed-candle entries and research.
+Due reconciliation gets a turn after at most 16 consecutive owned events so
+continuous quote traffic cannot starve fill accounting. Received owned quotes
+retain their decision context within the bounded queue; preflight uses the latest
+quote. A delayed fallback snapshot cannot overwrite a stream update received
+after that snapshot request began.
+Overflow retains owned symbols as dirty and immediately schedules a fresh quote
+read. Candidate updates refresh cached prices without causing intrabar buys.
+Per-symbol/kind sequences reject duplicate or older frames; reconnect rebuilds
+the watch from SQL, and durable rule/symbol/candle intent keys remain authoritative.
+
+Fresh owned bid/ask events evaluate stop loss, take profit, trailing and time exits
+without a ten-second poll or a new candle. `adaptive-intraday-v1` entries still
+require completed-candle evidence and existing risk sizing. Slow universe/capital
+scans and broker status reads run outside the serial account decision gate;
+broker submission itself remains serialized and can wait for the exchange.
+Final market freshness, mandate, account, balance and risk guards, durable claims,
+partial-fill accounting and unknown-outcome no-retry rules remain in force.
+
+The private stream heartbeats every 15 seconds, times out after 45 seconds without
+a valid frame and reconnects with one-to-30-second backoff. Handshake is bounded
+at 20 seconds. Disconnect invalidates cached prices. Independent timers schedule
+maintenance/expiry every five seconds, research every minute, read-only broker
+inspection at least 30 seconds apart, and a 30-second owned-quote fallback check.
+Reports and confirmed-fill delivery run independently every 30 seconds. Thai
+confirmed-fill notes and critical alerts retain their existing delivery claims;
+the 23:59 Bangkok daily report stays in the app for adaptive mode.
+
+Daily Brief shows private-stream connectivity and watched count. Collapsed
+diagnostics expose watched/dirty symbols, coalesced/dropped triggers, rolling
+received-to-local-decision p50/p95 (512 samples), latest decision-to-submit age,
+and exit/reconciliation timestamps. Stream connectivity alone does not prove
+every public market is healthy or an order filled. Latency excludes exchange/API
+round trips and is not a fill guarantee; fake-load measurements are reported
+separately from live execution.
+
+Docker preparation also generates and preserves an independent random
+`QUANTARA_MARKET_EVENTS_TOKEN` in private `runtime.env`. Only MarketData and
+Portfolio receive `MarketEvents__Token`. Native development must privately supply
+the same setting to those two processes; missing configuration fails closed.
+No schema, persisted rule hash or owner mandate is changed by this transport.
+Roll back only to an adaptive-policy-compatible build, keep all canonical data
+and private tokens, and disable live trading before replacing running containers.
+
 ## Verification
 
 Run deterministic Portfolio/MarketData checks and
@@ -178,3 +240,12 @@ checks token generation/preservation, owner-only permissions, service isolation
 and retained runtime guards without starting Docker or reading account secrets.
 Real SQL or account integration remains explicitly opt-in. Never use the live
 Enable button or a real broker POST to verify an implementation.
+
+Fixture measurement on 2026-10-17 (Windows, fake storage/quotes/broker): 100 fresh
+owned events while research was stalled produced local-cycle p50 **0.017 ms** and
+p95 **0.054 ms**, below the two-second target. The running Paper worker recovered
+its required watch and filled its first streamed exit in **25.0 ms**. The suite
+also covers stop/target/trailing/time exits, queue overflow, delayed snapshot
+races, reconciliation fairness, SSE timeout/reconnect, partial fills, restart and
+unknown submission no-retry. These measurements exclude real SQL, exchange/API
+and network latency; they do not establish production execution or fill latency.
