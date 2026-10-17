@@ -16,11 +16,23 @@ public sealed class LiveMarketFeed : BackgroundService, IIntradayMarketReader
 
     private readonly TimeProvider timeProvider;
 
+    private readonly MarketEventBus? eventStream;
+
     private readonly object sync = new();
 
     private readonly HashSet<string> tickerConnections = [];
 
     private readonly Dictionary<string, (string Json, DateTimeOffset ObservedAt)> bookEvents = [];
+
+    private readonly Dictionary<string, PublicEventBook> executableBooks = new(StringComparer.Ordinal);
+
+    private readonly Dictionary<string, string> ruleSignatures = new(StringComparer.Ordinal);
+
+    private JsonElement? metadata;
+
+    private JsonElement? tickers;
+
+    private DateTimeOffset metadataAt;
 
     private IReadOnlyList<MarketWatchSymbol> watch = [];
 
@@ -28,11 +40,17 @@ public sealed class LiveMarketFeed : BackgroundService, IIntradayMarketReader
 
     private IntradaySnapshot snapshot;
 
-    public LiveMarketFeed(HttpClient client, IIntradayCandleStore store, TimeProvider timeProvider)
+    public LiveMarketFeed(
+        HttpClient client,
+        IIntradayCandleStore store,
+        TimeProvider timeProvider,
+        MarketEventBus? eventStream = null
+    )
     {
         this.client = client;
         this.store = store;
         this.timeProvider = timeProvider;
+        this.eventStream = eventStream;
         this.snapshot = new IntradaySnapshot(
             false,
             DateTimeOffset.MinValue,
@@ -174,26 +192,72 @@ public sealed class LiveMarketFeed : BackgroundService, IIntradayMarketReader
 
     private async Task RunSocket(CancellationToken cancellationToken)
     {
-        var delay = TimeSpan.FromSeconds(1);
-        while (!cancellationToken.IsCancellationRequested)
+        var sessions = new Dictionary<string, (CancellationTokenSource Cancellation, Task Running)>(
+            StringComparer.Ordinal
+        );
+        try
         {
+            using var timer = new PeriodicTimer(TimeSpan.FromSeconds(2));
+            do
+            {
+                try
+                {
+                    await this.RefreshWatch(cancellationToken);
+                    var desired = this.watch.ToArray();
+                    foreach (
+                        var removed in sessions
+                            .Keys.Where(symbol => !desired.Any(item => item.Symbol == symbol))
+                            .ToArray()
+                    )
+                    {
+                        var previous = sessions[removed];
+                        await previous.Cancellation.CancelAsync();
+                        try
+                        {
+                            await previous.Running;
+                        }
+                        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested) { }
+
+                        previous.Cancellation.Dispose();
+                        sessions.Remove(removed);
+                    }
+
+                    foreach (var symbol in desired.Where(symbol => !sessions.ContainsKey(symbol.Symbol)))
+                    {
+                        var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+                        sessions[symbol.Symbol] = (
+                            linked,
+                            Task.WhenAll(
+                                this.ReceiveTicker(symbol, linked.Token),
+                                this.ReceiveBook(symbol, linked.Token)
+                            )
+                        );
+                    }
+                }
+                catch (Exception) when (!cancellationToken.IsCancellationRequested)
+                {
+                    this.SetConnected(false, "Live market watch refresh is unavailable.");
+                }
+            } while (await timer.WaitForNextTickAsync(cancellationToken));
+        }
+        finally
+        {
+            foreach (var session in sessions.Values)
+            {
+                await session.Cancellation.CancelAsync();
+            }
+
             try
             {
-                await this.RefreshWatch(cancellationToken);
-                delay = TimeSpan.FromSeconds(1);
-                using var session = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-                session.CancelAfter(TimeSpan.FromMinutes(15));
-                await Task.WhenAll(this.RunTickers(session.Token), this.RunBooks(session.Token));
+                await Task.WhenAll(sessions.Values.Select(session => session.Running));
             }
-            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { }
+            finally
             {
-                return;
-            }
-            catch (Exception)
-            {
-                this.SetConnected(false, "Live market feed is unavailable.");
-                await Task.Delay(delay, cancellationToken);
-                delay = TimeSpan.FromSeconds(Math.Min(delay.TotalSeconds * 2, 30));
+                foreach (var session in sessions.Values)
+                {
+                    session.Cancellation.Dispose();
+                }
             }
         }
     }
@@ -222,11 +286,6 @@ public sealed class LiveMarketFeed : BackgroundService, IIntradayMarketReader
 
             this.ParseMessage(Encoding.UTF8.GetString(message.ToArray()));
         }
-    }
-
-    private async Task RunTickers(CancellationToken cancellationToken)
-    {
-        await Task.WhenAll(this.watch.Select(symbol => this.ReceiveTicker(symbol, cancellationToken)));
     }
 
     private async Task ReceiveTicker(MarketWatchSymbol symbol, CancellationToken cancellationToken)
@@ -265,11 +324,6 @@ public sealed class LiveMarketFeed : BackgroundService, IIntradayMarketReader
         }
     }
 
-    private async Task RunBooks(CancellationToken cancellationToken)
-    {
-        await Task.WhenAll(this.watch.Select(symbol => this.ReceiveBook(symbol, cancellationToken)));
-    }
-
     private async Task ReceiveBook(MarketWatchSymbol symbol, CancellationToken cancellationToken)
     {
         var delay = TimeSpan.FromSeconds(1);
@@ -284,6 +338,10 @@ public sealed class LiveMarketFeed : BackgroundService, IIntradayMarketReader
                 return;
             }
             catch (Exception)
+            {
+                // A malformed or closed book must not retain prices across reconnects.
+            }
+            finally
             {
                 this.SetDepth(symbol.Symbol, null);
             }
@@ -330,36 +388,70 @@ public sealed class LiveMarketFeed : BackgroundService, IIntradayMarketReader
 
     private async Task RefreshWatch(CancellationToken cancellationToken)
     {
-        var symbols = await this.Get("/api/v3/market/symbols", cancellationToken);
-        var ticker = await this.Get("/api/v3/market/ticker", cancellationToken);
-        var scan = MarketUniverseScanner.Scan(symbols, ticker);
-        var selected = MarketUniverseScanner
-            .SelectCandidates(scan, 16)
-            .Select(entry => new MarketWatchSymbol(
-                entry.Symbol,
-                int.Parse(
-                    entry.PairingId ?? throw new InvalidDataException("Market pairing ID is missing."),
-                    System.Globalization.CultureInfo.InvariantCulture
-                ),
-                entry.Volume24h ?? 0m
-            ))
-            .ToArray();
+        var now = this.timeProvider.GetUtcNow();
+        if (this.metadata is null || this.tickers is null || now - this.metadataAt >= TimeSpan.FromMinutes(1))
+        {
+            this.metadata = await this.Get("/api/v3/market/symbols", cancellationToken);
+            this.tickers = await this.Get("/api/v3/market/ticker", cancellationToken);
+            this.metadataAt = this.timeProvider.GetUtcNow();
+        }
+
+        var symbols = this.metadata.Value;
+        var ticker = this.tickers.Value;
+        var required = this.eventStream?.RequiredSymbols ?? [];
+        var selected = MarketWatchSelection.Select(symbols, ticker, required, now);
+        var rules = symbols.GetProperty("result").EnumerateArray().ToArray();
+        foreach (var missing in required.Where(symbol => !selected.Any(item => item.Symbol == symbol + "_THB")))
+        {
+            this.eventStream?.Publish(MarketEventKind.FeedUnavailable, missing, now);
+        }
 
         lock (this.sync)
         {
-            this.watch = selected;
-            var activeSymbols = selected.Select(symbol => symbol.Symbol).ToHashSet(StringComparer.Ordinal);
-            this.quotes = this.quotes.Where(quote => activeSymbols.Contains(quote.Symbol)).ToArray();
-            foreach (var symbol in this.bookEvents.Keys.Where(symbol => !activeSymbols.Contains(symbol)).ToArray())
+            foreach (var symbol in selected)
             {
-                this.bookEvents.Remove(symbol);
+                var rule = rules.Single(rule =>
+                    rule.GetProperty("base_asset").GetString() == symbol.Symbol.Split('_')[0]
+                    && rule.GetProperty("quote_asset").GetString() == "THB"
+                    && rule.GetProperty("market_segment").GetString() == "SPOT"
+                    && rule.GetProperty("source").GetString() == "exchange"
+                    && rule.GetProperty("status").GetString() == "active"
+                );
+                var signature = rule.GetRawText();
+                if (!this.ruleSignatures.TryGetValue(symbol.Symbol, out var previous) || signature != previous)
+                {
+                    this.executableBooks[symbol.Symbol] = new PublicEventBook(
+                        symbol.Symbol.Split('_')[0],
+                        symbol.PairingId,
+                        rule
+                    );
+                    this.ruleSignatures[symbol.Symbol] = signature;
+                }
+            }
+
+            this.watch = selected;
+            var active = selected.Select(symbol => symbol.Symbol).ToHashSet(StringComparer.Ordinal);
+            this.quotes = this.quotes.Where(quote => active.Contains(quote.Symbol)).ToArray();
+            foreach (var removed in this.executableBooks.Keys.Where(symbol => !active.Contains(symbol)).ToArray())
+            {
+                this.executableBooks.Remove(removed);
+                this.ruleSignatures.Remove(removed);
+                this.bookEvents.Remove(removed);
             }
 
             this.snapshot = this.snapshot with
             {
-                Series = this.snapshot.Series.Where(series => activeSymbols.Contains(series.Symbol)).ToArray(),
-                Signals = [],
+                Series = this.snapshot.Series.Where(series => active.Contains(series.Symbol)).ToArray(),
+                Signals = this.snapshot.Signals.Where(signal => active.Contains(signal.Symbol)).ToArray(),
             };
+        }
+
+        if (this.eventStream is not null)
+        {
+            await this.eventStream.SetWatched(
+                selected.Select(symbol => symbol.Symbol.Split('_')[0]).ToArray(),
+                cancellationToken
+            );
         }
     }
 
@@ -387,6 +479,7 @@ public sealed class LiveMarketFeed : BackgroundService, IIntradayMarketReader
             };
             this.quotes = this.quotes.Where(item => item.Symbol != quote.Symbol).Append(quote).ToArray();
             this.snapshot = this.snapshot with { Quotes = this.quotes };
+            this.eventStream?.Publish(MarketEventKind.QuoteChanged, quote.Symbol.Split('_')[0], quote.ObservedAt);
         }
     }
 
@@ -409,6 +502,10 @@ public sealed class LiveMarketFeed : BackgroundService, IIntradayMarketReader
             if (json is null)
             {
                 this.bookEvents.Remove(symbol);
+                if (this.executableBooks.TryGetValue(symbol, out var disconnectedBook))
+                {
+                    disconnectedBook.Reset();
+                }
             }
             else
             {
@@ -427,6 +524,17 @@ public sealed class LiveMarketFeed : BackgroundService, IIntradayMarketReader
                 )
                 .ToArray();
             this.snapshot = this.snapshot with { Quotes = this.quotes };
+            var book =
+                json is not null && this.executableBooks.TryGetValue(symbol, out var parser)
+                    ? parser.Apply(json, observedAt)
+                    : null;
+
+            this.eventStream?.Publish(
+                json is null ? MarketEventKind.FeedUnavailable : MarketEventKind.BookChanged,
+                symbol.Split('_')[0],
+                observedAt,
+                book
+            );
         }
     }
 
@@ -442,6 +550,11 @@ public sealed class LiveMarketFeed : BackgroundService, IIntradayMarketReader
             {
                 this.tickerConnections.Remove(symbol);
                 this.quotes = this.quotes.Where(quote => quote.Symbol != symbol).ToArray();
+                this.eventStream?.Publish(
+                    MarketEventKind.FeedUnavailable,
+                    symbol.Split('_')[0],
+                    this.timeProvider.GetUtcNow()
+                );
             }
 
             this.snapshot = this.snapshot with
@@ -464,6 +577,15 @@ public sealed class LiveMarketFeed : BackgroundService, IIntradayMarketReader
                 .Append(new IntradaySeries(symbol, candles, this.timeProvider.GetUtcNow(), error))
                 .ToArray();
             this.snapshot = this.snapshot with { Series = series };
+            if (candles.Count > 0)
+            {
+                this.eventStream?.Publish(
+                    MarketEventKind.CandleClosed,
+                    symbol.Split('_')[0],
+                    this.timeProvider.GetUtcNow(),
+                    candleAt: candles[^1].Timestamp
+                );
+            }
         }
     }
 
@@ -479,6 +601,17 @@ public sealed class LiveMarketFeed : BackgroundService, IIntradayMarketReader
                 Error = error,
                 Signals = connected ? this.snapshot.Signals : [],
             };
+            if (!connected)
+            {
+                foreach (var symbol in this.watch)
+                {
+                    this.eventStream?.Publish(
+                        MarketEventKind.FeedUnavailable,
+                        symbol.Symbol.Split('_')[0],
+                        this.timeProvider.GetUtcNow()
+                    );
+                }
+            }
         }
     }
 

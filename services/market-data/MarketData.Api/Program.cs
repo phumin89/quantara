@@ -17,6 +17,9 @@ builder
         )
     );
 builder.Services.AddSingleton(TimeProvider.System);
+builder.Services.AddSingleton<MarketEventBus>();
+builder.Services.AddSingleton<IMarketEventBus>(services => services.GetRequiredService<MarketEventBus>());
+builder.Services.AddSingleton<IMarketEventReader>(services => services.GetRequiredService<MarketEventBus>());
 var marketConnection = builder.Configuration.GetConnectionString("MarketData");
 builder.Services.AddSingleton<IIntradayCandleStore>(
     new SqlIntradayCandleStore(
@@ -38,7 +41,8 @@ builder
 builder.Services.AddSingleton(services => new LiveMarketFeed(
     services.GetRequiredService<IHttpClientFactory>().CreateClient("live-market"),
     services.GetRequiredService<IIntradayCandleStore>(),
-    services.GetRequiredService<TimeProvider>()
+    services.GetRequiredService<TimeProvider>(),
+    services.GetRequiredService<MarketEventBus>()
 ));
 builder.Services.AddSingleton<IIntradayMarketReader>(services => services.GetRequiredService<LiveMarketFeed>());
 builder.Services.AddHostedService(services => services.GetRequiredService<LiveMarketFeed>());

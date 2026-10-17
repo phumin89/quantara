@@ -5,6 +5,7 @@ IntradaySignalChecks.Run();
 AdaptiveMarketChecks.Run();
 PublicTickerChecks.Run();
 await ExecutionUniverseChecks.Run();
+await MarketEventChecks.Run();
 
 static void Assert(bool condition, string message)
 {
