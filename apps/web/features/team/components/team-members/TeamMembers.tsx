@@ -40,27 +40,27 @@ export default class TeamMembers extends Component<TeamMembersProps> {
             textTransform: 'none',
           }}
         >
-          Members · 3
+          Members · {TeamPresentation.members.length}
         </Button>
         <Box
           sx={{
-            p: 2.5,
+            p: 2,
             display: { xs: membersOpen ? 'block' : 'none', lg: 'block' },
           }}
         >
           <Typography
             component="h2"
-            sx={{ fontSize: 15, fontWeight: 700, mb: 3 }}
+            sx={{ fontSize: 15, fontWeight: 700, mb: 2 }}
           >
             Members{' '}
             <Box
               component="span"
               sx={{ ml: 1, color: 'text.secondary', fontWeight: 400 }}
             >
-              3
+              {TeamPresentation.members.length}
             </Box>
           </Typography>
-          <Stack spacing={3}>
+          <Stack spacing={2}>
             {TeamPresentation.members.map((member) => {
               const step = latest?.steps.find(
                 (item) => item.role === member.role,
@@ -70,7 +70,7 @@ export default class TeamMembers extends Component<TeamMembersProps> {
                 <Stack
                   key={member.role}
                   direction="row"
-                  spacing={1.5}
+                  spacing={1.25}
                   sx={{ alignItems: 'flex-start' }}
                 >
                   <Avatar
@@ -98,7 +98,7 @@ export default class TeamMembers extends Component<TeamMembersProps> {
                     </Typography>
                     <Chip
                       size="small"
-                      label={step?.status ?? 'No task'}
+                      label={step?.status ?? 'Available'}
                       sx={{
                         height: 22,
                         fontSize: 11,
@@ -116,8 +116,8 @@ export default class TeamMembers extends Component<TeamMembersProps> {
             color="text.secondary"
             sx={{
               display: 'block',
-              mt: 3,
-              pt: 2,
+              mt: 2,
+              pt: 1.5,
               borderTop: '1px solid #e0e0e0',
             }}
           >

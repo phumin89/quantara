@@ -10,5 +10,10 @@ public sealed record CompanyLoopOverview(
     string? Error,
     decimal DailyNetProfitTargetThb = TradingMandate.DailyNetProfitTargetThb,
     string CalendarTimeZone = TradingMandate.CalendarTimeZone,
-    PortfolioGoal? CurrentGoal = null
+    PortfolioGoal? CurrentGoal = null,
+    DateTimeOffset? LastCompletedAt = null,
+    TeamRole? ActiveRole = null,
+    TeamRole? NextRole = null,
+    string? BudgetReason = null,
+    string BudgetMode = "boundedRequests"
 );

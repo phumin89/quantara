@@ -30,6 +30,15 @@ flowchart LR
 | Team       | Read-only research scheduling, CEO/Analyst/Reviewer handoffs, reports, review memory and model budgets                                 | Account-bound runs/steps, company schedule, budget claims and consumed signal keys                 |
 | Web        | English UI, lazy service composition, validated transport and same-origin private proxies                                              | Component state only; no broker credentials or execution authority                                 |
 
+Crypto read models reconcile confirmed engine fills with wallet observations for
+scoped cost and P/L. [Accounting and delivery](crypto-accounting.md) documents
+unknown semantics, duplicate handling and durable Telegram acknowledgements.
+
+Automatic research selects a focused specialist followed by Evidence Reviewer; the
+legacy manual three-role flow remains supported. Team owns durable rolling-hour
+admission, role cadence and evidence lineage. [Continuous research](continuous-research.md)
+describes the per-role skills, budget fallback and recovery limits.
+
 Each backend has four projects:
 
 | Project        | Role and dependencies                                              |
@@ -56,6 +65,9 @@ ownership. SQL Server may host the three databases in the same container.
   Focused class components render trading books, market coverage, settings, mandate
   review, news, conversation and summary. Shared presentation classes own formatting
   and repeated status metadata.
+- **Trading settings:** Adaptive setup opens with a read-only system-managed plan and
+  saved risk limits. Numeric editors stay inside explicit Advanced overrides; material
+  saves disarm live trading and require owner review again.
 - **Component rules:** Hooks, function components and standalone application functions
   are disallowed; inline callbacks inside class methods remain valid.
 - **Transport:** `IRequestService` owns fetch, same-origin `/api` path joining, HTTP
@@ -77,6 +89,14 @@ Portfolio has three separate paths:
 
 - Team and models cannot choose AutoLive orders, enable it or widen authority.
 - Stopped stays stopped after restart.
+
+The owner-authenticated `POST /api/trading/prepare` accepts only the exact account key
+and current rules hash through Mediator. Preparation checks identity and the retained
+and recomputed hash under the existing control gate, then uses the same configuration
+guards and revision-based save. Initial legacy setup uses system-owned v2 defaults;
+an explicit v1 upgrade preserves every saved technical parameter, risk cap, exclusion
+and compatibility field. Existing v2/v3 rules, hashes and authority remain exact.
+Preparation never enables AutoLive; actual changes revoke the old mandate.
 
 Execution preserves these boundaries:
 

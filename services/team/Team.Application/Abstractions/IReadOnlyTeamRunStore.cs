@@ -19,4 +19,10 @@ public interface IReadOnlyTeamRunStore
     public Task<TeamRun?> Find(Guid id, CancellationToken cancellationToken);
 
     public Task<IReadOnlyList<TeamRun>> ForDay(DateOnly day, CancellationToken cancellationToken);
+
+    public Task<IReadOnlyList<TeamRun>> RecentResearch(
+        string accountKey,
+        DateTimeOffset before,
+        CancellationToken cancellationToken
+    ) => this.LearningHistory(accountKey, before, cancellationToken);
 }

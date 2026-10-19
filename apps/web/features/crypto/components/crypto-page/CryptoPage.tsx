@@ -16,6 +16,7 @@ import PositionFilter from '../../utils/PositionFilter';
 import { PortfolioFilter } from '../../contracts/PortfolioFilter';
 import ConnectionStatus from '../connection-status/ConnectionStatus';
 import PortfolioSummary from '../portfolio-summary/PortfolioSummary';
+import EnginePerformanceSummary from '../engine-performance-summary/EnginePerformanceSummary';
 import PortfolioFilters from '../portfolio-filters/PortfolioFilters';
 import PortfolioTable from '../portfolio-table/PortfolioTable';
 import type { CryptoPageState } from './CryptoPageState';
@@ -60,6 +61,7 @@ export default class CryptoPage extends Component<object, CryptoPageState> {
   public override componentDidMount(): void {
     this.mounted = true;
     this.generation += 1;
+    this.updatePolling();
     const mountGeneration = this.generation;
     void Promise.resolve().then(() => {
       if (this.mounted && mountGeneration === this.generation) {
@@ -197,6 +199,7 @@ export default class CryptoPage extends Component<object, CryptoPageState> {
         {data && (
           <>
             <PortfolioSummary data={data} />
+            <EnginePerformanceSummary data={data} />
             <RiskPanel />
             <PortfolioFilters
               filter={filter}
@@ -214,8 +217,7 @@ export default class CryptoPage extends Component<object, CryptoPageState> {
                   borderRadius: '6px',
                 }}
               >
-                90-day exchange history · Cost &amp; P/L unverified · Broker
-                conversions excluded
+                {data.historyCoverage}
               </Typography>
             </Box>
             <PortfolioTable
@@ -228,23 +230,6 @@ export default class CryptoPage extends Component<object, CryptoPageState> {
               historyErrors={this.state.historyErrors}
               onRetry={this.handleRetryHistory}
             />
-            <Box
-              component="details"
-              sx={{ color: '#707070', fontSize: 14, mt: -1 }}
-            >
-              <Box
-                component="summary"
-                sx={{ cursor: 'pointer', color: '#141414', fontWeight: 600 }}
-              >
-                Data coverage
-              </Box>
-              <Typography
-                variant="body2"
-                sx={{ mt: 1.5 }}
-              >
-                {data.historyCoverage}
-              </Typography>
-            </Box>
           </>
         )}
       </Stack>
@@ -331,10 +316,9 @@ export default class CryptoPage extends Component<object, CryptoPageState> {
   }
 
   private updatePolling(): void {
-    if (this.state.data?.syncing) {
+    this.stopPolling();
+    if (this.mounted) {
       this.startPolling();
-    } else {
-      this.stopPolling();
     }
   }
 
@@ -343,16 +327,19 @@ export default class CryptoPage extends Component<object, CryptoPageState> {
       return;
     }
 
-    this.pollTimer = window.setInterval(() => {
-      if (this.polling || this.activePortfolioRequest || !this.mounted) {
-        return;
-      }
+    this.pollTimer = window.setInterval(
+      () => {
+        if (this.polling || this.activePortfolioRequest || !this.mounted) {
+          return;
+        }
 
-      this.polling = true;
-      void this.load().finally(() => {
-        this.polling = false;
-      });
-    }, 2000);
+        this.polling = true;
+        void this.load().finally(() => {
+          this.polling = false;
+        });
+      },
+      this.state.data?.syncing ? 2000 : 15000,
+    );
   }
 
   private stopPolling(): void {

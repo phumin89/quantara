@@ -11,6 +11,7 @@ public sealed class CostStatusJsonConverter : JsonConverter<CostStatus>
             ? reader.GetString() switch
             {
                 "Unknown" => CostStatus.Unknown,
+                "Verified" => CostStatus.Verified,
                 _ => throw new JsonException("Invalid cost status."),
             }
             : throw new JsonException("Cost status must be a string.");
@@ -21,6 +22,9 @@ public sealed class CostStatusJsonConverter : JsonConverter<CostStatus>
         {
             case CostStatus.Unknown:
                 writer.WriteStringValue("Unknown");
+                break;
+            case CostStatus.Verified:
+                writer.WriteStringValue("Verified");
                 break;
             default:
                 throw new JsonException("Invalid cost status.");

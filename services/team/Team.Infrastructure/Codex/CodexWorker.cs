@@ -191,7 +191,7 @@ public sealed class CodexWorker : ICodexWorker
             CodexWorker.jsonOptions
         );
 
-    private static ResearchReport Decode(string json, string role)
+    public static ResearchReport Decode(string json, string role)
     {
         using var result = JsonDocument.Parse(json);
         var report = result.RootElement.GetProperty("output").GetString();
@@ -275,7 +275,7 @@ public sealed class CodexWorker : ICodexWorker
             : [];
         if (
             researchSymbols.Length > 3
-            || (researchSymbols.Length > 0 && role != "ceo")
+            || (researchSymbols.Length > 0 && role is not ("ceo" or "intraday"))
             || researchSymbols.Distinct(StringComparer.Ordinal).Count() != researchSymbols.Length
             || researchSymbols.Any(symbol => symbol.Length is < 1 or > 30 || !symbol.All(char.IsAsciiLetterOrDigit))
         )
@@ -345,7 +345,50 @@ public sealed class CodexWorker : ICodexWorker
             );
         }
 
-        return new ResearchReport(report, proposal, lesson, researchSymbols, assessment);
+        ResearchUsage? usage = null;
+        if (
+            result.RootElement.TryGetProperty("usage", out var usageElement)
+            && usageElement.ValueKind != JsonValueKind.Null
+        )
+        {
+            if (usageElement.ValueKind != JsonValueKind.Object)
+            {
+                throw new CodexWorkerException("worker_response_invalid");
+            }
+
+            var properties = usageElement
+                .EnumerateObject()
+                .Select(property => property.Name)
+                .OrderBy(name => name)
+                .ToArray();
+            if (!properties.SequenceEqual(new[] { "cachedInputTokens", "inputTokens", "outputTokens" }))
+            {
+                throw new CodexWorkerException("worker_response_invalid");
+            }
+
+            var inputTokens = usageElement.GetProperty("inputTokens");
+            var outputTokens = usageElement.GetProperty("outputTokens");
+            var cachedInputTokens = usageElement.GetProperty("cachedInputTokens");
+            if (
+                inputTokens.ValueKind != JsonValueKind.Number
+                || outputTokens.ValueKind != JsonValueKind.Number
+                || cachedInputTokens.ValueKind != JsonValueKind.Number
+                || !inputTokens.TryGetInt64(out var input)
+                || !outputTokens.TryGetInt64(out var output)
+                || !cachedInputTokens.TryGetInt64(out var cached)
+                || input < 0
+                || output < 0
+                || cached < 0
+                || cached > input
+            )
+            {
+                throw new CodexWorkerException("worker_response_invalid");
+            }
+
+            usage = new ResearchUsage(input, output, cached);
+        }
+
+        return new ResearchReport(report, proposal, lesson, researchSymbols, assessment, usage);
     }
 
     private static string LessonText(JsonElement lesson, string name)

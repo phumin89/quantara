@@ -103,7 +103,8 @@ Daily Brief is an operating view:
 
 ### Settings
 
-- Keep budget and market settings in a separate side panel, with strategy and execution fields under Advanced settings. Preserve every saved rule.
+- Keep trading settings in a separate side panel. Adaptive settings initially show a read-only **System-managed trading plan** and **Saved risk limits**.
+- Put adaptive numeric editors only inside the explicit **Advanced overrides** disclosure. Keep legacy strategy and execution fields under **Advanced settings** and preserve every saved rule.
 - One live activation review presents the exact account, eligible-market scope or legacy symbols, verified capital, limits, rules hash and owner-selected expiry.
 - Adaptive setup does not show fixed-symbol or fixed-order fields as active requirements.
 - Expiry shortcuts only fill the date; they never submit.

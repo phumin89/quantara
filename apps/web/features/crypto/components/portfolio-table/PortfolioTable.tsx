@@ -28,11 +28,11 @@ export default class PortfolioTable extends PureComponent<PortfolioTableProps> {
       'Status',
       'Quantity',
       'Last buy',
-      'Avg. Cost',
+      'Avg. cost (fees incl.)',
       'Current Price',
       'Value',
-      'Unrealized P/L',
-      'Realized P/L',
+      'Engine unrealized P/L',
+      'Engine realized P/L',
     ];
 
     return (
@@ -53,6 +53,11 @@ export default class PortfolioTable extends PureComponent<PortfolioTableProps> {
               {headers.map((head) => (
                 <TableCell
                   key={head}
+                  title={
+                    head === 'Engine unrealized P/L'
+                      ? 'Current value less verified cost; excludes future exit fees'
+                      : undefined
+                  }
                   align={
                     head === 'Coin' || head === 'Status' ? 'left' : 'right'
                   }

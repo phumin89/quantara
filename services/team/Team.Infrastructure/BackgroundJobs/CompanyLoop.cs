@@ -8,7 +8,7 @@ public sealed class CompanyLoop : BackgroundService, ICompanyLoop
 {
     private const string mission =
         "Operate Quantara's high-risk THB spot research team around the clock without waiting for instructions. "
-        + "Owner accepts full capital loss; seek opportunities across the full supplied scan, including when cash-only. "
+        + "Read the supplied account-scoped capital-risk preferences; seek opportunities across the full supplied scan, including when cash-only. "
         + "The current objective is total portfolio equity including deposits, not the legacy daily profit field. Separate verified cash, holdings, deposits and trading P&L; unknown costs stay Unknown. "
         + "Prioritize held positions, fresh market setups and relevant verified news. CEO ranks opportunities; Analyst checks entry, costs and exits; Reviewer returns an evidence-bound read-only assessment. "
         + "For Wait, name rejected alternatives, exact missing fields, reconsideration conditions and next review. Hypothetical opportunity cost is separate from account profit. "
@@ -41,6 +41,10 @@ public sealed class CompanyLoop : BackgroundService, ICompanyLoop
 
     private DateTimeOffset? refreshedAt;
 
+    private DateTimeOffset? lastCompletedAt;
+
+    private TeamRole? activeRole;
+
     public CompanyLoop(
         ICompanyScheduleStore store,
         IReadOnlyTeamRunStore runs,
@@ -65,6 +69,18 @@ public sealed class CompanyLoop : BackgroundService, ICompanyLoop
         {
             this.schedule ??= await this.store.Read(cancellationToken);
             var latest = await this.runs.Latest(cancellationToken);
+            if (latest?.Status == TeamRunStatus.Completed)
+            {
+                this.lastCompletedAt = latest.UpdatedAt;
+            }
+            else if (latest?.AccountKey is { } accountKey)
+            {
+                this.lastCompletedAt = (
+                    await this.runs.LatestReviewed(accountKey, this.time.GetUtcNow(), cancellationToken)
+                )?.UpdatedAt;
+            }
+
+            this.activeRole = latest?.Steps.FirstOrDefault(step => step.Status == TeamRunStatus.Running)?.Role;
             var visibleStatus = this.status;
             if (!this.schedule.Enabled)
             {
@@ -77,6 +93,13 @@ public sealed class CompanyLoop : BackgroundService, ICompanyLoop
             else if (CompanyLoop.IsActive(latest))
             {
                 visibleStatus = CompanyLoopStatus.Running;
+            }
+            else if (this.schedule.DeferredReason is not null && this.schedule.NextRunAt > this.time.GetUtcNow())
+            {
+                visibleStatus =
+                    this.schedule.DeferredReason == "waiting_for_evidence"
+                        ? CompanyLoopStatus.Waiting
+                        : CompanyLoopStatus.DeferredBudget;
             }
             else if (latest?.Status == TeamRunStatus.Failed && visibleStatus != CompanyLoopStatus.DeferredBudget)
             {
@@ -104,7 +127,7 @@ public sealed class CompanyLoop : BackgroundService, ICompanyLoop
         try
         {
             this.schedule ??= await this.store.Read(cancellationToken);
-            var next = this.schedule with { Enabled = enabled };
+            var next = this.schedule with { Enabled = enabled, DeferredReason = null, NextRole = null };
             if (enabled && !this.schedule.Enabled)
             {
                 next = next with { NextRunAt = this.time.GetUtcNow(), LastAnalysisAt = null };
@@ -212,11 +235,7 @@ public sealed class CompanyLoop : BackgroundService, ICompanyLoop
                 this.signal is not null
                 && this.signal.Key != this.schedule.LastSignalKey
                 && this.signal.CheckedAt <= now.AddSeconds(5)
-                && now - this.signal.CheckedAt <= TimeSpan.FromMinutes(2)
-                && (
-                    this.schedule.LastAnalysisAt is null
-                    || now - this.schedule.LastAnalysisAt >= TimeSpan.FromMinutes(15)
-                );
+                && now - this.signal.CheckedAt <= TimeSpan.FromMinutes(2);
             if (!hourly && !triggered)
             {
                 if (this.status != CompanyLoopStatus.DeferredBudget)
@@ -228,10 +247,18 @@ public sealed class CompanyLoop : BackgroundService, ICompanyLoop
             }
 
             if (
-                this.schedule.LastAnalysisAt is not null
+                latest?.Task is null
+                && this.schedule.LastAnalysisAt is not null
                 && now - this.schedule.LastAnalysisAt < TimeSpan.FromMinutes(15)
             )
             {
+                var cooldown = this.schedule.LastAnalysisAt.Value.AddMinutes(15);
+                if (this.schedule.NextRunAt < cooldown)
+                {
+                    this.schedule = this.schedule with { NextRunAt = cooldown };
+                    await this.store.Save(this.schedule, cancellationToken);
+                }
+
                 this.status = CompanyLoopStatus.Waiting;
                 return;
             }
@@ -286,8 +313,14 @@ public sealed class CompanyLoop : BackgroundService, ICompanyLoop
 
             try
             {
-                var run = await this.coordinator.Start(objective, cancellationToken);
-                this.schedule = this.schedule with { LastRunId = run.Id };
+                var run = await this.coordinator.StartAutomatic(objective, cancellationToken, triggered);
+                this.schedule = this.schedule with
+                {
+                    LastRunId = run.Id,
+                    NextRunAt = run.Task is not null ? this.time.GetUtcNow().AddMinutes(15) : this.schedule.NextRunAt,
+                    DeferredReason = null,
+                    NextRole = null,
+                };
                 await this.store.Save(this.schedule, cancellationToken);
                 this.status = CompanyLoopStatus.Running;
                 this.error = null;
@@ -297,10 +330,15 @@ public sealed class CompanyLoop : BackgroundService, ICompanyLoop
                 this.schedule = this.schedule with
                 {
                     NextRunAt = error.Decision.NextAllowedAt ?? this.time.GetUtcNow().AddHours(1),
+                    DeferredReason = error.Decision.Reason,
+                    NextRole = error.Decision.NextRole,
                 };
                 await this.store.Save(this.schedule, cancellationToken);
-                this.status = CompanyLoopStatus.DeferredBudget;
-                this.error = "Research deferred: " + error.Decision.Reason + ". Market monitoring continues.";
+                this.status =
+                    error.Decision.Reason == "waiting_for_evidence"
+                        ? CompanyLoopStatus.Waiting
+                        : CompanyLoopStatus.DeferredBudget;
+                this.error = null;
             }
             catch (TeamBusyException)
             {
@@ -402,7 +440,11 @@ public sealed class CompanyLoop : BackgroundService, ICompanyLoop
             current.Enabled ? current.NextRunAt : null,
             current.LastRunId,
             this.error,
-            CurrentGoal: PortfolioGoal.Current
+            CurrentGoal: PortfolioGoal.Current,
+            LastCompletedAt: this.lastCompletedAt,
+            ActiveRole: this.activeRole,
+            NextRole: current.NextRole,
+            BudgetReason: current.DeferredReason
         );
     }
 }

@@ -119,6 +119,39 @@ public sealed class TeamRunStore : ITeamRunStore, IDisposable
         return runs;
     }
 
+    public async Task<IReadOnlyList<TeamRun>> RecentResearch(
+        string accountKey,
+        DateTimeOffset before,
+        CancellationToken cancellationToken
+    )
+    {
+        ValidateAccountKey(accountKey);
+        await this.Initialize(cancellationToken);
+        await using var connection = new SqlConnection(this.connectionString);
+        await connection.OpenAsync(cancellationToken);
+        await using var command = connection.CreateCommand();
+        command.CommandText = """
+            SELECT TOP (192) Payload FROM dbo.TeamRuns
+            WHERE CreatedAt <= @before AND CreatedAt >= @start
+              AND JSON_VALUE(Payload, '$.AccountKey') = @account
+            ORDER BY CreatedAt DESC, Id DESC
+            """;
+        command.Parameters.Add("@before", SqlDbType.DateTimeOffset).Value = before;
+        command.Parameters.Add("@start", SqlDbType.DateTimeOffset).Value = before.AddDays(-2);
+        command.Parameters.Add("@account", SqlDbType.VarChar, 64).Value = accountKey;
+        var runs = new List<TeamRun>();
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        while (await reader.ReadAsync(cancellationToken))
+        {
+            runs.Add(
+                JsonSerializer.Deserialize<TeamRun>(reader.GetString(0))
+                    ?? throw new InvalidOperationException("Stored team task is invalid.")
+            );
+        }
+
+        return runs;
+    }
+
     public async Task<IReadOnlyList<TeamRun>> ForDay(DateOnly day, CancellationToken cancellationToken)
     {
         var start = new DateTimeOffset(day.ToDateTime(TimeOnly.MinValue), TimeSpan.FromHours(7));

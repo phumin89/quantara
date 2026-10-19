@@ -1,0 +1,75 @@
+using Quantara.Team.Application;
+using Quantara.Team.Domain;
+using Quantara.Team.Infrastructure;
+
+namespace Team.Checks;
+
+public static class StaleResearchEvidenceChecks
+{
+    private static readonly string[] mutations = ["account", "policy", "quantity", "available", "mode", "late"];
+
+    public static async Task Run()
+    {
+        foreach (var mutation in mutations)
+        {
+            var store = new FakeTeamRunStore();
+            var evidence = new MutableResearchSnapshotReader();
+            var time = new ManualTimeProvider();
+            var worker = new FakeCodexWorker(
+                (string role, IReadOnlyList<(string Role, string Output)> _, CancellationToken _) =>
+                {
+                    evidence.Mutation = mutation;
+                    if (mutation == "late")
+                    {
+                        time.Advance(TimeSpan.FromMinutes(21));
+                    }
+
+                    return Task.FromResult(
+                        new ResearchReport(role + " stale result", null, Usage: new ResearchUsage(12, 4, 2))
+                    );
+                }
+            );
+            using var coordinator = new TeamCoordinator(
+                store,
+                worker,
+                evidence,
+                account: new FakeCurrentAccountReader(new string('a', 64)),
+                time: time
+            );
+            await coordinator.StartAsync(CancellationToken.None);
+            await coordinator.Initialization;
+            try
+            {
+                var started = await coordinator.StartAutomatic("bounded evidence review", CancellationToken.None);
+                using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+                var run = await store.WaitFor(
+                    started.Id,
+                    value => value.Status is TeamRunStatus.Failed or TeamRunStatus.Completed,
+                    timeout.Token
+                );
+                Check(
+                    run.Status == TeamRunStatus.Failed && worker.Calls.Count == 1,
+                    mutation + ": stale specialist cannot trigger Reviewer or publish an assessment."
+                );
+                Check(
+                    run.Assessment is null && run.Steps[0].Output is null && run.Steps[0].Usage?.InputTokens == 12,
+                    mutation + ": rejected results retain actual usage without accepting their claims."
+                );
+            }
+            finally
+            {
+                await coordinator.StopAsync(CancellationToken.None);
+            }
+        }
+
+        Console.WriteLine("Research lineage: account, policy, balance, mode and expired output rejection passed.");
+    }
+
+    private static void Check(bool condition, string message)
+    {
+        if (!condition)
+        {
+            throw new InvalidOperationException(message);
+        }
+    }
+}

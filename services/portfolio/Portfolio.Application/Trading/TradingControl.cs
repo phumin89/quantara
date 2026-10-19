@@ -23,66 +23,49 @@ public sealed class TradingControl(
         try
         {
             var state = await store.Read(cancellationToken);
-            if (TradingRuleHash.Compute(rules) == state.RulesHash)
-            {
-                return state;
-            }
+            return await this.Configure(state, rules, cancellationToken);
+        }
+        finally
+        {
+            gate.Release();
+        }
+    }
 
+    public async Task<TradingState> PrepareAdaptive(
+        string accountKey,
+        string expectedRulesHash,
+        CancellationToken cancellationToken
+    )
+    {
+        if (
+            string.IsNullOrWhiteSpace(accountKey)
+            || accountKey.Length > 128
+            || string.IsNullOrWhiteSpace(expectedRulesHash)
+            || expectedRulesHash.Length != 64
+            || expectedRulesHash.Any(character => character is not (>= '0' and <= '9' or >= 'a' and <= 'f'))
+        )
+        {
+            throw new ArgumentException("Review the current account and rules before preparing adaptive trading.");
+        }
+
+        await gate.WaitAsync(cancellationToken);
+        try
+        {
+            var state = await store.Read(cancellationToken);
             if (
-                (state.Rules.ExitPolicy is not null || rules.ExitPolicy is not null)
-                && state.Paper.Positions.Concat(state.Live.Positions).Any(position => position.Quantity > 0)
+                accountKey != account.AccountKey
+                || expectedRulesHash != state.RulesHash
+                || expectedRulesHash != TradingRuleHash.Compute(state.Rules)
             )
             {
-                throw new ArgumentException("Keep the original exit policy until all owned positions are closed.");
+                throw new ArgumentException(
+                    "Review the current account and unchanged rules before preparing adaptive trading."
+                );
             }
 
-            if (
-                state.Paper.Orders.Any(TradingLedgerAccounting.Active)
-                || state.Live.Orders.Any(TradingLedgerAccounting.Active)
-            )
-            {
-                throw new ArgumentException("Stop and reconcile outstanding orders before changing rules.");
-            }
-
-            if (
-                state
-                    .Paper.Positions.Concat(state.Live.Positions)
-                    .Any(position =>
-                        rules.Adaptive is null
-                        && position.Quantity > 0
-                        && !rules.Symbols.Contains(position.Symbol, StringComparer.Ordinal)
-                    )
-            )
-            {
-                throw new ArgumentException("Keep every owned position in the allowed symbols until it is closed.");
-            }
-
-            if (
-                state.Paper.Positions.Count(position => position.Quantity > 0) > rules.MaxPositions
-                || state.Live.Positions.Count(position => position.Quantity > 0) > rules.MaxPositions
-            )
-            {
-                throw new ArgumentException("The position limit cannot be below current exposure.");
-            }
-
-            var now = time.GetUtcNow();
-            return await this.Save(
-                state,
-                state with
-                {
-                    Rules = rules,
-                    RulesHash = TradingRuleHash.Compute(rules),
-                    Mode = state.Mode == TradingMode.AutoLive ? TradingMode.Stopped : state.Mode,
-                    Mandate = state.Mandate is null ? null : state.Mandate with { RevokedAt = now },
-                    Paper = rules.Adaptive is null ? Resize(state.Paper, rules.AllocatedThb, now) : state.Paper,
-                    Live =
-                        rules.Adaptive is null && state.Live.FundingThb > 0
-                            ? Resize(state.Live, rules.AllocatedThb, now)
-                            : state.Live,
-                    Autonomy = null,
-                },
-                cancellationToken
-            );
+            var rules = AdaptiveTradingSetup.Prepare(state.Rules);
+            rules.Validate();
+            return await this.Configure(state, rules, cancellationToken);
         }
         finally
         {
@@ -397,6 +380,74 @@ public sealed class TradingControl(
         {
             gate.Release();
         }
+    }
+
+    private async Task<TradingState> Configure(
+        TradingState state,
+        TradingRuleSet rules,
+        CancellationToken cancellationToken
+    )
+    {
+        if (TradingRuleHash.Compute(rules) == state.RulesHash)
+        {
+            return state;
+        }
+
+        if (
+            (state.Rules.ExitPolicy is not null || rules.ExitPolicy is not null)
+            && state.Paper.Positions.Concat(state.Live.Positions).Any(position => position.Quantity > 0)
+        )
+        {
+            throw new ArgumentException("Keep the original exit policy until all owned positions are closed.");
+        }
+
+        if (
+            state.Paper.Orders.Any(TradingLedgerAccounting.Active)
+            || state.Live.Orders.Any(TradingLedgerAccounting.Active)
+        )
+        {
+            throw new ArgumentException("Stop and reconcile outstanding orders before changing rules.");
+        }
+
+        if (
+            state
+                .Paper.Positions.Concat(state.Live.Positions)
+                .Any(position =>
+                    rules.Adaptive is null
+                    && position.Quantity > 0
+                    && !rules.Symbols.Contains(position.Symbol, StringComparer.Ordinal)
+                )
+        )
+        {
+            throw new ArgumentException("Keep every owned position in the allowed symbols until it is closed.");
+        }
+
+        if (
+            state.Paper.Positions.Count(position => position.Quantity > 0) > rules.MaxPositions
+            || state.Live.Positions.Count(position => position.Quantity > 0) > rules.MaxPositions
+        )
+        {
+            throw new ArgumentException("The position limit cannot be below current exposure.");
+        }
+
+        var now = time.GetUtcNow();
+        return await this.Save(
+            state,
+            state with
+            {
+                Rules = rules,
+                RulesHash = TradingRuleHash.Compute(rules),
+                Mode = state.Mode == TradingMode.AutoLive ? TradingMode.Stopped : state.Mode,
+                Mandate = state.Mandate is null ? null : state.Mandate with { RevokedAt = now },
+                Paper = rules.Adaptive is null ? Resize(state.Paper, rules.AllocatedThb, now) : state.Paper,
+                Live =
+                    rules.Adaptive is null && state.Live.FundingThb > 0
+                        ? Resize(state.Live, rules.AllocatedThb, now)
+                        : state.Live,
+                Autonomy = null,
+            },
+            cancellationToken
+        );
     }
 
     private async Task<bool> PositionsCovered(

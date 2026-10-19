@@ -7,7 +7,9 @@ namespace Quantara.Portfolio.Application;
 public sealed class GetPortfolioHandler(
     IReadOnlyPortfolioRepository store,
     IReadOnlyPortfolioSync sync,
-    IReadOnlyTradingStore? trading = null
+    IReadOnlyTradingStore? trading = null,
+    TimeProvider? time = null,
+    IAccountContext? account = null
 ) : IQueryHandler<GetPortfolioQuery, PortfolioView>
 {
     public async ValueTask<PortfolioView> Handle(GetPortfolioQuery query, CancellationToken cancellationToken)
@@ -15,9 +17,15 @@ public sealed class GetPortfolioHandler(
         var ledger = await store.Load(cancellationToken);
         var status = sync.Status;
         var positions = PortfolioProjection.Positions(ledger);
+        PortfolioPerformance? performance = null;
         if (trading is not null)
         {
             var state = await trading.Read(cancellationToken);
+            var now = (time ?? TimeProvider.System).GetUtcNow();
+            ledger = PortfolioSnapshotProjection.Current(ledger, state, account?.AccountKey, now);
+            var accounting = PortfolioAccountingProjection.Build(ledger, state.Live, now);
+            positions = accounting.Positions;
+            performance = accounting.Performance;
             var latestBuy = state
                 .Live.Fills.Where(fill => fill.Side == TradeSide.Buy && fill.Quantity > 0 && fill.GrossThb > 0)
                 .GroupBy(fill => new { fill.Symbol, fill.IntentId })
@@ -60,6 +68,9 @@ public sealed class GetPortfolioHandler(
             status.CompletedSymbols,
             status.TotalSymbols,
             status.Error
-        );
+        )
+        {
+            Performance = performance,
+        };
     }
 }

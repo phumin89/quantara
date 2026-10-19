@@ -13,6 +13,7 @@ import {
 import CloseOutlinedIcon from '@mui/icons-material/CloseOutlined';
 import type { TradingOverview } from '../../contracts/TradingOverview';
 import TradingRulePresentation from '../../presentation/TradingRulePresentation';
+import TradingPolicySummary from '../trading-policy-summary/TradingPolicySummary';
 import type { TradingSettingsProps } from './TradingSettingsProps';
 
 export default class TradingSettings extends Component<TradingSettingsProps> {
@@ -77,12 +78,40 @@ export default class TradingSettings extends Component<TradingSettingsProps> {
           {this.renderConfiguration(overview)}
         </Box>
         <Divider sx={{ my: 3 }} />
-        <Typography
-          component="h3"
-          sx={{ fontSize: 15, fontWeight: 700, mb: 1 }}
-        >
-          Operating mode
-        </Typography>
+        {TradingRulePresentation.isAdaptive(overview.rules.version) ? (
+          <Box
+            component="details"
+            sx={{
+              '& > summary': {
+                cursor: 'pointer',
+                minHeight: 44,
+                alignContent: 'center',
+                fontSize: 14,
+                fontWeight: 600,
+              },
+            }}
+          >
+            <Box component="summary">Operating mode</Box>
+            {this.renderOperatingMode(overview)}
+          </Box>
+        ) : (
+          this.renderOperatingMode(overview)
+        )}
+      </Drawer>
+    );
+  }
+
+  private renderOperatingMode(overview: TradingOverview): ReactNode {
+    return (
+      <Stack spacing={1}>
+        {!TradingRulePresentation.isAdaptive(overview.rules.version) && (
+          <Typography
+            component="h3"
+            sx={{ fontSize: 15, fontWeight: 700, mb: 1 }}
+          >
+            Operating mode
+          </Typography>
+        )}
         <Typography
           variant="body2"
           color="text.secondary"
@@ -120,11 +149,13 @@ export default class TradingSettings extends Component<TradingSettingsProps> {
             Manual review
           </Button>
         </Stack>
-      </Drawer>
+      </Stack>
     );
   }
 
   private renderConfiguration(overview: TradingOverview): ReactNode {
+    const adaptive = TradingRulePresentation.isAdaptive(overview.rules.version);
+
     return (
       <Box
         key={overview.rulesHash}
@@ -144,48 +175,50 @@ export default class TradingSettings extends Component<TradingSettingsProps> {
           {this.props.validationError && (
             <Alert severity="error">{this.props.validationError}</Alert>
           )}
-          <Typography
-            variant="body2"
-            color="text.secondary"
-          >
-            Set your budget and limits here. The engine follows the saved rules;
-            the AI team researches separately.
-          </Typography>
-          {TradingRulePresentation.isAdaptive(overview.rules.version) ? (
-            <Alert severity="info">
-              Adaptive mode scans eligible THB spot markets and sizes orders
-              from verified account capital. Fixed symbols and per-order amounts
-              are not used.
+          {adaptive ? (
+            <>
+              <TradingPolicySummary overview={overview} />
               {overview.rules.version === 'adaptive-intraday-v1' && (
                 <Button
-                  size="small"
+                  variant="outlined"
+                  disabled={
+                    this.props.busy || this.props.dirty || !!this.props.error
+                  }
                   onClick={() => {
-                    this.props.onStageAdaptiveUpgrade();
+                    this.props.onPrepareAdaptiveSetup();
                   }}
-                  sx={{ ml: 1, minHeight: 44 }}
+                  sx={{ alignSelf: 'flex-start', minHeight: 44 }}
                 >
-                  Upgrade strategy
+                  Prepare v2 upgrade and review
                 </Button>
               )}
-            </Alert>
+            </>
           ) : (
-            <Button
-              variant="outlined"
-              disabled={this.props.busy || !!this.props.error}
-              onClick={() => {
-                this.props.onPrepareAdaptiveSetup();
-              }}
-              sx={{ alignSelf: 'flex-start', minHeight: 44 }}
-            >
-              Set up and review autonomous trading
-            </Button>
-          )}
-          <Alert severity="warning">
-            Saving changes turns auto trading off. Review and enable again to
-            use the new rules with real money.
-          </Alert>
-          {!TradingRulePresentation.isAdaptive(overview.rules.version) && (
             <>
+              <Typography
+                variant="body2"
+                color="text.secondary"
+              >
+                The engine follows these saved rules. The AI team researches
+                separately.
+              </Typography>
+              <Button
+                variant="outlined"
+                disabled={
+                  this.props.busy || this.props.dirty || !!this.props.error
+                }
+                onClick={() => {
+                  this.props.onPrepareAdaptiveSetup();
+                }}
+                sx={{ alignSelf: 'flex-start', minHeight: 44 }}
+              >
+                Set up and review autonomous trading
+              </Button>
+            </>
+          )}
+          {!adaptive && (
+            <>
+              {this.renderSaveWarning()}
               <Typography
                 component="h3"
                 sx={{ fontSize: 15, fontWeight: 700 }}
@@ -221,17 +254,27 @@ export default class TradingSettings extends Component<TradingSettingsProps> {
             }}
           >
             <Box component="summary">
-              Advanced settings · strategy &amp; execution
+              {adaptive
+                ? 'Advanced overrides'
+                : 'Advanced settings · strategy & execution'}
             </Box>
             <Typography
               variant="body2"
               color="text.secondary"
               sx={{ my: 2 }}
             >
-              {TradingRulePresentation.isAdaptive(overview.rules.version)
-                ? 'Adaptive execution settings are derived from the verified account and market policy.'
+              {adaptive
+                ? 'Strategy parameters remain fixed in the saved rules. 100 basis points (bps) = 1%.'
                 : 'EMA 20/50 breakout v1 · 5-minute candles. 100 basis points (bps) = 1%.'}
             </Typography>
+            {adaptive && (
+              <Stack
+                spacing={2}
+                sx={{ mb: 2 }}
+              >
+                {this.renderRuleFields(overview, false)}
+              </Stack>
+            )}
             {this.renderRuleFields(overview, true)}
             {overview.rules.version === 'adaptive-intraday-v3' && (
               <>
@@ -254,9 +297,9 @@ export default class TradingSettings extends Component<TradingSettingsProps> {
                   variant="body2"
                   color="text.secondary"
                 >
-                  Adaptive exits: trend and range reviews use the installed
-                  adaptive exit policy. Derived take profit, stop loss, trailing
-                  stop and time exit values are retained for compatibility.
+                  Experimental v3 exits follow the saved trend and range review
+                  policy. Compatibility take profit, stop loss, trailing stop
+                  and time exit values remain unchanged by this form.
                 </Typography>
               </>
             )}
@@ -308,20 +351,42 @@ export default class TradingSettings extends Component<TradingSettingsProps> {
                 ))}
               </Box>
             )}
+            {adaptive && (
+              <Stack
+                spacing={2}
+                sx={{ mt: 2 }}
+              >
+                {this.renderSaveWarning()}
+                {this.renderSaveButton('Save overrides and disarm live')}
+              </Stack>
+            )}
           </Box>
-          <Button
-            variant="contained"
-            disableElevation
-            type="submit"
-            disabled={
-              this.props.busy || !this.props.dirty || !!this.props.error
-            }
-            sx={{ alignSelf: 'flex-start', minHeight: 44 }}
-          >
-            Save rules and disarm live
-          </Button>
+          {!adaptive && this.renderSaveButton('Save rules and disarm live')}
         </Stack>
       </Box>
+    );
+  }
+
+  private renderSaveWarning(): ReactNode {
+    return (
+      <Alert severity="warning">
+        Saving overrides turns auto trading off. Review and enable again to use
+        the new rules with real money.
+      </Alert>
+    );
+  }
+
+  private renderSaveButton(label: string): ReactNode {
+    return (
+      <Button
+        variant="contained"
+        disableElevation
+        type="submit"
+        disabled={this.props.busy || !this.props.dirty || !!this.props.error}
+        sx={{ alignSelf: 'flex-start', minHeight: 44 }}
+      >
+        {label}
+      </Button>
     );
   }
 
@@ -344,6 +409,12 @@ export default class TradingSettings extends Component<TradingSettingsProps> {
           ? TradingRulePresentation.fields.slice(4)
           : TradingRulePresentation.fields.slice(0, 4)
         )
+          .filter(
+            (field) =>
+              advanced ||
+              !TradingRulePresentation.isAdaptive(overview.rules.version) ||
+              field.key === 'maxPositions',
+          )
           .filter(
             (field) =>
               !(

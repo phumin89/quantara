@@ -12,7 +12,7 @@ export const positionSchema = z.object({
   value: z.number().nullable(),
   unrealizedPnl: z.number().nullable(),
   realizedPnl: z.number().nullable(),
-  costStatus: z.literal(CostStatus.Unknown),
+  costStatus: z.enum(CostStatus),
   lastBuyPrice: z.number().positive().nullable().optional(),
   lastBoughtAt: z.iso.datetime({ offset: true }).nullable().optional(),
 });

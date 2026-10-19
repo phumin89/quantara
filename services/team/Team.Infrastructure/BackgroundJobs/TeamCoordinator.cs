@@ -24,6 +24,8 @@ public sealed class TeamCoordinator : BackgroundService, ITeamCoordinator
 
     private readonly IResearchBudget? budget;
 
+    private readonly TimeProvider time;
+
     private readonly SemaphoreSlim gate = new(1, 1);
 
     private TeamRun? activeRun;
@@ -41,7 +43,8 @@ public sealed class TeamCoordinator : BackgroundService, ITeamCoordinator
         IOrderProposalPublisher? proposals = null,
         ICurrentAccountReader? account = null,
         INewsEvidenceReader? news = null,
-        IResearchBudget? budget = null
+        IResearchBudget? budget = null,
+        TimeProvider? time = null
     )
     {
         this.store = store;
@@ -51,13 +54,28 @@ public sealed class TeamCoordinator : BackgroundService, ITeamCoordinator
         this.account = account;
         this.news = news;
         this.budget = budget;
+        this.time = time ?? TimeProvider.System;
     }
 
     public bool IsConfigured => this.worker.IsConfigured && this.ready;
 
     public Task Initialization => this.initialization.Task;
 
-    public async Task<TeamRun> Start(string objective, CancellationToken cancellationToken)
+    public Task<TeamRun> Start(string objective, CancellationToken cancellationToken) =>
+        this.StartCore(objective, false, false, cancellationToken);
+
+    public Task<TeamRun> StartAutomatic(
+        string objective,
+        CancellationToken cancellationToken,
+        bool marketTriggered = false
+    ) => this.StartCore(objective, true, marketTriggered, cancellationToken);
+
+    private async Task<TeamRun> StartCore(
+        string objective,
+        bool automatic,
+        bool marketTriggered,
+        CancellationToken cancellationToken
+    )
     {
         await this.gate.WaitAsync(cancellationToken);
         try
@@ -81,36 +99,90 @@ public sealed class TeamCoordinator : BackgroundService, ITeamCoordinator
                 throw new InvalidOperationException("Verified starting account is invalid.");
             }
 
-            var now = DateTimeOffset.UtcNow;
-            if (this.budget is not null)
+            var now = this.time.GetUtcNow();
+            ResearchTask? task = null;
+            if (automatic || this.budget is not null)
             {
                 using var scope = JsonDocument.Parse(await this.portfolio.Read(cancellationToken));
                 var verifiedAccount = scope.RootElement.GetProperty("accountKey").GetString();
-                if (verifiedAccount != accountKey || accountKey is null)
+                if (accountKey is not null && verifiedAccount != accountKey)
                 {
                     throw new InvalidDataException("Research budget account changed.");
                 }
 
-                var hasPosition = ResearchEvidence.HeldSymbols(scope.RootElement).Count > 0;
-                now = DateTimeOffset.UtcNow;
-                var claim = await this.budget.TryClaim(accountKey, hasPosition, now, cancellationToken);
-                if (!claim.Allowed)
+                accountKey = verifiedAccount;
+                if (accountKey is null || accountKey.Length != 64 || !accountKey.All(Uri.IsHexDigit))
                 {
-                    throw new ResearchBudgetDeferredException(claim);
+                    throw new InvalidDataException("Research account is invalid.");
+                }
+
+                now = this.time.GetUtcNow();
+                if (automatic)
+                {
+                    var news = await this.ReadNews(cancellationToken);
+                    var history = await this.store.RecentResearch(accountKey, now, cancellationToken);
+                    var candidates = TeamResearchRouter.Candidates(
+                        scope.RootElement,
+                        news,
+                        history,
+                        now,
+                        marketTriggered
+                    );
+                    ResearchBudgetDecision? deferred = null;
+                    var attemptedLanes = new HashSet<bool>();
+                    foreach (var candidate in candidates)
+                    {
+                        var priority = candidate.Specialist == TeamRole.Positions;
+                        if (!attemptedLanes.Add(priority))
+                        {
+                            continue;
+                        }
+
+                        var claim = this.budget is null
+                            ? new ResearchBudgetDecision(true, null, "unconfigured_test_budget")
+                            : await this.budget.TryClaim(accountKey, priority, now, cancellationToken);
+                        if (claim.Allowed)
+                        {
+                            task = candidate;
+                            break;
+                        }
+
+                        if (deferred is null || claim.NextAllowedAt < deferred.NextAllowedAt)
+                        {
+                            deferred = claim with { NextRole = candidate.Specialist };
+                        }
+                    }
+
+                    if (task is null)
+                    {
+                        throw new ResearchBudgetDeferredException(
+                            deferred ?? new(false, now.AddMinutes(15), "waiting_for_evidence")
+                        );
+                    }
+                }
+                else if (this.budget is not null)
+                {
+                    var claim = await this.budget.TryClaim(accountKey, false, now, cancellationToken);
+                    if (!claim.Allowed)
+                    {
+                        throw new ResearchBudgetDeferredException(claim);
+                    }
                 }
             }
 
+            TeamRole[] roles = task is null
+                ? [TeamRole.Ceo, TeamRole.Analyst, TeamRole.Reviewer]
+                : [task.Specialist, TeamRole.Reviewer];
             var run = new TeamRun(
                 Guid.NewGuid(),
                 objective,
                 TeamRunStatus.Queued,
                 now,
                 now,
-                Enum.GetValues<TeamRole>()
-                    .Select(role => new TeamStep(role, TeamRunStatus.Queued, null, null))
-                    .ToArray(),
+                roles.Select(role => new TeamStep(role, TeamRunStatus.Queued, null, null)).ToArray(),
                 null,
-                AccountKey: accountKey
+                AccountKey: accountKey,
+                Task: task
             );
             await this.store.Save(run, cancellationToken);
             this.activeRun = run;
@@ -148,7 +220,7 @@ public sealed class TeamCoordinator : BackgroundService, ITeamCoordinator
             var stopped = run with
             {
                 Status = TeamRunStatus.Cancelled,
-                UpdatedAt = DateTimeOffset.UtcNow,
+                UpdatedAt = this.time.GetUtcNow(),
                 Steps = run
                     .Steps.Select(step =>
                         step.Status is TeamRunStatus.Queued or TeamRunStatus.Running
@@ -298,7 +370,26 @@ public sealed class TeamCoordinator : BackgroundService, ITeamCoordinator
                 throw new OperationCanceledException(cancellationToken);
             }
 
-            current = this.activeRun with { AccountKey = accountKey, Learning = DailyLearning.Capture(snapshot) };
+            if (
+                this.activeRun.Task is { } queuedTask
+                && queuedTask.PolicyHash != ResearchEvidence.PolicyHash(snapshotDocument.RootElement)
+            )
+            {
+                throw new CodexWorkerException("worker_evidence_changed");
+            }
+
+            current = this.activeRun with
+            {
+                AccountKey = accountKey,
+                Learning = DailyLearning.Capture(snapshot),
+                Task = this.activeRun.Task is { } focused
+                    ? focused with
+                    {
+                        InputDigest = TeamResearchRouter.Digest(snapshot),
+                        EvidenceAt = this.time.GetUtcNow(),
+                    }
+                    : null,
+            };
             await this.store.Save(current, cancellationToken);
             this.activeRun = current;
         }
@@ -323,22 +414,37 @@ public sealed class TeamCoordinator : BackgroundService, ITeamCoordinator
         }
 
         var rawEvidence = snapshot;
-        var newsEvidence = this.news is null ? null : await this.news.Read(null, cancellationToken);
+        var newsEvidence = current.Task is null
+            ? this.news is null
+                ? null
+                : await this.news.Read(null, cancellationToken)
+            : await this.ReadNews(cancellationToken);
         var previous = new List<(string Role, string Output)>();
-        foreach (var role in Enum.GetValues<TeamRole>())
+        foreach (var role in current.Steps.Select(step => step.Role))
         {
             cancellationToken.ThrowIfCancellationRequested();
+            var scopedEvidence = current.Task is null ? rawEvidence : TeamResearchScope.Project(role, rawEvidence);
             snapshot = TeamResearchContext.Build(
                 role.ToString().ToLowerInvariant(),
                 current.Objective,
                 previous,
-                rawEvidence,
+                scopedEvidence,
                 current,
                 evaluatedHistory,
                 prior,
                 newsEvidence
             );
-            var run = await this.UpdateStep(id, role, TeamRunStatus.Running, null, cancellationToken);
+            var digest = TeamResearchRouter.Digest(
+                CodexWorker.SerializeRequest(role.ToString().ToLowerInvariant(), current.Objective, previous, snapshot)
+            );
+            var run = await this.UpdateStep(
+                id,
+                role,
+                TeamRunStatus.Running,
+                null,
+                cancellationToken,
+                inputDigest: digest
+            );
             var report = await this.worker.Report(
                 role.ToString().ToLowerInvariant(),
                 run.Objective,
@@ -346,7 +452,13 @@ public sealed class TeamCoordinator : BackgroundService, ITeamCoordinator
                 snapshot,
                 cancellationToken
             );
+            await this.RecordUsage(id, role, report.Usage);
             cancellationToken.ThrowIfCancellationRequested();
+            if (run.Task is not null)
+            {
+                await this.VerifyCurrentEvidence(run, rawEvidence, cancellationToken);
+            }
+
             if (report.Proposal is not null && !manualReview)
             {
                 report = report with
@@ -367,7 +479,7 @@ public sealed class TeamCoordinator : BackgroundService, ITeamCoordinator
             previous.Add((role.ToString().ToLowerInvariant(), report.Output));
             if (report.ResearchSymbols is { Count: > 0 } requested)
             {
-                if (role != TeamRole.Ceo)
+                if (role is not (TeamRole.Ceo or TeamRole.Intraday))
                 {
                     throw new CodexWorkerException("worker_response_invalid");
                 }
@@ -393,6 +505,11 @@ public sealed class TeamCoordinator : BackgroundService, ITeamCoordinator
                 if (refreshed.RootElement.GetProperty("accountKey").GetString() != accountKey)
                 {
                     throw new InvalidOperationException("Account changed while collecting requested market evidence.");
+                }
+
+                if (run.Task is not null && ResearchEvidence.PolicyHash(refreshed.RootElement) != run.Task.PolicyHash)
+                {
+                    throw new CodexWorkerException("worker_evidence_changed");
                 }
 
                 manualReview =
@@ -429,7 +546,8 @@ public sealed class TeamCoordinator : BackgroundService, ITeamCoordinator
         TeamRunStatus status,
         string? output,
         CancellationToken cancellationToken,
-        ResearchReport? report = null
+        ResearchReport? report = null,
+        string? inputDigest = null
     )
     {
         await this.gate.WaitAsync(cancellationToken);
@@ -445,7 +563,7 @@ public sealed class TeamCoordinator : BackgroundService, ITeamCoordinator
             var run = current with
             {
                 Status = TeamRunStatus.Running,
-                UpdatedAt = DateTimeOffset.UtcNow,
+                UpdatedAt = this.time.GetUtcNow(),
                 Lesson = role == TeamRole.Reviewer && report is not null ? report.Lesson : current.Lesson,
                 Assessment = role == TeamRole.Reviewer && report is not null ? report.Assessment : current.Assessment,
                 Decision =
@@ -458,7 +576,20 @@ public sealed class TeamCoordinator : BackgroundService, ITeamCoordinator
                         }
                         : current.Decision,
                 Steps = current
-                    .Steps.Select(step => step.Role == role ? step with { Status = status, Output = output } : step)
+                    .Steps.Select(step =>
+                        step.Role == role
+                            ? step with
+                            {
+                                Status = status,
+                                Output = output,
+                                StartedAt = status == TeamRunStatus.Running ? this.time.GetUtcNow() : step.StartedAt,
+                                CompletedAt =
+                                    status == TeamRunStatus.Completed ? this.time.GetUtcNow() : step.CompletedAt,
+                                InputDigest = inputDigest ?? step.InputDigest,
+                                Usage = report?.Usage ?? step.Usage,
+                            }
+                            : step
+                    )
                     .ToArray(),
             };
             await this.store.Save(run, cancellationToken);
@@ -469,6 +600,74 @@ public sealed class TeamCoordinator : BackgroundService, ITeamCoordinator
         finally
         {
             this.gate.Release();
+        }
+    }
+
+    private async Task<string?> ReadNews(CancellationToken cancellationToken)
+    {
+        if (this.news is null)
+        {
+            return null;
+        }
+
+        try
+        {
+            using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            timeout.CancelAfter(TimeSpan.FromSeconds(5));
+            return await this.news.Read(null, timeout.Token);
+        }
+        catch (Exception error)
+            when (!cancellationToken.IsCancellationRequested
+                && error is HttpRequestException or InvalidDataException or JsonException or OperationCanceledException
+            )
+        {
+            return null;
+        }
+    }
+
+    private async Task RecordUsage(Guid id, TeamRole role, ResearchUsage? usage)
+    {
+        if (usage is null)
+        {
+            return;
+        }
+
+        await this.gate.WaitAsync(CancellationToken.None);
+        try
+        {
+            if (this.activeRun is not { } current || current.Id != id)
+            {
+                return;
+            }
+
+            var run = current with
+            {
+                Steps = current.Steps.Select(step => step.Role == role ? step with { Usage = usage } : step).ToArray(),
+            };
+            await this.store.Save(run, CancellationToken.None);
+            this.activeRun = run;
+        }
+        finally
+        {
+            this.gate.Release();
+        }
+    }
+
+    private async Task VerifyCurrentEvidence(TeamRun run, string evidence, CancellationToken cancellationToken)
+    {
+        var task = run.Task ?? throw new InvalidOperationException("Research task is missing.");
+        using var fresh = JsonDocument.Parse(await this.portfolio.Read(cancellationToken));
+        using var original = JsonDocument.Parse(evidence);
+        if (
+            this.time.GetUtcNow() >= task.ExpiresAt
+            || fresh.RootElement.GetProperty("accountKey").GetString() != run.AccountKey
+            || ResearchEvidence.PolicyHash(fresh.RootElement) != task.PolicyHash
+            || ResearchEvidence.HoldingsDigest(fresh.RootElement)
+                != ResearchEvidence.HoldingsDigest(original.RootElement)
+            || ResearchEvidence.Mode(fresh.RootElement) != ResearchEvidence.Mode(original.RootElement)
+        )
+        {
+            throw new CodexWorkerException("worker_evidence_changed");
         }
     }
 
@@ -487,7 +686,7 @@ public sealed class TeamCoordinator : BackgroundService, ITeamCoordinator
             {
                 Status = status,
                 Error = error,
-                UpdatedAt = DateTimeOffset.UtcNow,
+                UpdatedAt = this.time.GetUtcNow(),
                 Steps = current
                     .Steps.Select(step =>
                         step.Status is TeamRunStatus.Queued or TeamRunStatus.Running

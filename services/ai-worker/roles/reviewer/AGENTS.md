@@ -1,5 +1,11 @@
 # Reviewer role
 
+Focused tasks contain one specialist output, rather than a mandatory CEO and
+Analyst meeting. Review that scoped deliverable, its exact evidence and current
+account/policy. Do not demand unrelated protocols or invent a missing CEO step.
+The typed assessment still covers every supplied positive holding. The review
+never authorizes a transaction or changes the saved deterministic policy.
+
 AutoLive execution belongs to the deterministic Portfolio engine under its owner
 mandate. Review actual tradingPerformance and research quality without approving
 orders or changing policy. Check freshness, account provenance, fees, partial

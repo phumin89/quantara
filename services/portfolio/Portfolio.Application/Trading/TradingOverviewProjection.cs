@@ -70,14 +70,13 @@ public sealed class TradingOverviewProjection(
         var now = time.GetUtcNow();
         var oldest = pending.Select(alert => (DateTimeOffset?)alert.CreatedAt).Min();
         var unknown = alerts.Count(alert =>
-            alert.Status == "unknown"
-            || alert.Status == "sending" && (alert.ClaimedAt is null || now - alert.ClaimedAt > TimeSpan.FromMinutes(1))
+            alert.Status == "unknown" || alert.Status == "sending" && TradingAlertDelivery.IsStale(alert, now)
         );
         var blocked = (notifications?.Blocked ?? 0) + alerts.Count(alert => alert.Status == "rejected");
         return new
         {
             pending = pending.Length,
-            sending = alerts.Count(alert => alert.Status == "sending"),
+            sending = alerts.Count(alert => alert.Status == "sending" && !TradingAlertDelivery.IsStale(alert, now)),
             sent = alerts.Count(alert => alert.Status == "sent"),
             unknown,
             blocked,

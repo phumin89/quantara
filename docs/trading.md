@@ -32,6 +32,23 @@ allocated THB or a fixed per-order amount.
 
 These are policy limits, not guarantees.
 
+Adaptive **Trading settings** opens with a read-only **System-managed trading plan**
+and **Saved risk limits**. The summary explains eligible markets, sizing from verified
+capital, strategy-managed stops, targets and trailing, and the saved holding-time cap.
+Numeric inputs are available only in the explicit **Advanced overrides** disclosure;
+ordinary setup does not require editing them. Saving material overrides disarms live
+trading and requires a new owner review. Existing v2 holding-time caps remain saved
+constraints; experimental v3 follows its separate saved exit policy and live gate.
+
+Preparation uses the owner-authenticated `POST /api/trading/prepare` with only
+`{accountKey,rulesHash}`. The server verifies the exact account and current rules hash
+inside the serialized control gate. Initial setup from legacy rules creates v2 using
+system-owned defaults. An explicit v1 upgrade changes only the version, preserving
+saved technical parameters, risk caps, exclusions and compatibility fields. Existing
+v2/v3 rules, hashes and authority remain exact. Preparation never activates trading;
+actual rule changes retain the outstanding-order, owned-position and exposure guards
+and revoke the old live mandate.
+
 Research and sizing remain separate from activation:
 
 - Team research receives the saved adaptive policy, fresh verified capital,
@@ -52,7 +69,8 @@ Research and sizing remain separate from activation:
 
 To activate after the deployment and verification have been reviewed:
 
-1. Open the appropriate setup path and save changes first; saving disarms live trading.
+1. Open the appropriate setup path. Prepare adaptive setup or an explicit v1 upgrade,
+   or save any chosen overrides first; material rule changes disarm live trading.
 2. Open **Review live mandate**. Verify the exact account, strategy/rules hash,
    universe or symbols and every capital/risk cap.
 3. Choose an explicit future expiry within the next 30 days, or choose a 1-, 7- or
@@ -64,10 +82,10 @@ To activate after the deployment and verification have been reviewed:
    worker may then enter, track, cancel and exit within that mandate without
    per-order confirmation. Closing the browser does not stop the worker.
 
-| Setup path       | Open and review                                                                                                                                                        |
-| ---------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Legacy rules     | **Daily Brief → Trading status → Trading settings**                                                                                                                    |
-| Adaptive trading | **Set up and review** prepares the versioned policy and opens review without activating it. Review its market scope, relative limits and inclusion of future deposits. |
+| Setup path       | Open and review                                                                                                                                                                                                      |
+| ---------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Legacy rules     | **Daily Brief → Trading status → Trading settings**                                                                                                                                                                  |
+| Adaptive trading | **Set up and review autonomous trading** prepares the initial policy and opens review without activating it. Saved v1 uses **Prepare v2 upgrade and review**; existing v2/v3 opens its exact saved rules for review. |
 
 Legacy settings retain these values; strategy and execution values are in
 **Advanced settings**:
@@ -176,6 +194,10 @@ Portfolio ledger. Team and MarketData retain their own databases.
 - AutoLive refuses activation with uncertain manual submissions or outstanding
   adaptive proposals; manual approval requires AutoLive to be disabled first.
 - Notification state writes share the engine gate, while Telegram network calls release it.
+- Immutable Telegram acknowledgement receipts are isolated by account, destination,
+  alert and exact claim time. Restart recovery repairs recorded outcomes without
+  repeating sends; legacy claims without acknowledgement remain unknown. See
+  [accounting and delivery](crypto-accounting.md).
 
 Faults and recovery:
 

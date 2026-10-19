@@ -29,21 +29,18 @@ public sealed class SqlResearchBudget(string connectionString) : IResearchBudget
 
         await using var transaction = (SqlTransaction)
             await connection.BeginTransactionAsync(IsolationLevel.Serializable, cancellationToken);
-        var bangkok = now.ToOffset(TimeSpan.FromHours(7));
-        var dayStart = new DateTimeOffset(bangkok.Date, bangkok.Offset);
-        var history = new List<DateTimeOffset>();
+        var history = new List<ResearchBudgetAttempt>();
         await using (var read = connection.CreateCommand())
         {
             read.Transaction = transaction;
             read.CommandText =
-                "SELECT ClaimedAt FROM dbo.ResearchAttempts WITH(UPDLOCK,HOLDLOCK) WHERE AccountKey=@account AND ClaimedAt>=@from ORDER BY ClaimedAt;";
+                "SELECT ClaimedAt, PositionReview FROM dbo.ResearchAttempts WITH(UPDLOCK,HOLDLOCK) WHERE AccountKey=@account AND ClaimedAt>=@from ORDER BY ClaimedAt;";
             read.Parameters.Add("@account", SqlDbType.VarChar, 64).Value = accountKey;
-            read.Parameters.Add("@from", SqlDbType.DateTimeOffset).Value =
-                dayStart < now.AddHours(-1) ? dayStart : now.AddHours(-1);
+            read.Parameters.Add("@from", SqlDbType.DateTimeOffset).Value = now.AddHours(-1);
             await using var rows = await read.ExecuteReaderAsync(cancellationToken);
             while (await rows.ReadAsync(cancellationToken))
             {
-                history.Add(rows.GetFieldValue<DateTimeOffset>(0));
+                history.Add(new ResearchBudgetAttempt(rows.GetFieldValue<DateTimeOffset>(0), rows.GetBoolean(1)));
             }
         }
 

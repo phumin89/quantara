@@ -303,9 +303,6 @@ export default class TradingPanel extends Component<
                 onPrepareAdaptiveSetup={() =>
                   void this.prepareAdaptiveSetup(overview)
                 }
-                onStageAdaptiveUpgrade={() => {
-                  this.stageAdaptiveUpgrade();
-                }}
                 onSetMode={(mode) => void this.setMode(mode)}
               />
               <TradingMandateDialog
@@ -339,17 +336,25 @@ export default class TradingPanel extends Component<
     const numbers = Object.fromEntries(
       TradingRulePresentation.fields
         .filter((field) => data.has(field.key))
-        .map((field) => [field.key, Number(data.get(field.key))]),
+        .map((field) => {
+          const value = data.get(field.key);
+
+          return [
+            field.key,
+            typeof value === 'string' && value.trim() !== ''
+              ? Number(value)
+              : NaN,
+          ];
+        }),
     );
     const symbols = data.get('symbols');
     const candidate = {
       ...overview.rules,
       ...numbers,
-      symbols: overview.rules.adaptive
-        ? []
-        : (typeof symbols === 'string' ? symbols : '')
-            .split(',')
-            .map((symbol) => symbol.trim()),
+      symbols:
+        typeof symbols === 'string'
+          ? symbols.split(',').map((symbol) => symbol.trim())
+          : overview.rules.symbols,
     };
     const adaptive = candidate.adaptive;
     const rules = tradingRulesSchema.safeParse(
@@ -358,18 +363,37 @@ export default class TradingPanel extends Component<
             ...candidate,
             adaptive: {
               ...adaptive,
-              dailyLossFraction: Number(data.get('dailyLossFraction')) / 100,
+              dailyLossFraction: this.percentOverride(
+                data,
+                'dailyLossFraction',
+                adaptive.dailyLossFraction,
+              ),
               risk: {
                 ...adaptive.risk,
-                maximumExposureFraction:
-                  Number(data.get('maximumExposureFraction')) / 100,
-                maximumConcentrationFraction:
-                  Number(data.get('maximumConcentrationFraction')) / 100,
-                riskToStopFraction:
-                  Number(data.get('riskToStopFraction')) / 100,
-                estimatedFeeRate: candidate.feeBps / 10000,
-                maximumSpreadFraction: candidate.maxSpreadBps / 10000,
-                maximumDataAgeSeconds: candidate.maxDataAgeSeconds,
+                maximumExposureFraction: this.percentOverride(
+                  data,
+                  'maximumExposureFraction',
+                  adaptive.risk.maximumExposureFraction,
+                ),
+                maximumConcentrationFraction: this.percentOverride(
+                  data,
+                  'maximumConcentrationFraction',
+                  adaptive.risk.maximumConcentrationFraction,
+                ),
+                riskToStopFraction: this.percentOverride(
+                  data,
+                  'riskToStopFraction',
+                  adaptive.risk.riskToStopFraction,
+                ),
+                estimatedFeeRate: data.has('feeBps')
+                  ? candidate.feeBps / 10000
+                  : adaptive.risk.estimatedFeeRate,
+                maximumSpreadFraction: data.has('maxSpreadBps')
+                  ? candidate.maxSpreadBps / 10000
+                  : adaptive.risk.maximumSpreadFraction,
+                maximumDataAgeSeconds: data.has('maxDataAgeSeconds')
+                  ? candidate.maxDataAgeSeconds
+                  : adaptive.risk.maximumDataAgeSeconds,
               },
             },
           }
@@ -395,75 +419,46 @@ export default class TradingPanel extends Component<
   }
 
   private async prepareAdaptiveSetup(overview: TradingOverview): Promise<void> {
-    const rules = tradingRulesSchema.safeParse({
-      ...overview.rules,
-      version: 'adaptive-intraday-v2',
-      symbols: [],
-      maxPositions: 16,
-      adaptive: {
-        universeVersion: 'bitkub-thb-spot-v1',
-        includeFutureDeposits: true,
-        excludedSymbols: ['USDT', 'USDC', 'DAI'],
-        risk: {
-          profile: 'aggressive',
-          maximumExposureFraction: 1,
-          maximumConcentrationFraction: 1,
-          riskToStopFraction: 0.05,
-          atrMultiplier: 1,
-          maximumSpreadFraction: overview.rules.maxSpreadBps / 10000,
-          estimatedFeeRate: overview.rules.feeBps / 10000,
-          maximumDataAgeSeconds: overview.rules.maxDataAgeSeconds,
-          maximumSignalAgeSeconds: 600,
-        },
-        dailyLossFraction: 0.1,
-        dailyProfitTargetThb: 500,
-      },
-    });
-
-    if (!rules.success) {
-      this.setState({
-        validationError:
-          rules.error.issues.at(0)?.message ??
-          'Unable to prepare adaptive trading.',
-      });
-
+    if (
+      this.state.dirty ||
+      this.state.error ||
+      this.state.overview?.accountKey !== overview.accountKey ||
+      this.state.overview.rulesHash !== overview.rulesHash ||
+      overview.rules.version === 'adaptive-intraday-v3'
+    ) {
       return;
     }
 
-    await this.run(
+    const prepared = await this.run(
       (signal) =>
-        TradingServiceContext.require(this.context).configure(
-          rules.data,
+        TradingServiceContext.require(this.context).prepare(
+          overview.accountKey,
+          overview.rulesHash,
           signal,
         ),
       true,
     );
-    if (this.mounted) {
+    if (this.mounted && prepared) {
       this.setState((state) =>
-        state.overview &&
-        TradingRulePresentation.isAdaptive(state.overview.rules.version) &&
+        state.overview?.accountKey === prepared.accountKey &&
+        state.overview.rulesHash === prepared.rulesHash &&
+        TradingRulePresentation.isAdaptive(prepared.rules.version) &&
         !state.error
-          ? { reviewOpen: true, expiresAt: '' }
+          ? { open: false, reviewOpen: true, expiresAt: '' }
           : null,
       );
     }
   }
 
-  private stageAdaptiveUpgrade(): void {
-    this.setState((state) =>
-      state.overview
-        ? {
-            overview: {
-              ...state.overview,
-              rules: {
-                ...state.overview.rules,
-                version: 'adaptive-intraday-v2',
-              },
-            },
-            dirty: true,
-          }
-        : null,
-    );
+  private percentOverride(data: FormData, name: string, saved: number): number {
+    const value = data.get(name);
+    if (value === null || value === String(saved * 100)) {
+      return saved;
+    }
+
+    return typeof value === 'string' && value.trim() !== ''
+      ? Number(value) / 100
+      : NaN;
   }
 
   private async setMode(mode: 'paper' | 'manualReview'): Promise<void> {
@@ -559,9 +554,9 @@ export default class TradingPanel extends Component<
   private async run(
     call: (signal: AbortSignal) => Promise<TradingOverview>,
     saved = false,
-  ): Promise<void> {
+  ): Promise<TradingOverview | null> {
     if (this.actionInFlight) {
-      return;
+      return null;
     }
 
     this.actionInFlight = true;
@@ -580,6 +575,8 @@ export default class TradingPanel extends Component<
       if (this.mounted) {
         this.receive(overview, saved);
         this.setState({ actionError: null });
+
+        return overview;
       }
     } catch (error) {
       if (this.mounted && !this.action.signal.aborted) {
@@ -601,6 +598,8 @@ export default class TradingPanel extends Component<
         this.schedule();
       }
     }
+
+    return null;
   }
 
   private schedule(): void {

@@ -13,4 +13,7 @@ public sealed record PortfolioView(
     int CompletedSymbols,
     int TotalSymbols,
     string? Error
-);
+)
+{
+    public PortfolioPerformance? Performance { get; init; }
+}

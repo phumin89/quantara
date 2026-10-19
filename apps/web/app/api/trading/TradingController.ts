@@ -6,6 +6,14 @@ import { tradingRulesSchema } from '../../../features/trading/contracts/TradingR
 export class TradingController {
   private static readonly actions = {
     config: z.strictObject({ rules: tradingRulesSchema }),
+    prepare: z.strictObject({
+      accountKey: z
+        .string()
+        .min(1)
+        .max(128)
+        .refine((value) => value.trim() === value),
+      rulesHash: z.string().regex(/^[a-f0-9]{64}$/),
+    }),
     mode: z.strictObject({
       mode: z.enum(['paper', 'manualReview', 'stopped']),
     }),

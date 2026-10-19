@@ -9,7 +9,34 @@
 - คงความเข้ากันได้ของฟิลด์เป้า legacy และ rules hash เดิม โดยไม่ใช้ฟิลด์ legacy เป็น objective ปัจจุบันหรือคำสั่งบังคับกำไร
 - รายละเอียดเกณฑ์วัดอยู่ในแผนละเอียดข้อ 1.1
 
-## งานถัดไป: Hangfire และ Adaptive Exit
+## ลำดับถัดไป: Aggressive Portfolio และทีม AI ตลอดวัน
+
+แผนวิจัยและ review วันที่ 19 ตุลาคม 2026: [หลักฐาน กลยุทธ์ งบ และแผน implement](docs/aggressive-portfolio-plan.md)
+
+| ประเด็น     | แนวทาง                                                                                                  |
+| ----------- | ------------------------------------------------------------------------------------------------------- |
+| พอร์ต       | คง Aggressive ใช้ทุนตามโอกาส ภายใต้ risk/exposure/liquidity caps ไม่มี fixed amount ต่อดีลที่ตั้งลอย ๆ  |
+| กลยุทธ์     | เปรียบเทียบ intraday กับ swing 2–60 วัน แยกแผนออกและ ownership; ข่าวเริ่มเป็น research overlay          |
+| งบ          | เงินที่ใช้ได้ ความเสี่ยงรวม ค่า data/operation และ AI quota วัดแยกกัน                                   |
+| ทีม AI      | แยก specialist/skills เรียกเฉพาะงาน ทำงานข้ามวัน; จำกัดจำนวนงานตาม rolling hour ไม่มี daily cutoff      |
+| หลักฐานกำไร | shared-capital replay, chronological holdout และ prospective execution evidence; ไม่ใช้จำนวนดีลแทน edge |
+| สิทธิ์      | R4 เพิ่มการจัดงานวิจัย ไม่เปลี่ยน v1/v2/v3, mandates หรือเปิด AutoLive                                  |
+
+- [x] Research แหล่งปฐมภูมิและ review จุดเชื่อมในโค้ด พร้อมแยกข้อเท็จจริง สมมติฐาน และข้อจำกัด
+- [ ] R0 ตรึง baseline, coverage/usage audit, trial budget และเกณฑ์ประเมินก่อนดู holdout
+- [ ] R1 แก้ study selection/retry และเพิ่ม research-only 4h/1D + long-window history โดยไม่ขยายกฎ execution เดิม
+- [ ] R2 เพิ่มข่าวเฉพาะเหรียญ/โบรกเกอร์ที่ตรวจแหล่งและสิทธิ์ได้ พร้อม as-of/revisions
+- [ ] R3 เพิ่ม portfolio replay และ aggregate stop-risk budget ใช้ทุนเดียว ไม่จองซ้ำ
+- [x] R4 ซอฟต์แวร์: แยกบทบาท/skills/tasks, scoped evidence และ rolling-hour budget พร้อมสถานะพัก/รอบถัดไป; [รายละเอียดและข้อจำกัด](docs/continuous-research.md)
+- [x] R4 Deployment: ติดตั้ง Team/Web หลังปิด AutoLive พร้อม canonical backups, isolated restore และตรวจข้อมูลเดิม
+- [ ] R4 Runtime pilot: เก็บ usage/latency/provider availability ต่อเนื่อง; ยังใช้ bounded-request fallback ไม่ใช่ token spending cap
+- [ ] R5 เปรียบเทียบ intraday/swing/news-overlay หลังต้นทุน บันทึกทุก trial และผลที่ไม่ผ่าน
+- [ ] R6 เก็บ prospective evidence ของรุ่นที่ตรึงไว้จนเพียงพอ ไม่ตีความ uptime เป็นกำไร
+- [ ] R7 เสนอ policy/hash และ live rollout แยก เฉพาะ candidate ที่ผ่าน; เจ้าของเปิด mandate ใหม่เอง
+
+งานเดิมด้านล่างเป็น retained workstreams เก็บสถานะตามหลักฐานเดิม เกณฑ์ H3/E3/E5 และ pilot ข่าวยังไม่ผ่านเพราะเขียนแผนใหม่ รายละเอียด dependencies และ acceptance อยู่ในแผนที่ลิงก์ข้างต้น
+
+## งานเดิม: Hangfire และ Adaptive Exit
 
 | รายการ     | สถานะ                                                                                |
 | ---------- | ------------------------------------------------------------------------------------ |

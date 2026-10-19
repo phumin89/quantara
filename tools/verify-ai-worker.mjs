@@ -12,7 +12,7 @@ for (const role of Object.keys(CodexTeamWorker.roles)) {
   const instructions = CodexTeamWorker.instructions(role);
   assert(instructions.includes(`AGENTS.md for ${role}:`));
   assert(instructions.includes(`SKILL.md for ${role}:`));
-  assert(instructions.includes('paper'));
+  assert.match(instructions, /never|do not/i);
   assert(instructions.includes('name:'));
   assert.match(
     instructions,
@@ -21,12 +21,15 @@ for (const role of Object.keys(CodexTeamWorker.roles)) {
   const roleInput = {
     ...input,
     role,
-    previous: Object.keys(CodexTeamWorker.roles)
-      .slice(0, Object.keys(CodexTeamWorker.roles).indexOf(role))
-      .map((previousRole) => ({
-        role: previousRole,
-        output: 'Earlier report',
-      })),
+    previous: (role === 'analyst'
+      ? ['ceo']
+      : role === 'reviewer'
+        ? ['ceo', 'analyst']
+        : []
+    ).map((previousRole) => ({
+      role: previousRole,
+      output: 'Earlier report',
+    })),
   };
   const prompt = CodexTeamWorker.prompt(roleInput);
   assert(prompt.includes(instructions));
@@ -178,34 +181,9 @@ const factory = (value) => {
             minLength: 1,
             maxLength: 16000,
           });
-          assert.deepEqual(
-            turn.outputSchema.properties.proposal.anyOf[1].properties.symbol,
-            {
-              type: 'string',
-              pattern: '^[A-Z0-9]{1,30}$',
-            },
-          );
-          for (const name of ['amount', 'limitPrice'])
-            assert.equal(
-              turn.outputSchema.properties.proposal.anyOf[1].properties[name]
-                .pattern,
-              '^(?:0|[1-9]\\d{0,11})(?:\\.\\d{1,18})?$',
-            );
-          assert.deepEqual(
-            turn.outputSchema.properties.proposal.anyOf[1].properties.reason,
-            {
-              type: 'string',
-              minLength: 1,
-              maxLength: 240,
-            },
-          );
-          const proposalSchema = turn.outputSchema.properties.proposal.anyOf[1];
-          for (const name of ['targetPrice', 'invalidationPrice'])
-            assert.equal(
-              proposalSchema.properties.entryPlan.anyOf[1].properties[name]
-                .pattern,
-              '^(?:0|[1-9]\\d{0,11})(?:\\.\\d{1,18})?$',
-            );
+          assert.deepEqual(turn.outputSchema.properties.proposal, {
+            type: 'null',
+          });
           assert.equal(
             turn.outputSchema.properties.researchSymbols.maxItems,
             3,
@@ -230,6 +208,7 @@ assert.deepEqual(await CodexTeamWorker.run(input, factory, source), {
   output: 'Verified report',
   proposal: null,
   lesson: null,
+  usage: null,
 });
 const proposal = {
   symbol: 'BTC',
@@ -276,6 +255,7 @@ assert.deepEqual(
       evidence: 'Two snapshots',
       nextTest: 'Recheck in one hour',
     },
+    usage: null,
   },
 );
 assert.deepEqual(reviewerTurnOptions.outputSchema.properties.lesson, {
@@ -349,6 +329,7 @@ assert.deepEqual(await CodexTeamWorker.run(input, factory, chatSource), {
   output: 'Verified report',
   proposal: null,
   lesson: null,
+  usage: null,
 });
 assert.equal(
   options.apiKey,
@@ -503,3 +484,58 @@ await assert.rejects(
 console.log(
   'Structured reviewer assessment survives transport; missing required assessment is rejected.',
 );
+
+assert.deepEqual(
+  CodexTeamWorker.validate({
+    ...input,
+    role: 'intraday',
+    previous: [],
+  }),
+  { ...input, role: 'intraday', previous: [] },
+);
+assert.deepEqual(
+  CodexTeamWorker.validate({
+    ...input,
+    role: 'reviewer',
+    previous: [{ role: 'intraday', output: 'Bars and spread' }],
+  }).previous,
+  [{ role: 'intraday', output: 'Bars and spread' }],
+);
+assert.throws(
+  () =>
+    CodexTeamWorker.validate({
+      ...input,
+      role: 'swing',
+      previous: [{ role: 'reviewer', output: 'Forbidden' }],
+    }),
+  /Invalid role handoff/,
+);
+const usageFactory = () => ({
+  startThread: () => ({
+    run: async () => ({
+      items: [],
+      finalResponse: JSON.stringify({
+        output: 'Intraday report',
+        proposal: null,
+        lesson: null,
+        researchSymbols: ['BTC'],
+      }),
+      usage: { input_tokens: 11, output_tokens: 7, cached_input_tokens: 3 },
+    }),
+  }),
+});
+assert.deepEqual(
+  await CodexTeamWorker.run(
+    { ...input, role: 'intraday' },
+    usageFactory,
+    source,
+  ),
+  {
+    output: 'Intraday report',
+    proposal: null,
+    lesson: null,
+    usage: { inputTokens: 11, outputTokens: 7, cachedInputTokens: 3 },
+    researchSymbols: ['BTC'],
+  },
+);
+console.log('Specialist handoffs, permissions and SDK usage metadata passed.');

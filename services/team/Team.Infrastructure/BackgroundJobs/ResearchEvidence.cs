@@ -5,6 +5,32 @@ namespace Quantara.Team.Infrastructure;
 
 public static class ResearchEvidence
 {
+    public static string? Mode(JsonElement evidence) =>
+        evidence.TryGetProperty("tradingMode", out var mode) && mode.ValueKind == JsonValueKind.String
+            ? mode.GetString()
+            : null;
+
+    public static string HoldingsDigest(JsonElement evidence)
+    {
+        var balances = evidence.TryGetProperty("walletEvidence", out var wallet)
+            ? wallet.GetProperty("balances")
+            : evidence.GetProperty("positions");
+        var rows = balances
+            .EnumerateArray()
+            .Select(balance =>
+                balance.GetProperty("symbol").GetString()
+                + ":"
+                + balance
+                    .GetProperty("quantity")
+                    .GetDecimal()
+                    .ToString("G29", System.Globalization.CultureInfo.InvariantCulture)
+                + ":"
+                + (balance.TryGetProperty("available", out var available) ? available.GetRawText() : "unknown")
+            )
+            .Order(StringComparer.Ordinal);
+        return TeamResearchRouter.Digest(string.Join('|', rows));
+    }
+
     public static IReadOnlyList<string> HeldSymbols(JsonElement evidence)
     {
         var balances = evidence.TryGetProperty("walletEvidence", out var wallet)

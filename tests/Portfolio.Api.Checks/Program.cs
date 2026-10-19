@@ -10,6 +10,7 @@ request.Host = new HostString("localhost", 5050);
 request.Method = "GET";
 Check(TradingRequestPolicy.Allows(request, "portfolio", options), "local read-only status");
 request.Method = "POST";
+request.Path = "/api/trading/prepare";
 request.ContentType = "application/json";
 Check(!TradingRequestPolicy.Allows(request, "portfolio", options), "missing token denied");
 request.Headers["X-Quantara-Trading-Control"] = "wrong-token";

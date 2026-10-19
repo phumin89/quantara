@@ -20,6 +20,7 @@ jobs:
       - run: npm run format:check
       - run: npm run check
       - run: npm run test:presentation
+      - run: npm run test:crypto-accounting
       - run: npm run test:services
       - run: npm run test:di
       - run: npm run test:ai-worker

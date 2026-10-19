@@ -3,28 +3,49 @@ namespace Quantara.Team.Application;
 public static class ResearchBudgetRules
 {
     public static ResearchBudgetDecision Decide(
-        IReadOnlyList<DateTimeOffset> claims,
-        bool hasHeldPosition,
+        IReadOnlyList<ResearchBudgetAttempt> claims,
+        bool positionReview,
         DateTimeOffset now
     )
     {
-        var bangkok = now.ToOffset(TimeSpan.FromHours(7));
-        var dayStart = new DateTimeOffset(bangkok.Date, bangkok.Offset);
-        var hourly = claims.Where(at => at > now.AddHours(-1)).Order().ToArray();
-        DateTimeOffset? next = hourly.Length >= 2 ? hourly[0].AddHours(1) : null;
-        var daily = claims.Count(at => at >= dayStart);
-        if (daily >= (hasHeldPosition ? 32 : 24))
+        var future = claims.Where(claim => claim.ClaimedAt > now).OrderBy(claim => claim.ClaimedAt).FirstOrDefault();
+        if (future is not null)
         {
-            next = dayStart.AddDays(1);
+            return new(false, future.ClaimedAt, "future_claim");
         }
 
-        if (claims.Any(at => at > now.AddSeconds(5)))
+        var recent = claims.Where(claim => claim.ClaimedAt > now.AddHours(-1) && claim.ClaimedAt <= now).ToArray();
+        var ordered = recent.OrderBy(claim => claim.ClaimedAt).ToArray();
+        var totalRelease =
+            ordered.Length >= 3 ? ordered[ordered.Length - 3].ClaimedAt.AddHours(1) : (DateTimeOffset?)null;
+        var lane = recent.Where(claim => claim.PositionReview == positionReview).ToArray();
+        var orderedLane = lane.OrderBy(claim => claim.ClaimedAt).ToArray();
+        var laneLimit = positionReview ? 1 : 2;
+        var laneRelease =
+            orderedLane.Length >= laneLimit
+                ? orderedLane[orderedLane.Length - laneLimit].ClaimedAt.AddHours(1)
+                : (DateTimeOffset?)null;
+        DateTimeOffset? next = totalRelease;
+        if (laneRelease is not null && (next is null || laneRelease > next))
         {
-            next = claims.Max().AddHours(1);
+            next = laneRelease;
         }
 
-        return next is { } at
-            ? new(false, at, daily >= (hasHeldPosition ? 32 : 24) ? "daily_round_limit" : "rolling_hour_limit")
-            : new(true, null, "claimed");
+        if (next is not null)
+        {
+            var reason =
+                totalRelease is not null ? "rolling_hour_limit"
+                : positionReview ? "position_review_limit"
+                : "ordinary_research_limit";
+            return new(false, next, reason);
+        }
+
+        return new(true, null, "claimed");
     }
+
+    public static ResearchBudgetDecision Decide(
+        IReadOnlyList<DateTimeOffset> claims,
+        bool positionReview,
+        DateTimeOffset now
+    ) => Decide(claims.Select(claim => new ResearchBudgetAttempt(claim, false)).ToArray(), positionReview, now);
 }

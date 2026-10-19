@@ -39,6 +39,9 @@ async function verify() {
     };
     let count = 0;
     let pendingPoll;
+    await page.route('**/api/**', (route) =>
+      route.fulfill({ status: 404, json: { error: 'Unmocked fixture API' } }),
+    );
     await page.route('**/api/crypto/portfolio', async (route) => {
       count++;
       if (count === 2) {
@@ -62,7 +65,7 @@ async function verify() {
       .getByRole('button', { name: 'Bitkub status: Connected' })
       .waitFor();
     await page.waitForTimeout(2200);
-    assert.equal(count, 2, 'Polling stops when syncing finishes');
+    assert.equal(count, 2, 'Settled polling uses the slower read-only cadence');
 
     let pendingHistory;
     let historyCount = 0;

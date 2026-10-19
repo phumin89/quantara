@@ -17,6 +17,7 @@
     "check": "npm run check --workspace @quantara/web",
     "test:ui": "node tools/verify-shell.cjs",
     "test:crypto": "node tools/verify-crypto.cjs",
+    "test:crypto-accounting": "node tools/verify-crypto-accounting.cjs",
     "test:contracts": "node tools/verify-contracts.cjs",
     "test:presentation": "node tools/verify-presentation.cjs",
     "test:services": "node tools/verify-services.cjs",

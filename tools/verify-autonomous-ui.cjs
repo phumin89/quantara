@@ -38,7 +38,7 @@ assert.match(panel, /Enable Auto Trading/);
 assert.match(rulePresentation, /adaptive-intraday-v1/);
 assert.match(rulePresentation, /adaptive-intraday-v2/);
 assert.match(rules, /adaptivePolicySchema/);
-assert.match(panel, /symbols: \[\]/);
+assert.match(panel, /\.prepare\(/);
 assert.match(overview, /autonomy:/);
 assert.match(overview, /dailyProfitTargetThb/);
 
@@ -98,7 +98,7 @@ assert.equal(
   }).success,
   false,
 );
-assert.match(panel, /Upgrade strategy/);
+assert.match(panel, /Prepare v2 upgrade and review/);
 
 assert.match(panel, /Set up and review autonomous trading/);
 assert.match(panel, /prepareAdaptiveSetup\(overview\)/);
@@ -153,6 +153,7 @@ async function verifyComponent() {
   });
   const writes = [];
   let reads = 0;
+  let preparationError = null;
   const instance = new TradingPanel({ date: '2026-10-16' });
   const savedWindow = global.window;
   global.window = { setTimeout: () => 1, clearTimeout: () => {} };
@@ -174,6 +175,22 @@ async function verifyComponent() {
       current = {
         ...current,
         rules: tradingRulesSchema.parse(value),
+        rulesHash: 'prepared-hash',
+      };
+      return structuredClone(current);
+    },
+    prepare: async (accountKey, rulesHash) => {
+      assert.equal(accountKey, current.accountKey);
+      assert.equal(rulesHash, current.rulesHash);
+      writes.push('prepare');
+      if (preparationError) throw preparationError;
+      current = {
+        ...current,
+        rules: tradingRulesSchema.parse(
+          current.rules.adaptive
+            ? { ...current.rules, version: 'adaptive-intraday-v2' }
+            : { ...adaptiveRules, version: 'adaptive-intraday-v2' },
+        ),
         rulesHash: 'prepared-hash',
       };
       return structuredClone(current);
@@ -224,8 +241,9 @@ async function verifyComponent() {
     const prepare = find(instance.render(), 'Set up and review');
     assert(prepare, 'the primary action prepares automatic setup');
     prepare.props.onClick();
+    prepare.props.onClick();
     await flush();
-    assert.deepEqual(writes, ['configure']);
+    assert.deepEqual(writes, ['prepare'], 'double-click prepares once');
     assert.equal(
       instance.state.reviewOpen,
       true,
@@ -234,7 +252,7 @@ async function verifyComponent() {
     assert.equal(instance.state.overview.rules.version, 'adaptive-intraday-v2');
     assert.deepEqual(instance.state.overview.rules.symbols, []);
     await instance.activate(current);
-    assert.deepEqual(writes, ['configure'], 'no expiry means no activation');
+    assert.deepEqual(writes, ['prepare'], 'no expiry means no activation');
     instance.setState({
       reviewOpen: true,
       expiresAt: new Date(Date.now() + 86_400_000).toISOString().slice(0, 16),
@@ -242,7 +260,7 @@ async function verifyComponent() {
     await Promise.all([instance.activate(current), instance.activate(current)]);
     assert.deepEqual(
       writes,
-      ['configure', 'activate'],
+      ['prepare', 'activate'],
       'only an explicit confirmation sends one fake activation',
     );
     current = {
@@ -261,21 +279,60 @@ async function verifyComponent() {
       'adaptive-intraday-v1',
       'polling retains the saved v1 mandate',
     );
-    instance.stageAdaptiveUpgrade();
+    current.rules.adaptive.risk.riskToStopFraction = 0.123456789;
+    current.rules.adaptive.dailyLossFraction = 0.234567891;
+    instance.setState({ overview: structuredClone(current), open: true });
+    await instance.prepareAdaptiveSetup(instance.state.overview);
     assert.equal(instance.state.overview.rules.version, 'adaptive-intraday-v2');
-    assert.equal(instance.state.dirty, true);
+    assert.equal(instance.state.dirty, false);
+    assert.equal(instance.state.open, false, 'setup closes its drawer');
+    assert.equal(instance.state.reviewOpen, true);
     assert.equal(
       current.rules.version,
-      'adaptive-intraday-v1',
-      'upgrade stages only; no implicit save or activation',
+      'adaptive-intraday-v2',
+      'an explicit upgrade prepares server rules for review',
     );
+    const upgraded = structuredClone(current.rules);
     await instance.load();
     assert.equal(
       instance.state.overview.rules.version,
       'adaptive-intraday-v2',
-      'polling must retain the staged upgrade until save',
+      'polling retains the exact saved policy',
     );
-    assert.deepEqual(writes, ['configure', 'activate']);
+    assert.deepEqual(writes, ['prepare', 'activate', 'prepare']);
+    const partialOverride = new FormData();
+    partialOverride.set('cooldownMinutes', '16');
+    await instance.save(partialOverride);
+    assert.equal(current.rules.cooldownMinutes, 16);
+    assert.deepEqual(current.rules.adaptive, upgraded.adaptive);
+    assert.equal(current.rules.takeProfitBps, upgraded.takeProfitBps);
+    const unchangedCaps = new FormData();
+    unchangedCaps.set(
+      'riskToStopFraction',
+      String(current.rules.adaptive.risk.riskToStopFraction * 100),
+    );
+    unchangedCaps.set(
+      'dailyLossFraction',
+      String(current.rules.adaptive.dailyLossFraction * 100),
+    );
+    await instance.save(unchangedCaps);
+    assert.deepEqual(current.rules.adaptive, upgraded.adaptive);
+    const writesBeforeBlank = writes.length;
+    const blankOverride = new FormData();
+    blankOverride.set('feeBps', '');
+    await instance.save(blankOverride);
+    assert.equal(
+      writes.length,
+      writesBeforeBlank,
+      'Blank overrides never become zero fees',
+    );
+    assert(instance.state.validationError);
+    preparationError = new Error('Fixture preparation failed');
+    instance.setState({ reviewOpen: false, open: true });
+    await instance.prepareAdaptiveSetup(instance.state.overview);
+    assert.equal(instance.state.reviewOpen, false);
+    assert.equal(instance.state.open, true, 'failed setup stays recoverable');
+    assert.match(instance.state.error, /Fixture preparation failed/);
     console.log(
       'Actual class component: read-only mount/poll, setup/review, expiry and duplicate confirmation checks pass.',
     );

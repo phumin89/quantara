@@ -168,6 +168,9 @@ var jobOptions = new TradingJobOptions(
     UseHangfire = builder.Configuration.GetValue("Trading:UseHangfire", true),
 };
 builder.Services.AddSingleton(jobOptions);
+var tradingReceipts = new SqlTradingNotificationReceiptStore(connectionString, accountKey, jobOptions.DestinationKey);
+await tradingReceipts.Initialize(CancellationToken.None);
+builder.Services.AddSingleton<ITradingNotificationReceiptStore>(tradingReceipts);
 builder.Services.AddSingleton(
     new TradingNotificationDiagnostics(jobOptions.Enabled) { DashboardAvailable = jobOptions.UseHangfire }
 );

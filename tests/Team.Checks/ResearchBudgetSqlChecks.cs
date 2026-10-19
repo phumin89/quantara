@@ -39,15 +39,15 @@ public static class ResearchBudgetSqlChecks
             (
                 await new SqlResearchBudget(connection).TryClaim(
                     accountA,
-                    false,
+                    true,
                     now.AddMinutes(1),
                     CancellationToken.None
                 )
             ).Allowed,
-            "Second SQL budget claim is allowed."
+            "Reserved position-review SQL lane is allowed."
         );
         Check(
-            !(
+            (
                 await new SqlResearchBudget(connection).TryClaim(
                     accountA,
                     false,
@@ -55,11 +55,61 @@ public static class ResearchBudgetSqlChecks
                     CancellationToken.None
                 )
             ).Allowed,
-            "Third SQL budget claim remains deferred after restart."
+            "Second ordinary SQL lane claim is allowed."
+        );
+        Check(
+            !(
+                await new SqlResearchBudget(connection).TryClaim(
+                    accountA,
+                    false,
+                    now.AddMinutes(3),
+                    CancellationToken.None
+                )
+            ).Allowed,
+            "Fourth SQL budget claim is deferred after restart."
         );
         Check(
             (await new SqlResearchBudget(connection).TryClaim(accountB, false, now, CancellationToken.None)).Allowed,
             "Separate SQL budget account is independent."
+        );
+        var parallelAccount = (suffix + "c").PadLeft(64, 'c')[..64];
+        Check(
+            (
+                await new SqlResearchBudget(connection).TryClaim(parallelAccount, false, now, CancellationToken.None)
+            ).Allowed,
+            "Parallel SQL case warms the isolated schema and ordinary lane."
+        );
+        var parallel = await Task.WhenAll(
+            new SqlResearchBudget(connection).TryClaim(
+                parallelAccount,
+                false,
+                now.AddMinutes(1),
+                CancellationToken.None
+            ),
+            new SqlResearchBudget(connection).TryClaim(parallelAccount, true, now.AddMinutes(1), CancellationToken.None)
+        );
+        Check(parallel.Count(result => result.Allowed) == 2, "Parallel ordinary and priority lanes both reserve once.");
+        Check(
+            !(
+                await new SqlResearchBudget(connection).TryClaim(
+                    parallelAccount,
+                    false,
+                    now.AddMinutes(2),
+                    CancellationToken.None
+                )
+            ).Allowed,
+            "Extra ordinary claim is deferred at the three-claim total."
+        );
+        Check(
+            (
+                await new SqlResearchBudget(connection).TryClaim(
+                    parallelAccount,
+                    false,
+                    now.AddHours(1).AddMinutes(1),
+                    CancellationToken.None
+                )
+            ).Allowed,
+            "Restarted SQL claim succeeds after the rolling boundary."
         );
     }
 

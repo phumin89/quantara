@@ -11,6 +11,5 @@ export interface TradingSettingsProps {
   readonly onDirty: () => void;
   readonly onSave: (data: FormData) => void;
   readonly onPrepareAdaptiveSetup: () => void;
-  readonly onStageAdaptiveUpgrade: () => void;
   readonly onSetMode: (mode: 'paper' | 'manualReview') => void;
 }

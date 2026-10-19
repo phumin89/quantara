@@ -4,9 +4,20 @@ using Quantara.Team.Domain;
 using Quantara.Team.Infrastructure;
 using Team.Checks;
 
+if (args.Contains("--continuous-only", StringComparer.Ordinal))
+{
+    SpecialistWorkerTransportChecks.Run();
+    await ResearchBudgetChecks.Run();
+    await ContinuousResearchChecks.Run();
+    await ContinuousScheduleChecks.Run();
+    await StaleResearchEvidenceChecks.Run();
+    return;
+}
+
 if (args.Contains("--feature-sql-only", StringComparer.Ordinal))
 {
     await ResearchBudgetSqlChecks.Run();
+    await ContinuousResearchSqlChecks.Run();
     Console.WriteLine("Research budget SQL checks passed.");
     return;
 }
@@ -25,7 +36,12 @@ await NativeResearchChecks.Run();
 await StartupContextChecks.Run();
 await ResearchContextBudgetChecks.Run();
 await ResearchBudgetChecks.Run();
+SpecialistWorkerTransportChecks.Run();
+await ContinuousResearchChecks.Run();
+await ContinuousScheduleChecks.Run();
+await StaleResearchEvidenceChecks.Run();
 await ResearchBudgetSqlChecks.Run();
+await ContinuousResearchSqlChecks.Run();
 await NewsEvidenceChecks.Run();
 await ResearchAssessmentChecks.Run();
 await CompanyNewsSignalChecks.Run();

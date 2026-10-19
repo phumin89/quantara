@@ -16,6 +16,14 @@ export class TradingService implements ITradingService {
     return this.read('', signal);
   }
 
+  public async prepare(
+    accountKey: string,
+    rulesHash: string,
+    signal?: AbortSignal,
+  ) {
+    return this.write('/prepare', { accountKey, rulesHash }, signal);
+  }
+
   public async configure(rules: TradingRules, signal?: AbortSignal) {
     return this.write(
       '/config',

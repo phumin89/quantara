@@ -8,9 +8,12 @@ public sealed class TradingReportDelivery(
     ITradingStore store,
     ITradingNotifier notifier,
     TimeProvider time,
-    SemaphoreSlim? gate = null
+    SemaphoreSlim? gate = null,
+    ITradingNotificationReceiptStore? receipts = null
 )
 {
+    private readonly TradingAlertDelivery alerts = new(store, notifier, time, gate, receipts);
+
     private int correctionCursor;
 
     public async Task Tick(CancellationToken cancellationToken)
@@ -19,7 +22,7 @@ public sealed class TradingReportDelivery(
         {
             for (var index = 0; index < 4; index++)
             {
-                if (!await this.TryDeliverAlert(null, cancellationToken))
+                if (!await this.alerts.Deliver(null, cancellationToken))
                 {
                     break;
                 }
@@ -31,6 +34,7 @@ public sealed class TradingReportDelivery(
 
     public async Task PrepareReports(CancellationToken cancellationToken)
     {
+        await this.alerts.Recover(null, cancellationToken);
         var now = time.GetUtcNow();
         var state = await store.Read(cancellationToken);
         var local = now.ToOffset(TimeSpan.FromHours(7));
@@ -172,170 +176,7 @@ public sealed class TradingReportDelivery(
             throw new ArgumentException("Trading alert identity exceeds its limit.", nameof(key));
         }
 
-        await this.TryDeliverAlert(key, cancellationToken);
-    }
-
-    private async Task<TradingAlert?> ClaimAlert(string? key, CancellationToken cancellationToken)
-    {
-        if (gate is not null)
-        {
-            await gate.WaitAsync(cancellationToken);
-        }
-
-        try
-        {
-            for (var attempt = 0; attempt < 3; attempt++)
-            {
-                var state = await store.Read(cancellationToken);
-                var alert = state.Alerts.FirstOrDefault(item =>
-                    item.Status == "pending"
-                    && (item.RetryAt is null || item.RetryAt <= time.GetUtcNow())
-                    && (key is null || item.Key == key)
-                    && (state.Rules.Adaptive is null || item.Kind == "fill")
-                );
-                if (alert is null)
-                {
-                    return null;
-                }
-
-                var text =
-                    time.GetUtcNow() - alert.CreatedAt > TimeSpan.FromMinutes(10)
-                    && !alert.Text.StartsWith("🕘 คิวค้างจาก ", StringComparison.Ordinal)
-                        ? "🕘 คิวค้างจาก "
-                            + alert
-                                .CreatedAt.ToOffset(TimeSpan.FromHours(7))
-                                .ToString("dd/MM HH:mm", CultureInfo.InvariantCulture)
-                            + Environment.NewLine
-                            + alert.Text
-                        : alert.Text;
-                var claimed = alert with { Status = "sending", Text = text, ClaimedAt = time.GetUtcNow() };
-                if (
-                    await store.Save(
-                        state with
-                        {
-                            Revision = state.Revision + 1,
-                            Alerts = state.Alerts.Select(item => item.Key == alert.Key ? claimed : item).ToArray(),
-                        },
-                        state.Revision,
-                        cancellationToken
-                    )
-                )
-                {
-                    return claimed;
-                }
-            }
-
-            return null;
-        }
-        finally
-        {
-            gate?.Release();
-        }
-    }
-
-    private async Task<bool> TryDeliverAlert(string? key, CancellationToken cancellationToken)
-    {
-        if (!notifier.IsConfigured)
-        {
-            return false;
-        }
-
-        var alert = await this.ClaimAlert(key, cancellationToken);
-        if (alert is null)
-        {
-            return false;
-        }
-
-        long messageId;
-        try
-        {
-            messageId = await notifier.Send(alert.Text, cancellationToken);
-            if (messageId <= 0)
-            {
-                throw new InvalidOperationException("Trading alert delivery was not acknowledged.");
-            }
-        }
-        catch (TradingNotificationRejectedException rejection)
-        {
-            var retry = rejection.Code == 429 && rejection.RetryAfterSeconds is > 0 and <= 3600 && alert.RetryCount < 3;
-            await this.FinishAlert(
-                alert.Key,
-                retry ? "pending" : "rejected",
-                retryAt: retry ? time.GetUtcNow().AddSeconds(rejection.RetryAfterSeconds.GetValueOrDefault()) : null,
-                retryCount: alert.RetryCount + 1
-            );
-            throw;
-        }
-        catch (Exception)
-        {
-            await this.FinishAlert(alert.Key, "unknown");
-            throw;
-        }
-
-        await this.FinishAlert(alert.Key, "sent", messageId);
-        return true;
-    }
-
-    private async Task FinishAlert(
-        string key,
-        string status,
-        long? messageId = null,
-        DateTimeOffset? retryAt = null,
-        int? retryCount = null
-    )
-    {
-        if (gate is not null)
-        {
-            await gate.WaitAsync(CancellationToken.None);
-        }
-
-        try
-        {
-            for (var attempt = 0; attempt < 3; attempt++)
-            {
-                var state = await store.Read(CancellationToken.None);
-                if (!state.Alerts.Any(alert => alert.Key == key && alert.Status == "sending"))
-                {
-                    return;
-                }
-
-                if (
-                    await store.Save(
-                        state with
-                        {
-                            Revision = state.Revision + 1,
-                            Alerts = state
-                                .Alerts.Select(alert =>
-                                    alert.Key == key && alert.Status == "sending"
-                                        ? alert with
-                                        {
-                                            Status = status,
-                                            MessageId = messageId,
-                                            SentAt = status == "sent" ? time.GetUtcNow() : null,
-                                            RetryAt = retryAt,
-                                            RetryCount = retryCount ?? alert.RetryCount,
-                                        }
-                                        : alert
-                                )
-                                .ToArray(),
-                        },
-                        state.Revision,
-                        CancellationToken.None
-                    )
-                )
-                {
-                    return;
-                }
-            }
-
-            throw new InvalidOperationException(
-                "Notification outcome could not be persisted; its sending claim is retained for review."
-            );
-        }
-        finally
-        {
-            gate?.Release();
-        }
+        await this.alerts.Deliver(key, cancellationToken);
     }
 
     private async Task DeliverReport(DateTimeOffset now, CancellationToken cancellationToken)

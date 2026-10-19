@@ -6,6 +6,7 @@ import AccountBalanceWalletOutlinedIcon from '@mui/icons-material/AccountBalance
 import CheckCircleOutlinedIcon from '@mui/icons-material/CheckCircleOutlined';
 import FormatMoney from '../../utils/FormatMoney';
 import FormatQuantity from '../../utils/FormatQuantity';
+import ProfitLossAppearance from '../../presentation/ProfitLossAppearance';
 import TradeHistory from '../trade-history/TradeHistory';
 import type { PortfolioRowProps } from './PortfolioRowProps';
 import { PositionStatus } from '../../contracts/PositionStatus';
@@ -53,6 +54,23 @@ export default class PortfolioRow extends PureComponent<PortfolioRowProps> {
           ) : null}
         </span>
       );
+    let averageCost: React.ReactNode = '—';
+    if (item.averageCost !== null) {
+      averageCost = (
+        <span title="Verified engine cost per coin, including paid buy fees">
+          {FormatMoney.format(item.averageCost)}
+        </span>
+      );
+    } else if (isHolding) {
+      averageCost = (
+        <Chip
+          label="Unknown cost"
+          size="small"
+          color="warning"
+          sx={{ bgcolor: 'warning.light', color: 'warning.main' }}
+        />
+      );
+    }
 
     return (
       <Fragment>
@@ -109,21 +127,9 @@ export default class PortfolioRow extends PureComponent<PortfolioRowProps> {
           {[
             FormatQuantity.format(item.quantity),
             lastBuy,
-            item.status === PositionStatus.Closed ? (
-              '—'
-            ) : (
-              <Chip
-                key="cost"
-                label="Unknown cost"
-                size="small"
-                color="warning"
-                sx={{ bgcolor: 'warning.light', color: 'warning.main' }}
-              />
-            ),
+            averageCost,
             FormatMoney.format(item.currentPrice),
             FormatMoney.format(item.value),
-            '—',
-            '—',
           ].map((value, index) => (
             <TableCell
               key={index}
@@ -136,6 +142,21 @@ export default class PortfolioRow extends PureComponent<PortfolioRowProps> {
               }}
             >
               {value}
+            </TableCell>
+          ))}
+          {[item.unrealizedPnl, item.realizedPnl].map((value, index) => (
+            <TableCell
+              key={index}
+              align="right"
+              sx={{
+                py: 1,
+                px: 2,
+                whiteSpace: 'nowrap',
+                fontVariantNumeric: 'tabular-nums',
+                color: ProfitLossAppearance.color(value),
+              }}
+            >
+              {FormatMoney.pnl(value)}
             </TableCell>
           ))}
         </TableRow>

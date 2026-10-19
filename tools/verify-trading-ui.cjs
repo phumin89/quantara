@@ -198,6 +198,14 @@ async function verifyTransport() {
       assert.equal((await act('disable', {}, headers)).status, 403);
     }
     assert.equal((await act('approve', {})).status, 404);
+    for (const body of [
+      {},
+      { accountKey: ' ', rulesHash: 'a'.repeat(64) },
+      { accountKey: overview.accountKey, rulesHash: 'not-a-policy-hash' },
+      { accountKey: overview.accountKey, rulesHash: 'a'.repeat(64), rules },
+    ]) {
+      assert.equal((await act('prepare', body)).status, 400);
+    }
     assert.equal((await act('mode', { mode: 'autoLive' })).status, 400);
     assert.equal((await act('mode', { mode: 'invalid' })).status, 400);
     assert.equal(
@@ -252,6 +260,20 @@ async function verifyTransport() {
       undefined,
       'read request has no authority token',
     );
+    const preparation = {
+      accountKey: overview.accountKey,
+      rulesHash: 'a'.repeat(64),
+    };
+    assert.equal((await act('prepare', preparation)).status, 200);
+    assert.equal(
+      calls.at(-1).target,
+      'http://portfolio.fixture.invalid:5050/api/trading/prepare',
+    );
+    assert.deepEqual(JSON.parse(calls.at(-1).init.body), preparation);
+    assert.equal(
+      calls.at(-1).init.headers['X-Quantara-Trading-Control'],
+      'isolated-fixture-token',
+    );
     const mandate = {
       accountKey: overview.accountKey,
       rulesHash: overview.rulesHash,
@@ -278,6 +300,17 @@ async function verifyTransport() {
     const service = new TradingService(requests);
     assert.deepEqual(await service.get(), overview);
     const signal = new AbortController().signal;
+    assert.deepEqual(
+      await service.prepare(
+        preparation.accountKey,
+        preparation.rulesHash,
+        signal,
+      ),
+      overview,
+    );
+    assert.equal(calls.at(-1).target, '/api/trading/prepare');
+    assert.deepEqual(JSON.parse(calls.at(-1).init.body), preparation);
+    assert.equal(calls.at(-1).init.signal, signal);
     await service.activate(
       overview.accountKey,
       overview.rulesHash,
@@ -603,17 +636,48 @@ async function verifyBrowser() {
     if (path.startsWith('/api/trading/') && request.method() === 'POST') {
       const body = request.postDataJSON();
       writes.push({ path, body });
-      if (path.endsWith('/config'))
+      const preparedRules = {
+        ...rules,
+        version: 'adaptive-intraday-v2',
+        symbols: [],
+        maxPositions: 16,
+        adaptive: {
+          universeVersion: 'bitkub-thb-spot-v1',
+          includeFutureDeposits: true,
+          excludedSymbols: ['USDT', 'USDC', 'DAI'],
+          risk: {
+            profile: 'aggressive',
+            maximumExposureFraction: 1,
+            maximumConcentrationFraction: 1,
+            riskToStopFraction: 0.05,
+            atrMultiplier: 1,
+            maximumSpreadFraction: 0.005,
+            estimatedFeeRate: 0.0025,
+            maximumDataAgeSeconds: 90,
+            maximumSignalAgeSeconds: 600,
+          },
+          dailyLossFraction: 0.1,
+          dailyProfitTargetThb: 500,
+        },
+      };
+      if (path.endsWith('/prepare')) {
+        assert.deepEqual(body, {
+          accountKey: current.accountKey,
+          rulesHash: current.rulesHash,
+        });
+      }
+      const nextRules = path.endsWith('/prepare') ? preparedRules : body.rules;
+      if (path.endsWith('/config') || path.endsWith('/prepare'))
         current = {
           ...current,
           mode: 'stopped',
-          rules: body.rules,
+          rules: nextRules,
           rulesHash:
-            body.rules.version === 'adaptive-intraday-v1' ||
-            body.rules.version === 'adaptive-intraday-v2'
+            nextRules.version === 'adaptive-intraday-v1' ||
+            nextRules.version === 'adaptive-intraday-v2'
               ? 'adaptive-fixture-hash'
               : 'saved-fixture-hash',
-          autonomy: body.rules.adaptive
+          autonomy: nextRules.adaptive
             ? {
                 observedAt: '2026-10-16T04:00:00Z',
                 universeAt: '2026-10-16T04:00:00Z',
@@ -855,14 +919,22 @@ async function verifyBrowser() {
       .waitFor();
     assert.equal(
       writes.filter((write) => write.path.endsWith('/config')).length,
-      2,
+      1,
+    );
+    assert.equal(
+      writes.filter((write) => write.path.endsWith('/prepare')).length,
+      1,
     );
     assert.equal(
       writes.filter((write) => write.path.endsWith('/activate')).length,
       0,
       'setup never activates',
     );
-    assert.deepEqual(writes.at(-1).body.rules.symbols, []);
+    assert.deepEqual(Object.keys(writes.at(-1).body).sort(), [
+      'accountKey',
+      'rulesHash',
+    ]);
+    assert.deepEqual(current.rules.symbols, []);
     const enable = page.getByRole('button', {
       name: 'Enable Auto Trading',
       exact: true,
@@ -979,6 +1051,59 @@ async function verifyBrowser() {
         bounds && bounds.y + bounds.height <= height,
         name + ' primary action is in the first viewport',
       );
+      const writesBeforeSettings = writes.length;
+      await page
+        .getByRole('button', { name: 'Trading settings', exact: true })
+        .click();
+      const settings = page.getByRole('dialog', {
+        name: 'Trading settings',
+        exact: true,
+      });
+      await settings
+        .getByText('System-managed trading plan', { exact: true })
+        .waitFor();
+      assert.equal(await settings.locator('input:visible').count(), 0);
+      assert.equal(
+        await settings
+          .getByRole('button', { name: 'Save overrides and disarm live' })
+          .isVisible(),
+        false,
+      );
+      assert.equal(
+        await settings
+          .getByRole('button', { name: 'Paper', exact: true })
+          .isVisible(),
+        false,
+      );
+      await settings
+        .getByText('Saved maximum holding time: 120 minutes.', { exact: true })
+        .waitFor();
+      assert.equal(
+        writes.length,
+        writesBeforeSettings,
+        'Opening settings never changes rules or authority',
+      );
+      await page.screenshot({
+        path: `.impeccable/review/automatic-settings-${name}.png`,
+        fullPage: false,
+        animations: 'disabled',
+      });
+      assert(
+        await settings.evaluate(
+          (element) => element.scrollWidth <= element.clientWidth + 1,
+        ),
+      );
+      const overridesBounds = await settings
+        .locator('summary')
+        .filter({ hasText: 'Advanced overrides' })
+        .boundingBox();
+      assert(
+        overridesBounds && overridesBounds.y + overridesBounds.height <= height,
+        `${name} settings fit without opening numeric fields`,
+      );
+      await settings
+        .getByRole('button', { name: 'Close trading settings' })
+        .click();
     }
     await page
       .getByRole('button', { name: 'Trading settings', exact: true })
@@ -990,7 +1115,7 @@ async function verifyBrowser() {
     );
     await page
       .locator('summary')
-      .filter({ hasText: 'Advanced settings' })
+      .filter({ hasText: 'Advanced overrides' })
       .click();
     await page.getByLabel('Maximum exposure (%)', { exact: false }).waitFor();
     await page.screenshot({

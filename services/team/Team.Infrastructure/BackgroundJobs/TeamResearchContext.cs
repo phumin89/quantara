@@ -28,6 +28,11 @@ public static class TeamResearchContext
     {
         using var evidenceDocument = JsonDocument.Parse(evidence);
         var priorReview = prior?.Steps.FirstOrDefault(step => step.Role == TeamRole.Reviewer)?.Output;
+        if (current.Task is not null)
+        {
+            priorReview = role is "ceo" or "reviewer" ? priorReview?[..Math.Min(priorReview.Length, 1800)] : null;
+        }
+
         var newsNode = JsonNode.Parse(CompactNews(news))?.AsObject() ?? throw new JsonException();
         while (true)
         {
@@ -56,7 +61,20 @@ public static class TeamResearchContext
                         new
                         {
                             evidence = evidenceDocument.RootElement,
-                            dailyLearning = JsonSerializer.Deserialize<JsonElement>(learning),
+                            dailyLearning = current.Task is not null && role is not ("ceo" or "reviewer")
+                                ? (JsonElement?)null
+                                : JsonSerializer.Deserialize<JsonElement>(learning),
+                            researchTask = current.Task is { } task
+                                ? new
+                                {
+                                    schemaVersion = "focused-research-v1",
+                                    role = task.Specialist.ToString().ToLowerInvariant(),
+                                    inputDigest = task.InputDigest,
+                                    policyHash = task.PolicyHash,
+                                    evidenceAt = task.EvidenceAt,
+                                    expiresAt = task.ExpiresAt,
+                                }
+                                : null,
                             mandate = new
                             {
                                 dailyNetProfitTargetThb = TradingMandate.DailyNetProfitTargetThb,

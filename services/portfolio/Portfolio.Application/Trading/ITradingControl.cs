@@ -6,6 +6,12 @@ public interface ITradingControl
 {
     public Task<TradingState> Configure(TradingRuleSet rules, CancellationToken cancellationToken);
 
+    public Task<TradingState> PrepareAdaptive(
+        string accountKey,
+        string expectedRulesHash,
+        CancellationToken cancellationToken
+    );
+
     public Task<TradingState> SetMode(TradingMode mode, CancellationToken cancellationToken);
 
     public Task<TradingState> Activate(

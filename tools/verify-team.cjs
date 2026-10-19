@@ -27,6 +27,11 @@ async function verify() {
     status: companyEnabled ? (active ? 'running' : 'waiting') : 'stopped',
     nextRunAt: companyEnabled ? '2026-10-13T04:00:00Z' : null,
     lastRunId: null,
+    lastCompletedAt: '2026-10-13T02:55:00Z',
+    activeRole: active ? 'positions' : null,
+    nextRole: active ? 'reviewer' : 'intraday',
+    budgetReason: 'ordinary_research_limit',
+    budgetMode: 'boundedRequests',
     error: null,
   });
   const run = {
@@ -63,6 +68,17 @@ async function verify() {
         : step,
     ),
   };
+  const modernRun = {
+    ...run,
+    id: '318d734e-0446-492d-8b62-ffbd106d044e',
+    status: 'running',
+    steps: ['positions', 'reviewer'].map((role) => ({
+      role,
+      status: 'running',
+      output: `Fixture ${role} report.`,
+      error: null,
+    })),
+  };
   page.on('request', (request) => {
     if (request.method() !== 'GET') writes++;
   });
@@ -70,7 +86,7 @@ async function verify() {
     route.fulfill({
       json: {
         configured: true,
-        latestRun: active ? { ...run, status: 'running' } : run,
+        latestRun: active ? modernRun : run,
         company: company(),
       },
     }),
@@ -212,6 +228,22 @@ async function verify() {
       .getByText('Fixture ceo report.', { exact: false })
       .first()
       .waitFor();
+    await page.getByText('Last completed', { exact: false }).waitFor();
+    await page
+      .getByText('Current role: Position Reviewer', { exact: true })
+      .waitFor();
+    await page
+      .getByText('Next eligible: Evidence Reviewer', { exact: true })
+      .waitFor();
+    await page
+      .getByText('Limited research calls: Routine research slots are busy.', {
+        exact: true,
+      })
+      .waitFor();
+    assert.equal(
+      await page.getByText('ordinary_research_limit', { exact: true }).count(),
+      0,
+    );
     const activeReads = reads;
     const polled = page.waitForResponse((response) =>
       response.url().includes('/api/team/brief?'),
@@ -251,17 +283,18 @@ async function verify() {
         ),
         `${name} overflow`,
       );
-      const members = page.getByRole('button', { name: 'Members · 3' });
+      const members = page.getByRole('button', { name: 'Members · 7' });
       if (width < 1024) {
         await members.click();
         await page
           .getByText('Direction & coordination', { exact: true })
           .waitFor();
+        await page.getByText('Available', { exact: true }).first().waitFor();
         await members.click();
       }
       if (name !== 'small')
         await page.screenshot({
-          path: `.impeccable/review/daily-brief-${name}.png`,
+          path: `.impeccable/review/continuous-${name}.png`,
           fullPage: true,
         });
     }

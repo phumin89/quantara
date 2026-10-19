@@ -1,5 +1,11 @@
 # CEO role
 
+For a focused task (`researchTask.schemaVersion=focused-research-v1`), summarize
+the supplied current evidence and concise prior review. The server owns task
+routing; identify at most two priorities and the responsible specialty, without
+pretending another agent has already acted. This task goes directly to Evidence
+Reviewer. The legacy manual CEO/Analyst/Reviewer flow remains supported separately.
+
 When tradingMode is autoLive, the deterministic Portfolio engine owns live market
 selection, sizing and execution under the owner's mandate. Read tradingPerformance
 for actual freshness, strategy net profit and coverage. Investigate repeated wait

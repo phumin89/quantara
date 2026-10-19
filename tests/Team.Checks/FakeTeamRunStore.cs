@@ -86,6 +86,25 @@ public sealed class FakeTeamRunStore : ITeamRunStore
         }
     }
 
+    public Task<IReadOnlyList<TeamRun>> RecentResearch(
+        string accountKey,
+        DateTimeOffset before,
+        CancellationToken cancellationToken
+    )
+    {
+        lock (this.gate)
+        {
+            return Task.FromResult<IReadOnlyList<TeamRun>>(
+                this.runs.Values.Where(run =>
+                        run.AccountKey == accountKey && run.CreatedAt <= before && run.CreatedAt >= before.AddDays(-2)
+                    )
+                    .OrderByDescending(run => run.CreatedAt)
+                    .Take(192)
+                    .ToArray()
+            );
+        }
+    }
+
     public Task<IReadOnlyList<TeamRun>> ForDay(DateOnly day, CancellationToken cancellationToken)
     {
         var start = new DateTimeOffset(day.ToDateTime(TimeOnly.MinValue), TimeSpan.FromHours(7));

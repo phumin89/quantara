@@ -3,6 +3,11 @@ import type { TradingRules } from '../contracts/TradingRules';
 
 export interface ITradingService {
   get(signal?: AbortSignal): Promise<TradingOverview>;
+  prepare(
+    accountKey: string,
+    rulesHash: string,
+    signal?: AbortSignal,
+  ): Promise<TradingOverview>;
   configure(
     rules: TradingRules,
     signal?: AbortSignal,

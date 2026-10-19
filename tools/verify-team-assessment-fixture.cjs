@@ -113,6 +113,62 @@ const run = {
   assessment: current,
 };
 assert.equal(teamRunSchema.safeParse(run).success, true);
+for (const roles of [
+  ['ceo', 'reviewer'],
+  ['intraday', 'reviewer'],
+  ['swing', 'reviewer'],
+  ['news', 'reviewer'],
+  ['positions', 'reviewer'],
+  ['quant', 'reviewer'],
+]) {
+  assert.equal(
+    teamRunSchema.safeParse({
+      ...run,
+      steps: roles.map((role) => ({
+        role,
+        status: 'completed',
+        output: 'Report',
+        error: null,
+      })),
+      assessment: undefined,
+    }).success,
+    true,
+  );
+}
+for (const roles of [
+  ['analyst', 'reviewer'],
+  ['ceo', 'ceo', 'reviewer'],
+  ['intraday', 'analyst', 'reviewer'],
+  ['ceo', 'reviewer', 'intraday'],
+]) {
+  assert.equal(
+    teamRunSchema.safeParse({
+      ...run,
+      steps: roles.map((role) => ({
+        role,
+        status: 'completed',
+        output: 'Report',
+        error: null,
+      })),
+      assessment: undefined,
+    }).success,
+    false,
+  );
+}
+assert.equal(
+  teamRunSchema.safeParse({
+    ...run,
+    steps: run.steps.map((step, index) =>
+      index === 0
+        ? {
+            ...step,
+            usage: { inputTokens: 10, outputTokens: 5, cachedInputTokens: 2 },
+          }
+        : step,
+    ),
+  }).success,
+  true,
+);
 assert.equal(
   teamRunSchema.safeParse({ ...run, accountKey: 'b'.repeat(64) }).success,
   false,

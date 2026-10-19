@@ -24,6 +24,19 @@ public sealed class TradingController(IMediator mediator) : ControllerBase
             "application/json"
         );
 
+    [HttpPost("prepare")]
+    public async Task<IActionResult> Prepare(
+        PrepareAdaptiveTradingRequest request,
+        CancellationToken cancellationToken
+    ) =>
+        this.Content(
+            await mediator.Send(
+                new PrepareAdaptiveTradingCommand(request.AccountKey, request.RulesHash),
+                cancellationToken
+            ),
+            "application/json"
+        );
+
     [HttpPost("mode")]
     public async Task<IActionResult> Mode(SetTradingModeRequest request, CancellationToken cancellationToken)
     {

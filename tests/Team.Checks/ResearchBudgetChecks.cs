@@ -7,27 +7,67 @@ public static class ResearchBudgetChecks
     public static Task Run()
     {
         var now = new DateTimeOffset(2026, 10, 19, 0, 30, 0, TimeSpan.FromHours(7));
-        var hourly = new[] { now.AddMinutes(-45), now.AddMinutes(-10) };
-        Check(!ResearchBudgetRules.Decide(hourly, true, now).Allowed, "Rolling-hour claims cross Bangkok midnight.");
+        var old = Enumerable
+            .Range(0, 32)
+            .Select(index => new ResearchBudgetAttempt(now.AddHours(-2).AddMinutes(index), false))
+            .ToArray();
+        Check(ResearchBudgetRules.Decide(old, false, now).Allowed, "Old claims do not impose a calendar-day limit.");
+        var ordinary = new[]
+        {
+            new ResearchBudgetAttempt(now.AddMinutes(-45), false),
+            new ResearchBudgetAttempt(now.AddMinutes(-10), false),
+        };
+        Check(!ResearchBudgetRules.Decide(ordinary, false, now).Allowed, "Ordinary lane allows two claims per hour.");
         Check(
-            ResearchBudgetRules.Decide(hourly, true, now).NextAllowedAt == now.AddMinutes(15),
-            "Exact hourly next attempt is explicit."
+            ResearchBudgetRules
+                .Decide(
+                    [
+                        new ResearchBudgetAttempt(now.AddHours(-1), false),
+                        new ResearchBudgetAttempt(now.AddMinutes(-10), false),
+                    ],
+                    false,
+                    now
+                )
+                .Allowed,
+            "Exact release boundary succeeds."
         );
-        var endOfDay = now.Date.AddHours(23);
-        var late = new DateTimeOffset(endOfDay, now.Offset);
-        var daily = Enumerable.Range(0, 24).Select(index => now.AddMinutes(index * 40)).ToArray();
-        Check(!ResearchBudgetRules.Decide(daily, false, late).Allowed, "Ordinary rounds reserve eight slots.");
-        Check(ResearchBudgetRules.Decide(daily, true, late).Allowed, "Position reviews may use reserved slots.");
-        var full = Enumerable.Range(0, 32).Select(index => now.AddMinutes(index * 30)).ToArray();
-        Check(!ResearchBudgetRules.Decide(full, true, late).Allowed, "No more than 32 rounds per Bangkok day.");
+        Check(ResearchBudgetRules.Decide(ordinary, true, now).Allowed, "Priority lane remains available.");
+        var priority = new[] { new ResearchBudgetAttempt(now.AddMinutes(-45), true) };
         Check(
-            !ResearchBudgetRules.Decide(full.ToArray(), true, late).Allowed,
-            "Reloaded durable claims are not refunded."
+            ResearchBudgetRules.Decide(priority, false, now).Allowed,
+            "Ordinary lane remains available after priority saturation."
         );
-        Check(ResearchBudgetRules.Decide([], false, now).Allowed, "An independently scoped empty account can claim.");
-        Console.WriteLine(
-            "Research budget: rolling hour, Bangkok day, reserved position reviews and reloaded claims passed."
+        ResearchBudgetAttempt[] full = [.. ordinary, .. priority];
+        var denied = ResearchBudgetRules.Decide(full, false, now);
+        Check(
+            !denied.Allowed && denied.Reason == "rolling_hour_limit" && denied.NextAllowedAt == now.AddMinutes(15),
+            "Three total claims and exact release are explicit."
         );
+        Check(
+            ResearchBudgetRules
+                .Decide(
+                    [
+                        new ResearchBudgetAttempt(now.AddMinutes(-59), false),
+                        new ResearchBudgetAttempt(now.AddMinutes(-50), false),
+                        new ResearchBudgetAttempt(now.AddMinutes(-40), false),
+                        new ResearchBudgetAttempt(now.AddMinutes(-30), false),
+                    ],
+                    false,
+                    now
+                )
+                .NextAllowedAt == now.AddMinutes(20),
+            "Overfull retained claims release the required later claim."
+        );
+        Check(
+            ResearchBudgetRules.Decide([new ResearchBudgetAttempt(now.AddMinutes(10), false)], false, now).Reason
+                == "future_claim",
+            "Future claims defer explicitly."
+        );
+        Check(
+            ResearchBudgetRules.Decide(Array.Empty<ResearchBudgetAttempt>(), false, now).Allowed,
+            "An independently scoped empty account can claim."
+        );
+        Console.WriteLine("Research budget: rolling-hour lanes and future claims passed.");
         return Task.CompletedTask;
     }
 

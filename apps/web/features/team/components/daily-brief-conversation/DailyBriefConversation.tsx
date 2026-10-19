@@ -331,9 +331,13 @@ export default class DailyBriefConversation extends Component<
             {run.steps
               .filter((step) => step.output || step.error)
               .map((step) => {
-                const member = TeamPresentation.members.find(
-                  (item) => item.role === step.role,
-                );
+                const member =
+                  TeamPresentation.members.find(
+                    (item) => item.role === step.role,
+                  ) ??
+                  TeamPresentation.legacyMembers.find(
+                    (item) => item.role === step.role,
+                  );
 
                 return (
                   <Stack

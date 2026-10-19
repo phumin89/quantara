@@ -3,6 +3,7 @@ import { Alert, Box, Button, Stack, Typography } from '@mui/material';
 import StopOutlinedIcon from '@mui/icons-material/StopOutlined';
 import PlayArrowOutlinedIcon from '@mui/icons-material/PlayArrowOutlined';
 import { CompanyLoopStatus } from '../../contracts/CompanyLoopStatus';
+import { TeamPresentation } from '../../presentation/TeamPresentation';
 import type { TeamResearchStatusProps } from './TeamResearchStatusProps';
 
 export default class TeamResearchStatus extends Component<TeamResearchStatusProps> {
@@ -47,6 +48,41 @@ export default class TeamResearchStatus extends Component<TeamResearchStatusProp
                   Bangkok
                 </Typography>
               )}
+            {company?.lastCompletedAt && (
+              <Typography
+                variant="caption"
+                color="text.secondary"
+              >
+                Last completed {this.formatDate(company.lastCompletedAt)}
+              </Typography>
+            )}
+            {company?.activeRole && (
+              <Typography
+                variant="caption"
+                color="text.secondary"
+              >
+                Current role: {TeamPresentation.roleName(company.activeRole)}
+              </Typography>
+            )}
+            {company?.nextRole && (
+              <Typography
+                variant="caption"
+                color="text.secondary"
+              >
+                Next eligible: {TeamPresentation.roleName(company.nextRole)}
+              </Typography>
+            )}
+            {company?.budgetReason && (
+              <Typography
+                variant="caption"
+                color="text.secondary"
+              >
+                {company.budgetMode === 'boundedRequests'
+                  ? 'Limited research calls: '
+                  : ''}
+                {this.budgetLabel(company.budgetReason)}
+              </Typography>
+            )}
           </Stack>
           <Button
             variant="outlined"
@@ -95,6 +131,29 @@ export default class TeamResearchStatus extends Component<TeamResearchStatusProp
         return 'Company needs attention';
       case undefined:
         return this.props.loading ? 'Checking company…' : 'Company unavailable';
+    }
+  }
+
+  private formatDate(value: string): string {
+    return new Date(value).toLocaleString('en-GB', {
+      timeZone: 'Asia/Bangkok',
+    });
+  }
+
+  private budgetLabel(reason: string): string {
+    switch (reason) {
+      case 'ordinary_research_limit':
+        return 'Routine research slots are busy.';
+      case 'position_review_limit':
+        return 'Position review slot is busy.';
+      case 'rolling_hour_limit':
+        return 'Research slots are busy.';
+      case 'future_claim':
+        return 'Waiting for clock alignment.';
+      case 'waiting_for_evidence':
+        return 'Waiting for new evidence.';
+      default:
+        return reason;
     }
   }
 }

@@ -5,5 +5,7 @@ public sealed record CompanySchedule(
     DateTimeOffset NextRunAt,
     Guid? LastRunId,
     string? LastSignalKey = null,
-    DateTimeOffset? LastAnalysisAt = null
+    DateTimeOffset? LastAnalysisAt = null,
+    string? DeferredReason = null,
+    TeamRole? NextRole = null
 );

@@ -1,6 +1,6 @@
 export class CodexOutputSchema {
   static create(role, requiresAssessment) {
-    return {
+    const schema = {
       type: 'object',
       properties: {
         output: { type: 'string', minLength: 1, maxLength: 16000 },
@@ -69,7 +69,7 @@ export class CodexOutputSchema {
         researchSymbols: {
           type: 'array',
           items: { type: 'string', pattern: '^[A-Z0-9]{1,30}$' },
-          maxItems: role === 'ceo' ? 3 : 0,
+          maxItems: ['ceo', 'intraday'].includes(role) ? 3 : 0,
         },
         assessment: {
           anyOf: [
@@ -193,10 +193,15 @@ export class CodexOutputSchema {
       ],
       additionalProperties: false,
     };
+    if (role !== 'reviewer') {
+      schema.properties.proposal = { type: 'null' };
+      schema.properties.assessment = { type: 'null' };
+    }
+    return schema;
   }
 
   static lesson(role) {
-    if (role === 'ceo' || role === 'analyst') return { type: 'null' };
+    if (role !== 'reviewer') return { type: 'null' };
     return {
       type: 'object',
       properties: {

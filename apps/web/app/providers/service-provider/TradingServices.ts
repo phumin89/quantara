@@ -12,6 +12,10 @@ export class TradingServices implements ITradingService {
     return this.container.resolve(ServiceKey.Trading).get(signal);
   }
 
+  public prepare(...args: Parameters<ITradingService['prepare']>) {
+    return this.container.resolve(ServiceKey.Trading).prepare(...args);
+  }
+
   public configure(...args: Parameters<ITradingService['configure']>) {
     return this.container.resolve(ServiceKey.Trading).configure(...args);
   }
