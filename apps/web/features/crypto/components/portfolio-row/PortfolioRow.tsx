@@ -27,6 +27,32 @@ export default class PortfolioRow extends PureComponent<PortfolioRowProps> {
     ) : (
       <CheckCircleOutlinedIcon aria-hidden="true" />
     );
+    const lastBoughtAt = item.lastBoughtAt
+      ? new Intl.DateTimeFormat('en-GB', {
+          day: '2-digit',
+          month: 'short',
+          hour: '2-digit',
+          minute: '2-digit',
+          timeZone: 'Asia/Bangkok',
+        }).format(new Date(item.lastBoughtAt))
+      : null;
+    const lastBuy =
+      item.lastBuyPrice == null ? (
+        '—'
+      ) : (
+        <span title="Latest confirmed engine buy; excludes fees">
+          {FormatMoney.format(item.lastBuyPrice)}
+          {lastBoughtAt ? (
+            <Typography
+              component="span"
+              variant="caption"
+              sx={{ display: 'block', color: 'text.secondary' }}
+            >
+              {lastBoughtAt}
+            </Typography>
+          ) : null}
+        </span>
+      );
 
     return (
       <Fragment>
@@ -82,6 +108,7 @@ export default class PortfolioRow extends PureComponent<PortfolioRowProps> {
           </TableCell>
           {[
             FormatQuantity.format(item.quantity),
+            lastBuy,
             item.status === PositionStatus.Closed ? (
               '—'
             ) : (
@@ -114,7 +141,7 @@ export default class PortfolioRow extends PureComponent<PortfolioRowProps> {
         </TableRow>
         <TableRow>
           <TableCell
-            colSpan={8}
+            colSpan={9}
             sx={{ p: 0, border: 0 }}
           >
             <TradeHistory

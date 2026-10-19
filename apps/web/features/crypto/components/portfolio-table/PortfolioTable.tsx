@@ -27,6 +27,7 @@ export default class PortfolioTable extends PureComponent<PortfolioTableProps> {
       'Coin',
       'Status',
       'Quantity',
+      'Last buy',
       'Avg. Cost',
       'Current Price',
       'Value',
@@ -89,7 +90,7 @@ export default class PortfolioTable extends PureComponent<PortfolioTableProps> {
             {!positions.length && (
               <TableRow>
                 <TableCell
-                  colSpan={8}
+                  colSpan={9}
                   sx={{ py: 5, textAlign: 'center', color: '#707070' }}
                 >
                   {hasRecords

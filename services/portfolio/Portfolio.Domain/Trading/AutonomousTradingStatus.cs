@@ -11,4 +11,7 @@ public sealed record AutonomousTradingStatus(
     CapitalSnapshot? Capital,
     string Activity,
     DateTimeOffset NextCheckAt
-);
+)
+{
+    public IReadOnlyList<TradingHistoryEvidence>? History { get; init; }
+}

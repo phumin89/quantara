@@ -29,4 +29,8 @@ export class TeamServices implements ITeamService {
   public stop(id: string, signal?: AbortSignal) {
     return this.container.resolve(ServiceKey.Team).stop(id, signal);
   }
+
+  public news(signal?: AbortSignal) {
+    return this.container.resolve(ServiceKey.Team).news(signal);
+  }
 }

@@ -63,9 +63,27 @@ public static class TradingShadowChecks
             TradingShadowProtocol.Advance(sample, null, now.AddMinutes(16)).State == TradingShadowState.Expired,
             "An unobserved entry expires without inventing a profit."
         );
-        var state = fixture.Store.State with { Shadows = [closed] };
+        var closedUnknown = closed with { Key = "closed-unknown", NetThb = null };
+        var expired = TradingShadowProtocol.Advance(sample, null, now.AddMinutes(16));
+        var unknown = TradingShadowProtocol.Advance(entered, null, now.AddHours(3));
+        var state = fixture.Store.State with { Shadows = [sample, entered, closed, closedUnknown, expired, unknown] };
+        var summary = TradingOpportunityReview.Days(state, now).Single();
         Check(
-            TradingOpportunityReview.Days(state, now).Single().Closed == 1 && state.Live.Fills.Count == 0,
+            summary.Captured == 6
+                && summary.Waiting == 2
+                && summary.Open == 1
+                && summary.Closed == 1
+                && summary.ClosedUnknown == 1
+                && summary.Expired == 1
+                && summary.Unknown == 1
+                && summary.Waiting + summary.Closed + summary.ClosedUnknown + summary.Expired + summary.Unknown
+                    == summary.Captured,
+            "Learning summaries reconcile every captured state while retaining waiting and known-closed semantics."
+        );
+        Check(
+            summary.MeanNetReturnFraction is not null
+                && summary.MeanNetReturnFraction == closed.NetThb / closed.EntryCostThb
+                && state.Live.Fills.Count == 0,
             "Learning summaries remain separate from real-account performance."
         );
         var projected = new TradingOverviewProjection(

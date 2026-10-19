@@ -1,11 +1,22 @@
 using Quantara.MarketData.Checks;
 using Quantara.MarketData.Infrastructure;
 
+if (args.Contains("--feature-sql-only", StringComparer.Ordinal))
+{
+    await NewsSqlChecks.Run();
+    Console.WriteLine("News SQL checks passed.");
+    return;
+}
+
 IntradaySignalChecks.Run();
 AdaptiveMarketChecks.Run();
 PublicTickerChecks.Run();
 await ExecutionUniverseChecks.Run();
 await MarketEventChecks.Run();
+await AdaptiveTimeframeChecks.Run();
+NewsChecks.Run();
+NewsPacketBudgetChecks.Run();
+await NewsSqlChecks.Run();
 
 static void Assert(bool condition, string message)
 {

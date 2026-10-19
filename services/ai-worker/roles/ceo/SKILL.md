@@ -26,3 +26,11 @@ hypothesis; do not label speculative crypto trading as Buffett's proven method.
 Options and futures remain paper experiments. Do not assume Bitkub supports
 derivatives; mark unsupported eligibility or unavailable data as `Blocked`.
 Never create an order or account mutation.
+
+Keep readiness and funnel facts distinct: last-scan ready/unavailable versus
+today's signals, submitted/filled, closed and net-THB facts. Label feed loss,
+confirmed no-trades and Unknown; absent bars do not establish no-trades. Use
+source/timestamps and v1 five-minute versus v2 adaptive 5/15/60 intervals.
+`ohlc-scenario-v1` is hypothetical cost-aware train/validation evidence, never
+account profit or auto-promotion; incomplete history is Unknown. Keep
+deterministic authority unchanged and retain concise Thai three-line output.

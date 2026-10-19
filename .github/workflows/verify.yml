@@ -30,6 +30,9 @@ jobs:
       - run: npm run test:architecture
       - run: dotnet run --project tests/Analyzer.Checks/Analyzer.Checks.csproj
       - run: node tools/verify-editor-rules.cjs
+      - run: npm run test:docs
+      - run: npm run test:jobs
+      - run: npm run test:team-fixtures
       - run: dotnet run --no-build --project tests/Portfolio.Checks/Portfolio.Checks.csproj
       - run: dotnet run --no-build --project tests/Portfolio.Api.Checks/Portfolio.Api.Checks.csproj
       - run: node tools/verify-trading-ui.cjs
@@ -56,6 +59,7 @@ jobs:
       - run: npm run test:contracts
       - run: npm run test:lifecycle
       - run: npm run test:team-ui
+      - run: npm run test:team-scroll
       - run: npm run test:orders
       - run: npm run test:risk
       - run: node tools/verify-trading-ui.cjs --browser

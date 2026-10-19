@@ -135,16 +135,19 @@ public sealed class AutonomousRiskService(
                 "Account refresh is pending; other markets and exits continue."
             );
         var bars = book.Bars.OrderBy(bar => bar.Timestamp).TakeLast(21).ToArray();
+        var interval = TradingTimeframes.For(rules, book);
         var valid =
-            bars.Length == 21
-            && bars[^1].Timestamp == now.ToUnixTimeSeconds() / 300 * 300 - 300
+            TradingTimeframes.Supported(interval)
+            && (rules.Version is "adaptive-intraday-v2" or "adaptive-intraday-v3" || book.TimeframeSeconds == 300)
+            && bars.Length == 21
+            && bars[^1].Timestamp == TradingTimeframes.LastCompletedOpen(now, interval)
             && bars.All(bar =>
                 bar.Low > 0
                 && bar.High >= Math.Max(bar.Open, bar.Close)
                 && bar.Low <= Math.Min(bar.Open, bar.Close)
                 && bar.Volume >= 0
             )
-            && bars.Zip(bars.Skip(1)).All(pair => pair.Second.Timestamp - pair.First.Timestamp == 300);
+            && bars.Zip(bars.Skip(1)).All(pair => pair.Second.Timestamp - pair.First.Timestamp == interval);
         var anchor = valid
             ? bars.TakeLast(20)
                 .SingleOrDefault(bar => bar.Timestamp == signal.StopCandle && bar.Low == signal.StopPrice)
@@ -175,7 +178,8 @@ public sealed class AutonomousRiskService(
             book.QuoteScale,
             book.Enabled,
             anchor is not null,
-            resting
+            resting,
+            interval
         );
         var decision = AdaptiveRiskEngine.Evaluate(policy.Risk, snapshot, market, TradeSide.Buy, limit, signal, now);
         if (

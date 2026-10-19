@@ -12,5 +12,6 @@ public sealed record TeamRun(
     LearningSnapshot? Learning = null,
     LearningEvaluation? LearningEvaluation = null,
     LearningLesson? Lesson = null,
-    LearningDecision? Decision = null
+    LearningDecision? Decision = null,
+    ResearchAssessment? Assessment = null
 );

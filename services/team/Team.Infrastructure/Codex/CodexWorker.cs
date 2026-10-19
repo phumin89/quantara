@@ -8,6 +8,8 @@ namespace Quantara.Team.Infrastructure;
 
 public sealed class CodexWorker : ICodexWorker
 {
+    public const int MaxRequestCharacters = 100000;
+
     private static readonly JsonSerializerOptions jsonOptions = new()
     {
         Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
@@ -89,36 +91,29 @@ public sealed class CodexWorker : ICodexWorker
             start.Environment["CODEX_API_KEY"] = CodexWorker.Key;
         }
 
+        var body = CodexWorker.SerializeRequest(role, objective, previous, portfolio);
+        if (body.Length > CodexWorker.MaxRequestCharacters)
+        {
+            throw new CodexWorkerException("worker_input_too_large");
+        }
+
+        timeout.Token.ThrowIfCancellationRequested();
         using var process = new Process { StartInfo = start };
         process.Start();
-        using var kill = timeout.Token.Register(() =>
-        {
-            try
-            {
-                if (!process.HasExited)
-                {
-                    process.Kill(entireProcessTree: true);
-                }
-            }
-            catch (InvalidOperationException) { }
-        });
         var output = CodexWorker.ReadBounded(process.StandardOutput, timeout.Token);
         var stderr = CodexWorker.ReadBounded(process.StandardError, timeout.Token);
-        var body = JsonSerializer.Serialize(
-            new
-            {
-                role,
-                objective,
-                previous = previous.Select(item => new { role = item.Role, output = item.Output }),
-                portfolio,
-            },
-            CodexWorker.jsonOptions
-        );
         try
         {
             await process.StandardInput.WriteAsync(body.AsMemory(), timeout.Token);
             process.StandardInput.Close();
-            await process.WaitForExitAsync(timeout.Token);
+            var pending = new List<Task> { process.WaitForExitAsync(timeout.Token), output, stderr };
+            while (pending.Count > 0)
+            {
+                var completed = await Task.WhenAny(pending);
+                await completed;
+                pending.Remove(completed);
+            }
+
             var diagnostic = await stderr;
             var json = await output;
             if (process.ExitCode != 0)
@@ -128,7 +123,17 @@ public sealed class CodexWorker : ICodexWorker
 
             try
             {
-                return CodexWorker.Decode(json, role);
+                var report = CodexWorker.Decode(json, role);
+                if (role == "reviewer" && report.Assessment is null && portfolio?.StartsWith('{') == true)
+                {
+                    using var context = JsonDocument.Parse(portfolio);
+                    if (context.RootElement.TryGetProperty("assessmentContext", out _))
+                    {
+                        throw new CodexWorkerException("worker_response_invalid");
+                    }
+                }
+
+                return report;
             }
             catch (Exception error)
                 when (error is JsonException or InvalidOperationException or KeyNotFoundException or FormatException)
@@ -140,7 +145,51 @@ public sealed class CodexWorker : ICodexWorker
         {
             throw new CodexWorkerException("worker_timed_out");
         }
+        finally
+        {
+            // Cancellation or an invalid pipe must not leave an isolated worker running.
+            await timeout.CancelAsync();
+            if (!process.HasExited)
+            {
+                try
+                {
+                    process.Kill(entireProcessTree: true);
+                }
+                catch (InvalidOperationException) when (process.HasExited) { }
+                catch (System.ComponentModel.Win32Exception) when (process.HasExited) { }
+            }
+
+            await process
+                .WaitForExitAsync(CancellationToken.None)
+                .WaitAsync(TimeSpan.FromSeconds(5), CancellationToken.None);
+            try
+            {
+                await Task.WhenAll(output, stderr);
+            }
+            catch (Exception error)
+                when (error is OperationCanceledException or IOException or InvalidOperationException)
+            {
+                // The primary read/exit failure is already propagated above; observe both cleanup tasks.
+            }
+        }
     }
+
+    public static string SerializeRequest(
+        string role,
+        string objective,
+        IReadOnlyList<(string Role, string Output)> previous,
+        string? portfolio
+    ) =>
+        JsonSerializer.Serialize(
+            new
+            {
+                role,
+                objective,
+                previous = previous.Select(item => new { role = item.Role, output = item.Output }),
+                portfolio,
+            },
+            CodexWorker.jsonOptions
+        );
 
     private static ResearchReport Decode(string json, string role)
     {
@@ -234,7 +283,69 @@ public sealed class CodexWorker : ICodexWorker
             throw new CodexWorkerException("worker_response_invalid");
         }
 
-        return new ResearchReport(report, proposal, lesson, researchSymbols);
+        ResearchAssessment? assessment = null;
+        if (
+            result.RootElement.TryGetProperty("assessment", out var assessmentElement)
+            && assessmentElement.ValueKind != JsonValueKind.Null
+        )
+        {
+            if (assessmentElement.ValueKind != JsonValueKind.Object || role != "reviewer")
+            {
+                throw new CodexWorkerException("worker_response_invalid");
+            }
+
+            var schemaVersion = assessmentElement.GetProperty("schemaVersion").GetString();
+            var accountKey = assessmentElement.GetProperty("accountKey").GetString();
+            var runId = assessmentElement.GetProperty("runId").GetGuid();
+            var asOf = assessmentElement.GetProperty("asOf").GetDateTimeOffset();
+            var expiresAt = assessmentElement.GetProperty("expiresAt").GetDateTimeOffset();
+            if (schemaVersion != "research-assessment-v1" || string.IsNullOrWhiteSpace(accountKey) || expiresAt <= asOf)
+            {
+                throw new CodexWorkerException("worker_response_invalid");
+            }
+
+            assessment = new ResearchAssessment(
+                schemaVersion,
+                accountKey,
+                runId,
+                assessmentElement.TryGetProperty("policyHash", out var policy) ? policy.GetString() : null,
+                asOf,
+                expiresAt,
+                assessmentElement
+                    .GetProperty("evidenceIds")
+                    .EnumerateArray()
+                    .Select(item => item.GetString() ?? "")
+                    .ToArray(),
+                assessmentElement
+                    .GetProperty("positions")
+                    .EnumerateArray()
+                    .Select(item => new PositionAssessment(
+                        item.GetProperty("symbol").GetString() ?? "",
+                        item.GetProperty("action").GetString() ?? "",
+                        item.GetProperty("thesis").GetString() ?? "",
+                        item.GetProperty("reason").GetString() ?? "",
+                        item.GetProperty("reviewAfter").GetDateTimeOffset(),
+                        item.GetProperty("expiresAt").GetDateTimeOffset(),
+                        item.GetProperty("missingFields")
+                            .EnumerateArray()
+                            .Select(field => field.GetString() ?? "")
+                            .ToArray()
+                    ))
+                    .ToArray(),
+                assessmentElement
+                    .GetProperty("opportunities")
+                    .EnumerateArray()
+                    .Select(item => new ResearchOpportunity(
+                        item.GetProperty("symbol").GetString() ?? "",
+                        item.GetProperty("reason").GetString() ?? "",
+                        item.GetProperty("reconsiderWhen").GetString() ?? "",
+                        item.GetProperty("reviewAfter").GetDateTimeOffset()
+                    ))
+                    .ToArray()
+            );
+        }
+
+        return new ResearchReport(report, proposal, lesson, researchSymbols, assessment);
     }
 
     private static string LessonText(JsonElement lesson, string name)

@@ -29,6 +29,14 @@ public sealed class TradingControl(
             }
 
             if (
+                (state.Rules.ExitPolicy is not null || rules.ExitPolicy is not null)
+                && state.Paper.Positions.Concat(state.Live.Positions).Any(position => position.Quantity > 0)
+            )
+            {
+                throw new ArgumentException("Keep the original exit policy until all owned positions are closed.");
+            }
+
+            if (
                 state.Paper.Orders.Any(TradingLedgerAccounting.Active)
                 || state.Live.Orders.Any(TradingLedgerAccounting.Active)
             )
@@ -155,6 +163,13 @@ public sealed class TradingControl(
             }
 
             state.Rules.Validate();
+            if (state.Rules.ExitPolicy is not null && !options.AdaptiveExitLiveAvailable)
+            {
+                throw new ArgumentException(
+                    "Adaptive exits are experimental. Complete the shadow review before live activation."
+                );
+            }
+
             if (state.Live.Orders.Any(TradingLedgerAccounting.Active))
             {
                 throw new ArgumentException("Reconcile all outstanding strategy orders before activation.");
@@ -219,18 +234,24 @@ public sealed class TradingControl(
             if (
                 balances.SingleOrDefault(balance => balance.Symbol == "THB")?.Available is not decimal cash
                 || cash < requiredCash
-                || live.Positions.Any(position =>
-                    position.Quantity > 0
-                    && (
-                        balances.SingleOrDefault(balance => balance.Symbol == position.Symbol)?.Available
-                            is not decimal available
-                        || available < position.Quantity
-                    )
-                )
+                || !await this.PositionsCovered(live, balances, cancellationToken)
             )
             {
                 throw new ArgumentException(
                     "Verified available balances do not cover the strategy allocation and positions."
+                );
+            }
+
+            now = time.GetUtcNow();
+            if (
+                expiresAt <= now
+                || books.Any(book =>
+                    book.ObservedAt > now || now - book.ObservedAt > TimeSpan.FromSeconds(state.Rules.MaxDataAgeSeconds)
+                )
+            )
+            {
+                throw new ArgumentException(
+                    "Fresh market evidence and an unexpired mandate are required after position verification."
                 );
             }
 
@@ -273,6 +294,7 @@ public sealed class TradingControl(
     )
     {
         var service = adaptiveRisk ?? throw new InvalidOperationException("Autonomous risk service is unavailable.");
+        var policy = state.Rules.Adaptive ?? throw new InvalidOperationException("An adaptive policy is required.");
         var universe = await markets.ReadUniverse(cancellationToken);
         var capital = await service.Read(state.Rules, true, cancellationToken);
         var now = time.GetUtcNow();
@@ -294,18 +316,23 @@ public sealed class TradingControl(
             );
         }
 
-        if (
-            state.Live.Positions.Any(position =>
-                position.Quantity > 0
-                && (
-                    capital.Evidence.Balances.SingleOrDefault(balance => balance.Symbol == position.Symbol)?.Available
-                        is not decimal available
-                    || available < position.Quantity
-                )
-            )
-        )
+        if (!await this.PositionsCovered(state.Live, capital.Evidence.Balances, cancellationToken))
         {
             throw new ArgumentException("Reconcile existing owned positions before enabling the new policy.");
+        }
+
+        now = time.GetUtcNow();
+        if (
+            expiresAt <= now
+            || universe.ObservedAt > now
+            || now - universe.ObservedAt > TimeSpan.FromSeconds(state.Rules.MaxDataAgeSeconds)
+            || capital.Evidence.ObservedAt > now
+            || now - capital.Evidence.ObservedAt > TimeSpan.FromSeconds(policy.Risk.MaximumDataAgeSeconds)
+        )
+        {
+            throw new ArgumentException(
+                "Fresh account evidence and an unexpired mandate are required after position verification."
+            );
         }
 
         var cash = capital.Evidence.Balances.Single(balance => balance.Symbol == "THB").Quantity;
@@ -316,7 +343,6 @@ public sealed class TradingControl(
             FundingThb = state.Live.FundingThb + difference,
             OpenedAt = state.Live.FundingThb == 0 ? now : state.Live.OpenedAt,
         };
-        var policy = state.Rules.Adaptive ?? throw new InvalidOperationException("An adaptive policy is required.");
         var eligible = universe.Symbols.Except(policy.ExcludedSymbols, StringComparer.Ordinal).Count();
         return await this.Save(
             state,
@@ -371,6 +397,30 @@ public sealed class TradingControl(
         {
             gate.Release();
         }
+    }
+
+    private async Task<bool> PositionsCovered(
+        TradingLedger ledger,
+        IReadOnlyList<Balance> balances,
+        CancellationToken cancellationToken
+    )
+    {
+        foreach (var position in ledger.Positions.Where(position => position.Quantity > 0))
+        {
+            if (
+                !await TradingPositionBalance.Covers(
+                    balances.SingleOrDefault(balance => balance.Symbol == position.Symbol)?.Available,
+                    position,
+                    exchange,
+                    cancellationToken
+                )
+            )
+            {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     private static TradingLedger Resize(TradingLedger ledger, decimal allocation, DateTimeOffset now)

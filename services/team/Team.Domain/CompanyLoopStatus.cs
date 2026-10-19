@@ -7,5 +7,6 @@ public enum CompanyLoopStatus
     WaitingForPortfolio,
     Running,
     Waiting,
+    DeferredBudget,
     Error,
 }

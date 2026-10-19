@@ -26,7 +26,14 @@ public static class TradingOpportunityReview
                     group.Count(sample => sample.State is TradingShadowState.Waiting or TradingShadowState.Open),
                     group.Count(sample => sample.State == TradingShadowState.Unknown),
                     closed.Length == 0 ? null : closed.Average(sample => sample.NetThb / sample.EntryCostThb)
-                );
+                )
+                {
+                    Open = group.Count(sample => sample.State == TradingShadowState.Open),
+                    Expired = group.Count(sample => sample.State == TradingShadowState.Expired),
+                    ClosedUnknown = group.Count(sample =>
+                        sample.State == TradingShadowState.Closed && sample.NetThb is null
+                    ),
+                };
             })
             .ToArray();
 }

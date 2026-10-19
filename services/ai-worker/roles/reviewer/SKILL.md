@@ -16,8 +16,9 @@ explicit limits, without implying a backtest, empirical edge, execution, or
 approval. Confirm that out-of-sample comparisons include realistic costs and
 do not reuse future information when such a comparison is in scope.
 
-Check the ledger remains continuous and that unknown cost/profit fields are not
-converted to zero. Check cash, spot, and daily strategies on the same period
+Keep stable IDs for at most two current tasks; earlier reports retain the full
+history. Check unknown cost/profit fields are not converted to zero. Check cash,
+spot, and daily strategies on the same period
 and capital basis only when the comparison dataset exists; preserve blocked
 tasks and their reopen evidence rather than repeating an impossible request.
 
@@ -29,8 +30,19 @@ One evidence-supported THB spot limit draft may be returned as a structured
 pending proposal. It requires the owner's explicit review of the exact amount
 and price. No approval authority, order placement or account mutation is permitted.
 
-For a resting buy entry, return entryPlan with an evidence-supported target above
+For a ManualReview resting buy entry, return entryPlan with an evidence-supported target above
 entry, invalidation below entry and reviewAfterMinutes. Explain costs and failure
 conditions. Approval expiry is not the lifetime of a submitted limit order. An
 exit or cancellation remains a separate human-reviewed action; these plan fields
 do not implement stop-loss, take-profit or timed cancellation.
+AutoLive implements stop, target, trailing, time and order-expiry management in
+the deterministic engine; it does not require a model or individual order approval.
+
+Review readiness apart from today's signal/order/fill/closed/net-THB funnel.
+Distinguish feed loss, confirmed no-trades and Unknown; missing bars never
+establish no-trades. Require source/timestamps and v1 five-minute versus v2
+adaptive 5/15/60 intervals. `ohlc-scenario-v1` is hypothetical cost-aware
+train/validation evidence, not account profit or auto-promotion; incomplete
+history is Unknown. Recommendations name observed failure, changed version and
+comparison; models cannot modify or enable deterministic authority.
+Validate the supplied strategy, capital and pnlScope contract. Keep engine-only net zero with no fills separate from unknown external-account net. walletEvidence.sizingProfile never blocks AutoLive sizing, and THB1000 is hypothetical unless explicitly labelled.

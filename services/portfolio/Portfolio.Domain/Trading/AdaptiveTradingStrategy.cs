@@ -1,3 +1,5 @@
+using System.Globalization;
+
 namespace Quantara.Portfolio.Domain.Trading;
 
 public static class AdaptiveTradingStrategy
@@ -7,8 +9,6 @@ public static class AdaptiveTradingStrategy
     private const string pullbackVersion = "pullback-v1";
 
     private const string rangeVersion = "range-v1";
-
-    private const int candleSeconds = 300;
 
     private const int minimumBars = 51;
 
@@ -25,8 +25,48 @@ public static class AdaptiveTradingStrategy
     {
         ArgumentNullException.ThrowIfNull(rules);
         ArgumentNullException.ThrowIfNull(market);
+        var interval = TradingTimeframes.For(rules, market);
+        if (
+            !TradingTimeframes.Supported(interval)
+            || rules.Version is not ("adaptive-intraday-v2" or "adaptive-intraday-v3") && market.TimeframeSeconds != 300
+        )
+        {
+            return new(TradingAction.Wait, "Unsupported candle timeframe", 0, market.Bid);
+        }
 
-        var legacyRules = rules with { Version = "ema20-50-breakout-v1", Symbols = [market.Symbol], Adaptive = null };
+        var decision = EvaluateCore(rules, market, holding, now, interval);
+        return decision with
+        {
+            TimeframeSeconds = interval,
+            StrategyVersion =
+                rules.Version is "adaptive-intraday-v2" or "adaptive-intraday-v3"
+                && decision.StrategyVersion is { } version
+                    ? version.Replace("-v1", "-v2", StringComparison.Ordinal)
+                        + "-"
+                        + (interval / 60).ToString(CultureInfo.InvariantCulture)
+                        + "m"
+                    : decision.StrategyVersion,
+        };
+    }
+
+    private static TradingDecision EvaluateCore(
+        TradingRuleSet rules,
+        TradingBook market,
+        TradingHolding? holding,
+        DateTimeOffset now,
+        int candleSeconds
+    )
+    {
+        ArgumentNullException.ThrowIfNull(rules);
+        ArgumentNullException.ThrowIfNull(market);
+
+        var legacyRules = rules with
+        {
+            Version = "ema20-50-breakout-v1",
+            Symbols = [market.Symbol],
+            Adaptive = null,
+            ExitPolicy = null,
+        };
         legacyRules.Validate();
 
         var candle = market.Bars.Count == 0 ? 0L : market.Bars[^1].Timestamp;
@@ -62,6 +102,17 @@ public static class AdaptiveTradingStrategy
 
         if (holding is not null)
         {
+            if (rules.Version == "adaptive-intraday-v3")
+            {
+                if (holding.ExitPlan is null)
+                {
+                    return new(TradingAction.Wait, "No installed adaptive exit plan", candle, market.Bid);
+                }
+
+                var assessment = AdaptiveExitStrategy.Advance(rules, market, holding, now);
+                return new(assessment.Action, assessment.Reason, candle, market.Bid);
+            }
+
             if (holding.Symbol != market.Symbol || holding.Quantity <= 0 || holding.CostThb <= 0)
             {
                 return new(TradingAction.Wait, "Invalid holding", candle, market.Bid);
@@ -123,7 +174,11 @@ public static class AdaptiveTradingStrategy
                 || bar.Low > Math.Min(bar.Open, bar.Close)
                 || bar.Low <= 0m
                 || bar.High < bar.Low
-                || bar.Volume <= 0m
+                || (
+                    rules.Version is "adaptive-intraday-v2" or "adaptive-intraday-v3"
+                        ? bar.Volume < 0m
+                        : bar.Volume <= 0m
+                )
             )
             {
                 return new(
@@ -153,6 +208,17 @@ public static class AdaptiveTradingStrategy
         var recent = bars[^recentBars..];
         var sortedVolumes = previous.Select(bar => bar.Volume).OrderBy(volume => volume).ToArray();
         var medianVolume = (sortedVolumes[9] + sortedVolumes[10]) / 2m;
+        if (medianVolume <= 0)
+        {
+            return new(
+                TradingAction.Wait,
+                "Insufficient verified trading volume",
+                candle,
+                market.Bid,
+                StrategyVersion: breakoutVersion
+            );
+        }
+
         var ema20 = Ema(bars, 20);
         var ema50 = Ema(bars, 50);
         var structuralLow = recent.Min(bar => bar.Low);

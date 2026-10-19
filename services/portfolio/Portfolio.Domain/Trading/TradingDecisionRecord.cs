@@ -7,5 +7,7 @@ public sealed record TradingDecisionRecord(
     TradingAction Action,
     string Reason,
     DateTimeOffset At,
-    TradingMode Mode
+    TradingMode Mode,
+    int TimeframeSeconds = 300,
+    TradingAction? SignalAction = null
 );

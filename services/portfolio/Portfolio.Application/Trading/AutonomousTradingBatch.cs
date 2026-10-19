@@ -7,4 +7,7 @@ public sealed record AutonomousTradingBatch(
     IReadOnlyList<TradingBook> Books,
     IReadOnlyList<string> EntrySymbols,
     CapitalReadResult Capital
-);
+)
+{
+    public IReadOnlyList<TradingBook> ExitStudyBooks { get; init; } = [];
+}

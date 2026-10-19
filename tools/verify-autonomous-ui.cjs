@@ -12,8 +12,14 @@ require.extensions['.ts'] = (module, filename) => {
   module._compile(output.outputText, filename);
 };
 
-const panel = fs.readFileSync(
-  'apps/web/features/trading/components/trading-panel/TradingPanel.tsx',
+const componentRoot = 'apps/web/features/trading/components';
+const panel = fs
+  .readdirSync(componentRoot, { recursive: true })
+  .filter((file) => file.endsWith('.tsx'))
+  .map((file) => fs.readFileSync(`${componentRoot}/${file}`, 'utf8'))
+  .join('\n');
+const rulePresentation = fs.readFileSync(
+  'apps/web/features/trading/presentation/TradingRulePresentation.ts',
   'utf8',
 );
 const rules = fs.readFileSync(
@@ -29,7 +35,8 @@ assert.match(panel, /Autonomous trading/);
 assert.match(panel, /Set up and review autonomous trading/);
 assert.match(panel, /prepareAdaptiveSetup/);
 assert.match(panel, /Enable Auto Trading/);
-assert.match(panel, /adaptive-intraday-v1/);
+assert.match(rulePresentation, /adaptive-intraday-v1/);
+assert.match(rulePresentation, /adaptive-intraday-v2/);
 assert.match(rules, /adaptivePolicySchema/);
 assert.match(panel, /symbols: \[\]/);
 assert.match(overview, /autonomy:/);
@@ -76,11 +83,25 @@ const adaptiveRules = {
   },
 };
 assert.equal(tradingRulesSchema.safeParse(adaptiveRules).success, true);
+assert.equal(
+  tradingRulesSchema.safeParse({
+    ...adaptiveRules,
+    version: 'adaptive-intraday-v2',
+  }).success,
+  true,
+);
+assert.equal(
+  tradingRulesSchema.safeParse({
+    ...adaptiveRules,
+    version: 'adaptive-intraday-v2',
+    symbols: ['BTC'],
+  }).success,
+  false,
+);
+assert.match(panel, /Upgrade strategy/);
 
-const setupIndex = panel.indexOf('Set up and review autonomous trading');
-const activationIndex = panel.indexOf('private async activate');
-assert(setupIndex >= 0 && activationIndex > setupIndex);
-assert.match(panel.slice(setupIndex, activationIndex), /prepareAdaptiveSetup/);
+assert.match(panel, /Set up and review autonomous trading/);
+assert.match(panel, /prepareAdaptiveSetup\(overview\)/);
 
 console.log('Autonomous UI contract and staged activation checks pass.');
 
@@ -178,6 +199,12 @@ async function verifyComponent() {
   const find = (node, text) => {
     if (!React.isValidElement(node)) return null;
     if (
+      typeof node.type === 'function' &&
+      node.type.prototype instanceof React.Component
+    ) {
+      return find(new node.type(node.props).render(), text);
+    }
+    if (
       node.props.children === text &&
       typeof node.props.onClick === 'function'
     )
@@ -204,7 +231,7 @@ async function verifyComponent() {
       true,
       'successful setup opens the exact saved review',
     );
-    assert.equal(instance.state.overview.rules.version, 'adaptive-intraday-v1');
+    assert.equal(instance.state.overview.rules.version, 'adaptive-intraday-v2');
     assert.deepEqual(instance.state.overview.rules.symbols, []);
     await instance.activate(current);
     assert.deepEqual(writes, ['configure'], 'no expiry means no activation');
@@ -218,6 +245,37 @@ async function verifyComponent() {
       ['configure', 'activate'],
       'only an explicit confirmation sends one fake activation',
     );
+    current = {
+      ...current,
+      rules: { ...current.rules, version: 'adaptive-intraday-v1' },
+      rulesHash: 'unchanged-v1-hash',
+    };
+    instance.setState({
+      overview: structuredClone(current),
+      dirty: false,
+      reviewOpen: false,
+    });
+    await instance.load();
+    assert.equal(
+      instance.state.overview.rules.version,
+      'adaptive-intraday-v1',
+      'polling retains the saved v1 mandate',
+    );
+    instance.stageAdaptiveUpgrade();
+    assert.equal(instance.state.overview.rules.version, 'adaptive-intraday-v2');
+    assert.equal(instance.state.dirty, true);
+    assert.equal(
+      current.rules.version,
+      'adaptive-intraday-v1',
+      'upgrade stages only; no implicit save or activation',
+    );
+    await instance.load();
+    assert.equal(
+      instance.state.overview.rules.version,
+      'adaptive-intraday-v2',
+      'polling must retain the staged upgrade until save',
+    );
+    assert.deepEqual(writes, ['configure', 'activate']);
     console.log(
       'Actual class component: read-only mount/poll, setup/review, expiry and duplicate confirmation checks pass.',
     );

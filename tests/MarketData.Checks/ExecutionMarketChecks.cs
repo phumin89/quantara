@@ -19,19 +19,27 @@ public sealed class ExecutionMarketChecks : HttpMessageHandler
 
     private readonly int historyRows;
 
+    private readonly int? missingHistoryIndex;
+
+    private readonly bool unavailableHistory;
+
     private readonly ConcurrentQueue<Uri> requests = new();
 
     private ExecutionMarketChecks(
         bool invalidDepth = false,
         bool timeoutDepth = false,
         string? metadata = null,
-        int historyRows = 121
+        int historyRows = 121,
+        int? missingHistoryIndex = null,
+        bool unavailableHistory = false
     )
     {
         this.invalidDepth = invalidDepth;
         this.timeoutDepth = timeoutDepth;
         this.metadata = metadata;
         this.historyRows = historyRows;
+        this.missingHistoryIndex = missingHistoryIndex;
+        this.unavailableHistory = unavailableHistory;
     }
 
     public static async Task Run()
@@ -175,6 +183,148 @@ public sealed class ExecutionMarketChecks : HttpMessageHandler
             "An insufficient completed warmup must not become usable execution evidence."
         );
 
+        using var gappedHandler = new ExecutionMarketChecks(historyRows: 121);
+        using var gappedClient = Client(gappedHandler);
+        var fixedNow = new DateTimeOffset(2026, 10, 17, 12, 0, 0, TimeSpan.Zero);
+        var fixedClock = new FixedTimeProvider(fixedNow);
+        var gappedTo = fixedNow.ToUnixTimeSeconds() / 300 * 300;
+        var gappedSnapshot = Snapshot(
+            fixedNow,
+            Enumerable
+                .Range(0, 60)
+                .Where(index => index != 10)
+                .Select(index => new MarketCandle(gappedTo - (60 - index) * 300, 20, 21, 19, 20, 1))
+                .ToArray()
+        );
+        using var repairedResult = JsonDocument.Parse(
+            await new BitkubExecutionMarketReader(
+                gappedClient,
+                new ResearchIntradayReader(gappedSnapshot),
+                fixedClock
+            ).Read(["BTC"], CancellationToken.None)
+        );
+        Check(
+            gappedHandler.requests.Count(uri => uri.AbsolutePath.EndsWith("history", StringComparison.Ordinal)) == 1
+                && repairedResult.RootElement.GetProperty("markets")[0].GetProperty("bars").GetArrayLength() >= 51,
+            "A cached gap with fewer than 51 contiguous recent bars must trigger fresh history repair."
+        );
+
+        using var suffixHandler = new ExecutionMarketChecks();
+        using var suffixClient = Client(suffixHandler);
+        var suffixNow = fixedNow;
+        var suffixTo = suffixNow.ToUnixTimeSeconds() / 300 * 300;
+        var suffixBars = Enumerable
+            .Range(0, 70)
+            .Where(index => index != 5)
+            .Select(index => new MarketCandle(suffixTo - (70 - index) * 300, 20, 21, 19, 20, 1))
+            .ToArray();
+        using var suffixResult = JsonDocument.Parse(
+            await new BitkubExecutionMarketReader(
+                suffixClient,
+                new ResearchIntradayReader(Snapshot(suffixNow, suffixBars)),
+                fixedClock
+            ).Read(["BTC"], CancellationToken.None)
+        );
+        Check(
+            !suffixHandler.requests.Any(uri => uri.AbsolutePath.EndsWith("history", StringComparison.Ordinal))
+                && suffixResult.RootElement.GetProperty("markets")[0].GetProperty("bars").GetArrayLength() == 64,
+            "An older disconnected prefix must be ignored when the latest contiguous suffix is sufficient."
+        );
+
+        var suffixFirst = suffixTo - 64 * 300;
+        Check(
+            suffixResult
+                .RootElement.GetProperty("markets")[0]
+                .GetProperty("bars")[0]
+                .GetProperty("timestamp")
+                .GetInt64() == suffixFirst,
+            "The retained contiguous suffix must preserve its first candle timestamp."
+        );
+
+        using var httpGapHandler = new ExecutionMarketChecks(missingHistoryIndex: 60);
+        using var httpGapClient = Client(httpGapHandler);
+        using var httpGapResult = JsonDocument.Parse(
+            await new BitkubExecutionMarketReader(httpGapClient, timeProvider: fixedClock).Read(
+                ["BTC"],
+                CancellationToken.None
+            )
+        );
+        Check(
+            httpGapResult.RootElement.GetProperty("markets")[0].GetProperty("bars").GetArrayLength() == 59,
+            "A fresh HTTP history with an older gap must return its sufficient contiguous suffix."
+        );
+
+        using var unresolvedHandler = new ExecutionMarketChecks(missingHistoryIndex: 90);
+        using var unresolvedClient = Client(unresolvedHandler);
+        using var unresolvedResult = JsonDocument.Parse(
+            await new BitkubExecutionMarketReader(unresolvedClient, timeProvider: fixedClock).Read(
+                ["BTC"],
+                CancellationToken.None
+            )
+        );
+        Check(
+            unresolvedResult.RootElement.GetProperty("markets").GetArrayLength() == 0
+                && unresolvedResult.RootElement.GetProperty("errors")[0].GetProperty("error").GetString()
+                    == "Fewer than 51 consecutive recent completed candles could be verified.",
+            "An unresolved recent history gap must fail closed."
+        );
+
+        using var missingLatestHandler = new ExecutionMarketChecks(missingHistoryIndex: 119);
+        using var missingLatestClient = Client(missingLatestHandler);
+        using var missingLatestResult = JsonDocument.Parse(
+            await new BitkubExecutionMarketReader(missingLatestClient, timeProvider: fixedClock).Read(
+                ["BTC"],
+                CancellationToken.None
+            )
+        );
+        Check(
+            missingLatestResult.RootElement.GetProperty("markets").GetArrayLength() == 0,
+            "A contiguous historical window must not be accepted without the latest completed candle."
+        );
+
+        using var noDataHandler = new ExecutionMarketChecks(unavailableHistory: true);
+        using var noDataClient = Client(noDataHandler);
+        using var noDataResult = JsonDocument.Parse(
+            await new BitkubExecutionMarketReader(noDataClient, timeProvider: fixedClock).Read(
+                ["BTC"],
+                CancellationToken.None
+            )
+        );
+        Check(
+            noDataResult.RootElement.GetProperty("markets").GetArrayLength() == 0
+                && noDataResult.RootElement.GetProperty("errors")[0].GetProperty("error").GetString()
+                    == "Fewer than 51 consecutive recent completed candles could be verified.",
+            "Provider no_data must remain a history-specific failure without invented prices."
+        );
+
+        using var quotesOnlyHandler = new ExecutionMarketChecks(missingHistoryIndex: 90);
+        using var quotesOnlyClient = Client(quotesOnlyHandler);
+        await new BitkubExecutionMarketReader(quotesOnlyClient).Read(
+            ["BTC"],
+            CancellationToken.None,
+            includeHistory: false
+        );
+        Check(
+            !quotesOnlyHandler.requests.Any(uri => uri.AbsolutePath.EndsWith("history", StringComparison.Ordinal)),
+            "includeHistory=false must make zero history requests."
+        );
+
+        using var staleHandler = new ExecutionMarketChecks();
+        using var staleClient = Client(staleHandler);
+        var staleSnapshot = Snapshot(fixedNow - TimeSpan.FromMinutes(6), suffixBars);
+        using var staleResult = JsonDocument.Parse(
+            await new BitkubExecutionMarketReader(
+                staleClient,
+                new ResearchIntradayReader(staleSnapshot),
+                fixedClock
+            ).Read(["BTC"], CancellationToken.None)
+        );
+        Check(
+            staleHandler.requests.Any(uri => uri.AbsolutePath.EndsWith("history", StringComparison.Ordinal))
+                && staleResult.RootElement.GetProperty("markets")[0].GetProperty("bars").GetArrayLength() == 120,
+            "A stale latest feed must be rejected and replaced with fresh history."
+        );
+
         using var oversizedHandler = new ExecutionMarketChecks(metadata: new string(' ', 1_048_577));
         using var oversizedClient = Client(oversizedHandler);
         using var oversizedResult = JsonDocument.Parse(
@@ -259,14 +409,24 @@ public sealed class ExecutionMarketChecks : HttpMessageHandler
         }
         else if (uri.AbsolutePath.EndsWith("history", StringComparison.Ordinal))
         {
+            if (this.unavailableHistory)
+            {
+                return new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new StringContent("{\"s\":\"no_data\"}"),
+                };
+            }
+
             var to = long.Parse(
                 uri.Query.Split('&').Single(part => part.StartsWith("to=", StringComparison.Ordinal))[3..],
                 CultureInfo.InvariantCulture
             );
             var timestamps = Enumerable
                 .Range(0, this.historyRows)
-                .Select(index => to - (this.historyRows - 1 - index) * 300);
-            var prices = Enumerable.Repeat(10.123456789012345m, this.historyRows);
+                .Select(index => to - (this.historyRows - 1 - index) * 300)
+                .Where((timestamp, index) => this.missingHistoryIndex != index)
+                .ToArray();
+            var prices = Enumerable.Repeat(10.123456789012345m, timestamps.Length).ToArray();
             payload = JsonSerializer.Serialize(
                 new
                 {
@@ -290,6 +450,9 @@ public sealed class ExecutionMarketChecks : HttpMessageHandler
 
     private static HttpClient Client(HttpMessageHandler handler) =>
         new(handler) { BaseAddress = new Uri("https://test.invalid") };
+
+    private static IntradaySnapshot Snapshot(DateTimeOffset fetchedAt, IReadOnlyList<MarketCandle> candles) =>
+        new(true, fetchedAt, true, [], [new IntradaySeries("BTC_THB", candles, fetchedAt, null)], [], null);
 
     private static void Check(bool condition, string message)
     {

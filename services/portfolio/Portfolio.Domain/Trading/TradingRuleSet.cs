@@ -38,15 +38,26 @@ public sealed record TradingRuleSet
 
     public AdaptiveTradingPolicy? Adaptive { get; init; }
 
+    public AdaptiveExitPolicy? ExitPolicy { get; init; }
+
     public void Validate()
     {
         if (
-            this.Version is not ("ema20-50-breakout-v1" or "adaptive-intraday-v1")
-            || (this.Version == "adaptive-intraday-v1") != (this.Adaptive is not null)
+            this.Version
+                is not (
+                    "ema20-50-breakout-v1"
+                    or "adaptive-intraday-v1"
+                    or "adaptive-intraday-v2"
+                    or "adaptive-intraday-v3"
+                )
+            || (this.Version is "adaptive-intraday-v1" or "adaptive-intraday-v2" or "adaptive-intraday-v3")
+                != (this.Adaptive is not null)
+            || (this.Version == "adaptive-intraday-v3") != (this.ExitPolicy is not null)
             || this.Symbols is null
             || this.Symbols.Length > 16
             || this.Version == "ema20-50-breakout-v1" && this.Symbols.Length == 0
-            || this.Version == "adaptive-intraday-v1" && this.Symbols.Length != 0
+            || this.Version is "adaptive-intraday-v1" or "adaptive-intraday-v2" or "adaptive-intraday-v3"
+                && this.Symbols.Length != 0
             || this.Symbols.Any(symbol =>
                 string.IsNullOrEmpty(symbol)
                 || symbol.Length > 30
@@ -59,6 +70,7 @@ public sealed record TradingRuleSet
         }
 
         this.Adaptive?.Validate();
+        this.ExitPolicy?.Validate();
         if (
             this.Adaptive is { } adaptive
             && (

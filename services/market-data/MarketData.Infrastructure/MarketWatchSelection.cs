@@ -45,17 +45,31 @@ public static class MarketWatchSelection
         }
 
         var eligible = scan
-            .Entries.Where(entry => entry.Usable && !selected.Any(item => item.Symbol == entry.Symbol))
+            .Entries.Where(entry =>
+                entry.Usable && entry.Volume24h is > 0m && !selected.Any(item => item.Symbol == entry.Symbol)
+            )
             .OrderByDescending(entry => entry.Volume24h)
             .ThenBy(entry => entry.Symbol, StringComparer.Ordinal)
             .Select(ToWatchSymbol)
             .OfType<MarketWatchSymbol>()
             .ToArray();
-        var rotation = eligible.Length == 0 ? 0 : (int)((now.ToUnixTimeSeconds() / 30 * 16) % eligible.Length);
+        var top = eligible.Take(8).ToArray();
+        var rotating = eligible.Skip(8).ToArray();
+        var rotation = rotating.Length == 0 ? 0 : (int)((now.ToUnixTimeSeconds() / 300 * 8) % rotating.Length);
         var candidateLimit = Math.Min(16, 64 - selected.Count);
-        for (var index = 0; index < candidateLimit && index < eligible.Length; index++)
+        for (var index = 0; index < Math.Min(candidateLimit, top.Length); index++)
         {
-            var item = eligible[(rotation + index) % eligible.Length];
+            var item = top[index];
+            if (!selected.Any(existing => existing.Symbol == item.Symbol))
+            {
+                selected.Add(item);
+            }
+        }
+
+        var remaining = Math.Min(8, Math.Max(0, candidateLimit - top.Length));
+        for (var index = 0; index < remaining && index < rotating.Length; index++)
+        {
+            var item = rotating[(rotation + index) % rotating.Length];
             if (!selected.Any(existing => existing.Symbol == item.Symbol))
             {
                 selected.Add(item);

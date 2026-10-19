@@ -7,45 +7,81 @@ AutoLive, select its orders or submit broker transactions.
 
 ## Modes and owner activation
 
-New trading state defaults to **Paper** with simulated funds, fees and limit
-fills. **Stopped** disables trading. **ManualReview** preserves the existing
-individual proposal approval workflow. **AutoLive** uses the deterministic
-strategy under a single owner mandate; it has no per-trade Approve/Review step.
-Implementation and verification leave live activation to the owner and send no
-real broker orders.
+| Mode             | Behavior and authority                                                                                 |
+| ---------------- | ------------------------------------------------------------------------------------------------------ |
+| **Paper**        | Default for new trading state, with simulated funds, fees and limit fills.                             |
+| **Stopped**      | Disables trading.                                                                                      |
+| **ManualReview** | Preserves the existing individual proposal approval workflow.                                          |
+| **AutoLive**     | Uses the deterministic strategy under a single owner mandate; it has no per-trade Approve/Review step. |
 
-The adaptive path scans the versioned `bitkub-thb-spot-v1` THB universe and
-sizes from verified account capital, including future deposits. It does not
-require symbols, allocated THB or a fixed per-order amount. Its default bounds
-are Aggressive, 100% exposure, 100% concentration, a 5% stop-risk scenario,
-10% current-equity daily loss and up to 16 positions. These are policy limits,
-not guarantees.
+Implementation and verification leave live activation to the owner and send no real
+broker orders.
+
+The adaptive path scans the versioned `bitkub-thb-spot-v1` THB universe and sizes from
+verified account capital, including future deposits. It does not require symbols,
+allocated THB or a fixed per-order amount.
+
+| Adaptive default          | Value      |
+| ------------------------- | ---------- |
+| Profile                   | Aggressive |
+| Exposure                  | 100%       |
+| Concentration             | 100%       |
+| Stop-risk scenario        | 5%         |
+| Current-equity daily loss | 10%        |
+| Positions                 | Up to 16   |
+
+These are policy limits, not guarantees.
+
+Research and sizing remain separate from activation:
+
+- Team research receives the saved adaptive policy, fresh verified capital,
+  symbol/timestamp rejection details and an explicit engine-ledger P&L scope.
+- The ManualReview sizing profile is separate; disabling it does not disable adaptive
+  sizing. THB 1,000 in a hypothetical study is not a live order cap.
+- The engine sizes against cash, exposure, concentration, stop/ATR risk and depth.
+  Research names missing signal inputs instead of treating known capital as unknown.
+- Native completed 5/15/60-minute candle evidence is available for adaptive research
+  and the active v2 policy selects a usable interval.
+- The experimental v3 live gate remains closed pending its 14-day/30-pair observation
+  and historical paired and portfolio holdout evidence. Stopped remains stopped.
+- Updated context applies to new reports; retained historical messages are not rewritten.
+- New research jobs are pinned to the verified account before collecting portfolio
+  evidence, so collection failures stay visible to that account. An account change
+  during collection fails the job before any model call; legacy unbound records are
+  not reassigned.
 
 To activate after the deployment and verification have been reviewed:
 
-1. For legacy rules, open **Daily Brief → Trading status → Trading settings**.
-   For adaptive trading, press **Set up and review**; this prepares the
-   versioned policy and opens review without activating it. Review its market
-   scope, relative limits and inclusion of future deposits. Legacy settings retain
-   the strategy version, allowed THB spot symbols, capital allocation, per-order
-   size, simultaneous positions, daily loss cap, spread/slippage, data age,
-   take profit, stop loss, trailing stop, time exit, cooldown, order lifetime,
-   fee model and entry volume ratio. Strategy and execution values are in
-   **Advanced settings**. Save changes first; saving disarms live trading.
+1. Open the appropriate setup path and save changes first; saving disarms live trading.
 2. Open **Review live mandate**. Verify the exact account, strategy/rules hash,
-   universe or symbols and every capital/risk cap. Choose an explicit future expiry within
-   the next 30 days, or choose a 1-, 7- or 30-day shortcut. These shortcuts
-   only fill the expiry; they never activate trading. Fresh markets, verified available balances and server
-   control capability are required; a rejected activation stays visible.
-3. The owner alone presses **Enable Auto Trading** once. The persisted mandate
+   universe or symbols and every capital/risk cap.
+3. Choose an explicit future expiry within the next 30 days, or choose a 1-, 7- or
+   30-day shortcut. These shortcuts only fill the expiry; they never activate trading.
+   Fresh markets, verified available balances and server control capability are
+   required; a rejected activation stays visible.
+4. The owner alone presses **Enable Auto Trading** once. The persisted mandate
    binds this exact configuration and expiry. The deterministic Portfolio
    worker may then enter, track, cancel and exit within that mandate without
    per-order confirmation. Closing the browser does not stop the worker.
 
-Changing material rules, account or risk caps, mandate expiry, **Disable** and
-**Emergency stop** disarm live authority. Re-enabling requires another explicit
-owner action on the current configuration. Expiry never renews authority.
-AI output, schedules, restarts and Telegram mock buttons cannot enable it.
+| Setup path       | Open and review                                                                                                                                                        |
+| ---------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Legacy rules     | **Daily Brief → Trading status → Trading settings**                                                                                                                    |
+| Adaptive trading | **Set up and review** prepares the versioned policy and opens review without activating it. Review its market scope, relative limits and inclusion of future deposits. |
+
+Legacy settings retain these values; strategy and execution values are in
+**Advanced settings**:
+
+- Strategy version, allowed THB spot symbols, capital allocation and per-order size.
+- Simultaneous positions, daily loss cap, spread/slippage and data age.
+- Take profit, stop loss, trailing stop, time exit, cooldown and order lifetime.
+- Fee model and entry volume ratio.
+
+- Changing material rules, account or risk caps, mandate expiry, **Disable** and
+  **Emergency stop** disarm live authority.
+- Re-enabling requires another explicit owner action on the current configuration.
+  Expiry never renews authority.
+- AI output, schedules, restarts and Telegram mock buttons cannot enable it.
 
 ## Risk, recovery and accounting
 
@@ -54,40 +90,75 @@ Legacy uses `ema20-50-breakout-v1`; adaptive uses `adaptive-intraday-v1`.
 Research alerts are not trading instructions. Rule settings are constraints,
 not a proven return or guaranteed exit price.
 
-The legacy strategy enters only when the latest completed five-minute candle
-closes above the previous 20 candles' highs, seeded EMA20 is above EMA50, and
-volume is at least the configured multiple of the previous 20-candle median
-(the median must be positive). It needs at least 51 contiguous completed bars
-and uses the latest contiguous suffix of up to 120; older gaps do not invalidate
-a sufficient recent window. Owned positions are checked between candle closes for stop
-loss, take profit, trailing stop and time exit. The defaults are 1%, 2%, 1% and
-120 minutes respectively; they trigger LIMIT intents rather than guaranteed
-fills. Daily loss includes today's verified realized net plus current unrealized
-result and blocks new entries, while valid mandated exits remain eligible.
+### Legacy strategy and Paper fills
 
-In the legacy path, the allocation cap covers open position cost and reserved entry cash. Per-order
-caps also constrain planned sell notional, so a larger exit can require more
-than one candle. Splits preserve a market-minimum remainder where possible;
-venue minimums and precision can still leave dust. Paper consumes only observed
-top-of-book liquidity once per fresh snapshot, estimates fees and expires
-unfilled limits. It does not reproduce exchange queue priority.
+The legacy strategy enters only when all three conditions hold:
 
-Adaptive mode adds versioned trend pullback and range rebound entries, including
-resting limits below the current ask. It ranks candidates by planned net reward
-after fees, spread and slippage divided by structural stop distance; this is a
-deterministic priority score, not a return forecast. Owned exits take priority.
-Structural stops and ATR-derived targets/trailing distances are frozen with the
-entry. Adaptive exits use the full owned quantity, exchange precision and minimums,
-without the legacy entry notional cap. A frozen buy side or an entry spread limit
-does not prevent a permitted sell. Unfilled entries expire or are cancelled on
-verified invalidation; cancellation uncertainty prevents replacement.
+1. The latest completed five-minute candle closes above the previous 20 candles' highs.
+2. Seeded EMA20 is above EMA50.
+3. Volume is at least the configured multiple of the previous 20-candle median
+   (the median must be positive).
 
-The engine consumes priority market events. Background
-research rotates detailed candle/depth batches of sixteen across the eligible
-universe and isolates missing market evidence. Fresh owned-position quotes do not
-wait for candle history or the background account scan. Broker status checks retain
-their separate thirty-second minimum interval. Coverage and timestamps expose
-actual progress; the whole universe is not refreshed simultaneously.
+It needs at least 51 contiguous completed bars and uses the latest contiguous suffix
+of up to 120; older gaps do not invalidate a sufficient recent window.
+
+Owned positions are checked between candle closes:
+
+| Exit condition | Default     |
+| -------------- | ----------- |
+| Stop loss      | 1%          |
+| Take profit    | 2%          |
+| Trailing stop  | 1%          |
+| Time exit      | 120 minutes |
+
+These conditions trigger LIMIT intents rather than guaranteed fills. Daily loss
+includes today's verified realized net plus current unrealized result and blocks new
+entries, while valid mandated exits remain eligible.
+
+- In the legacy path, the allocation cap covers open position cost and reserved entry
+  cash. Per-order caps also constrain planned sell notional, so a larger exit can
+  require more than one candle.
+- Splits preserve a market-minimum remainder where possible; venue minimums and
+  precision can still leave dust.
+- Paper consumes only observed top-of-book liquidity once per fresh snapshot,
+  estimates fees and expires unfilled limits. It does not reproduce exchange queue priority.
+
+### Adaptive entries, exits and evidence
+
+| Area                  | Adaptive behavior                                                                                     |
+| --------------------- | ----------------------------------------------------------------------------------------------------- |
+| Entry patterns        | Versioned trend pullback and range rebound entries, including resting limits below the current ask.   |
+| Ranking               | Planned net reward after fees, spread and slippage divided by structural stop distance.               |
+| Frozen entry evidence | Structural stops and ATR-derived targets/trailing distances are frozen with the entry.                |
+| Exit sizing           | Uses the full owned quantity, exchange precision and minimums, without the legacy entry notional cap. |
+
+- The ranking is a deterministic priority score, not a return forecast. Owned exits
+  take priority.
+- A frozen buy side or an entry spread limit does not prevent a permitted sell.
+- Unfilled entries expire or are cancelled on verified invalidation; cancellation
+  uncertainty prevents replacement.
+
+Market-event and scan behavior:
+
+- The engine consumes priority market events. Background research rotates detailed
+  candle/depth batches of sixteen across the eligible universe and isolates missing
+  market evidence.
+- Fresh owned-position quotes do not wait for candle history or the background account scan.
+- Broker status checks retain their separate thirty-second minimum interval.
+- Coverage and timestamps expose actual progress; the whole universe is not refreshed
+  simultaneously.
+
+Execution-history constraints:
+
+- Use the latest contiguous completed five-minute window, with at least 51 verified
+  bars and at most 120. An older gap outside that window does not discard a sufficient
+  recent suffix.
+- An unusable retained snapshot falls back to fresh public history; unresolved gaps
+  never produce synthetic candles.
+- Per-market history failures reach the scan status, and later quote/maintenance
+  events preserve newer decision reasons instead of restoring old placeholders.
+
+### Account ownership and recovery
 
 Only new fills belonging to this strategy enter its live book. Existing manual
 holdings and orders retain their original history and are not silently assigned
@@ -95,74 +166,95 @@ an autonomous cost basis or exit authority. Daily reports cover this strategy's
 book; whole-account P&L remains Unknown when legacy cost evidence is incomplete.
 
 SQL storage adds account-keyed rule versions, mandates, decisions, order intents,
-fills, positions, risk counters, alerts and report delivery alongside the
-existing Portfolio ledger. Team and MarketData retain their own databases.
-Execution claims persist before broker requests. Duplicate events, browser
-retries and restarts never authorize another submission of an uncertain intent.
-Unknown broker outcomes remain blocked until exact read-only reconciliation.
-Manual and autonomous submission claims share the account lock. AutoLive refuses
-activation with uncertain manual submissions or outstanding adaptive proposals;
-manual approval requires AutoLive to be disabled first. Notification state writes
-share the engine gate, while Telegram network calls release it.
+fills, positions, risk counters, alerts and report delivery alongside the existing
+Portfolio ledger. Team and MarketData retain their own databases.
 
-Stale or inconsistent market data, unknown execution state, insufficient
-available funds and risk/identity failures stop new entries and expose a fault.
-Disable and Emergency stop do not prove outstanding orders were cancelled or
-positions closed. Inspect actual broker evidence and reconcile before resuming;
-never treat an assumed stop-loss fill as an executed exit.
+- Execution claims persist before broker requests. Duplicate events, browser retries
+  and restarts never authorize another submission of an uncertain intent.
+- Unknown broker outcomes remain blocked until exact read-only reconciliation.
+- Manual and autonomous submission claims share the account lock.
+- AutoLive refuses activation with uncertain manual submissions or outstanding
+  adaptive proposals; manual approval requires AutoLive to be disabled first.
+- Notification state writes share the engine gate, while Telegram network calls release it.
 
-Daily Brief displays mode, current position cost exposure, open orders, cash,
-equity and last heartbeat. Realized gross/net P&L and fees come from actual fills
-and known cost basis; incomplete values remain **Unknown**. The concise Thai
-summary is retained at **23:59 Asia/Bangkok**, with report revisions for late
-evidence. Select the Bangkok date in Daily Brief to read it. In adaptive mode,
-Telegram receives concise Thai confirmed-fill notes: coin, quantity, and actual
-cash paid/received including fees. Submission alone never announces a purchase;
-duplicate broker fills never create another note. Daily summaries stay in the app.
-Legacy report delivery is retained for compatibility.
-Critical Telegram alerts cover emergency stops, risk breaches, uncertain
-submissions, reconciliation mismatch, stale feeds and prolonged outages.
+Faults and recovery:
 
-The daily net objective is **THB 500**, measured from verified strategy sell fills,
-never a guaranteed profit or a reason to bypass entry checks. The optional
-opportunity review uses `observed-book-v1`: at most eight concurrent hypothetical
-samples, a seven-day model window, a reference budget of ten exchange minimum
-notionals, subsequent observed quotes, visible liquidity and fees. Candle touches
-alone never fill a sample; missing exits remain Unknown. These samples and their
-mean net returns are not actual fills or missed account profits. Team receives
-only bounded, account-isolated performance evidence for its daily lessons; it
-cannot change a live policy or promote a strategy itself.
+- Stale or inconsistent market data, unknown execution state, insufficient available
+  funds and risk/identity failures stop new entries and expose a fault.
+- Disable and Emergency stop do not prove outstanding orders were cancelled or positions closed.
+- Inspect actual broker evidence and reconcile before resuming; never treat an assumed
+  stop-loss fill as an executed exit.
+
+### Reporting, notifications and objectives
+
+| Surface                         | Evidence                                                                                                           |
+| ------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
+| Daily Brief status              | Mode, current position cost exposure, open orders, cash, equity and last heartbeat.                                |
+| Realized gross/net P&L and fees | Actual fills and known cost basis; incomplete values remain **Unknown**.                                           |
+| Daily summary                   | Concise Thai summary retained at **23:59 Asia/Bangkok**, with report revisions for late evidence.                  |
+| Adaptive Telegram fill notes    | Concise Thai notes with coin, quantity, and actual cash paid/received including fees.                              |
+| Critical Telegram alerts        | Emergency stops, risk breaches, uncertain submissions, reconciliation mismatch, stale feeds and prolonged outages. |
+
+- Submission alone never announces a purchase; duplicate broker fills never create
+  another note.
+- Daily summaries stay in the app; select the Bangkok date in Daily Brief to read one.
+  Legacy report delivery is retained for compatibility.
+
+| Measure                          | Meaning                                                                                                                                                                     |
+| -------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Configured business objective    | Account-scoped total wallet equity, including confirmed deposits; the configured amount and Bangkok closing date come from account evidence. Reserved cash is counted once. |
+| Account measures                 | Portfolio value, remaining target, confirmed deposits and full-account trading P&L are separate; incomplete valuation or flow coverage remains Unknown.                     |
+| Legacy daily-net objective field | Measures verified strategy sell fills against its configured target for historical comparison only.                                                                         |
+
+Neither objective bypasses entry checks.
+
+The optional opportunity review uses `observed-book-v1`:
+
+- At most eight concurrent hypothetical samples, a seven-day model window and a
+  reference budget of ten exchange minimum notionals.
+- Uses subsequent observed quotes, visible liquidity and fees. Candle touches alone
+  never fill a sample; missing exits remain Unknown.
+- These samples and their mean net returns are not actual fills or missed account profits.
+- Team receives only bounded, account-isolated performance evidence for its daily
+  lessons; it cannot change a live policy or promote a strategy itself.
 
 ## Compatibility and rollback
 
-Legacy rules retain their exact hash and omit inactive additive JSON properties.
-Deploying this build never converts an old mandate to all-market authority. New
-state still starts in Paper. Existing owned fills, account keys and SQL records
-are retained; only explicit owner setup saves the new policy and revokes old
-authority. Verified cash flows affect funding once, not trading profit.
-An unexplained strategy-cash shortfall blocks submission until funding evidence
-is reconciled; a higher account balance alone never invents a cash flow or profit.
+- Legacy rules retain their exact hash and omit inactive additive JSON properties.
+  Deploying this build never converts an old mandate to all-market authority.
+- New state still starts in Paper. Existing owned fills, account keys and SQL records
+  are retained; only explicit owner setup saves the new policy and revokes old authority.
+- Verified cash flows affect funding once, not trading profit.
+- An unexplained strategy-cash shortfall blocks submission until funding evidence is
+  reconciled; a higher account balance alone never invents a cash flow or profit.
 
-Before owner setup, the legacy payload remains readable by the previous build.
-After `adaptive-intraday-v1` is saved, rollback requires a build that understands
-that policy and its additive records. Do not replace it with a legacy-only binary,
-rewrite history or revive a revoked/expired mandate. Disable live trading before
-maintenance, retain canonical backups, and leave reactivation to the owner.
+| Saved state                           | Compatibility                                                                    |
+| ------------------------------------- | -------------------------------------------------------------------------------- |
+| Before owner setup                    | The legacy payload remains readable by the previous build.                       |
+| After `adaptive-intraday-v1` is saved | Rollback requires a build that understands that policy and its additive records. |
+
+- Do not replace the saved adaptive policy with a legacy-only binary, rewrite history
+  or revive a revoked/expired mandate.
+- Disable live trading before maintenance, retain canonical backups, and leave
+  reactivation to the owner.
 
 ## Private server configuration
 
-The canonical [Docker preparation](docker-runtime.md) generates a 32-byte
-random owner-control token in `.runtime/docker/runtime.env`, restricts that file
-to its owner and preserves existing SQL credentials and the token on repeated
-runs. Portfolio receives it as `Trading__OwnerToken`; only the Next.js server
-receives `QUANTARA_TRADING_CONTROL_TOKEN`. The guarded server proxy adds the
-owner header. Team, model workers and browser code never receive it.
+The canonical [Docker preparation](docker-runtime.md) generates a 32-byte random
+owner-control token in `.runtime/docker/runtime.env`, restricts that file to its
+owner and preserves existing SQL credentials and the token on repeated runs.
 
-Do not edit the repository `.env` to add the control token, print private
-environment files or expose the application beyond its loopback deployment.
-Missing server configuration fails closed; configuration alone grants no
-mandate. Preparation and normal startup preserve existing containers; apply
-updates only through reviewed maintenance with current canonical-data backups.
+| Recipient                            | Binding and behavior                                                              |
+| ------------------------------------ | --------------------------------------------------------------------------------- |
+| Portfolio                            | `Trading__OwnerToken`                                                             |
+| Next.js server only                  | `QUANTARA_TRADING_CONTROL_TOKEN`; the guarded server proxy adds the owner header. |
+| Team, model workers and browser code | Never receive the token.                                                          |
+
+- Do not edit the repository `.env` to add the control token, print private environment
+  files or expose the application beyond its loopback deployment.
+- Missing server configuration fails closed; configuration alone grants no mandate.
+- Preparation and normal startup preserve existing containers; apply updates only
+  through reviewed maintenance with current canonical-data backups.
 
 A powered-off or sleeping PC, lost network, stopped Docker or stopped/unhealthy
 service cannot trade. Compose restart policies and health checks do not provide
@@ -172,80 +264,200 @@ uninterrupted availability or guarantee execution during an outage.
 
 MarketData reuses its public Bitkub WebSockets and SQL-owned completed five-minute
 candles. Portfolio subscribes to a private authenticated SSE stream of typed
-`QuoteChanged`, `BookChanged`, `CandleClosed`, `FeedUnavailable` and heartbeat
-events. No broker keys enter MarketData. Public order books retain actual bid/ask
-quantities and the older side's timestamp; incomplete, crossed or disconnected
-books never become executable prices. Candle history is not synthesized.
+`QuoteChanged`, `BookChanged`, `CandleClosed`, `FeedUnavailable` and heartbeat events.
 
-Holdings and active orders in both retained books are required watches, including
-buy-frozen markets that still permit selling. Up to 16 remaining candidates rotate
-every 30 seconds, within a total limit of 64 watched symbols. Required watches
-refresh every two seconds and retain their socket sessions across rotation.
-This is bounded real-time coverage, not simultaneous coverage of every listing.
-The separate fair universe scan still checks other eligible markets.
+- No broker keys enter MarketData.
+- Public order books retain actual bid/ask quantities and the older side's timestamp.
+  Incomplete, crossed or disconnected books never become executable prices.
+- Candle history is not synthesized.
 
-Each SSE subscriber has a bounded 256-key coalescing buffer. Portfolio has a
-128-event priority queue, at most 64 dirty symbols and three reserved timer lanes.
-Owned exits run before reconciliation, completed-candle entries and research.
-Due reconciliation gets a turn after at most 16 consecutive owned events so
-continuous quote traffic cannot starve fill accounting. Received owned quotes
-retain their decision context within the bounded queue; preflight uses the latest
-quote. A delayed fallback snapshot cannot overwrite a stream update received
-after that snapshot request began.
-Overflow retains owned symbols as dirty and immediately schedules a fresh quote
-read. Candidate updates refresh cached prices without causing intrabar buys.
-Per-symbol/kind sequences reject duplicate or older frames; reconnect rebuilds
-the watch from SQL, and durable rule/symbol/candle intent keys remain authoritative.
+### Watch coverage and account evidence
 
-Fresh owned bid/ask events evaluate stop loss, take profit, trailing and time exits
-without a ten-second poll or a new candle. `adaptive-intraday-v1` entries still
-require completed-candle evidence and existing risk sizing. Slow universe/capital
-scans and broker status reads run outside the serial account decision gate;
-broker submission itself remains serialized and can wait for the exchange.
-Final market freshness, mandate, account, balance and risk guards, durable claims,
-partial-fill accounting and unknown-outcome no-retry rules remain in force.
+| Watch group         | Coverage                                                                                                                                    |
+| ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
+| Required watches    | Holdings and active orders in both retained books, including buy-frozen markets that still permit selling.                                  |
+| Adaptive candidates | Up to eight positive-scored candidates within the saved signal-age limit.                                                                   |
+| Discovery           | Keeps eight liquid markets and rotates up to eight others every five minutes, giving the one-minute candle reader time to collect evidence. |
+| Total               | Capped at 64 watches, with owned symbols taking priority.                                                                                   |
 
-The private stream heartbeats every 15 seconds, times out after 45 seconds without
-a valid frame and reconnects with one-to-30-second backoff. Handshake is bounded
-at 20 seconds. Disconnect invalidates cached prices. Independent timers schedule
-maintenance/expiry every five seconds, research every minute, read-only broker
-inspection at least 30 seconds apart, and a 30-second owned-quote fallback check.
-Reports and confirmed-fill delivery run independently every 30 seconds. Thai
-confirmed-fill notes and critical alerts retain their existing delivery claims;
-the 23:59 Bangkok daily report stays in the app for adaptive mode.
+- Stale and future observations are excluded from the displayed adaptive shortlist.
+- Zero-volume markets do not consume discovery slots.
+- Required watches refresh every two seconds and retain their socket sessions across rotation.
+- This is bounded real-time coverage, not simultaneous coverage of every listing.
+  The separate fair universe scan still checks other eligible markets.
 
-Daily Brief shows private-stream connectivity and watched count. Collapsed
-diagnostics expose watched/dirty symbols, coalesced/dropped triggers, rolling
-received-to-local-decision p50/p95 (512 samples), latest decision-to-submit latency,
-and exit/reconciliation timestamps. Stream connectivity alone does not prove
-every public market is healthy or an order filled. Latency excludes exchange/API
-round trips and is not a fill guarantee; fake-load measurements are reported
-separately from live execution.
+Account and position evidence:
 
-Docker preparation also generates and preserves an independent random
-`QUANTARA_MARKET_EVENTS_TOKEN` in private `runtime.env`. Only MarketData and
-Portfolio receive `MarketEvents__Token`. Native development must privately supply
-the same setting to those two processes; missing configuration fails closed.
-No schema, persisted rule hash or owner mandate is changed by this transport.
-Roll back only to an adaptive-policy-compatible build, keep all canonical data
-and private tokens, and disable live trading before replacing running containers.
+- Account capital refreshes independently of native-history scans with one request
+  in flight. Its original observation time and policy freshness limit remain visible;
+  failed or pending refreshes never make old capital fresh or stall the event path.
+- Team receives read-only position-linked exit levels, time exits and active-order
+  expiries from the selected engine book, separately from imported wallet holdings.
+  These levels are engine conditions, not exchange-native stop orders or guaranteed executions.
+
+Research context:
+
+- Completed team assessments can advance the next research round to the earliest valid
+  requested review, subject to the existing fifteen-minute cooldown, budget, Stop and
+  no-overlap rules. Research timing grants no trading authority.
+- Opportunity summaries expose expired and unknown-net closed samples; waiting
+  includes open, and the reported mean uses only known-net closed samples.
+- Prior reports retain the task history; new chat messages carry at most two current tasks.
+
+### Queueing and decision order
+
+| Queue limit                             | Bound      |
+| --------------------------------------- | ---------- |
+| Each SSE subscriber's coalescing buffer | 256 keys   |
+| Portfolio priority queue                | 128 events |
+| Dirty symbols                           | At most 64 |
+| Reserved timer lanes                    | Three      |
+
+- Owned exits run before reconciliation, completed-candle entries and research.
+- Due reconciliation gets a turn after at most 16 consecutive owned events so
+  continuous quote traffic cannot starve fill accounting.
+- Received owned quotes retain their decision context within the bounded queue;
+  preflight uses the latest quote.
+- A delayed fallback snapshot cannot overwrite a stream update received after that
+  snapshot request began.
+- Overflow retains owned symbols as dirty and immediately schedules a fresh quote read.
+- Candidate updates refresh cached prices without causing intrabar buys.
+- Per-symbol/kind sequences reject duplicate or older frames; reconnect rebuilds the
+  watch from SQL, and durable rule/symbol/candle intent keys remain authoritative.
+
+Decision guards:
+
+- Fresh owned bid/ask events evaluate stop loss, take profit, trailing and time exits
+  without a ten-second poll or a new candle.
+- `adaptive-intraday-v1` entries still require completed-candle evidence and existing risk sizing.
+- Slow universe/capital scans and broker status reads run outside the serial account
+  decision gate; broker submission itself remains serialized and can wait for the exchange.
+- Final market freshness, mandate, account, balance and risk guards, durable claims,
+  partial-fill accounting and unknown-outcome no-retry rules remain in force.
+
+### Timers, diagnostics and configuration
+
+| Stream or job                       | Timing                                       |
+| ----------------------------------- | -------------------------------------------- |
+| Private-stream heartbeat            | Every 15 seconds                             |
+| Private-stream timeout              | After 45 seconds without a valid frame       |
+| Reconnect backoff                   | One-to-30 seconds                            |
+| Handshake                           | Bounded at 20 seconds                        |
+| Maintenance/expiry                  | Independent timer every five seconds         |
+| Research                            | Independent timer every minute               |
+| Read-only broker inspection         | Independent timer, at least 30 seconds apart |
+| Owned-quote fallback check          | Independent 30-second timer                  |
+| Reports and confirmed-fill delivery | Run independently every 30 seconds           |
+
+- Disconnect invalidates cached prices.
+- Thai confirmed-fill notes and critical alerts retain their existing delivery claims.
+- The 23:59 Bangkok daily report stays in the app for adaptive mode.
+
+Daily Brief shows private-stream connectivity and watched count. Collapsed diagnostics expose:
+
+- Watched/dirty symbols and coalesced/dropped triggers.
+- Rolling received-to-local-decision p50/p95 (512 samples).
+- Latest decision-to-submit latency and exit/reconciliation timestamps.
+
+Stream connectivity alone does not prove every public market is healthy or an order
+filled. Latency excludes exchange/API round trips and is not a fill guarantee;
+fake-load measurements are reported separately from live execution.
+
+- Docker preparation also generates and preserves an independent random
+  `QUANTARA_MARKET_EVENTS_TOKEN` in private `runtime.env`. Only MarketData and
+  Portfolio receive `MarketEvents__Token`.
+- Native development must privately supply the same setting to those two processes;
+  missing configuration fails closed.
+- No schema, persisted rule hash or owner mandate is changed by this transport.
+- Roll back only to an adaptive-policy-compatible build, keep all canonical data and
+  private tokens, and disable live trading before replacing running containers.
 
 ## Verification
 
-Run deterministic Portfolio/MarketData checks and
-`node tools/verify-trading-ui.cjs`. Add `--browser` with the frontend running for
-isolated editable-rule, mandate, error-recovery and responsive fixtures. All
-fixture API calls are intercepted before navigation. `tools/verify-docker.ps1`
-checks token generation/preservation, owner-only permissions, service isolation
-and retained runtime guards without starting Docker or reading account secrets.
-Real SQL or account integration remains explicitly opt-in. Never use the live
-Enable button or a real broker POST to verify an implementation.
+| Check                                     | Scope                                                                                                                                                                           |
+| ----------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Deterministic Portfolio/MarketData checks | Run alongside the trading UI verifier.                                                                                                                                          |
+| `node tools/verify-trading-ui.cjs`        | Add `--browser` with the frontend running for isolated editable-rule, mandate, error-recovery and responsive fixtures. All fixture API calls are intercepted before navigation. |
+| `tools/verify-docker.ps1`                 | Token generation/preservation, owner-only permissions, service isolation and retained runtime guards without starting Docker or reading account secrets.                        |
 
-Fixture measurement on 2026-10-17 (Windows, fake storage/quotes/broker): 100 fresh
-owned events while research was stalled produced local-cycle p50 **0.017 ms** and
-p95 **0.054 ms**, below the two-second target. The running Paper worker recovered
-its required watch and filled its first streamed exit in **25.0 ms**. The suite
-also covers stop/target/trailing/time exits, queue overflow, delayed snapshot
+- Real SQL or account integration remains explicitly opt-in.
+- Never use the live Enable button or a real broker POST to verify an implementation.
+
+Fixture measurements on 2026-10-17 used Windows and fake storage/quotes/broker:
+
+| Fixture                                           | Result                                                                          |
+| ------------------------------------------------- | ------------------------------------------------------------------------------- |
+| 100 fresh owned events while research was stalled | Local-cycle p50 **0.017 ms** and p95 **0.054 ms**, below the two-second target. |
+| Running Paper worker                              | Recovered its required watch and filled its first streamed exit in **25.0 ms**. |
+
+The suite also covers stop/target/trailing/time exits, queue overflow, delayed snapshot
 races, reconciliation fairness, SSE timeout/reconnect, partial fills, restart and
-unknown submission no-retry. These measurements exclude real SQL, exchange/API
-and network latency; they do not establish production execution or fill latency.
+unknown submission no-retry. These measurements exclude real SQL, exchange/API and
+network latency; they do not establish production execution or fill latency.
+
+## Native timeframes and daily evidence (v2)
+
+`adaptive-intraday-v2` selects the shortest usable native interval in order 5, 15,
+then 60 minutes:
+
+- A usable window has at least 51 consecutive completed bars ending at the most recent
+  native close.
+- Existing spread, visible liquidity, after-cost opportunity ranking and risk checks
+  still apply.
+- Sparse/missing bars are never synthesized. A provider-reported zero-volume bar is
+  retained as evidence of zero reported volume; an absent bar has an Unknown cause.
+- Transport failures are labelled source-unavailable.
+- Each attempt retains source, interval, counts, reason and check time in the account's
+  scan state.
+- Native bars use a bounded cache; the existing SQL five-minute series remains unchanged.
+
+Timeframe identity and upgrades:
+
+- Signals, risk stops and durable deduplication keys retain the selected timeframe.
+- Quote-driven exits and reconciliation continue independently of candle research.
+- v1 behavior and hashes remain unchanged. Upgrade stages v2 in settings; saving
+  disarms live authority. Only the owner can review and enable the new mandate.
+
+### Daily historical worker
+
+| Study property | Bound or behavior                                                                                                      |
+| -------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| Candidates     | At most four observed candidates under v2 rules.                                                                       |
+| Cadence        | Once per Bangkok day/rules hash, with hourly availability checks.                                                      |
+| History        | Seven days of native bars through MarketData, in chunks of at most 999 intervals.                                      |
+| Persistence    | Account-owned trading state; no database schema is replaced.                                                           |
+| Results        | Source-window warnings and frozen rules hash, visible in Daily Brief and supplied to the AI team's read-only snapshot. |
+
+The independent worker never acquires broker credentials or calls the exchange.
+
+### Historical scenario assumptions
+
+| `ohlc-scenario-v1` assumption | Value or treatment                                                                                                |
+| ----------------------------- | ----------------------------------------------------------------------------------------------------------------- |
+| Split                         | Bars split chronologically 70/30 into training/validation; positions reset at the boundary.                       |
+| Evaluation                    | Breakout/pullback/range separately on 5/15/60 minutes. Rows are independent scenarios, not an additive portfolio. |
+| Reference budget              | THB 1,000.                                                                                                        |
+| Costs                         | Both-side fees, saved maximum spread and exit slippage; historical quote/queue evidence is unavailable.           |
+| Fill model                    | Only a later bar that strictly trades through a limit can model a fill; a touch does not.                         |
+| Drawdown                      | Close-marked equity after estimated exit fees.                                                                    |
+| Minimum evidence              | Fewer than 30 evaluated bars or 20 closed trades is insufficient.                                                 |
+| Cash return                   | Zero in this scenario.                                                                                            |
+
+- Gaps, partial-window expiries, ambiguous same-bar exits and unfinished positions yield
+  Unknown net/drawdown.
+- These assumptions cannot verify actual fills, prove profitability or promote rules
+  automatically.
+
+### Daily funnel
+
+The compact daily funnel separates scan readiness, pre-cap signals, confirmed broker
+order IDs, filled order IDs, completed sell orders and realized net THB:
+
+- Counts today's Bangkok records in the selected paper/live book.
+- Submitted orders are the cohort created today with a confirmed broker ID; unknown
+  submissions are excluded.
+- Legacy signal history is labelled retained because the raw signal was not stored
+  before execution guards.
+- Unknown cost/profit remains Unknown.
+- Telegram continues to notify confirmed fills only.
+- The legacy daily-net field does not replace the configured wallet-equity objective.

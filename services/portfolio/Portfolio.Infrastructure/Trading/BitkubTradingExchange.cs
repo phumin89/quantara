@@ -78,8 +78,18 @@ public sealed class BitkubTradingExchange(HttpClient http, BitkubCredentials cre
             throw new InvalidDataException("Broker order identity mismatch.");
         }
 
+        var history = order.GetProperty("history").EnumerateArray().ToArray();
+        int? quantityScale =
+            history.Length == 0
+                ? null
+                : (await broker.Market(intent.Symbol, TradeSide.Sell, cancellationToken)).AmountScale;
+        if (quantityScale is < 0 or > 18)
+        {
+            throw new InvalidDataException("Broker base precision is invalid.");
+        }
+
         var fills = new List<TradingFill>();
-        foreach (var row in order.GetProperty("history").EnumerateArray())
+        foreach (var row in history)
         {
             var identifier = row.GetProperty("txn_id").ToString();
             var amount = Number(row, "amount");
@@ -121,6 +131,9 @@ public sealed class BitkubTradingExchange(HttpClient http, BitkubCredentials cre
                     GrossFeeThb: fee,
                     FeeCreditThb: credit
                 )
+                {
+                    QuantityScale = quantityScale,
+                }
             );
         }
 

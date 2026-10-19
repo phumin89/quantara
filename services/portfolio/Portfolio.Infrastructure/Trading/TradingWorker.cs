@@ -3,6 +3,7 @@ using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Quantara.Portfolio.Application;
 using Quantara.Portfolio.Domain.Trading;
+using Quantara.Portfolio.Infrastructure.Trading.Jobs;
 
 namespace Quantara.Portfolio.Infrastructure;
 
@@ -15,7 +16,8 @@ public sealed class TradingWorker(
     ITradingMarketReader markets,
     AutonomousMarketMonitor monitor,
     TimeProvider time,
-    ILogger<TradingWorker> logger
+    ILogger<TradingWorker> logger,
+    TradingJobOptions? notificationJobs = null
 ) : BackgroundService
 {
     private static readonly Action<ILogger, Exception?> failed = LoggerMessage.Define(
@@ -45,7 +47,7 @@ public sealed class TradingWorker(
             this.Listen(stoppingToken),
             this.Dispatch(stoppingToken),
             this.Maintain(stoppingToken),
-            this.Deliver(stoppingToken)
+            notificationJobs?.UseHangfire == true ? Task.CompletedTask : this.Deliver(stoppingToken)
         );
 
     private async Task Listen(CancellationToken cancellationToken)
@@ -190,11 +192,7 @@ public sealed class TradingWorker(
                         .Distinct(StringComparer.Ordinal)
                         .Order(StringComparer.Ordinal)
                         .ToArray();
-                    var required = owned
-                        .Concat(state.Rules.Adaptive is null ? state.Rules.Symbols : [])
-                        .Distinct(StringComparer.Ordinal)
-                        .Order(StringComparer.Ordinal)
-                        .ToArray();
+                    var required = TradingWatchSelection.Required(state, time.GetUtcNow()).ToArray();
                     Volatile.Write(ref this.owned, owned);
                     if (!required.SequenceEqual(Volatile.Read(ref this.required)))
                     {

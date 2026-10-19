@@ -12,10 +12,39 @@ public static class TradingFillNotice
         var action = buy ? "🟢 ซื้อ" : "🔴 ขาย";
         var cashLabel = buy ? "จ่าย" : "รับ";
         var cash = buy ? fill.GrossThb + fill.FeeThb : fill.GrossThb - fill.FeeThb;
-        var text = string.Create(
-            CultureInfo.InvariantCulture,
-            $"{action} {fill.Symbol} · {fill.Quantity:0.##################} เหรียญ · {cashLabel} ฿{cash:N2}"
+        var cashText = cash.ToString("N2", CultureInfo.InvariantCulture);
+        var quantity = FormatQuantity(
+            fill.QuantityScale is { } scale
+                ? decimal.Round(fill.Quantity, scale, MidpointRounding.ToZero)
+                : fill.Quantity
+        );
+        var text = string.Join(
+            Environment.NewLine,
+            $"{action} {fill.Symbol} แล้ว",
+            $"จำนวน {quantity} {fill.Symbol}",
+            $"ราคา ฿{FormatPrice(fill.Price)}",
+            $"{cashLabel}{(buy ? "รวม" : "สุทธิ")} ฿{cashText}"
         );
         return new("fill:" + fill.BrokerFillId, "fill", text, now);
+    }
+
+    private static string FormatQuantity(decimal quantity)
+    {
+        var rounded = decimal.Round(quantity, 8, MidpointRounding.ToZero);
+        if (quantity > 0 && rounded == 0)
+        {
+            return quantity.ToString("0.##############################", CultureInfo.InvariantCulture);
+        }
+
+        var text = rounded.ToString("0.########", CultureInfo.InvariantCulture);
+        return rounded != quantity ? "≈" + text : text;
+    }
+
+    private static string FormatPrice(decimal price)
+    {
+        var rounded = decimal.Round(price, 8, MidpointRounding.ToZero);
+        return price > 0 && rounded == 0
+            ? price.ToString("0.##############################", CultureInfo.InvariantCulture)
+            : rounded.ToString("#,##0.########", CultureInfo.InvariantCulture);
     }
 }

@@ -6,14 +6,37 @@ using Quantara.Portfolio.Application;
 using Quantara.Portfolio.Domain;
 using Quantara.Portfolio.Infrastructure;
 
+if (args.Contains("--feature-sql-only", StringComparer.Ordinal))
+{
+    await PortfolioGoalSqlChecks.Run();
+    Console.WriteLine("Portfolio goal SQL checks passed.");
+    return;
+}
+
+if (args.Contains("--hangfire-sql-only", StringComparer.Ordinal))
+{
+    await HangfireSqlChecks.Run();
+    return;
+}
+
 await OrderChecks.Run();
+await PortfolioGoalChecks.Run();
+await PortfolioGoalSqlChecks.Run();
 await AdaptiveRiskChecks.Run();
 await AutonomousTradingChecks.Run();
+await TradingMarketEvidenceChecks.Run();
 await AutonomousAuthorityChecks.Run();
 await TradingShadowChecks.Run();
+await TradingWatchChecks.Run();
+await PortfolioLastBuyChecks.Run();
 await AutonomousCompatibilityChecks.Run();
 await TradingFillNoticeChecks.Run();
 await AdaptiveTradingStrategyChecks.Run();
+await AdaptiveExitChecks.Run();
+await TradingExitStudyChecks.Run();
+await TradingTimeframeChecks.Run();
+await TradingReplayChecks.Run();
+await TradingHistoryReaderChecks.Run();
 await TradingEventQueueChecks.Run();
 await TradingEventSourceChecks.Run();
 await RealtimeTradingChecks.Run();
@@ -30,8 +53,12 @@ await TradingAccountingChecks.Run();
 await TradingStorageChecks.Run();
 await TradingReportChecks.Run();
 await TradingDeliveryChecks.Run();
+await HangfireDeliveryChecks.Run();
+await HangfireSqlChecks.Run();
 await TradingProjectionChecks.Run();
 await TradingEngineChecks.Run();
+await TradingPrecisionChecks.Run();
+await TradingActivationPrecisionChecks.Run();
 await TradingControlChecks.Run();
 await TradingBrokerChecks.Run();
 await TelegramMessageChecks.Run();

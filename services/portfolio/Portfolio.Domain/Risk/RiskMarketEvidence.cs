@@ -14,5 +14,6 @@ public sealed record RiskMarketEvidence(
     int AmountScale,
     bool Enabled,
     bool StopVerified,
-    bool Resting = false
+    bool Resting = false,
+    int TimeframeSeconds = 300
 );

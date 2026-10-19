@@ -1,10 +1,11 @@
 using System.Diagnostics;
-using System.Text.Json.Serialization;
 
 namespace Quantara.Portfolio.Domain.Trading;
 
 public sealed record TradingMarketEvent
 {
+    private long receivedTimestamp = Stopwatch.GetTimestamp();
+
     public TradingEventKind Kind { get; }
 
     public string Symbol { get; }
@@ -23,8 +24,7 @@ public sealed record TradingMarketEvent
 
     public long Coalesced { get; }
 
-    [JsonIgnore]
-    public long ReceivedTimestamp { get; init; } = Stopwatch.GetTimestamp();
+    public long GetReceivedTimestamp() => this.receivedTimestamp;
 
     public TradingMarketEvent(
         TradingEventKind kind,
@@ -62,6 +62,6 @@ public sealed record TradingMarketEvent
             value
         )
         {
-            ReceivedTimestamp = this.ReceivedTimestamp,
+            receivedTimestamp = this.receivedTimestamp,
         };
 }

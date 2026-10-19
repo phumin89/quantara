@@ -14,8 +14,14 @@ real-time market monitoring, and an AI research team.
 - **📋 Daily Brief** — trading status first, with team chat and reports one tab away.
   Choose a Bangkok date to revisit a day's research and summary.
 - **⚡ Real-time monitoring** — fresh quotes evaluate owned-position exits;
-  new entries still require completed five-minute candles.
+  adaptive research uses completed native 5/15/60-minute candles when available.
 - **🧠 AI research** — CEO, Analyst, and Reviewer collaborate through Codex SDK.
+- **🎯 Portfolio goal** — an account-scoped wallet-equity target and closing date
+  supplied by configured evidence, including confirmed deposits. Valuation,
+  deposits and trading P&L stay separate.
+- **📰 Market news** — bounded official-feed evidence with source status,
+  revision history and a visible 72-hour validation pilot. Initial coverage is
+  Fed/BLS macro news; unavailable sources and unsupported Bitkub news stay explicit.
 - **📱 Telegram updates** — concise Thai confirmed-fill notifications and
   critical alerts; individual review buttons belong to the ManualReview workflow.
 
@@ -150,6 +156,11 @@ Broker credentials stay in Portfolio's server environment or the root
 `.env`. Never commit or expose them to the browser, MarketData, Team, or model
 workers.
 
+Follow the [publication privacy rule](code-instructions.md#boundaries-and-failures): operational logs, runtime
+snapshots, backups, account records and personal objectives stay in ignored local
+storage such as `.runtime/` or `work/`. Public documentation describes configured
+behavior and deterministic fixtures without publishing private runtime evidence.
+
 | Setting                                     | Used by                  | Purpose                                                    |
 | ------------------------------------------- | ------------------------ | ---------------------------------------------------------- |
 | `BITKUB_API_KEY`, `BITKUB_API_SECRET`       | Portfolio                | Signed account access                                      |
@@ -248,6 +259,8 @@ To skip C# autoformat explicitly, use
 | `npm run test:ai-worker`    | Isolated worker/process boundaries without a real AI call   |
 | `npm run test:team`         | Team orchestration and research rules                       |
 | `npm run test:docker`       | Runtime helpers, configuration, and private token isolation |
+| `npm run test:docs`         | Local Markdown links and empty documents                    |
+| `npm run test:jobs`         | Private dashboard transport and blocked job commands        |
 
 <details>
 <summary>Browser checks and optional integrations</summary>
@@ -266,6 +279,7 @@ Use `npx playwright install chromium`, or select installed Edge with
 test browser; the application never switches to fake portfolio data.
 
 - `npm run test:team-ui` checks the Daily Brief research UI.
+- `npm run test:team-scroll` checks Team chat scrolling with isolated browser fixtures.
 - `npm run test:presentation` checks state priority and filters without a browser.
 - Portfolio and MarketData checks can also run directly:
   `dotnet run --project tests/Portfolio.Checks/Portfolio.Checks.csproj` and
@@ -284,11 +298,13 @@ checks; the workflow does not configure branch policy.
 
 ## 📚 Documentation
 
-| Looking for…                                    | Start here                               |
-| ----------------------------------------------- | ---------------------------------------- |
-| Continuous local deployment and maintenance     | [Docker runtime](docs/docker-runtime.md) |
-| Native development and data ownership           | [Local runtime](docs/local-runtime.md)   |
-| Trading modes, real-time behavior, and recovery | [Trading](docs/trading.md)               |
-| Adaptive capital and risk sizing                | [Adaptive risk](docs/adaptive-risk.md)   |
-| Service boundaries and frontend structure       | [Architecture](docs/architecture.md)     |
-| UI conventions and visual direction             | [Design](docs/design.md)                 |
+| Looking for…                                    | Start here                                |
+| ----------------------------------------------- | ----------------------------------------- |
+| Continuous local deployment and maintenance     | [Docker runtime](docs/docker-runtime.md)  |
+| Native development and data ownership           | [Local runtime](docs/local-runtime.md)    |
+| Trading modes, real-time behavior, and recovery | [Trading](docs/trading.md)                |
+| Adaptive capital and risk sizing                | [Adaptive risk](docs/adaptive-risk.md)    |
+| Service boundaries and frontend structure       | [Architecture](docs/architecture.md)      |
+| Coding rules and verification requirements      | [Code instructions](code-instructions.md) |
+| UI conventions and visual direction             | [Design](docs/design.md)                  |
+| Latest cleanup findings and verification        | [Project review](docs/project-review.md)  |

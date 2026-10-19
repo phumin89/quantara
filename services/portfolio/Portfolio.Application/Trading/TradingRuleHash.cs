@@ -34,5 +34,28 @@ public static class TradingRuleHash
                     rules.OrderLifetimeMinutes,
                 }
             )
-            : JsonSerializer.Serialize(rules);
+        : rules.Version == "adaptive-intraday-v3" ? JsonSerializer.Serialize(rules)
+        : JsonSerializer.Serialize(
+            new
+            {
+                rules.Version,
+                rules.Symbols,
+                rules.AllocatedThb,
+                rules.PerOrderThb,
+                rules.DailyLossThb,
+                rules.MaxSpreadBps,
+                rules.SlippageBps,
+                rules.TakeProfitBps,
+                rules.StopLossBps,
+                rules.TrailingStopBps,
+                rules.FeeBps,
+                rules.VolumeRatio,
+                rules.MaxPositions,
+                rules.MaxDataAgeSeconds,
+                rules.TimeExitMinutes,
+                rules.CooldownMinutes,
+                rules.OrderLifetimeMinutes,
+                rules.Adaptive,
+            }
+        );
 }

@@ -8,6 +8,7 @@ import {
   companyLoopOverviewSchema,
   type CompanyLoopOverview,
 } from '../contracts/CompanyLoopOverview';
+import { newsPacketSchema, type NewsPacket } from '../contracts/NewsPacket';
 
 export class TeamService implements ITeamService {
   private static readonly basePath: string = '/team';
@@ -55,6 +56,20 @@ export class TeamService implements ITeamService {
     const parsed = companyLoopOverviewSchema.safeParse(body);
     if (!parsed.success) {
       throw new Error('Company response is invalid.');
+    }
+
+    return parsed.data;
+  }
+
+  public async news(signal?: AbortSignal): Promise<NewsPacket> {
+    const body = await this.requests.get(
+      `${TeamService.basePath}/news`,
+      'Unable to load market news.',
+      signal,
+    );
+    const parsed = newsPacketSchema.safeParse(body);
+    if (!parsed.success) {
+      throw new Error('Market news response is invalid.');
     }
 
     return parsed.data;

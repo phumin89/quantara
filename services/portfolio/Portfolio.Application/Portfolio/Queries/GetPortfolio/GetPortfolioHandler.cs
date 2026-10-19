@@ -1,17 +1,56 @@
 using Mediator;
 using Quantara.Portfolio.Domain;
+using Quantara.Portfolio.Domain.Trading;
 
 namespace Quantara.Portfolio.Application;
 
-public sealed class GetPortfolioHandler(IReadOnlyPortfolioRepository store, IPortfolioSync sync)
-    : IQueryHandler<GetPortfolioQuery, PortfolioView>
+public sealed class GetPortfolioHandler(
+    IReadOnlyPortfolioRepository store,
+    IReadOnlyPortfolioSync sync,
+    IReadOnlyTradingStore? trading = null
+) : IQueryHandler<GetPortfolioQuery, PortfolioView>
 {
     public async ValueTask<PortfolioView> Handle(GetPortfolioQuery query, CancellationToken cancellationToken)
     {
         var ledger = await store.Load(cancellationToken);
         var status = sync.Status;
+        var positions = PortfolioProjection.Positions(ledger);
+        if (trading is not null)
+        {
+            var state = await trading.Read(cancellationToken);
+            var latestBuy = state
+                .Live.Fills.Where(fill => fill.Side == TradeSide.Buy && fill.Quantity > 0 && fill.GrossThb > 0)
+                .GroupBy(fill => new { fill.Symbol, fill.IntentId })
+                .Select(group => group.OrderByDescending(fill => fill.OccurredAt).ToArray())
+                .OrderByDescending(group => group.Max(fill => fill.OccurredAt))
+                .GroupBy(group => group[0].Symbol, StringComparer.Ordinal)
+                .ToDictionary(
+                    group => group.Key,
+                    group =>
+                    {
+                        var fills = group.First();
+                        return (
+                            Price: fills.Sum(fill => fill.GrossThb) / fills.Sum(fill => fill.Quantity),
+                            At: fills.Max(fill => fill.OccurredAt)
+                        );
+                    },
+                    StringComparer.Ordinal
+                );
+            positions = positions
+                .Select(position =>
+                    latestBuy.TryGetValue(position.Symbol, out var buy)
+                        ? position with
+                        {
+                            LastBuyPrice = buy.Price,
+                            LastBoughtAt = buy.At,
+                        }
+                        : position
+                )
+                .ToArray();
+        }
+
         return new(
-            PortfolioProjection.Positions(ledger),
+            positions,
             PortfolioProjection.Summary(ledger),
             ledger.UpdatedAt,
             ledger.PriceUpdatedAt,

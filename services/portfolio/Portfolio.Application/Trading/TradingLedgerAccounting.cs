@@ -21,6 +21,9 @@ public static class TradingLedgerAccounting
                 || duplicate.OccurredAt != fill.OccurredAt
                 || duplicate.GrossFeeThb != fill.GrossFeeThb
                 || duplicate.FeeCreditThb != fill.FeeCreditThb
+                || duplicate.QuantityScale is { } previousScale
+                    && fill.QuantityScale is { } nextScale
+                    && previousScale != nextScale
             )
             {
                 throw new InvalidOperationException("Conflicting broker fill identity.");
@@ -29,8 +32,18 @@ public static class TradingLedgerAccounting
             return ledger;
         }
 
+        if (fill.QuantityScale is < 0 or > 18)
+        {
+            throw new InvalidOperationException("Fill base precision is invalid.");
+        }
+
+        var baseQuantity = fill.QuantityScale is { } scale
+            ? decimal.Round(fill.Quantity, scale, MidpointRounding.ToZero)
+            : fill.Quantity;
         if (
             fill.Quantity <= 0
+            || baseQuantity <= 0
+            || fill.Side == TradeSide.Sell && baseQuantity != fill.Quantity
             || fill.Price <= 0
             || fill.GrossThb <= 0
             || fill.FeeThb < 0
@@ -55,12 +68,18 @@ public static class TradingLedgerAccounting
             cash -= cost;
             updated = new TradingHolding(
                 fill.Symbol,
-                (holding?.Quantity ?? 0) + fill.Quantity,
+                (holding?.Quantity ?? 0) + baseQuantity,
                 (holding?.CostThb ?? 0) + cost,
                 holding is { Quantity: > 0 } ? holding.OpenedAt : fill.OccurredAt,
                 holding is { Quantity: > 0 } ? Math.Max(holding.PeakBid, fill.Price) : fill.Price,
                 (holding?.EntryFeesThb ?? 0) + fill.FeeThb
-            );
+            )
+            {
+                ExitPlan = holding is { Quantity: > 0 } ? holding.ExitPlan : null,
+                StopPrice = holding is { Quantity: > 0 } ? holding.StopPrice : null,
+                TargetPrice = holding is { Quantity: > 0 } ? holding.TargetPrice : null,
+                TrailingDistance = holding is { Quantity: > 0 } ? holding.TrailingDistance : null,
+            };
         }
         else
         {
@@ -69,8 +88,14 @@ public static class TradingLedgerAccounting
                 throw new InvalidOperationException("Sell fill exceeds verified strategy position.");
             }
 
-            var releasedCost = holding.CostThb * fill.Quantity / holding.Quantity;
-            var releasedFees = holding.EntryFeesThb * fill.Quantity / holding.Quantity;
+            // Retain raw fill evidence; discard only a legacy division residue below the verified broker base unit.
+            var closesPosition =
+                fill.QuantityScale is { } sellScale
+                && decimal.Round(holding.Quantity, sellScale, MidpointRounding.ToZero) == fill.Quantity;
+            var releasedCost = closesPosition ? holding.CostThb : holding.CostThb * fill.Quantity / holding.Quantity;
+            var releasedFees = closesPosition
+                ? holding.EntryFeesThb
+                : holding.EntryFeesThb * fill.Quantity / holding.Quantity;
             fill = fill with
             {
                 RealizedGrossThb = fill.GrossThb - releasedCost + releasedFees,
@@ -79,7 +104,7 @@ public static class TradingLedgerAccounting
             cash += fill.GrossThb - fill.FeeThb;
             updated = holding with
             {
-                Quantity = holding.Quantity - fill.Quantity,
+                Quantity = closesPosition ? 0m : holding.Quantity - fill.Quantity,
                 CostThb = holding.CostThb - releasedCost,
                 EntryFeesThb = holding.EntryFeesThb - releasedFees,
             };
@@ -125,4 +150,10 @@ public static class TradingLedgerAccounting
 
         return value;
     }
+
+    internal static TradingLedger ReplaceOrder(TradingLedger ledger, TradingIntent intent) =>
+        ledger with
+        {
+            Orders = ledger.Orders.Select(order => order.Id == intent.Id ? intent : order).ToArray(),
+        };
 }

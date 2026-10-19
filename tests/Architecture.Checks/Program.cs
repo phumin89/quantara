@@ -11,6 +11,29 @@ var sourceFiles = Directory
         && !path.Contains($"{Path.DirectorySeparatorChar}bin{Path.DirectorySeparatorChar}", StringComparison.Ordinal)
     );
 var checkedFiles = 0;
+var writePorts = new HashSet<string>(StringComparer.Ordinal)
+{
+    "IPortfolioRepository",
+    "IPortfolioGoalStore",
+    "IOrderStore",
+    "IOrderNotificationStore",
+    "ITradingStore",
+    "IRiskStore",
+    "ITeamRunStore",
+    "ICompanyScheduleStore",
+    "ICompanyLoop",
+    "IIntradayCandleStore",
+    "IMarketEventBus",
+    "IPortfolioSync",
+    "ITradingExchange",
+    "ITradingControl",
+    "IOrderBroker",
+    "IHumanOrderReview",
+    "IOrderProposalPublisher",
+    "ITeamCoordinator",
+    "ICodexWorker",
+    "ITelegramTransport",
+};
 foreach (var path in sourceFiles)
 {
     var syntax = CSharpSyntaxTree.ParseText(await File.ReadAllTextAsync(path)).GetRoot();
@@ -64,6 +87,9 @@ foreach (var path in sourceFiles)
             imports.Any(name =>
                 name.StartsWith("Microsoft", StringComparison.Ordinal)
                 || name.StartsWith("Mediator", StringComparison.Ordinal)
+                || name.StartsWith("System.Text.Json", StringComparison.Ordinal)
+                || name.StartsWith("System.Net", StringComparison.Ordinal)
+                || name.StartsWith("System.Data", StringComparison.Ordinal)
                 || name.Contains(".Infrastructure", StringComparison.Ordinal)
                 || name.Contains(".Application", StringComparison.Ordinal)
                 || name.Contains(".Api", StringComparison.Ordinal)
@@ -71,6 +97,20 @@ foreach (var path in sourceFiles)
         )
         {
             throw new InvalidOperationException($"Domain has an external dependency: {path}");
+        }
+
+        if (
+            syntax
+                .DescendantNodes()
+                .OfType<QualifiedNameSyntax>()
+                .Any(item =>
+                    item.ToString().StartsWith("System.Text.Json", StringComparison.Ordinal)
+                    || item.ToString().StartsWith("System.Net", StringComparison.Ordinal)
+                    || item.ToString().StartsWith("System.Data", StringComparison.Ordinal)
+                )
+        )
+        {
+            throw new InvalidOperationException($"Domain must not implement transport or persistence: {path}");
         }
     }
 
@@ -86,14 +126,14 @@ foreach (var path in sourceFiles)
     }
 
     if (
-        path.Contains($"{Path.DirectorySeparatorChar}Queries{Path.DirectorySeparatorChar}", StringComparison.Ordinal)
+        syntax.DescendantNodes().OfType<GenericNameSyntax>().Any(item => item.Identifier.ValueText == "IQueryHandler")
         && syntax
             .DescendantNodes()
             .OfType<IdentifierNameSyntax>()
-            .Any(item => item.Identifier.ValueText == "IPortfolioRepository")
+            .Any(item => writePorts.Contains(item.Identifier.ValueText))
     )
     {
-        throw new InvalidOperationException($"Portfolio queries must use the read-only repository: {path}");
+        throw new InvalidOperationException($"Query handlers must use read-only ports: {path}");
     }
 
     checkedFiles++;

@@ -4,7 +4,9 @@
 
 ## Goal
 
-Replace the 10-second decision polling with event-driven **BUY / SELL** for Bitkub THB Spot, 24/7 while the service is running. Keep hourly/signal-driven AI for **research only**. The deterministic strategy + Adaptive Risk Engine own execution; AutoLive uses the existing one-time owner mandate, not per-order approval.
+- Replace the 10-second decision polling with event-driven **BUY / SELL** for Bitkub THB Spot, 24/7 while the service is running.
+- Keep hourly/signal-driven AI for **research only**.
+- The deterministic strategy + Adaptive Risk Engine own execution; AutoLive uses the existing one-time owner mandate, not per-order approval.
 
 ## Implementation
 
@@ -14,7 +16,7 @@ Replace the 10-second decision polling with event-driven **BUY / SELL** for Bitk
    - Ensure active holdings/open orders are always in the watched set; rotate remaining candidate markets within exchange limits. Do not claim full-universe real-time coverage if subscriptions are bounded.
 
 2. **Priority event dispatcher — `TradingWorker` / `TradingEngine`**
-   - Replace the fixed `Task.Delay(10s)` *decision trigger* with a reconnecting event listener and bounded priority queue: **EXIT > order/fill reconciliation > ENTRY > universe/research**.
+   - Replace the fixed `Task.Delay(10s)` _decision trigger_ with a reconnecting event listener and bounded priority queue: **EXIT > order/fill reconciliation > ENTRY > universe/research**.
    - Split the existing `TradingEngine.Tick()` into small reusable decision paths; keep one account-scoped serial execution gate and durable SQL claims. Slow universe scans, AI work or report delivery must never block a fresh owned-position exit evaluation.
    - Coalesce noisy entry ticks, deduplicate by symbol + rule hash + signal/candle ID, and rate-limit re-evaluations. **Never discard a pending exit trigger**; if overflow occurs, mark symbols dirty and immediately re-read their latest quotes.
    - Keep independent timers for broker status reconciliation (existing >=30s throttle), order expiry, heartbeat, mandate expiry, daily report and a bounded fallback snapshot check when streams disconnect. Reconnect with backoff; recover state from SQL, not in-memory events.
@@ -22,7 +24,7 @@ Replace the 10-second decision polling with event-driven **BUY / SELL** for Bitk
 3. **Real-time trading rules**
    - Evaluate **Stop Loss, Take Profit, Trailing Stop, time exits** on fresh bid/ask updates for owned positions; exits take priority and can use fresh quotes without waiting for a new 5m candle or full-universe scan.
    - Evaluate new entries on `CandleClosed` using existing `adaptive-intraday-v1` evidence. Optionally enable intrabar price-cross triggers **only as a separately versioned, tested strategy** supported by completed-candle context; never silently change existing rule hashes.
-   - Reuse `AutonomousRiskService` / `AdaptiveRiskEngine`: size each BUY from verified current equity, available THB, existing exposure, stop/ATR, spread, fees and liquidity. New deposits scale sizing automatically; no fixed 1,000 THB order.
+   - Reuse `AutonomousRiskService` / `AdaptiveRiskEngine`: size each BUY from verified current equity, available THB, existing exposure, stop/ATR, spread, fees and liquidity. Confirmed deposits scale sizing automatically; orders do not use a fixed THB amount.
    - Revalidate account, mandate, market rules, balance, latest price and risk **immediately before broker submission**. LIMIT intents are not guaranteed fills or stop prices.
 
 4. **Safety and observability**

@@ -1,8 +1,6 @@
 namespace Quantara.Portfolio.Application;
 
-public interface IPortfolioSync
+public interface IPortfolioSync : IReadOnlyPortfolioSync
 {
-    public SyncStatus Status { get; }
-
     public bool Request();
 }

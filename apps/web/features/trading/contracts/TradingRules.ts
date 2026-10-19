@@ -23,12 +23,29 @@ const adaptivePolicySchema = z.strictObject({
   dailyLossFraction: z.number().gt(0).lte(1),
   dailyProfitTargetThb: z.number().positive().max(1_000_000_000),
 });
+const exitPolicySchema = z.strictObject({
+  version: z.literal('adaptive-exit-v1'),
+  trendReviewBars: z.number().int().min(1).max(24),
+  rangeReviewBars: z.number().int().min(1).max(24),
+  trendMaximumMinutes: z.number().int().min(1).max(1440),
+  rangeMaximumMinutes: z.number().int().min(1).max(1440),
+  trendMinimumMinutes: z.number().int().min(0).max(1440),
+  rangeMinimumMinutes: z.number().int().min(0).max(1440),
+  maximumReviews: z.number().int().min(1).max(100),
+  noProgressReviews: z.number().int().min(1).max(10),
+  trendTrailingAtr: z.number().gt(0).max(10),
+  rangeTrailingAtr: z.number().gt(0).max(10),
+  activationAtr: z.number().min(0).max(10),
+  minimumProgressAtr: z.number().min(0).max(10),
+});
 
 export const tradingRulesSchema = z
   .strictObject({
     version: z.union([
       z.literal('ema20-50-breakout-v1'),
       z.literal('adaptive-intraday-v1'),
+      z.literal('adaptive-intraday-v2'),
+      z.literal('adaptive-intraday-v3'),
     ]),
     symbols: z
       .array(z.string().regex(/^[A-Z0-9]{1,30}$/))
@@ -54,28 +71,52 @@ export const tradingRulesSchema = z
     feeBps: z.number().min(0).max(100),
     volumeRatio: z.number().min(1).max(10),
     adaptive: adaptivePolicySchema.nullable().optional(),
+    exitPolicy: exitPolicySchema.nullable().optional(),
   })
   .refine(
     (rules) =>
       rules.version === 'adaptive-intraday-v1' ||
+      rules.version === 'adaptive-intraday-v2' ||
+      rules.version === 'adaptive-intraday-v3' ||
       rules.adaptive === null ||
       rules.adaptive === undefined,
     'Adaptive policy requires the adaptive trading version.',
   )
   .refine(
     (rules) =>
-      rules.version !== 'adaptive-intraday-v1' ||
+      (rules.version !== 'adaptive-intraday-v1' &&
+        rules.version !== 'adaptive-intraday-v2' &&
+        rules.version !== 'adaptive-intraday-v3') ||
       (rules.adaptive !== null && rules.adaptive !== undefined),
     'Adaptive trading version requires an adaptive policy.',
   )
   .refine(
     (rules) =>
-      rules.version === 'adaptive-intraday-v1' || rules.symbols.length > 0,
+      rules.version === 'adaptive-intraday-v3' ||
+      rules.exitPolicy === null ||
+      rules.exitPolicy === undefined,
+    'Only adaptive-intraday-v3 may define an exit policy.',
+  )
+  .refine(
+    (rules) =>
+      rules.version !== 'adaptive-intraday-v3' ||
+      (rules.exitPolicy !== null && rules.exitPolicy !== undefined),
+    'Adaptive-intraday-v3 requires an exit policy.',
+  )
+  .refine(
+    (rules) =>
+      rules.version === 'adaptive-intraday-v1' ||
+      rules.version === 'adaptive-intraday-v2' ||
+      rules.version === 'adaptive-intraday-v3' ||
+      rules.symbols.length > 0,
     'Legacy trading requires at least one symbol.',
   )
   .refine(
     (rules) =>
-      rules.version !== 'adaptive-intraday-v1' || rules.symbols.length === 0,
+      (rules.version !== 'adaptive-intraday-v1' &&
+        rules.version !== 'adaptive-intraday-v2' &&
+        rules.version !== 'adaptive-intraday-v3') ||
+      rules.symbols.length === 0,
     'Adaptive trading selects its own eligible markets.',
   )
   .refine(

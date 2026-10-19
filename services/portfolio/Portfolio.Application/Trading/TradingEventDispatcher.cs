@@ -305,7 +305,7 @@ public sealed class TradingEventDispatcher(int capacity = 128) : IDisposable
             this.latest.Remove(item.Symbol);
             if (item.Symbol.Length > 0 && (this.received.Count < 64 || this.received.ContainsKey(item.Symbol)))
             {
-                this.received[item.Symbol] = item.ReceivedTimestamp;
+                this.received[item.Symbol] = item.GetReceivedTimestamp();
             }
         }
         else if (
@@ -315,7 +315,7 @@ public sealed class TradingEventDispatcher(int capacity = 128) : IDisposable
         )
         {
             this.latest[item.Symbol] = book;
-            this.received[item.Symbol] = item.ReceivedTimestamp;
+            this.received[item.Symbol] = item.GetReceivedTimestamp();
         }
     }
 

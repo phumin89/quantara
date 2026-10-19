@@ -22,8 +22,13 @@ public sealed class FakeTradingExchange : ITradingExchange
 
     public Action<TradingIntent, bool>? BeforeSend { get; set; }
 
-    public Task<OrderMarket> Market(string symbol, TradeSide side, CancellationToken cancellationToken) =>
-        Task.FromResult(new OrderMarket(110, 10, .01m, 2, side == TradeSide.Buy ? 2 : 8, true));
+    public Action? BeforeMarket { get; set; }
+
+    public Task<OrderMarket> Market(string symbol, TradeSide side, CancellationToken cancellationToken)
+    {
+        this.BeforeMarket?.Invoke();
+        return Task.FromResult(new OrderMarket(110, 10, .01m, 2, side == TradeSide.Buy ? 2 : 8, true));
+    }
 
     public Task<Balance[]> Balances(CancellationToken cancellationToken) =>
         Task.FromResult<Balance[]>([

@@ -4,5 +4,6 @@ export enum CompanyLoopStatus {
   WaitingForPortfolio = 'waitingForPortfolio',
   Running = 'running',
   Waiting = 'waiting',
+  DeferredBudget = 'deferredBudget',
   Error = 'error',
 }

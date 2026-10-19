@@ -21,4 +21,8 @@ public sealed record TradingState(
     public string[] ObservedFundingFlows { get; init; } = [];
 
     public IReadOnlyList<TradingShadow> Shadows { get; init; } = [];
+
+    public TradingEvaluationResult? Evaluation { get; init; }
+
+    public IReadOnlyList<TradingExitStudySample> ExitStudies { get; init; } = [];
 }

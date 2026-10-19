@@ -26,6 +26,8 @@ async function verifyCrypto() {
             unrealizedPnl: null,
             realizedPnl: null,
             costStatus: 'Unknown',
+            lastBuyPrice: 90,
+            lastBoughtAt: '2026-10-19T11:20:00+07:00',
           },
           {
             symbol: 'OLD',
@@ -55,6 +57,9 @@ async function verifyCrypto() {
   const readSnapshot = async () =>
     fixture ?? (await page.request.get(`${url}/api/crypto/portfolio`)).json();
   if (fixture) {
+    await page.route('**/api/**', (route) =>
+      route.fulfill({ status: 404, json: { error: 'Unmocked fixture API' } }),
+    );
     await page.route('**/api/crypto/portfolio', fulfillFixture);
     await page.route('**/api/crypto/history?*', (route) =>
       route.fulfill({
@@ -108,6 +113,16 @@ async function verifyCrypto() {
         true,
       );
       const snapshot = await readSnapshot();
+      if (fixture) {
+        await page
+          .getByRole('columnheader', { name: 'Last buy', exact: true })
+          .waitFor();
+        await page
+          .locator('[title="Latest confirmed engine buy; excludes fees"]')
+          .filter({ hasText: '฿90.00' })
+          .waitFor();
+        await page.getByText('19 Oct, 11:20', { exact: true }).waitFor();
+      }
       const formattedMoney = (value) =>
         value == null
           ? '—'

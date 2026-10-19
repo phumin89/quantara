@@ -5,6 +5,7 @@ using Microsoft.AspNetCore.Mvc;
 using Quantara.MarketData.Application;
 using Quantara.MarketData.Domain;
 using Quantara.MarketData.Infrastructure;
+using Quantara.MarketData.Infrastructure.News;
 
 var builder = WebApplication.CreateBuilder(args);
 builder.WebHost.UseUrls(builder.Configuration["Hosting:ListenUrl"] ?? "http://127.0.0.1:5051");
@@ -17,10 +18,25 @@ builder
         )
     );
 builder.Services.AddSingleton(TimeProvider.System);
+var marketConnection = builder.Configuration.GetConnectionString("MarketData");
+var newsStore = new SqlNewsStore(
+    marketConnection
+        ?? "Server=(localdb)\\MSSQLLocalDB;Database=QuantaraMarketData;Integrated Security=true;Encrypt=true;TrustServerCertificate=true;",
+    marketConnection is null
+);
+builder.Services.AddSingleton(newsStore);
+builder.Services.AddSingleton<Quantara.MarketData.Application.News.INewsReader>(newsStore);
+builder
+    .Services.AddHttpClient<INewsTransport, HttpNewsTransport>(client =>
+    {
+        client.Timeout = TimeSpan.FromSeconds(10);
+        client.DefaultRequestHeaders.Accept.ParseAdd("application/rss+xml, application/xml, text/xml");
+    })
+    .ConfigurePrimaryHttpMessageHandler(HttpNewsTransport.CreateHandler);
+builder.Services.AddHostedService<NewsPoller>();
 builder.Services.AddSingleton<MarketEventBus>();
 builder.Services.AddSingleton<IMarketEventBus>(services => services.GetRequiredService<MarketEventBus>());
 builder.Services.AddSingleton<IMarketEventReader>(services => services.GetRequiredService<MarketEventBus>());
-var marketConnection = builder.Configuration.GetConnectionString("MarketData");
 builder.Services.AddSingleton<IIntradayCandleStore>(
     new SqlIntradayCandleStore(
         marketConnection

@@ -13,6 +13,8 @@ export const positionSchema = z.object({
   unrealizedPnl: z.number().nullable(),
   realizedPnl: z.number().nullable(),
   costStatus: z.literal(CostStatus.Unknown),
+  lastBuyPrice: z.number().positive().nullable().optional(),
+  lastBoughtAt: z.iso.datetime({ offset: true }).nullable().optional(),
 });
 
 export type Position = z.infer<typeof positionSchema>;

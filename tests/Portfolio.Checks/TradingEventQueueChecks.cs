@@ -9,6 +9,18 @@ public static class TradingEventQueueChecks
     {
         using var queue = new TradingEventDispatcher(2);
         var now = DateTimeOffset.UtcNow;
+        var eventTiming = new TradingMarketEvent(TradingEventKind.BookChanged, "BTC", 1, now);
+        var coalescedTiming = eventTiming.WithCoalesced(4);
+        Check(
+            coalescedTiming.GetReceivedTimestamp() == eventTiming.GetReceivedTimestamp(),
+            "Coalescing preserves the original local receive time for decision latency."
+        );
+        Check(
+            !System
+                .Text.Json.JsonSerializer.Serialize(coalescedTiming)
+                .Contains("ReceivedTimestamp", StringComparison.OrdinalIgnoreCase),
+            "Process-local stopwatch timing never enters the market event wire contract."
+        );
         queue.Enqueue(new TradingMarketEvent(TradingEventKind.QuoteChanged, "BTC", 1, now), false);
         queue.Enqueue(new TradingMarketEvent(TradingEventKind.QuoteChanged, "BTC", 2, now), false);
         queue.Enqueue(new TradingMarketEvent(TradingEventKind.BookChanged, "ETH", 1, now), true);

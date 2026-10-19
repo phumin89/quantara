@@ -1,0 +1,202 @@
+using Quantara.Portfolio.Domain;
+using Quantara.Portfolio.Domain.Trading;
+
+namespace Quantara.Portfolio.Application;
+
+internal sealed class TradingOrderReconciler(
+    ITradingStore store,
+    ITradingExchange exchange,
+    TimeProvider time,
+    AutonomousRiskService? adaptiveRisk
+)
+{
+    private readonly TradingStateWriter writer = new(store);
+
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<Guid, TradingPreparedObservation> ready = new();
+
+    internal async Task Prepare(CancellationToken cancellationToken)
+    {
+        var state = await store.Read(cancellationToken);
+        var activeIds = state.Live.Orders.Where(TradingLedgerAccounting.Active).Select(order => order.Id).ToHashSet();
+        foreach (var id in this.ready.Keys.Where(id => !activeIds.Contains(id)))
+        {
+            this.ready.TryRemove(id, out _);
+        }
+
+        foreach (
+            var order in state.Live.Orders.Where(order =>
+                TradingLedgerAccounting.Active(order) && order.Status != "pending"
+            )
+        )
+        {
+            if (order.LastInspectedAt is { } inspected && time.GetUtcNow() - inspected < TimeSpan.FromSeconds(30))
+            {
+                continue;
+            }
+
+            var observation = await exchange.Inspect(order, cancellationToken);
+            this.ready[order.Id] = new(order, observation, time.GetUtcNow());
+        }
+    }
+
+    internal async Task<TradingState> Reconcile(
+        TradingState state,
+        DateTimeOffset now,
+        bool preparedOnly,
+        CancellationToken cancellationToken
+    )
+    {
+        foreach (
+            var original in state
+                .Live.Orders.Where(order => TradingLedgerAccounting.Active(order) && order.Status != "pending")
+                .ToArray()
+        )
+        {
+            if (original.LastInspectedAt is not null && now - original.LastInspectedAt < TimeSpan.FromSeconds(30))
+            {
+                continue;
+            }
+
+            TradingOrderObservation observation;
+            DateTimeOffset inspectedAt;
+            if (preparedOnly)
+            {
+                if (
+                    !this.ready.TryRemove(original.Id, out var prepared)
+                    || prepared.Intent.BrokerOrderId != original.BrokerOrderId
+                )
+                {
+                    continue;
+                }
+
+                observation = prepared.Observation;
+                inspectedAt = prepared.ObservedAt;
+            }
+            else
+            {
+                observation = await exchange.Inspect(original, cancellationToken);
+                inspectedAt = time.GetUtcNow();
+            }
+
+            if (observation.Status is not ("unknown" or "submitted" or "partial" or "filled" or "cancelled"))
+            {
+                throw new InvalidDataException("Invalid reconciliation state.");
+            }
+
+            if (
+                observation.Status != "unknown"
+                && (
+                    observation.BrokerOrderId is null
+                    || observation.Remaining is null
+                    || observation.Remaining < 0
+                    || observation.Remaining > original.Amount
+                )
+            )
+            {
+                throw new InvalidDataException("Incomplete broker order reconciliation.");
+            }
+
+            var ledger = state.Live;
+            foreach (
+                var fill in observation
+                    .Fills.OrderBy(fill => fill.OccurredAt)
+                    .ThenBy(fill => fill.BrokerFillId, StringComparer.Ordinal)
+            )
+            {
+                if (
+                    fill.IntentId != original.Id
+                    || fill.Symbol != original.Symbol
+                    || fill.Side != original.Side
+                    || fill.OccurredAt < original.CreatedAt.AddMinutes(-1)
+                    || fill.OccurredAt > inspectedAt.AddSeconds(5)
+                    || fill.Side == TradeSide.Buy && fill.Price > original.LimitPrice
+                    || fill.Side == TradeSide.Sell && fill.Price < original.LimitPrice
+                )
+                {
+                    throw new InvalidDataException("Fill identity, time or limit mismatch.");
+                }
+
+                ledger = TradingLedgerAccounting.Apply(ledger, fill);
+                if (fill.Side == TradeSide.Buy && original.Sizing is { } sizing)
+                {
+                    ledger = ledger with
+                    {
+                        Positions = ledger
+                            .Positions.Select(position =>
+                                position.Symbol == original.Symbol
+                                    ? position with
+                                    {
+                                        StopPrice = sizing.Signal.StopPrice,
+                                        TargetPrice =
+                                            original.LimitPrice
+                                            + decimal.Max(
+                                                sizing.Market.Atr * 2,
+                                                original.LimitPrice * state.Rules.TakeProfitBps / 10000m
+                                            ),
+                                        TrailingDistance = decimal.Max(
+                                            sizing.Market.Atr,
+                                            original.LimitPrice * state.Rules.TrailingStopBps / 10000m
+                                        ),
+                                        ExitPlan =
+                                            position.ExitPlan
+                                            ?? (
+                                                original.ExitPlan is { } exitPlan
+                                                    ? AdaptiveExitStrategy.Anchor(exitPlan, position.OpenedAt)
+                                                    : null
+                                            ),
+                                    }
+                                    : position
+                            )
+                            .ToArray(),
+                    };
+                }
+            }
+
+            var fills = ledger.Fills.Where(fill => fill.IntentId == original.Id).ToArray();
+            var used =
+                original.Side == TradeSide.Buy
+                    ? fills.Sum(fill => fill.GrossThb + fill.FeeThb)
+                    : fills.Sum(fill => fill.Quantity);
+            if (
+                used > original.Amount + (original.Side == TradeSide.Buy ? 0.00000001m : 0.000000000000000001m)
+                || observation.Status == "filled" && (fills.Length == 0 || observation.Remaining != 0)
+            )
+            {
+                throw new InvalidDataException("Fill totals do not reconcile to submitted amount.");
+            }
+
+            var intent = original with
+            {
+                Status = observation.Status,
+                BrokerOrderId = observation.BrokerOrderId ?? original.BrokerOrderId,
+                Remaining = observation.Remaining ?? original.Remaining,
+                LastInspectedAt = inspectedAt,
+            };
+            if (!TradingLedgerAccounting.Active(intent))
+            {
+                intent = intent with { CancellationState = intent.CancellationState is null ? null : "confirmed" };
+            }
+
+            var accountChanged = ledger.Fills.Count != state.Live.Fills.Count || intent.Status != original.Status;
+            var notices = ledger
+                .Fills.Where(fill => !state.Live.Fills.Any(previous => previous.BrokerFillId == fill.BrokerFillId))
+                .Select(fill => TradingFillNotice.Create(fill, inspectedAt))
+                .Where(notice => !state.Alerts.Any(alert => alert.Key == notice.Key));
+            state = await this.writer.Save(
+                state,
+                state with
+                {
+                    Live = TradingLedgerAccounting.ReplaceOrder(ledger, intent),
+                    Alerts = state.Alerts.Concat(notices).ToArray(),
+                },
+                cancellationToken
+            );
+            if (accountChanged)
+            {
+                adaptiveRisk?.Invalidate();
+            }
+        }
+
+        return state;
+    }
+}

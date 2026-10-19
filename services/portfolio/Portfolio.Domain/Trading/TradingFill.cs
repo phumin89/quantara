@@ -15,4 +15,7 @@ public sealed record TradingFill(
     decimal? RealizedNetThb = null,
     decimal? GrossFeeThb = null,
     decimal? FeeCreditThb = null
-);
+)
+{
+    public int? QuantityScale { get; init; }
+}

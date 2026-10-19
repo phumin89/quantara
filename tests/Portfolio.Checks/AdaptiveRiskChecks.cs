@@ -33,6 +33,24 @@ public static class AdaptiveRiskChecks
         var decision = Evaluate(policy, capital, market, signal, now);
         Check(decision.Accepted && decision.Amount is > 0m, "aggressive policy permits a supported tight-stop order");
         Check(decision.Amount is not 500m and not 1000m, "sizing has no legacy 500/1000 hard cap");
+        var funded = Evaluate(
+            policy,
+            Capital(5029.43m, 5029.43m, 0m),
+            market with
+            {
+                BuyCapacityThb = 100000m,
+                Atr = 1m,
+            },
+            signal with
+            {
+                StopPrice = 98m,
+            },
+            now
+        );
+        Check(
+            funded.Accepted && funded.Amount is > 4000m && funded.Amount < 5029.43m,
+            "Aggressive sizing can deploy over 4000 THB from a verified 5029.43 THB wallet when stop, depth and caps permit; 1000 THB is no ceiling."
+        );
         Check(
             decision.Explanation.Contains("not guaranteed", StringComparison.Ordinal),
             "decision discloses stop-gap risk without a max-loss guarantee"

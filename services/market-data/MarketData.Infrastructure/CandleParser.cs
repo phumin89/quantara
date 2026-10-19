@@ -23,7 +23,7 @@ public static class CandleParser
         var timestamps = root.GetProperty("t");
         var count = timestamps.GetArrayLength();
         if (
-            intervalSeconds is not (300 or 86400)
+            intervalSeconds is not (300 or 900 or 3600 or 86400)
             || maxRows is < 1 or > 1000
             || count > maxRows
             || CandleParser.valueFields.Any(field => root.GetProperty(field).GetArrayLength() != count)

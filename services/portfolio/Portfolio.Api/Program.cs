@@ -1,10 +1,13 @@
 using System.Security.Cryptography;
 using System.Text;
+using Hangfire;
+using Hangfire.SqlServer;
 using Mediator;
 using Quantara.Portfolio.Api;
 using Quantara.Portfolio.Application;
 using Quantara.Portfolio.Infrastructure;
 using Quantara.Portfolio.Infrastructure.Risk;
+using Quantara.Portfolio.Infrastructure.Trading.Jobs;
 
 var builder = WebApplication.CreateBuilder(args);
 builder.WebHost.UseUrls(builder.Configuration["Hosting:ListenUrl"] ?? "http://127.0.0.1:5050");
@@ -76,6 +79,10 @@ var tradingStore = new SqlTradingStore(connectionString, accountKey, TimeProvide
 await tradingStore.Initialize(CancellationToken.None);
 builder.Services.AddSingleton<ITradingStore>(tradingStore);
 builder.Services.AddSingleton<IReadOnlyTradingStore>(tradingStore);
+var goalStore = new SqlPortfolioGoalStore(connectionString, accountKey);
+await goalStore.Initialize(CancellationToken.None);
+builder.Services.AddSingleton<IPortfolioGoalStore>(goalStore);
+builder.Services.AddSingleton<IReadOnlyPortfolioGoalStore>(goalStore);
 var tradingOptions = new TradingControlOptions(
     builder.Configuration["Trading:OwnerToken"] ?? Credential("QUANTARA_TRADING_CONTROL_TOKEN")
 )
@@ -92,6 +99,8 @@ builder.Services.AddSingleton<TradingEngine>();
 builder.Services.AddSingleton<AutonomousMarketMonitor>();
 builder.Services.AddSingleton<TradingReportDelivery>();
 builder.Services.AddHostedService<TradingWorker>();
+builder.Services.AddSingleton<TradingEvaluationService>();
+builder.Services.AddHostedService<TradingEvaluationWorker>();
 builder
     .Services.AddHttpClient<ITradingNotifier>(
         (services, http) =>
@@ -105,6 +114,7 @@ builder
     .AddTypedClient<ITradingNotifier>(
         (http, services) => new TradingNotifier(http, services.GetService<TelegramSettings>())
     );
+TelegramSettings? tradingTelegram = null;
 if (!string.IsNullOrWhiteSpace(Credential("TELEGRAM_BOT_TOKEN")))
 {
     if (
@@ -119,6 +129,7 @@ if (!string.IsNullOrWhiteSpace(Credential("TELEGRAM_BOT_TOKEN")))
     }
 
     var telegramSettings = new TelegramSettings(Credential("TELEGRAM_BOT_TOKEN"), telegramUserId, telegramChatId);
+    tradingTelegram = telegramSettings;
     var notifications = new SqlOrderNotificationStore(connectionString, accountKey);
     await notifications.Initialize(CancellationToken.None);
     builder.Services.AddSingleton(telegramSettings);
@@ -134,6 +145,74 @@ if (!string.IsNullOrWhiteSpace(Credential("TELEGRAM_BOT_TOKEN")))
         .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler { AllowAutoRedirect = false });
     builder.Services.AddSingleton<TelegramOrderReviews>();
     builder.Services.AddHostedService<TelegramReviewWorker>();
+}
+
+var jobOptions = new TradingJobOptions(
+    accountKey,
+    Convert.ToHexString(
+        SHA256.HashData(
+            Encoding.UTF8.GetBytes(
+                accountKey
+                    + ":"
+                    + tradingTelegram?.Token
+                    + ":"
+                    + tradingTelegram?.ChatId
+                    + ":"
+                    + tradingTelegram?.UserId
+            )
+        )
+    ),
+    tradingTelegram is not null
+)
+{
+    UseHangfire = builder.Configuration.GetValue("Trading:UseHangfire", true),
+};
+builder.Services.AddSingleton(jobOptions);
+builder.Services.AddSingleton(
+    new TradingNotificationDiagnostics(jobOptions.Enabled) { DashboardAvailable = jobOptions.UseHangfire }
+);
+if (jobOptions.UseHangfire)
+{
+    var dispatchStore = new SqlTradingJobDispatchStore(connectionString, accountKey);
+    await dispatchStore.Initialize(CancellationToken.None);
+    builder.Services.AddSingleton(dispatchStore);
+    builder.Logging.AddFilter("Hangfire", LogLevel.Warning);
+    builder.Services.AddHangfire(configuration =>
+        configuration
+            .SetDataCompatibilityLevel(CompatibilityLevel.Version_180)
+            .UseSimpleAssemblyNameTypeSerializer()
+            .UseRecommendedSerializerSettings()
+            .UseSqlServerStorage(
+                connectionString,
+                new SqlServerStorageOptions
+                {
+                    SchemaName = "Hangfire",
+                    SqlClientFactory = Microsoft.Data.SqlClient.SqlClientFactory.Instance,
+                    QueuePollInterval = TimeSpan.FromSeconds(1),
+                    CommandBatchMaxTimeout = TimeSpan.FromSeconds(30),
+                    SlidingInvisibilityTimeout = TimeSpan.FromMinutes(5),
+                    UseRecommendedIsolationLevel = true,
+                    DisableGlobalLocks = true,
+                    TryAutoDetectSchemaDependentOptions = false,
+                }
+            )
+    );
+    builder.Services.AddHangfireServer(options =>
+    {
+        options.WorkerCount = 1;
+        options.Queues = ["telegram"];
+        options.ServerName = "portfolio-telegram-" + Environment.MachineName;
+        options.SchedulePollingInterval = TimeSpan.FromSeconds(1);
+    });
+    builder.Services.AddHangfireServer(options =>
+    {
+        options.WorkerCount = 1;
+        options.Queues = ["maintenance"];
+        options.ServerName = "portfolio-maintenance-" + Environment.MachineName;
+    });
+    builder.Services.AddTransient<TradingNotificationJob>();
+    builder.Services.AddTransient<TradingReportJob>();
+    builder.Services.AddHostedService<TradingNotificationScheduler>();
 }
 
 builder.Services.AddSingleton<IPortfolioRepository>(store);
@@ -161,6 +240,14 @@ if (marketDataUrl.Scheme is not ("http" or "https") || !string.IsNullOrEmpty(mar
 {
     throw new InvalidOperationException("Configure a valid MarketData service URL without embedded credentials.");
 }
+
+builder
+    .Services.AddHttpClient<ITradingHistoryReader, MarketDataTradingHistoryReader>(http =>
+    {
+        http.BaseAddress = marketDataUrl;
+        http.Timeout = TimeSpan.FromSeconds(15);
+    })
+    .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler { AllowAutoRedirect = false });
 
 builder
     .Services.AddHttpClient(
@@ -201,6 +288,7 @@ builder
     .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler { AllowAutoRedirect = false });
 builder.Services.AddSingleton<PortfolioSync>();
 builder.Services.AddSingleton<IPortfolioSync>(services => services.GetRequiredService<PortfolioSync>());
+builder.Services.AddSingleton<IReadOnlyPortfolioSync>(services => services.GetRequiredService<PortfolioSync>());
 builder.Services.AddHostedService(services => services.GetRequiredService<PortfolioSync>());
 builder.Services.AddMediator(options => options.ServiceLifetime = ServiceLifetime.Scoped);
 builder
@@ -335,5 +423,26 @@ app.MapGet(
         return Results.Ok(new { status = "ready" });
     }
 );
+if (jobOptions.UseHangfire)
+{
+    app.UseHangfireDashboard(
+        "/api/trading/jobs",
+        new DashboardOptions
+        {
+            Authorization = [new TradingDashboardAuthorizationFilter(tradingOptions)],
+            IsReadOnlyFunc = _ => true,
+            DisplayStorageConnectionString = false,
+            AppPath = "/daily-brief",
+        }
+    );
+    app.Services.GetRequiredService<IRecurringJobManager>()
+        .AddOrUpdate<TradingReportJob>(
+            "portfolio-report-" + accountKey,
+            job => job.Prepare(accountKey, jobOptions.DestinationKey, CancellationToken.None),
+            Cron.Minutely(),
+            new RecurringJobOptions { TimeZone = TimeZoneInfo.Utc }
+        );
+}
+
 app.MapControllers();
 await app.RunAsync();

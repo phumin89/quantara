@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { TeamRole } from './TeamRole';
 import { TeamRunStatus } from './TeamRunStatus';
 import { learningLessonSchema } from './LearningLesson';
+import { tradeAssessmentSchema } from './TradeAssessment';
 
 export const teamRunStatusSchema = z.enum(TeamRunStatus);
 
@@ -12,23 +13,34 @@ export const teamStepSchema = z.object({
   status: teamRunStatusSchema,
   output: z.string().max(16000).nullable(),
   error: z.string().max(2000).nullable(),
+  accountKey: z.string().nullable().optional(),
 });
 
-export const teamRunSchema = z.object({
-  id: z.uuid(),
-  objective: z.string().min(1).max(2000),
-  status: teamRunStatusSchema,
-  createdAt: z.iso.datetime({ offset: true }),
-  updatedAt: z.iso.datetime({ offset: true }),
-  steps: z
-    .array(teamStepSchema)
-    .length(3)
-    .refine(
-      (steps) => new Set(steps.map((step) => step.role)).size === 3,
-      'Each team role must appear once.',
-    ),
-  error: z.string().max(2000).nullable(),
-  lesson: learningLessonSchema.nullable().optional(),
-});
+export const teamRunSchema = z
+  .object({
+    id: z.uuid(),
+    objective: z.string().min(1).max(2000),
+    status: teamRunStatusSchema,
+    createdAt: z.iso.datetime({ offset: true }),
+    updatedAt: z.iso.datetime({ offset: true }),
+    steps: z
+      .array(teamStepSchema)
+      .length(3)
+      .refine(
+        (steps) => new Set(steps.map((step) => step.role)).size === 3,
+        'Each team role must appear once.',
+      ),
+    error: z.string().max(2000).nullable(),
+    accountKey: z.string().min(1).max(128).nullable().optional(),
+    lesson: learningLessonSchema.nullable().optional(),
+    assessment: tradeAssessmentSchema.nullable().optional(),
+  })
+  .refine(
+    (run) =>
+      !run.assessment ||
+      (run.assessment.runId === run.id &&
+        run.assessment.accountKey === run.accountKey),
+    'Trade assessment must belong to this run and account.',
+  );
 
 export type TeamRun = z.infer<typeof teamRunSchema>;

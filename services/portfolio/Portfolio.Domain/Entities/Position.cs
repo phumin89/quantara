@@ -11,4 +11,9 @@ public sealed record Position(
     decimal? UnrealizedPnl,
     decimal? RealizedPnl,
     CostStatus CostStatus
-);
+)
+{
+    public decimal? LastBuyPrice { get; init; }
+
+    public DateTimeOffset? LastBoughtAt { get; init; }
+}

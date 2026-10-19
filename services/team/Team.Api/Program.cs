@@ -30,9 +30,23 @@ var store = new TeamRunStore(teamConnection, configuredConnection is null);
 builder.Services.AddSingleton<ITeamRunStore>(store);
 builder.Services.AddSingleton<IReadOnlyTeamRunStore>(store);
 builder.Services.AddSingleton<ICompanyScheduleStore>(new CompanyScheduleStore(teamConnection));
+builder.Services.AddSingleton<IResearchBudget>(new SqlResearchBudget(teamConnection));
 builder.Services.AddSingleton(TimeProvider.System);
 builder
-    .Services.AddHttpClient<IMarketSignalReader, MarketSignalReader>(http =>
+    .Services.AddHttpClient<MarketSignalReader>(http =>
+    {
+        http.BaseAddress = new Uri(builder.Configuration["Services:MarketDataUrl"] ?? "http://127.0.0.1:5051");
+        http.Timeout = TimeSpan.FromSeconds(5);
+    })
+    .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler { AllowAutoRedirect = false });
+builder.Services.AddSingleton<IMarketSignalReader>(services => new CompanyResearchSignalReader(
+    services.GetRequiredService<MarketSignalReader>(),
+    services.GetRequiredService<INewsEvidenceReader>(),
+    services.GetRequiredService<ICurrentAccountReader>(),
+    services.GetRequiredService<TimeProvider>()
+));
+builder
+    .Services.AddHttpClient<INewsEvidenceReader, NewsEvidenceReader>(http =>
     {
         http.BaseAddress = new Uri(builder.Configuration["Services:MarketDataUrl"] ?? "http://127.0.0.1:5051");
         http.Timeout = TimeSpan.FromSeconds(5);
@@ -126,6 +140,13 @@ app.Use(
         try
         {
             await next();
+        }
+        catch (ResearchBudgetDeferredException error)
+        {
+            context.Response.StatusCode = 429;
+            await context.Response.WriteAsJsonAsync(
+                new { error = error.Message, nextAllowedAt = error.Decision.NextAllowedAt }
+            );
         }
         catch (TeamBusyException error)
         {

@@ -15,6 +15,10 @@ public sealed class RequestedSnapshotReader : IPortfolioSnapshotReader
 
     public bool ChangeAccount { get; init; }
 
+    public int RefreshedEvidenceCharacters { get; init; }
+
+    public string? RefreshedSnapshot { get; private set; }
+
     public DateTimeOffset FreshAt { get; } = DateTimeOffset.UtcNow;
 
     public Task Refresh(CancellationToken cancellationToken) => Task.CompletedTask;
@@ -24,7 +28,8 @@ public sealed class RequestedSnapshotReader : IPortfolioSnapshotReader
     public Task<string> ReadForMarkets(IReadOnlyList<string> symbols, CancellationToken cancellationToken)
     {
         this.Requested.AddRange(symbols);
-        return Task.FromResult(this.Snapshot(true));
+        this.RefreshedSnapshot = this.Snapshot(true);
+        return Task.FromResult(this.RefreshedSnapshot);
     }
 
     private string Snapshot(bool refreshed)
@@ -51,6 +56,7 @@ public sealed class RequestedSnapshotReader : IPortfolioSnapshotReader
                 },
                 marketResearch = new
                 {
+                    requestedDetail = refreshed ? new string('e', this.RefreshedEvidenceCharacters) : string.Empty,
                     available = true,
                     fetchedAt = this.FreshAt,
                     scan = new

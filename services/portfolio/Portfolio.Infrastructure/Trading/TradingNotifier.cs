@@ -75,8 +75,32 @@ public sealed class TradingNotifier(HttpClient http, TelegramSettings? settings)
                 return document;
             }
 
+            if (
+                !response.IsSuccessStatusCode
+                && document.RootElement.TryGetProperty("ok", out var accepted)
+                && accepted.ValueKind == JsonValueKind.False
+                && document.RootElement.TryGetProperty("error_code", out var errorCode)
+                && errorCode.TryGetInt32(out var code)
+                && (int)response.StatusCode == code
+                && code is 400 or 401 or 403 or 429
+            )
+            {
+                int? retryAfter =
+                    document.RootElement.TryGetProperty("parameters", out var parameters)
+                    && parameters.TryGetProperty("retry_after", out var seconds)
+                    && seconds.TryGetInt32(out var retrySeconds)
+                        ? retrySeconds
+                        : null;
+                document.Dispose();
+                throw new TradingNotificationRejectedException(code, retryAfter);
+            }
+
             document.Dispose();
             throw new InvalidOperationException("Trading notification was not acknowledged.");
+        }
+        catch (TradingNotificationRejectedException)
+        {
+            throw;
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {

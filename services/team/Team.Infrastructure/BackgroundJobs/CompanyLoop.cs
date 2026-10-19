@@ -7,12 +7,13 @@ namespace Quantara.Team.Infrastructure;
 public sealed class CompanyLoop : BackgroundService, ICompanyLoop
 {
     private const string mission =
-        "Operate Quantara as a high-risk daily spot trading company without waiting for research instructions. "
-        + "Owner target: 500 THB realized net profit per Bangkok calendar day after actual trading costs. This is a goal, never a guaranteed return or a forced trade quota. "
-        + "The owner accepts losing all allocated capital. No mandatory cash reserve: a cash-only portfolio requires actively seeking entry opportunities across the full supplied THB spot scan. "
-        + "CEO must rank feasible setups; Analyst evaluates entry, size, exit, invalidation and costs; Reviewer concludes Buy, Sell or Wait and may return one supported spot LIMIT proposal for explicit human approval. "
-        + "If Wait, explain the best rejected alternatives, opportunity-cost uncertainty and the next reconsideration condition. A missing breakout does not eliminate other setups. Never invent performance, count hypothetical/unrealized gains toward the target, approve or execute trades. "
-        + "Operate around the clock, including overnight, weekends and Bangkok midnight. Prioritize fresh current spot setups and reassessment of actual-held positions and exits before unrelated simulations or protocol drafts. Midnight and day-target accounting never close positions, reset funds, stop watching, or force trades; the target is not a ceiling. Keep unfinished research tasks in the ledger, but they must not consume live opportunity work or block an independent supported proposal. ";
+        "Operate Quantara's high-risk THB spot research team around the clock without waiting for instructions. "
+        + "Owner accepts full capital loss; seek opportunities across the full supplied scan, including when cash-only. "
+        + "The current objective is total portfolio equity including deposits, not the legacy daily profit field. Separate verified cash, holdings, deposits and trading P&L; unknown costs stay Unknown. "
+        + "Prioritize held positions, fresh market setups and relevant verified news. CEO ranks opportunities; Analyst checks entry, costs and exits; Reviewer returns an evidence-bound read-only assessment. "
+        + "For Wait, name rejected alternatives, exact missing fields, reconsideration conditions and next review. Hypothetical opportunity cost is separate from account profit. "
+        + "No model approves or executes orders. ManualReview proposals retain explicit human approval; the deterministic engine owns its unchanged mandate. "
+        + "Midnight and business targets never force trades, close positions, reset capital or expand authority. Keep protocol experiments separate from current opportunity research. ";
 
     private readonly ICompanyScheduleStore store;
 
@@ -77,7 +78,7 @@ public sealed class CompanyLoop : BackgroundService, ICompanyLoop
             {
                 visibleStatus = CompanyLoopStatus.Running;
             }
-            else if (latest?.Status == TeamRunStatus.Failed)
+            else if (latest?.Status == TeamRunStatus.Failed && visibleStatus != CompanyLoopStatus.DeferredBudget)
             {
                 return this.Overview(CompanyLoopStatus.Error) with
                 {
@@ -169,14 +170,15 @@ public sealed class CompanyLoop : BackgroundService, ICompanyLoop
             if (
                 latest?.Status == TeamRunStatus.Completed
                 && this.schedule.LastRunId == latest.Id
-                && latest.Learning?.EvaluationAt is DateTimeOffset deadline
-                && this.schedule.NextRunAt >= latest.CreatedAt.AddMinutes(59)
-                && this.schedule.NextRunAt < deadline
-                && deadline <= this.schedule.NextRunAt.AddMinutes(15)
+                && (this.schedule.LastAnalysisAt is null || this.schedule.LastAnalysisAt <= latest.CreatedAt)
             )
             {
-                this.schedule = this.schedule with { NextRunAt = deadline };
-                await this.store.Save(this.schedule, cancellationToken);
+                var nextRunAt = this.NextReviewOrLearningAt(latest, this.schedule);
+                if (nextRunAt is DateTimeOffset deadline && deadline != this.schedule.NextRunAt)
+                {
+                    this.schedule = this.schedule with { NextRunAt = deadline };
+                    await this.store.Save(this.schedule, cancellationToken);
+                }
             }
 
             if (CompanyLoop.IsActive(latest))
@@ -217,7 +219,11 @@ public sealed class CompanyLoop : BackgroundService, ICompanyLoop
                 );
             if (!hourly && !triggered)
             {
-                this.status = CompanyLoopStatus.Waiting;
+                if (this.status != CompanyLoopStatus.DeferredBudget)
+                {
+                    this.status = CompanyLoopStatus.Waiting;
+                }
+
                 return;
             }
 
@@ -263,6 +269,9 @@ public sealed class CompanyLoop : BackgroundService, ICompanyLoop
             var objective =
                 CompanyLoop.mission
                 + $"Assessment time: {this.time.GetUtcNow():O}. Check all supplied timestamps for freshness. ";
+            var goal = PortfolioGoal.Current;
+            objective +=
+                $"Current portfolio goal: reach THB {goal.TargetThb:0.##} total equity by {goal.DeadlineExclusive:O}, including deposits; this is the current business objective, not the legacy daily net-profit mandate. ";
             objective += $"Trading day (Bangkok): {this.time.GetUtcNow().ToOffset(TimeSpan.FromHours(7)):yyyy-MM-dd}. ";
             if (latest is not null)
             {
@@ -272,7 +281,7 @@ public sealed class CompanyLoop : BackgroundService, ICompanyLoop
             if (triggered)
             {
                 objective +=
-                    " Market alert (unvalidated research heuristic, not an order): " + this.signal?.Description;
+                    " Market alert (unvalidated research heuristic, not an order): inspect supplied market evidence.";
             }
 
             try
@@ -282,6 +291,16 @@ public sealed class CompanyLoop : BackgroundService, ICompanyLoop
                 await this.store.Save(this.schedule, cancellationToken);
                 this.status = CompanyLoopStatus.Running;
                 this.error = null;
+            }
+            catch (ResearchBudgetDeferredException error)
+            {
+                this.schedule = this.schedule with
+                {
+                    NextRunAt = error.Decision.NextAllowedAt ?? this.time.GetUtcNow().AddHours(1),
+                };
+                await this.store.Save(this.schedule, cancellationToken);
+                this.status = CompanyLoopStatus.DeferredBudget;
+                this.error = "Research deferred: " + error.Decision.Reason + ". Market monitoring continues.";
             }
             catch (TeamBusyException)
             {
@@ -319,6 +338,60 @@ public sealed class CompanyLoop : BackgroundService, ICompanyLoop
         return run?.Status is TeamRunStatus.Queued or TeamRunStatus.Running;
     }
 
+    private DateTimeOffset? NextReviewOrLearningAt(TeamRun latest, CompanySchedule current)
+    {
+        DateTimeOffset? next = null;
+        if (
+            latest.Learning?.EvaluationAt is DateTimeOffset deadline
+            && current.NextRunAt >= latest.CreatedAt.AddMinutes(59)
+            && current.NextRunAt < deadline
+            && deadline <= current.NextRunAt.AddMinutes(15)
+        )
+        {
+            next = deadline;
+        }
+
+        var assessment = latest.Assessment;
+        var now = this.time.GetUtcNow();
+        if (
+            !string.IsNullOrWhiteSpace(latest.AccountKey)
+            && assessment is not null
+            && assessment.SchemaVersion == "research-assessment-v1"
+            && assessment.RunId == latest.Id
+            && assessment.AccountKey == latest.AccountKey
+            && assessment.ExpiresAt > now
+        )
+        {
+            var reviews = assessment
+                .Positions.Where(position =>
+                    position.ReviewAfter > assessment.AsOf
+                    && position.ReviewAfter < position.ExpiresAt
+                    && position.ExpiresAt <= assessment.ExpiresAt
+                    && position.ExpiresAt > now
+                )
+                .Select(position => position.ReviewAfter)
+                .Concat(
+                    assessment
+                        .Opportunities.Where(opportunity =>
+                            opportunity.ReviewAfter > assessment.AsOf && opportunity.ReviewAfter < assessment.ExpiresAt
+                        )
+                        .Select(opportunity => opportunity.ReviewAfter)
+                );
+            var review = reviews.DefaultIfEmpty().Min();
+            if (review != default)
+            {
+                var cooldown = (current.LastAnalysisAt ?? DateTimeOffset.MinValue).AddMinutes(15);
+                var candidate = review > cooldown ? review : cooldown;
+                if (candidate < assessment.ExpiresAt && candidate < (next ?? current.NextRunAt))
+                {
+                    next = candidate;
+                }
+            }
+        }
+
+        return next;
+    }
+
     private CompanyLoopOverview Overview(CompanyLoopStatus visibleStatus)
     {
         var current = this.schedule ?? throw new InvalidOperationException("Company schedule is unavailable.");
@@ -328,7 +401,8 @@ public sealed class CompanyLoop : BackgroundService, ICompanyLoop
             visibleStatus,
             current.Enabled ? current.NextRunAt : null,
             current.LastRunId,
-            this.error
+            this.error,
+            CurrentGoal: PortfolioGoal.Current
         );
     }
 }

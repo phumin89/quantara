@@ -7,4 +7,11 @@ public sealed record TradingShadowSummary(
     int Waiting,
     int Unknown,
     decimal? MeanNetReturnFraction
-);
+)
+{
+    public int Open { get; init; }
+
+    public int Expired { get; init; }
+
+    public int ClosedUnknown { get; init; }
+}

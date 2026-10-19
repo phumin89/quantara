@@ -1,4 +1,3 @@
-using System.Text.Encodings.Web;
 using System.Text.Json;
 using System.Threading.Channels;
 using Microsoft.Extensions.Hosting;
@@ -9,11 +8,6 @@ namespace Quantara.Team.Infrastructure;
 
 public sealed class TeamCoordinator : BackgroundService, ITeamCoordinator
 {
-    private static readonly JsonSerializerOptions jsonOptions = new()
-    {
-        Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
-    };
-
     private readonly Channel<Guid> queue = Channel.CreateBounded<Guid>(1);
 
     private readonly ITeamRunStore store;
@@ -23,6 +17,12 @@ public sealed class TeamCoordinator : BackgroundService, ITeamCoordinator
     private readonly IPortfolioSnapshotReader portfolio;
 
     private readonly IOrderProposalPublisher? proposals;
+
+    private readonly ICurrentAccountReader? account;
+
+    private readonly INewsEvidenceReader? news;
+
+    private readonly IResearchBudget? budget;
 
     private readonly SemaphoreSlim gate = new(1, 1);
 
@@ -38,13 +38,19 @@ public sealed class TeamCoordinator : BackgroundService, ITeamCoordinator
         ITeamRunStore store,
         ICodexWorker worker,
         IPortfolioSnapshotReader portfolio,
-        IOrderProposalPublisher? proposals = null
+        IOrderProposalPublisher? proposals = null,
+        ICurrentAccountReader? account = null,
+        INewsEvidenceReader? news = null,
+        IResearchBudget? budget = null
     )
     {
         this.store = store;
         this.worker = worker;
         this.portfolio = portfolio;
         this.proposals = proposals;
+        this.account = account;
+        this.news = news;
+        this.budget = budget;
     }
 
     public bool IsConfigured => this.worker.IsConfigured && this.ready;
@@ -66,7 +72,34 @@ public sealed class TeamCoordinator : BackgroundService, ITeamCoordinator
                 throw new TeamBusyException();
             }
 
+            var accountKey = this.account is null ? null : await this.account.Read(cancellationToken);
+            if (
+                accountKey is not null
+                && (accountKey.Length != 64 || accountKey.Any(character => !Uri.IsHexDigit(character)))
+            )
+            {
+                throw new InvalidOperationException("Verified starting account is invalid.");
+            }
+
             var now = DateTimeOffset.UtcNow;
+            if (this.budget is not null)
+            {
+                using var scope = JsonDocument.Parse(await this.portfolio.Read(cancellationToken));
+                var verifiedAccount = scope.RootElement.GetProperty("accountKey").GetString();
+                if (verifiedAccount != accountKey || accountKey is null)
+                {
+                    throw new InvalidDataException("Research budget account changed.");
+                }
+
+                var hasPosition = ResearchEvidence.HeldSymbols(scope.RootElement).Count > 0;
+                now = DateTimeOffset.UtcNow;
+                var claim = await this.budget.TryClaim(accountKey, hasPosition, now, cancellationToken);
+                if (!claim.Allowed)
+                {
+                    throw new ResearchBudgetDeferredException(claim);
+                }
+            }
+
             var run = new TeamRun(
                 Guid.NewGuid(),
                 objective,
@@ -76,7 +109,8 @@ public sealed class TeamCoordinator : BackgroundService, ITeamCoordinator
                 Enum.GetValues<TeamRole>()
                     .Select(role => new TeamStep(role, TeamRunStatus.Queued, null, null))
                     .ToArray(),
-                null
+                null,
+                AccountKey: accountKey
             );
             await this.store.Save(run, cancellationToken);
             this.activeRun = run;
@@ -250,6 +284,11 @@ public sealed class TeamCoordinator : BackgroundService, ITeamCoordinator
 
         var current =
             await this.store.Find(id, cancellationToken) ?? throw new InvalidOperationException("Run missing.");
+        if (current.AccountKey is { } startingAccount && startingAccount != accountKey)
+        {
+            throw new InvalidOperationException("Portfolio account changed after the research job was queued.");
+        }
+
         await this.gate.WaitAsync(cancellationToken);
         try
         {
@@ -283,42 +322,22 @@ public sealed class TeamCoordinator : BackgroundService, ITeamCoordinator
             evaluatedHistory.Add(evaluated);
         }
 
-        var priorOutput = prior?.Steps.FirstOrDefault(step => step.Role == TeamRole.Reviewer)?.Output;
-        var learning = DailyLearning.Review(
-            accountKey,
-            current.CreatedAt,
-            current.Learning,
-            evaluatedHistory,
-            Math.Clamp(59000 - snapshot.Length - (priorOutput?.Length ?? 0), 3000, 12000)
-        );
-
-        snapshot = JsonSerializer.Serialize(
-            new
-            {
-                evidence = JsonSerializer.Deserialize<JsonElement>(snapshot),
-                dailyLearning = JsonSerializer.Deserialize<JsonElement>(learning),
-                mandate = new
-                {
-                    dailyNetProfitTargetThb = TradingMandate.DailyNetProfitTargetThb,
-                    calendarTimeZone = TradingMandate.CalendarTimeZone,
-                    acceptFullCapitalLoss = TradingMandate.AcceptFullCapitalLoss,
-                },
-                priorReview = prior?.Steps.FirstOrDefault(step => step.Role == TeamRole.Reviewer)?.Output,
-                priorRunId = prior?.Id,
-                priorRunStatus = prior?.Status.ToString(),
-                priorUpdatedAt = prior?.UpdatedAt,
-            },
-            TeamCoordinator.jsonOptions
-        );
-        if (snapshot.Length > 60000)
-        {
-            throw new InvalidOperationException("Research context is too large.");
-        }
-
+        var rawEvidence = snapshot;
+        var newsEvidence = this.news is null ? null : await this.news.Read(null, cancellationToken);
         var previous = new List<(string Role, string Output)>();
         foreach (var role in Enum.GetValues<TeamRole>())
         {
             cancellationToken.ThrowIfCancellationRequested();
+            snapshot = TeamResearchContext.Build(
+                role.ToString().ToLowerInvariant(),
+                current.Objective,
+                previous,
+                rawEvidence,
+                current,
+                evaluatedHistory,
+                prior,
+                newsEvidence
+            );
             var run = await this.UpdateStep(id, role, TeamRunStatus.Running, null, cancellationToken);
             var report = await this.worker.Report(
                 role.ToString().ToLowerInvariant(),
@@ -337,6 +356,11 @@ public sealed class TeamCoordinator : BackgroundService, ITeamCoordinator
                         report.Output
                         + "\n\nข้อเสนอถูกข้าม: โหมดปัจจุบันเป็นการวิจัยเท่านั้น การสร้างข้อเสนอรออนุมัติต้องอยู่ใน ManualReview",
                 };
+            }
+
+            if (report.Assessment is not null)
+            {
+                ResearchAssessmentValidator.Validate(report.Assessment, run, accountKey, snapshot);
             }
 
             await this.UpdateStep(id, role, TeamRunStatus.Completed, report.Output, cancellationToken, report);
@@ -376,14 +400,10 @@ public sealed class TeamCoordinator : BackgroundService, ITeamCoordinator
                     && refreshedMode.ValueKind == JsonValueKind.String
                     && refreshedMode.GetString() == "manualReview";
 
-                var context =
-                    JsonSerializer.Deserialize<Dictionary<string, JsonElement>>(snapshot)
-                    ?? throw new InvalidOperationException("Research context is missing.");
-                context["evidence"] = refreshed.RootElement.Clone();
-                snapshot = JsonSerializer.Serialize(context, TeamCoordinator.jsonOptions);
-                if (snapshot.Length > 60000)
+                rawEvidence = refreshed.RootElement.GetRawText();
+                if (this.news is not null)
                 {
-                    throw new CodexWorkerException("worker_input_too_large");
+                    newsEvidence = await this.news.Read(string.Join(',', requested), cancellationToken);
                 }
             }
 
@@ -427,6 +447,7 @@ public sealed class TeamCoordinator : BackgroundService, ITeamCoordinator
                 Status = TeamRunStatus.Running,
                 UpdatedAt = DateTimeOffset.UtcNow,
                 Lesson = role == TeamRole.Reviewer && report is not null ? report.Lesson : current.Lesson,
+                Assessment = role == TeamRole.Reviewer && report is not null ? report.Assessment : current.Assessment,
                 Decision =
                     role == TeamRole.Reviewer && report is not null
                         ? report.Proposal?.Side switch

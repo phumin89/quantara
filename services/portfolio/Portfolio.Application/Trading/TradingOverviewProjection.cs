@@ -11,7 +11,8 @@ public sealed class TradingOverviewProjection(
     IAccountContext account,
     TradingControlOptions options,
     TimeProvider time,
-    TradingEventDispatcher? events = null
+    TradingEventDispatcher? events = null,
+    TradingNotificationDiagnostics? notifications = null
 )
 {
     private static readonly JsonSerializerOptions jsonOptions = new(JsonSerializerDefaults.Web)
@@ -20,11 +21,12 @@ public sealed class TradingOverviewProjection(
         TypeInfoResolver = TradingJsonCompatibility.CreateResolver(),
     };
 
-    public string Serialize(TradingState state) =>
+    public string Serialize(TradingState state, PortfolioGoalCheckpoint? goal = null) =>
         JsonSerializer.Serialize(
             new
             {
                 accountKey = account.AccountKey,
+                objective = PortfolioGoalAccounting.View(account.AccountKey, goal, time.GetUtcNow()),
                 mode = Mode(state.Mode),
                 state.Rules,
                 state.RulesHash,
@@ -44,10 +46,13 @@ public sealed class TradingOverviewProjection(
                 state.Fault,
                 realtime = events?.Snapshot(),
                 autonomy = Autonomy(state, time.GetUtcNow()),
+                notifications = this.Notifications(state),
+                exitStudy = this.ExitStudy(state),
                 liveActivationAvailable = options.LiveActivationAvailable
+                    && (state.Rules.ExitPolicy is null || options.AdaptiveExitLiveAvailable)
                     && !string.IsNullOrWhiteSpace(options.OwnerToken),
-                paper = Book(state.Paper, state.Rules.MaxDataAgeSeconds, time.GetUtcNow()),
-                live = Book(state.Live, state.Rules.MaxDataAgeSeconds, time.GetUtcNow()),
+                paper = Book(state.Paper, state.Rules, time.GetUtcNow()),
+                live = Book(state.Live, state.Rules, time.GetUtcNow()),
                 reports = Reports(state),
             },
             TradingOverviewProjection.jsonOptions
@@ -57,6 +62,66 @@ public sealed class TradingOverviewProjection(
         JsonSerializer.Serialize(new { reports = Reports(state) }, TradingOverviewProjection.jsonOptions);
 
     private static string Mode(TradingMode mode) => JsonNamingPolicy.CamelCase.ConvertName(mode.ToString());
+
+    private object Notifications(TradingState state)
+    {
+        var alerts = state.Alerts.Where(alert => state.Rules.Adaptive is null || alert.Kind == "fill").ToArray();
+        var pending = alerts.Where(alert => alert.Status == "pending").ToArray();
+        var now = time.GetUtcNow();
+        var oldest = pending.Select(alert => (DateTimeOffset?)alert.CreatedAt).Min();
+        var unknown = alerts.Count(alert =>
+            alert.Status == "unknown"
+            || alert.Status == "sending" && (alert.ClaimedAt is null || now - alert.ClaimedAt > TimeSpan.FromMinutes(1))
+        );
+        var blocked = (notifications?.Blocked ?? 0) + alerts.Count(alert => alert.Status == "rejected");
+        return new
+        {
+            pending = pending.Length,
+            sending = alerts.Count(alert => alert.Status == "sending"),
+            sent = alerts.Count(alert => alert.Status == "sent"),
+            unknown,
+            blocked,
+            dashboardAvailable = notifications?.DashboardAvailable == true,
+            oldestPendingAt = oldest,
+            state = notifications?.Configured != true ? "unconfigured"
+            : unknown + blocked > 0 ? "needsReview"
+            : oldest is { } at && now - at > TimeSpan.FromMinutes(1) ? "delayed"
+            : pending.Length > 0 || alerts.Any(alert => alert.Status == "sending") ? "pending"
+            : "ready",
+        };
+    }
+
+    private object ExitStudy(TradingState state)
+    {
+        var samples = state.ExitStudies.Where(sample => sample.SourceRulesHash == state.RulesHash).ToArray();
+        var live = samples.Where(sample => sample.SourceMode == "live").ToArray();
+        var paired = live.Where(sample => sample.HypotheticalNetThb.HasValue && sample.BaselineNetThb.HasValue)
+            .ToArray();
+        var started = live.Select(sample => (DateTimeOffset?)sample.CreatedAt).Min();
+        var enough = started is { } at && time.GetUtcNow() - at >= TimeSpan.FromDays(14) && paired.Length >= 30;
+        return new
+        {
+            protocol = "paired-exit-v1",
+            status = enough ? "readyForReview" : "collecting",
+            verifiedProfit = false,
+            startedAt = started,
+            observedAt = time.GetUtcNow(),
+            liveSamples = live.Length,
+            paperSamples = samples.Length - live.Length,
+            pairedClosed = paired.Length,
+            unknown = samples.Count(sample =>
+                sample.HypotheticalNetThb is null && sample.Status is "unknown" or "baseline"
+            ),
+            minimumDays = 14,
+            minimumClosed = 30,
+            hypotheticalNetThb = paired.Length == 0
+                ? null
+                : Decimal(paired.Sum(sample => sample.HypotheticalNetThb.GetValueOrDefault())),
+            baselineNetThb = paired.Length == 0
+                ? null
+                : Decimal(paired.Sum(sample => sample.BaselineNetThb.GetValueOrDefault())),
+        };
+    }
 
     private static object? Autonomy(TradingState state, DateTimeOffset now)
     {
@@ -79,6 +144,63 @@ public sealed class TradingOverviewProjection(
             status.TotalMarkets,
             status.EligibleMarkets,
             checkedMarkets = status.Markets.Count,
+            evaluation = state.Evaluation is { } evaluation && evaluation.RulesHash == state.RulesHash
+                ? evaluation
+                : null,
+            readiness = status.History is null
+                ? null
+                : new
+                {
+                    readyMarkets = status.Markets.Count(market =>
+                        status.History.Any(item => item.Symbol == market.Symbol && item.Status == "ready")
+                    ),
+                    unavailableMarkets = status.Markets.Count(market =>
+                        !status.History.Any(item => item.Symbol == market.Symbol && item.Status == "ready")
+                    ),
+                    frames = status.History.OrderByDescending(item => item.CheckedAt).Take(48),
+                },
+            funnel = new
+            {
+                date = today.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture),
+                coverage = state.Decisions.Any(item =>
+                    item.Mode == (state.Mode == TradingMode.Paper ? TradingMode.Paper : TradingMode.AutoLive)
+                    && item.At.ToOffset(TimeSpan.FromHours(7)).Date == today
+                    && item.SignalAction is null
+                )
+                    ? "retained"
+                    : "complete",
+                signals = state.Decisions.Count(item =>
+                    item.Mode == (state.Mode == TradingMode.Paper ? TradingMode.Paper : TradingMode.AutoLive)
+                    && item.At.ToOffset(TimeSpan.FromHours(7)).Date == today
+                    && (item.SignalAction ?? item.Action) is TradingAction.Buy or TradingAction.Sell
+                ),
+                submittedOrders = ledger.Orders.Count(order =>
+                    order.CreatedAt.ToOffset(TimeSpan.FromHours(7)).Date == today && order.BrokerOrderId is not null
+                ),
+                filledOrders = ledger
+                    .Fills.Where(fill => fill.OccurredAt.ToOffset(TimeSpan.FromHours(7)).Date == today)
+                    .Select(fill => fill.IntentId)
+                    .Distinct()
+                    .Count(),
+                closedTrades = ledger.Orders.Count(order =>
+                    order.Side == TradeSide.Sell
+                    && order.Status == "filled"
+                    && order.LastInspectedAt?.ToOffset(TimeSpan.FromHours(7)).Date == today
+                ),
+                netThb = sells.Any(fill => fill.RealizedNetThb is null)
+                    ? null
+                    : Decimal(sells.Sum(fill => fill.RealizedNetThb ?? 0)),
+                blockedReasons = state
+                    .Decisions.Where(item =>
+                        item.Mode == (state.Mode == TradingMode.Paper ? TradingMode.Paper : TradingMode.AutoLive)
+                        && item.At.ToOffset(TimeSpan.FromHours(7)).Date == today
+                        && item.Action == TradingAction.Wait
+                    )
+                    .GroupBy(item => item.Reason, StringComparer.Ordinal)
+                    .OrderByDescending(group => group.Count())
+                    .Take(10)
+                    .Select(group => new { reason = group.Key, count = group.Count() }),
+            },
             status.Activity,
             status.NextCheckAt,
             capital = status.Capital is not { } capital
@@ -92,10 +214,8 @@ public sealed class TradingOverviewProjection(
                     reservedThb = NullableDecimal(capital.ReservedThb),
                     capital.Blocker,
                 },
-            candidates = status
-                .Markets.OrderByDescending(item => item.Score)
-                .ThenByDescending(item => item.At)
-                .Take(16)
+            candidates = TradingWatchSelection
+                .Candidates(state, now)
                 .Select(item => new
                 {
                     item.Symbol,
@@ -151,13 +271,13 @@ public sealed class TradingOverviewProjection(
             )
             .ToArray();
 
-    private static object Book(TradingLedger ledger, int freshnessSeconds, DateTimeOffset now)
+    private static object Book(TradingLedger ledger, TradingRuleSet rules, DateTimeOffset now)
     {
         var mark = ledger.Equity.OrderBy(item => item.At).LastOrDefault();
         decimal? equity =
             mark is { EquityThb: not null }
             && mark.At <= now
-            && now - mark.At <= TimeSpan.FromSeconds(freshnessSeconds)
+            && now - mark.At <= TimeSpan.FromSeconds(rules.MaxDataAgeSeconds)
             && mark.FundingThb == ledger.FundingThb
                 ? mark.EquityThb
                 : null;
@@ -190,6 +310,41 @@ public sealed class TradingOverviewProjection(
                     costThb = Decimal(position.CostThb),
                     position.OpenedAt,
                     peakBid = Decimal(position.PeakBid),
+                    exitPolicy = rules.Adaptive is not null && position.StopPrice is not null
+                        ? "structural"
+                        : "percentage",
+                    stopPrice = NullableDecimal(
+                        rules.Adaptive is not null && position.StopPrice is not null
+                            ? position.StopPrice
+                            : position.AverageCost * (1 - rules.StopLossBps / 10000m)
+                    ),
+                    targetPrice = NullableDecimal(
+                        rules.Adaptive is not null && position.StopPrice is not null
+                            ? position.TargetPrice
+                            : position.AverageCost * (1 + rules.TakeProfitBps / 10000m)
+                    ),
+                    trailingDistance = NullableDecimal(
+                        rules.Adaptive is not null && position.StopPrice is not null
+                            ? position.TrailingDistance
+                            : position.PeakBid * rules.TrailingStopBps / 10000m
+                    ),
+                    trailingActive = position.ExitPlan?.TrailingActive ?? position.PeakBid > position.AverageCost,
+                    timeExitAt = position.ExitPlan?.HardExitAt ?? position.OpenedAt.AddMinutes(rules.TimeExitMinutes),
+                    exitPlan = position.ExitPlan is not { } plan
+                        ? null
+                        : new
+                        {
+                            plan.Version,
+                            regime = JsonNamingPolicy.CamelCase.ConvertName(plan.Regime.ToString()),
+                            plan.TimeframeSeconds,
+                            plan.NextReviewAt,
+                            plan.HardExitAt,
+                            effectiveStop = Decimal(plan.EffectiveStop),
+                            plan.TrailingActive,
+                            plan.ReviewCount,
+                            plan.Revision,
+                            plan.LastReason,
+                        },
                 }),
             orders = ledger
                 .Orders.OrderByDescending(order => order.CreatedAt)
@@ -202,6 +357,7 @@ public sealed class TradingOverviewProjection(
                     limitPrice = Decimal(order.LimitPrice),
                     order.Status,
                     order.CreatedAt,
+                    expiresAt = order.CreatedAt.AddMinutes(rules.OrderLifetimeMinutes),
                     order.BrokerOrderId,
                     order.Reason,
                     remaining = Decimal(order.Remaining),

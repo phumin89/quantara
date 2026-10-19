@@ -6,6 +6,85 @@ const decimalSchema = z
   .regex(/^-?\d+(?:\.\d+)?$/)
   .refine((value) => Number.isFinite(Number(value)));
 const timestampSchema = z.iso.datetime({ offset: true });
+const exitPlanSchema = z.strictObject({
+  version: z.literal('adaptive-exit-v1'),
+  regime: z.enum(['trend', 'range', 'unknown']),
+  timeframeSeconds: z.union([z.literal(300), z.literal(900), z.literal(3600)]),
+  nextReviewAt: timestampSchema,
+  hardExitAt: timestampSchema,
+  effectiveStop: decimalSchema,
+  trailingActive: z.boolean(),
+  reviewCount: z.number().int().nonnegative(),
+  revision: z.number().int().positive(),
+  lastReason: z.string().max(500),
+});
+const notificationsSchema = z.strictObject({
+  pending: z.number().int().nonnegative(),
+  sending: z.number().int().nonnegative(),
+  sent: z.number().int().nonnegative(),
+  unknown: z.number().int().nonnegative(),
+  blocked: z.number().int().nonnegative().optional(),
+  oldestPendingAt: timestampSchema.nullable(),
+  state: z.enum(['unconfigured', 'ready', 'pending', 'delayed', 'needsReview']),
+  dashboardAvailable: z.boolean().optional(),
+});
+const exitStudySchema = z.strictObject({
+  protocol: z.literal('paired-exit-v1'),
+  status: z.enum(['collecting', 'readyForReview', 'insufficientEvidence']),
+  verifiedProfit: z.literal(false),
+  startedAt: timestampSchema.nullable(),
+  observedAt: timestampSchema,
+  liveSamples: z.number().int().nonnegative(),
+  paperSamples: z.number().int().nonnegative(),
+  pairedClosed: z.number().int().nonnegative(),
+  unknown: z.number().int().nonnegative(),
+  minimumDays: z.literal(14),
+  minimumClosed: z.literal(30),
+  hypotheticalNetThb: decimalSchema.nullable(),
+  baselineNetThb: decimalSchema.nullable(),
+});
+const readinessSchema = z.strictObject({
+  readyMarkets: z.number().int().nonnegative().max(10000),
+  unavailableMarkets: z.number().int().nonnegative().max(10000),
+  frames: z
+    .array(
+      z.strictObject({
+        symbol: z.string().min(1).max(30),
+        timeframeSeconds: z.union([
+          z.literal(300),
+          z.literal(900),
+          z.literal(3600),
+        ]),
+        checkedAt: timestampSchema,
+        source: z.literal('bitkub-tradingview'),
+        status: z.enum(['ready', 'unavailable']),
+        gapCause: z.enum(['none', 'unknown', 'source-unavailable']),
+        verifiedZeroVolumeBars: z.number().int().nonnegative().max(120),
+        completedBars: z.number().int().nonnegative().max(100000),
+        contiguousBars: z.number().int().nonnegative().max(100000),
+        missingIntervals: z.number().int().nonnegative().max(100000),
+        reason: z.string().max(500).nullable(),
+      }),
+    )
+    .max(1000),
+});
+const funnelSchema = z.strictObject({
+  date: z.iso.date(),
+  coverage: z.enum(['complete', 'retained']),
+  signals: z.number().int().nonnegative().max(1000000),
+  submittedOrders: z.number().int().nonnegative().max(1000000),
+  filledOrders: z.number().int().nonnegative().max(1000000),
+  closedTrades: z.number().int().nonnegative().max(1000000),
+  netThb: decimalSchema.nullable(),
+  blockedReasons: z
+    .array(
+      z.strictObject({
+        reason: z.string().min(1).max(500),
+        count: z.number().int().nonnegative().max(1000000),
+      }),
+    )
+    .max(100),
+});
 const bookSchema = z.object({
   cashThb: decimalSchema,
   equityThb: decimalSchema.nullable(),
@@ -20,6 +99,13 @@ const bookSchema = z.object({
       costThb: decimalSchema,
       openedAt: timestampSchema,
       peakBid: decimalSchema,
+      exitPlan: exitPlanSchema.nullable().optional(),
+      exitPolicy: z.unknown().optional(),
+      stopPrice: decimalSchema.optional(),
+      targetPrice: decimalSchema.optional(),
+      trailingDistance: decimalSchema.optional(),
+      trailingActive: z.boolean().optional(),
+      timeExitAt: timestampSchema.nullable().optional(),
     }),
   ),
   orders: z.array(
@@ -39,6 +125,26 @@ const bookSchema = z.object({
 });
 export const tradingOverviewSchema = z.object({
   accountKey: z.string().min(1),
+  objective: z
+    .strictObject({
+      id: z.string().min(1),
+      targetThb: z.number(),
+      deadlineExclusive: z.iso.datetime({ offset: true }),
+      includesDeposits: z.literal(true),
+      timeZone: z.literal('Asia/Bangkok'),
+      observedAt: timestampSchema.nullable(),
+      portfolioValueThb: decimalSchema.nullable(),
+      remainingThb: decimalSchema.nullable(),
+      depositsThb: decimalSchema.nullable(),
+      tradingPnlThb: decimalSchema.nullable(),
+      valuationStatus: z.enum(['verified', 'unknown']),
+      reason: z.string().nullable(),
+      accountingNote: z.string().max(500).nullable().optional(),
+      measurement: z.string().max(120).nullable().optional(),
+      valuationProtocol: z.string().max(120).nullable().optional(),
+      maximumAgeSeconds: z.number().int().nonnegative().nullable().optional(),
+    })
+    .optional(),
   mode: z.enum(['stopped', 'paper', 'manualReview', 'autoLive']),
   rules: tradingRulesSchema,
   rulesHash: z.string().min(1),
@@ -98,6 +204,9 @@ export const tradingOverviewSchema = z.object({
                 closed: z.number().int().nonnegative(),
                 waiting: z.number().int().nonnegative(),
                 unknown: z.number().int().nonnegative(),
+                open: z.number().int().nonnegative().optional(),
+                expired: z.number().int().nonnegative().optional(),
+                closedUnknown: z.number().int().nonnegative().optional(),
                 meanNetReturnFraction: z.number().nullable(),
               }),
             )
@@ -105,6 +214,40 @@ export const tradingOverviewSchema = z.object({
         })
         .optional(),
       realizedNetTodayThb: decimalSchema.nullable(),
+      readiness: readinessSchema.nullable().optional(),
+      funnel: funnelSchema.nullable().optional(),
+      evaluation: z
+        .strictObject({
+          protocol: z.literal('ohlc-scenario-v1'),
+          verifiedProfit: z.literal(false),
+          observedAt: timestampSchema,
+          rulesHash: z.string().regex(/^[a-f0-9]{64}$/),
+          warnings: z.array(z.string().max(1200)).max(30),
+          metrics: z
+            .array(
+              z.strictObject({
+                symbol: z.string().regex(/^[A-Z0-9]{1,30}$/),
+                timeframeSeconds: z.union([
+                  z.literal(300),
+                  z.literal(900),
+                  z.literal(3600),
+                ]),
+                segment: z.enum(['training', 'validation']),
+                strategy: z.enum(['breakout', 'pullback', 'range']),
+                samples: z.number().int().nonnegative(),
+                trades: z.number().int().nonnegative(),
+                unknownFills: z.number().int().nonnegative(),
+                netThb: z.number().nullable(),
+                feesThb: z.number().nonnegative(),
+                maxDrawdownThb: z.number().nonnegative().nullable(),
+                cashBenchmarkThb: z.literal(0),
+                insufficientSamples: z.boolean(),
+              }),
+            )
+            .max(72),
+        })
+        .nullable()
+        .optional(),
     })
     .nullable()
     .optional(),
@@ -124,6 +267,8 @@ export const tradingOverviewSchema = z.object({
     })
     .nullable()
     .optional(),
+  notifications: notificationsSchema.optional(),
+  exitStudy: exitStudySchema.optional(),
   paper: bookSchema,
   live: bookSchema,
   reports: z.array(

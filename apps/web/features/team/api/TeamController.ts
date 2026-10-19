@@ -46,6 +46,23 @@ export class TeamController {
     );
   }
 
+  public static news(this: void, request: NextRequest) {
+    if (!TeamController.allowed(request)) {
+      return NextResponse.json(
+        { error: 'Use the local application to access market news.' },
+        { status: 403 },
+      );
+    }
+
+    const symbols = request.nextUrl.searchParams.get('symbols');
+
+    return TeamController.proxy(
+      symbols ? `/news?symbols=${encodeURIComponent(symbols)}` : '/news',
+      'GET',
+      request,
+    );
+  }
+
   public static async company(this: void, request: NextRequest) {
     if (!TeamController.allowed(request)) {
       return NextResponse.json(

@@ -73,6 +73,31 @@ const overview = {
   heartbeatAt: '2026-10-16T04:00:00Z',
   fault: null,
   liveActivationAvailable: true,
+  notifications: {
+    pending: 0,
+    sending: 0,
+    sent: 1,
+    unknown: 0,
+    blocked: 0,
+    oldestPendingAt: null,
+    state: 'ready',
+    dashboardAvailable: true,
+  },
+  exitStudy: {
+    protocol: 'paired-exit-v1',
+    status: 'collecting',
+    verifiedProfit: false,
+    startedAt: null,
+    observedAt: '2026-10-16T04:00:00Z',
+    liveSamples: 0,
+    paperSamples: 0,
+    pairedClosed: 0,
+    unknown: 0,
+    minimumDays: 14,
+    minimumClosed: 30,
+    hypotheticalNetThb: null,
+    baselineNetThb: null,
+  },
   realtime: {
     connected: true,
     lastEventAt: '2026-10-16T04:00:00Z',
@@ -274,6 +299,171 @@ async function verifyTransport() {
       await assert.rejects(service.get(), /Trading status response is invalid/);
     }
     assert.equal(tradingOverviewSchema.safeParse(overview).success, true);
+    const adaptive = {
+      ...rules,
+      version: 'adaptive-intraday-v2',
+      symbols: [],
+      adaptive: {
+        universeVersion: 'bitkub-thb-spot-v1',
+        includeFutureDeposits: true,
+        excludedSymbols: ['USDT'],
+        risk: {
+          profile: 'aggressive',
+          maximumExposureFraction: 1,
+          maximumConcentrationFraction: 1,
+          riskToStopFraction: 0.05,
+          atrMultiplier: 1,
+          maximumSpreadFraction: 0.005,
+          estimatedFeeRate: 0.0025,
+          maximumDataAgeSeconds: 90,
+          maximumSignalAgeSeconds: 600,
+        },
+        dailyLossFraction: 0.1,
+        dailyProfitTargetThb: 500,
+      },
+    };
+    assert.equal(
+      tradingRulesSchema.safeParse(adaptive).success,
+      true,
+      'v2 remains valid without an exit policy',
+    );
+    const exitPolicy = {
+      version: 'adaptive-exit-v1',
+      trendReviewBars: 3,
+      rangeReviewBars: 4,
+      trendMaximumMinutes: 120,
+      rangeMaximumMinutes: 240,
+      trendMinimumMinutes: 5,
+      rangeMinimumMinutes: 10,
+      maximumReviews: 8,
+      noProgressReviews: 2,
+      trendTrailingAtr: 1.5,
+      rangeTrailingAtr: 2,
+      activationAtr: 0.5,
+      minimumProgressAtr: 0.25,
+    };
+    assert.equal(
+      tradingRulesSchema.safeParse({
+        ...adaptive,
+        version: 'adaptive-intraday-v3',
+        exitPolicy,
+      }).success,
+      true,
+      'v3 accepts a valid exit policy',
+    );
+    assert.equal(
+      tradingRulesSchema.safeParse({
+        ...adaptive,
+        version: 'adaptive-intraday-v3',
+      }).success,
+      false,
+      'v3 requires an exit policy',
+    );
+    assert.equal(
+      tradingRulesSchema.safeParse({
+        ...adaptive,
+        exitPolicy,
+      }).success,
+      false,
+      'v2 rejects an exit policy',
+    );
+    assert.equal(
+      tradingRulesSchema.safeParse({
+        ...adaptive,
+        version: 'adaptive-intraday-v3',
+        exitPolicy: { ...exitPolicy, trendTrailingAtr: 0 },
+      }).success,
+      false,
+      'exit policy bounds are enforced',
+    );
+    const position = {
+      symbol: 'BTC',
+      quantity: '1',
+      costThb: '100',
+      openedAt: '2026-10-16T03:00:00Z',
+      peakBid: '110',
+      exitPlan: {
+        version: 'adaptive-exit-v1',
+        regime: 'trend',
+        timeframeSeconds: 300,
+        nextReviewAt: '2026-10-16T04:00:00Z',
+        hardExitAt: '2026-10-16T06:00:00Z',
+        effectiveStop: '99.5',
+        trailingActive: true,
+        reviewCount: 1,
+        revision: 2,
+        lastReason: 'No progress yet',
+      },
+      stopPrice: '99',
+      targetPrice: '120',
+      trailingDistance: '2',
+      trailingActive: true,
+      timeExitAt: null,
+    };
+    assert.equal(
+      tradingOverviewSchema.safeParse({
+        ...overview,
+        notifications: {
+          pending: 1,
+          sending: 0,
+          sent: 2,
+          unknown: 1,
+          blocked: 2,
+          dashboardAvailable: true,
+          oldestPendingAt: '2026-10-16T03:00:00Z',
+          state: 'needsReview',
+        },
+        paper: { ...book, positions: [position] },
+        exitStudy: {
+          protocol: 'paired-exit-v1',
+          status: 'collecting',
+          verifiedProfit: false,
+          startedAt: null,
+          observedAt: '2026-10-19T00:00:00Z',
+          liveSamples: 1,
+          paperSamples: 2,
+          pairedClosed: 3,
+          unknown: 0,
+          minimumDays: 14,
+          minimumClosed: 30,
+          hypotheticalNetThb: '12.5',
+          baselineNetThb: null,
+        },
+      }).success,
+      true,
+      'notifications, exit plans and legacy exit fields parse',
+    );
+    assert.equal(
+      tradingOverviewSchema.safeParse({
+        ...overview,
+        notifications: {
+          pending: 0,
+          sending: 0,
+          sent: 0,
+          unknown: 0,
+          oldestPendingAt: 'not-a-timestamp',
+          state: 'ready',
+        },
+      }).success,
+      false,
+      'notification timestamps are validated',
+    );
+    assert.equal(
+      tradingOverviewSchema.safeParse({
+        ...overview,
+        paper: {
+          ...book,
+          positions: [
+            {
+              ...position,
+              exitPlan: { ...position.exitPlan, effectiveStop: 'NaN' },
+            },
+          ],
+        },
+      }).success,
+      false,
+      'exit plan decimals are validated',
+    );
     assert.equal(
       tradingRulesSchema.safeParse({
         ...rules,
@@ -375,6 +565,7 @@ async function verifyBrowser() {
   const writes = [];
   let current = structuredClone(overview);
   let unavailable = false;
+  let activationFailures = 1;
   page.on('pageerror', (error) => errors.push(error.message));
   // Every API call is intercepted before navigation. This fixture cannot reach an account or broker.
   await page.route('**/api/**', async (route) => {
@@ -415,10 +606,11 @@ async function verifyBrowser() {
       if (path.endsWith('/config'))
         current = {
           ...current,
-          mode: 'paper',
+          mode: 'stopped',
           rules: body.rules,
           rulesHash:
-            body.rules.version === 'adaptive-intraday-v1'
+            body.rules.version === 'adaptive-intraday-v1' ||
+            body.rules.version === 'adaptive-intraday-v2'
               ? 'adaptive-fixture-hash'
               : 'saved-fixture-hash',
           autonomy: body.rules.adaptive
@@ -450,6 +642,62 @@ async function verifyBrowser() {
                 ],
                 dailyProfitTargetThb: '500',
                 realizedNetTodayThb: '12.5',
+                readiness: {
+                  readyMarkets: 62,
+                  unavailableMarkets: 2,
+                  frames: [
+                    {
+                      symbol: 'ETH',
+                      timeframeSeconds: 900,
+                      checkedAt: '2026-10-16T04:00:00Z',
+                      source: 'bitkub-tradingview',
+                      status: 'ready',
+                      gapCause: 'none',
+                      completedBars: 120,
+                      contiguousBars: 120,
+                      missingIntervals: 0,
+                      verifiedZeroVolumeBars: 0,
+                      reason: null,
+                    },
+                  ],
+                },
+                funnel: {
+                  date: '2026-10-16',
+                  coverage: 'complete',
+                  signals: 3,
+                  submittedOrders: 1,
+                  filledOrders: 1,
+                  closedTrades: 1,
+                  netThb: '12.5',
+                  blockedReasons: [
+                    { reason: 'No adaptive entry signal', count: 61 },
+                  ],
+                },
+                evaluation: {
+                  protocol: 'ohlc-scenario-v1',
+                  verifiedProfit: false,
+                  observedAt: '2026-10-16T04:00:00Z',
+                  rulesHash: 'a'.repeat(64),
+                  warnings: [
+                    'Hypothetical OHLC scenarios; fees, spread and slippage included. Data gaps and uncertain fills remain Unknown.',
+                  ],
+                  metrics: [
+                    {
+                      symbol: 'ETH',
+                      timeframeSeconds: 900,
+                      segment: 'validation',
+                      strategy: 'breakout',
+                      samples: 51,
+                      trades: 1,
+                      unknownFills: 1,
+                      netThb: null,
+                      feesThb: 2.5,
+                      maxDrawdownThb: null,
+                      cashBenchmarkThb: 0,
+                      insufficientSamples: true,
+                    },
+                  ],
+                },
                 opportunityReview: {
                   protocol: 'observed-book-v1',
                   sampleLimit: 8,
@@ -460,7 +708,14 @@ async function verifyBrowser() {
               }
             : null,
         };
-      else if (path.endsWith('/activate'))
+      else if (path.endsWith('/activate')) {
+        if (activationFailures > 0) {
+          activationFailures -= 1;
+          return route.fulfill({
+            status: 503,
+            json: { error: 'Fixture activation refused.' },
+          });
+        }
         current = {
           ...current,
           mode: 'autoLive',
@@ -473,7 +728,7 @@ async function verifyBrowser() {
             revokedAt: null,
           },
         };
-      else if (path.endsWith('/disable'))
+      } else if (path.endsWith('/disable'))
         current = { ...current, mode: 'stopped' };
       else if (path.endsWith('/emergency-stop'))
         current = { ...current, mode: 'stopped', emergencyStopped: true };
@@ -493,6 +748,34 @@ async function verifyBrowser() {
     );
     await page.getByText('Paper trading', { exact: true }).waitFor();
     await page.getByText('Connected · 1 watched', { exact: true }).waitFor();
+    await page
+      .getByText('Notifications: 0 pending · Job history', { exact: true })
+      .waitFor();
+    const jobHistory = page.getByRole('link', {
+      name: 'Job history',
+      exact: true,
+    });
+    assert.equal(await jobHistory.getAttribute('href'), '/api/trading/jobs');
+    assert.equal(await jobHistory.getAttribute('target'), '_blank');
+    await page
+      .getByText('Adaptive exit study · Research only', { exact: true })
+      .waitFor();
+    assert.equal(
+      await page.getByText('0 / 30 live pairs', { exact: false }).count(),
+      1,
+      'exit study starts with no prospective samples',
+    );
+    await page
+      .locator('summary')
+      .filter({ hasText: 'Adaptive exit study' })
+      .click();
+    await page
+      .getByText('Waiting for prospective entries', { exact: false })
+      .waitFor();
+    await page
+      .locator('summary')
+      .filter({ hasText: 'Adaptive exit study' })
+      .click();
     await page.getByText('Feed diagnostics', { exact: true }).click();
     await page
       .getByText('Received → decision p50/p95: 120 ms / 1,800 ms', {
@@ -607,16 +890,45 @@ async function verifyBrowser() {
       .getByLabel('Mandate expiry (your local time)')
       .fill('2026-10-17T12:00');
     assert.equal(await enable.isDisabled(), false);
-    await enable.evaluate((button) => {
-      button.click();
-      button.click();
-    });
+    await enable.click();
+    await page.getByText('Fixture activation refused.').first().waitFor();
+    await page.clock.runFor(10_001);
+    await page.getByText('AutoLive OFF.', { exact: false }).waitFor();
+    assert.equal(
+      await page.getByText('Fixture activation refused.').first().isVisible(),
+      true,
+      'control failure remains visible after a successful status poll',
+    );
+    assert.equal(
+      writes.filter((write) => write.path.endsWith('/activate')).length,
+      1,
+      'status polling never retries a refused activation',
+    );
+    assert.equal(
+      await page.getByText('AutoLive OFF.', { exact: false }).count(),
+      1,
+      'refused activation leaves auto trading stopped',
+    );
+    await page
+      .getByRole('button', { name: 'Review live mandate', exact: true })
+      .click();
+    await page.getByRole('button', { name: '7 days', exact: true }).click();
+    await page
+      .getByRole('button', { name: 'Enable Auto Trading', exact: true })
+      .click();
     await page.getByText('AutoLive ON.', { exact: false }).waitFor();
-    assert.equal(writes.length, 3, 'double activation click sends one request');
-    assert.deepEqual(writes[2].body, {
+    assert.equal(
+      writes.filter((write) => write.path.endsWith('/activate')).length,
+      2,
+    );
+    assert.equal(
+      await page.getByText('Fixture activation refused.').count(),
+      0,
+    );
+    assert.deepEqual(writes.at(-1).body, {
       accountKey: current.accountKey,
       rulesHash: 'adaptive-fixture-hash',
-      expiresAt: writes[2].body.expiresAt,
+      expiresAt: writes.at(-1).body.expiresAt,
       acknowledgement: 'enable-auto-trading',
     });
     current = { ...current, heartbeatAt: '2026-10-16T03:00:00Z' };
@@ -624,7 +936,7 @@ async function verifyBrowser() {
     await page.getByText('Live status is unknown.', { exact: false }).waitFor();
     assert.equal(
       writes.length,
-      3,
+      4,
       'stale worker status never grants or revokes authority',
     );
     current = { ...current, heartbeatAt: '2026-10-16T04:00:00Z' };
@@ -638,6 +950,10 @@ async function verifyBrowser() {
     await page.getByText('รายงานทดสอบ: ผลกำไรยังไม่ทราบ').waitFor();
     await summary.click();
     fs.mkdirSync('.impeccable/review', { recursive: true });
+    await page
+      .getByText('Last scan: 62 ready · 2 unavailable', { exact: true })
+      .waitFor();
+    await page.getByText('Today: 3 signals', { exact: false }).waitFor();
     for (const [name, width, height] of [
       ['desktop', 1440, 1000],
       ['tablet', 768, 1024],
@@ -691,6 +1007,25 @@ async function verifyBrowser() {
       animations: 'disabled',
     });
     await page.getByRole('button', { name: 'Cancel', exact: true }).click();
+    const historical = page
+      .locator('summary')
+      .filter({ hasText: 'Historical study' });
+    await historical.click();
+    await page.getByText('Insufficient samples', { exact: false }).waitFor();
+    assert(
+      (await page.getByText('Drawdown Unknown', { exact: false }).count()) > 0,
+    );
+    assert(
+      await page.evaluate(
+        () => document.documentElement.scrollWidth <= window.innerWidth + 1,
+      ),
+      'Expanded study fits the phone',
+    );
+    await page.screenshot({
+      path: '.impeccable/review/trading-study-phone.png',
+      fullPage: true,
+    });
+    await historical.click();
     unavailable = true;
     await page.reload();
     await page.getByText('Fixture trading unavailable.').waitFor();
@@ -702,7 +1037,7 @@ async function verifyBrowser() {
     );
     assert.equal(
       writes.length,
-      4,
+      5,
       'poll/reload/date changes never control trading',
     );
     unavailable = false;
@@ -713,6 +1048,72 @@ async function verifyBrowser() {
     };
     await page.getByRole('button', { name: 'Retry', exact: true }).click();
     await page.getByText('Fixture stale feed: entries paused.').waitFor();
+    current = {
+      ...current,
+      fault: null,
+      exitStudy: { ...current.exitStudy, paperSamples: 3 },
+      paper: {
+        ...current.paper,
+        positions: [
+          {
+            symbol: 'BTC',
+            quantity: '1',
+            costThb: '100',
+            peakBid: '110',
+            openedAt: '2026-10-16T03:00:00Z',
+            exitPlan: {
+              version: 'adaptive-exit-v1',
+              regime: 'trend',
+              timeframeSeconds: 300,
+              nextReviewAt: '2026-10-16T04:20:00Z',
+              hardExitAt: '2026-10-16T11:00:00Z',
+              effectiveStop: '99.5',
+              trailingActive: true,
+              reviewCount: 1,
+              revision: 2,
+              lastReason: 'Setup intact; position retained after review',
+            },
+          },
+        ],
+      },
+    };
+    for (const [name, width, height] of [
+      ['desktop', 1440, 900],
+      ['tablet', 768, 1024],
+      ['phone', 390, 844],
+    ]) {
+      await page.setViewportSize({ width, height });
+      await page.reload();
+      await page
+        .locator('summary')
+        .filter({ hasText: 'Positions & orders' })
+        .click();
+      await page
+        .getByText('Setup intact; position retained after review', {
+          exact: false,
+        })
+        .waitFor();
+      assert(
+        await page
+          .getByText('Maximum hold until', { exact: false })
+          .isVisible(),
+      );
+      assert(
+        await page.evaluate(
+          () => document.documentElement.scrollWidth <= window.innerWidth + 1,
+        ),
+      );
+      await page.screenshot({
+        path: `.impeccable/review/trading-exit-plan-${name}.png`,
+        fullPage: true,
+        animations: 'disabled',
+      });
+    }
+    assert.equal(
+      writes.length,
+      5,
+      'Position-plan inspection never changes authority.',
+    );
     assert.deepEqual(errors, []);
     console.log(
       'Trading browser: compact status, advanced settings, exact mandate/expiry validation, one fake activation, selected-date report, failure recovery and desktop/tablet/phone passed; every API call intercepted.',

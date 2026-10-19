@@ -33,6 +33,7 @@ public static class TradingBrokerChecks
         Check(
             observed.Status == "filled"
                 && fill.Quantity == .99m
+                && fill.QuantityScale == 8
                 && fill.GrossThb == 99
                 && fill.GrossFeeThb == 1
                 && fill.FeeCreditThb == .5m

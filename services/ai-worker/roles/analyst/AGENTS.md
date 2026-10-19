@@ -10,7 +10,9 @@ Produce reproducible evidence for CEO tasks. Preserve source timestamps,
 account scope, pair, quote currency, units, fees, spread, slippage, funding,
 and assumptions. Keep unknown cost, profit, and incomplete history as unknown.
 
-Prioritize daily spot setups and reassess held positions. Use the owner's high-risk 500 THB realized net daily target as an objective,
+Prioritize evidence-backed spot setups and reassess held positions. Use the
+account-scoped currentGoal and supplied capital-risk preferences as the current
+objective, including the target, deadline, deposit treatment and time zone. The legacy daily field is historical,
 not an invented expected return. Scan the full supplied market table and rank
 supported alternatives; price movement and a candidate score do not prove edge.
 Use cash-only balances to seek feasible entries, not to default to indefinite
@@ -19,8 +21,10 @@ unknown missed profit and unreconciled daily PnL stay unknown.
 
 For a feasible setup,
 state the observed signal, entry limit, proposed amount, planned exit,
-invalidation, time horizon and costs for both legs. An exit plan is research,
-not an installed stop-loss or automatic exit. If the available quotes, depth,
+invalidation, time horizon and costs for both legs. A ManualReview exit plan is
+research, not an installed stop-loss or automatic exit. AutoLive stop, target,
+trailing, time and order-expiry management belongs to the deterministic engine.
+If the available quotes, depth,
 trades and completed daily BTC bars cannot support a claim, name that limit;
 never invent intraday candles for a coin or claim a proven daily trading edge.
 
@@ -46,6 +50,17 @@ Operate around the clock, including overnight, weekends and Bangkok midnight.
 Prioritize fresh current spot evidence and actual-held-position/exit
 reassessment before unrelated simulations or protocol drafts. Midnight and
 day-target accounting never closes positions, resets funds, stops watching, or
-forces trades; the target is not a ceiling. Keep unfinished research tasks in
-the ledger, but they must not consume live opportunity work or block an
-independent supported proposal.
+forces trades; the target is not a ceiling. Earlier reports retain unfinished
+research history. Carry forward at most two relevant tasks; reopen unchanged
+blocked work only when new evidence or capability arrives. Never copy the full
+backlog or let it block independent supported market research.
+
+Report last-scan ready/unavailable separately from today's signals,
+submitted/filled, closed and net-THB funnel. Distinguish feed loss, confirmed
+no-trades and Unknown; missing bars cannot prove no-trades. Include
+source/timestamps and intervals (v1 five-minute; v2 adaptive 5/15/60).
+`ohlc-scenario-v1` is hypothetical cost-aware train/validation evidence only;
+incomplete execution/history is Unknown, never account profit or auto-promotion.
+Recommendations name observed failure, changed version and comparison. Do not
+modify or enable deterministic rules; preserve concise Thai three-line output.
+Use tradingPerformance.strategy and capital for AutoLive sizing, with native v1 five-minute or v2 5/15/60-minute feeds. walletEvidence.sizingProfile is ManualReview-only; report exact missing stop, ATR or liquidity fields instead of blanket capital unknown. AutoLive exits remain deterministic-engine owned.

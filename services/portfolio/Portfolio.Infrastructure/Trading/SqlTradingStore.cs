@@ -22,6 +22,7 @@ public sealed class SqlTradingStore : ITradingStore
         "TradingRiskCounters",
         "TradingReportDeliveries",
         "TradingAlerts",
+        "TradingExitStudies",
     ];
 
     private readonly string connectionString;
@@ -345,6 +346,26 @@ public sealed class SqlTradingStore : ITradingStore
         foreach (var alert in SqlTradingStore.Changed(state.Alerts, previous?.Alerts ?? [], alert => alert.Key, false))
         {
             await this.Store(connection, transaction, "TradingAlerts", alert.Key, alert, false, cancellationToken);
+        }
+
+        foreach (
+            var sample in SqlTradingStore.Changed(
+                state.ExitStudies,
+                previous?.ExitStudies ?? [],
+                sample => sample.SourceMode + ":" + sample.EntryIntentId.ToString("D"),
+                false
+            )
+        )
+        {
+            await this.Store(
+                connection,
+                transaction,
+                "TradingExitStudies",
+                sample.SourceMode + ":" + sample.EntryIntentId.ToString("D"),
+                sample,
+                false,
+                cancellationToken
+            );
         }
     }
 

@@ -1,6 +1,7 @@
 using System.Security.Cryptography;
 using System.Text;
 using Quantara.Portfolio.Application;
+using Quantara.Portfolio.Infrastructure.Trading.Jobs;
 
 namespace Quantara.Portfolio.Api;
 
@@ -64,10 +65,13 @@ public static class TradingRequestPolicy
 
         var token = request.Headers["X-Quantara-Trading-Control"];
         return HttpMethods.IsPost(request.Method)
-            && request
-                .ContentType?.Split(';', 2)[0]
-                .Trim()
-                .Equals("application/json", StringComparison.OrdinalIgnoreCase) == true
+            && (
+                request
+                    .ContentType?.Split(';', 2)[0]
+                    .Trim()
+                    .Equals("application/json", StringComparison.OrdinalIgnoreCase) == true
+                || TradingDashboardAuthorizationFilter.IsStatistics(request)
+            )
             && token.Count == 1
             && !string.IsNullOrWhiteSpace(options.OwnerToken)
             && token.ToString().Length <= 4096

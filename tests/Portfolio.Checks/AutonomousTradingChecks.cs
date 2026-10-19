@@ -53,7 +53,99 @@ public static class AutonomousTradingChecks
         );
         Check(store.State.Mode == TradingMode.Stopped, "Reading or sizing never enables live authority.");
         await LiveAdaptiveEntry();
+        await RetainedScanReasons();
+        await IndependentCapital();
         Console.WriteLine("Autonomous trading checks passed.");
+    }
+
+    private static async Task IndependentCapital()
+    {
+        using var fixture = new AutonomousFixture();
+        var marketPending = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        fixture.Markets.BeforeEvidenceRead = marketPending;
+        using var cancellation = new CancellationTokenSource();
+        try
+        {
+            var initial = await fixture
+                .Monitor.Read(fixture.Store.State, cancellation.Token)
+                .WaitAsync(TimeSpan.FromSeconds(2));
+            Check(
+                initial.Capital.Snapshot.SpendableThb == 5000 && initial.Status.UniverseAt is null,
+                "Capital must be published while the native history scan is still pending."
+            );
+            fixture.Time.Now = fixture.Time.Now.AddMinutes(1);
+            fixture.Evidence.Evidence = fixture.Evidence.Evidence with
+            {
+                ObservedAt = fixture.Time.Now,
+                Balances = [new Balance("THB", 6000, 6000)],
+            };
+            var updated = await fixture
+                .Monitor.Read(fixture.Store.State, [], false, cancellation.Token)
+                .WaitAsync(TimeSpan.FromSeconds(2));
+            Check(
+                updated.Capital.Snapshot.SpendableThb == 6000
+                    && updated.Status.Capital?.ObservedAt == fixture.Time.Now
+                    && updated.Status.UniverseAt is null,
+                "Maintenance refreshes account evidence independently of a stalled full-market scan."
+            );
+
+            var capitalPending = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            fixture.Evidence.BeforeRead = capitalPending;
+            fixture.Time.Now = fixture.Time.Now.AddMinutes(1);
+            try
+            {
+                var pending = await fixture
+                    .Monitor.Read(fixture.Store.State, [], false, cancellation.Token)
+                    .WaitAsync(TimeSpan.FromSeconds(2));
+                Check(
+                    pending.Status.Capital?.ObservedAt == updated.Status.Capital?.ObservedAt,
+                    "A pending refresh retains the original age and never blocks event processing."
+                );
+            }
+            finally
+            {
+                capitalPending.TrySetResult();
+            }
+
+            Check(
+                fixture.Exchange.Submissions == 0 && fixture.Store.State.Mode == TradingMode.Stopped,
+                "Evidence refresh grants no trading authority."
+            );
+        }
+        finally
+        {
+            marketPending.TrySetResult();
+            await cancellation.CancelAsync();
+        }
+    }
+
+    private static async Task RetainedScanReasons()
+    {
+        using var fixture = new AutonomousFixture();
+        var batch = await fixture.Monitor.Read(fixture.Store.State, CancellationToken.None);
+        fixture.Time.Now = fixture.Time.Now.AddSeconds(1);
+        const string reason = "No adaptive entry signal";
+        var state = fixture.Store.State with
+        {
+            Autonomy = batch.Status with { Markets = [new("ETH", fixture.Time.Now, reason, "breakout-v1")] },
+        };
+        var reused = await fixture.Monitor.Read(state, [], false, CancellationToken.None);
+        Check(
+            reused.Status.Markets.Single(item => item.Symbol == "ETH").Reason == reason,
+            "Maintenance and quote events must not overwrite the latest decision with an old scan placeholder."
+        );
+
+        fixture.Markets.Books = [];
+        const string historyError = "Fewer than 51 consecutive recent completed candles could be verified.";
+        fixture.Markets.Errors = new Dictionary<string, string> { ["ETH"] = historyError };
+        fixture.Time.Now = fixture.Time.Now.AddSeconds(1);
+        var missing = await fixture.Monitor.Read(state, CancellationToken.None);
+        Check(
+            missing.Status.Markets.Single(item => item.Symbol == "ETH").Reason == historyError
+                && missing.Books.Count == 0,
+            "History failures must remain visible per symbol instead of indefinite Preparing status."
+        );
+        Check(fixture.Exchange.Submissions == 0, "Market diagnostics never submit orders.");
     }
 
     private static async Task LiveAdaptiveEntry()

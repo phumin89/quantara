@@ -29,7 +29,9 @@ public static class MarketWatchSelectionChecks
                 last = 100,
                 highest_bid = 99,
                 lowest_ask = 101,
-                quote_volume = 1000 - int.Parse(rule.pairing_id, CultureInfo.InvariantCulture),
+                quote_volume = rule.base_asset == "C42"
+                    ? 0
+                    : 1000 - int.Parse(rule.pairing_id, CultureInfo.InvariantCulture),
                 high_24_hr = 101,
                 low_24_hr = 99,
                 percent_change = 1,
@@ -40,27 +42,55 @@ public static class MarketWatchSelectionChecks
         var first = MarketWatchSelection.Select(
             symbols.RootElement,
             tickers.RootElement,
-            ["C41"],
+            ["C41", "C42"],
             DateTimeOffset.UnixEpoch.AddSeconds(30)
         );
         var second = MarketWatchSelection.Select(
             symbols.RootElement,
             tickers.RootElement,
-            ["C41"],
+            ["C41", "C42"],
             DateTimeOffset.UnixEpoch.AddSeconds(60)
         );
         if (
-            first.Count > 17
+            first.Count > 18
             || !first.Any(item => item.Symbol == "C41_THB")
-            || first.Count(item => item.Symbol != "C41_THB") > 16
+            || !first.Any(item => item.Symbol == "C42_THB")
+            || first.Count(item => item.Symbol != "C41_THB" && item.Symbol != "C42_THB") > 16
         )
         {
             throw new InvalidOperationException("Required holdings must survive while candidates remain capped at 16.");
         }
 
-        if (first.Select(item => item.Symbol).SequenceEqual(second.Select(item => item.Symbol)))
+        if (!first.Select(item => item.Symbol).SequenceEqual(second.Select(item => item.Symbol)))
         {
-            throw new InvalidOperationException("Candidate watch rotation must change the selected window.");
+            throw new InvalidOperationException("The watch set must remain stable within a five-minute window.");
+        }
+
+        var rotated = MarketWatchSelection.Select(
+            symbols.RootElement,
+            tickers.RootElement,
+            ["C41", "C42"],
+            DateTimeOffset.UnixEpoch.AddSeconds(330)
+        );
+        if (
+            !first
+                .Skip(2)
+                .Take(8)
+                .Select(item => item.Symbol)
+                .SequenceEqual(rotated.Skip(2).Take(8).Select(item => item.Symbol))
+            || first.Skip(10).Select(item => item.Symbol).SequenceEqual(rotated.Skip(10).Select(item => item.Symbol))
+        )
+        {
+            throw new InvalidOperationException("The rotating discovery window must change after five minutes.");
+        }
+
+        if (
+            MarketWatchSelection
+                .Select(symbols.RootElement, tickers.RootElement, [], DateTimeOffset.UnixEpoch)
+                .Any(item => item.Symbol == "C42_THB")
+        )
+        {
+            throw new InvalidOperationException("Zero-volume discovery must not consume a watch slot.");
         }
 
         if (

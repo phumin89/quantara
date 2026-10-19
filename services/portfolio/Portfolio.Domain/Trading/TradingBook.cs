@@ -14,5 +14,6 @@ public sealed record TradingBook(
     int BaseScale = 8,
     int QuoteScale = 2,
     bool Enabled = true,
-    bool? SellEnabled = null
+    bool? SellEnabled = null,
+    int TimeframeSeconds = 300
 );

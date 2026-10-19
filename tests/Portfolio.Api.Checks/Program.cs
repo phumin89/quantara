@@ -38,6 +38,12 @@ request.Headers["X-Quantara-Trading-Control"] = new Microsoft.Extensions.Primiti
     options.OwnerToken,
 ]);
 Check(!TradingRequestPolicy.Allows(request, "portfolio", options), "multiple capability headers denied");
+request.Headers["X-Quantara-Trading-Control"] = options.OwnerToken;
+request.ContentType = "application/x-www-form-urlencoded";
+request.Path = "/api/trading/jobs/stats";
+Check(TradingRequestPolicy.Allows(request, "portfolio", options), "authenticated read-only dashboard statistics form");
+request.Path = "/api/trading/jobs/recurring/trigger";
+Check(!TradingRequestPolicy.Allows(request, "portfolio", options), "dashboard commands never accept form controls");
 
 foreach (var size in new[] { 0, 8192, 8193, 10000 })
 {

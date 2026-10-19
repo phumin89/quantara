@@ -7,6 +7,7 @@ public interface IMarketResearchReader
     public Task<string> ReadForMarkets(
         string accountKey,
         IReadOnlyList<string> symbols,
-        CancellationToken cancellationToken
+        CancellationToken cancellationToken,
+        bool adaptiveTimeframes = false
     ) => this.Read(accountKey, cancellationToken);
 }

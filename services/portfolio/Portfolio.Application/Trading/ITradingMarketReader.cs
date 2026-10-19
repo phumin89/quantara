@@ -6,6 +6,12 @@ public interface ITradingMarketReader
 {
     public Task<IReadOnlyList<TradingBook>> Read(IReadOnlyList<string> symbols, CancellationToken cancellationToken);
 
+    public async Task<TradingMarketEvidence> ReadEvidence(
+        IReadOnlyList<string> symbols,
+        CancellationToken cancellationToken,
+        bool adaptiveTimeframes = false
+    ) => new(await this.Read(symbols, cancellationToken), new Dictionary<string, string>());
+
     public Task<IReadOnlyList<TradingBook>> ReadValuations(
         IReadOnlyList<string> symbols,
         CancellationToken cancellationToken

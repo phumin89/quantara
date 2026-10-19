@@ -16,4 +16,6 @@ public sealed record TradingHolding(
     public decimal? TargetPrice { get; init; }
 
     public decimal? TrailingDistance { get; init; }
+
+    public TradingExitPlan? ExitPlan { get; init; }
 }

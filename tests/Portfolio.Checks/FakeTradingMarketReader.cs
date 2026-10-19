@@ -7,7 +7,11 @@ public sealed class FakeTradingMarketReader(IReadOnlyList<TradingBook> books) : 
 {
     public IReadOnlyList<TradingBook> Books { get; set; } = books;
 
+    public IReadOnlyDictionary<string, string> Errors { get; set; } = new Dictionary<string, string>();
+
     public Action? BeforeRead { get; set; }
+
+    public TaskCompletionSource? BeforeEvidenceRead { get; set; }
 
     public TradingUniverse? Universe { get; set; }
 
@@ -27,5 +31,19 @@ public sealed class FakeTradingMarketReader(IReadOnlyList<TradingBook> books) : 
         return Task.FromResult<IReadOnlyList<TradingBook>>(
             this.Books.Where(book => symbols.Contains(book.Symbol, StringComparer.Ordinal)).ToArray()
         );
+    }
+
+    public async Task<TradingMarketEvidence> ReadEvidence(
+        IReadOnlyList<string> symbols,
+        CancellationToken cancellationToken,
+        bool adaptiveTimeframes = false
+    )
+    {
+        if (this.BeforeEvidenceRead is { } pending)
+        {
+            await pending.Task.WaitAsync(cancellationToken);
+        }
+
+        return new(await this.Read(symbols, cancellationToken), this.Errors);
     }
 }

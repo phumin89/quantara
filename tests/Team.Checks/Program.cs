@@ -4,10 +4,31 @@ using Quantara.Team.Domain;
 using Quantara.Team.Infrastructure;
 using Team.Checks;
 
+if (args.Contains("--feature-sql-only", StringComparer.Ordinal))
+{
+    await ResearchBudgetSqlChecks.Run();
+    Console.WriteLine("Research budget SQL checks passed.");
+    return;
+}
+
+if (args.Contains("--worker-cleanup-only", StringComparer.Ordinal))
+{
+    await WorkerProcessCleanupChecks.Run();
+    return;
+}
+
 await WorkerFailureChecks.Run();
 await SignalLoopChecks.Run();
 await DailyLearningChecks.Run();
 await AutonomousContextChecks.Run();
+await NativeResearchChecks.Run();
+await StartupContextChecks.Run();
+await ResearchContextBudgetChecks.Run();
+await ResearchBudgetChecks.Run();
+await ResearchBudgetSqlChecks.Run();
+await NewsEvidenceChecks.Run();
+await ResearchAssessmentChecks.Run();
+await CompanyNewsSignalChecks.Run();
 await Success();
 await ResearchMemory();
 await AccountScopedReviewMemory();
@@ -19,6 +40,7 @@ await MissingConfiguration();
 await LateOutput();
 await SnapshotWhitelist();
 await ProcessBoundary();
+await WorkerProcessCleanupChecks.Run();
 InvalidObjective();
 await DailyBriefBoundary();
 await CompanyLoopChecks.Run();
@@ -703,6 +725,17 @@ static async Task ProcessBoundary()
             "UTF8 report transport"
         );
         var typed = await worker.Report("reviewer", "typed lesson", [], null, CancellationToken.None);
+        var preflightWorker = new CodexWorker(
+            Path.GetFullPath("tests/Team.Checks/worker-fixture.mjs"),
+            Path.GetFullPath("tests/Team.Checks/worker-fixture.mjs")
+        );
+        try
+        {
+            await preflightWorker.Report("ceo", "oversized wire", [], new string('"', 60000), CancellationToken.None);
+            throw new InvalidOperationException("Oversized wire request was accepted.");
+        }
+        catch (CodexWorkerException error) when (error.Code == "worker_input_too_large") { }
+
         Check(
             await worker.Run(
                 "reviewer",

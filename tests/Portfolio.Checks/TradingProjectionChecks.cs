@@ -46,6 +46,64 @@ public sealed class TradingProjectionChecks(TradingState state) : IReadOnlyTradi
                 Equity = [new TradingEquityMark(now, 1000.123456789012345m, 1000)],
             },
         };
+        var managed = current with
+        {
+            Rules = current.Rules with { Version = "adaptive-intraday-v2", Symbols = [], Adaptive = new() },
+            Live = current.Live with
+            {
+                Positions =
+                [
+                    new TradingHolding("ETH", 10, 1000, now, 112)
+                    {
+                        StopPrice = 95,
+                        TargetPrice = 120,
+                        TrailingDistance = 3,
+                    },
+                ],
+                Orders =
+                [
+                    new TradingIntent(
+                        Guid.NewGuid(),
+                        "ETH",
+                        Quantara.Portfolio.Domain.TradeSide.Sell,
+                        10,
+                        120,
+                        10,
+                        now,
+                        0,
+                        current.RulesHash,
+                        "fixture",
+                        "submitted"
+                    ),
+                ],
+            },
+            Autonomy = new(
+                now,
+                now,
+                2,
+                2,
+                [new("OLD", now.AddMinutes(-20), "stale", null, 99), new("ETH", now, "fresh", "breakout-v2-15m", 1)],
+                null,
+                "Monitoring",
+                now
+            ),
+        };
+        using var managedView = JsonDocument.Parse(projection.Serialize(managed));
+        var managedPosition = managedView.RootElement.GetProperty("live").GetProperty("positions")[0];
+        Check(
+            managedPosition.GetProperty("stopPrice").GetString() == "95"
+                && managedPosition.GetProperty("targetPrice").GetString() == "120"
+                && managedPosition.GetProperty("trailingDistance").GetString() == "3"
+                && managedPosition.GetProperty("timeExitAt").GetDateTimeOffset()
+                    == now.AddMinutes(managed.Rules.TimeExitMinutes)
+                && managedView
+                    .RootElement.GetProperty("live")
+                    .GetProperty("orders")[0]
+                    .GetProperty("expiresAt")
+                    .GetDateTimeOffset() == now.AddMinutes(managed.Rules.OrderLifetimeMinutes)
+                && managedView.RootElement.GetProperty("autonomy").GetProperty("candidates").GetArrayLength() == 1,
+            "Read-only projection preserves actual exit levels, deadlines and only fresh candidates."
+        );
         using var result = JsonDocument.Parse(
             await new GetTradingOverviewHandler(new TradingProjectionChecks(current), projection).Handle(
                 new GetTradingOverviewQuery(),

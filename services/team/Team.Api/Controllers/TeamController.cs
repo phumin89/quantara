@@ -66,6 +66,13 @@ public sealed class TeamController : ControllerBase
         return this.Ok(new DailyBriefResponse(parsedDate.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture), runs));
     }
 
+    [HttpGet("news")]
+    public async Task<IActionResult> News([FromQuery] string? symbols, CancellationToken cancellationToken)
+    {
+        var packet = await this.mediator.Send(new GetTeamNewsQuery(symbols), cancellationToken);
+        return this.Content(packet, "application/json");
+    }
+
     [HttpPost("runs")]
     public async Task<IActionResult> Start(TeamObjective body, CancellationToken cancellationToken)
     {

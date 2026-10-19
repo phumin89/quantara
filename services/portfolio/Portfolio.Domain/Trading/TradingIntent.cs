@@ -17,4 +17,9 @@ public sealed record TradingIntent(
     string? CancellationState = null,
     DateTimeOffset? LastInspectedAt = null,
     Quantara.Portfolio.Domain.Risk.RiskSizingSnapshot? Sizing = null
-);
+)
+{
+    public TradingExitPlan? ExitPlan { get; init; }
+
+    public TradingExitPlan? ExitStudyPlan { get; init; }
+}

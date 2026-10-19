@@ -9,5 +9,6 @@ public sealed record CompanyLoopOverview(
     Guid? LastRunId,
     string? Error,
     decimal DailyNetProfitTargetThb = TradingMandate.DailyNetProfitTargetThb,
-    string CalendarTimeZone = TradingMandate.CalendarTimeZone
+    string CalendarTimeZone = TradingMandate.CalendarTimeZone,
+    PortfolioGoal? CurrentGoal = null
 );

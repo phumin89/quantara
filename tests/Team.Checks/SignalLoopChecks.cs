@@ -10,6 +10,7 @@ public static class SignalLoopChecks
     public static async Task Run()
     {
         await DeadlineAlignment();
+        await ReviewSchedulingChecks();
         var time = new ManualTimeProvider();
         var schedule = new FakeCompanyScheduleStore(time.GetUtcNow());
         var runs = new FakeTeamRunStore();
@@ -21,9 +22,11 @@ public static class SignalLoopChecks
         await loop.Tick(CancellationToken.None);
         Check(coordinator.Objectives.Count == 1, "normal hourly round");
         Check(
-            coordinator.Objectives[0].Contains("500 THB realized net profit")
+            coordinator.Objectives[0].Contains("THB 10000")
+                && coordinator.Objectives[0].Contains("including deposits", StringComparison.Ordinal)
+                && coordinator.Objectives[0].Contains("2026-11-01", StringComparison.Ordinal)
                 && coordinator.Objectives[0].Length <= 2000,
-            "daily net target with bounded objective"
+            "month-end total portfolio objective is bounded and includes deposits"
         );
         Check((await loop.Read(CancellationToken.None)).DailyNetProfitTargetThb == 500m, "visible daily target");
         var first =
@@ -98,6 +101,119 @@ public static class SignalLoopChecks
 
         await ReadSignalReaderChecks(time);
         Console.WriteLine("Signal loop checks passed.");
+    }
+
+    private static async Task ReviewSchedulingChecks()
+    {
+        foreach (
+            var scenario in new[]
+            {
+                (Name: "future", Age: 30, Review: 5, Expiry: 120, Foreign: false, WrongRun: false, Expected: 5),
+                (Name: "overdue", Age: 30, Review: -5, Expiry: 120, Foreign: false, WrongRun: false, Expected: -5),
+                (Name: "cooldown", Age: 5, Review: 2, Expiry: 120, Foreign: false, WrongRun: false, Expected: 10),
+                (Name: "expired", Age: 30, Review: -5, Expiry: -1, Foreign: false, WrongRun: false, Expected: 60),
+                (Name: "foreign", Age: 30, Review: 5, Expiry: 120, Foreign: true, WrongRun: false, Expected: 60),
+                (Name: "wrong run", Age: 30, Review: 5, Expiry: 120, Foreign: false, WrongRun: true, Expected: 60),
+                (
+                    Name: "hourly fallback",
+                    Age: 30,
+                    Review: 90,
+                    Expiry: 120,
+                    Foreign: false,
+                    WrongRun: false,
+                    Expected: 60
+                ),
+            }
+        )
+        {
+            var time = new ManualTimeProvider();
+            var now = time.GetUtcNow();
+            var schedule = new FakeCompanyScheduleStore(now);
+            var runs = new FakeTeamRunStore();
+            var coordinator = new LoopCoordinator(runs, time);
+            var account = new string('a', 64);
+            var created = now.AddMinutes(-scenario.Age);
+            var id = Guid.NewGuid();
+            var assessment = new ResearchAssessment(
+                "research-assessment-v1",
+                scenario.Foreign ? new string('b', 64) : account,
+                scenario.WrongRun ? Guid.NewGuid() : id,
+                null,
+                created,
+                now.AddMinutes(scenario.Expiry),
+                [],
+                [
+                    new PositionAssessment(
+                        "BTC",
+                        "Keep",
+                        "Observed entry",
+                        "Monitor exits",
+                        now.AddMinutes(scenario.Review),
+                        now.AddMinutes(scenario.Expiry),
+                        []
+                    ),
+                ],
+                [new ResearchOpportunity("ETH", "Review setup", "Fresh book", now.AddMinutes(scenario.Review + 1))]
+            );
+            var run = new TeamRun(
+                id,
+                "review",
+                TeamRunStatus.Completed,
+                created,
+                created,
+                [],
+                null,
+                account,
+                Assessment: assessment
+            );
+            await runs.Save(run, CancellationToken.None);
+            await schedule.Save(
+                schedule.Schedule with
+                {
+                    LastRunId = id,
+                    NextRunAt = now.AddHours(1),
+                    LastAnalysisAt = created,
+                },
+                CancellationToken.None
+            );
+            using var loop = new CompanyLoop(schedule, runs, coordinator, new LoopSnapshotReader(), time);
+            await loop.Tick(CancellationToken.None);
+            if (scenario.Expected < 0)
+            {
+                Check(coordinator.Objectives.Count == 1, "overdue valid review starts on next tick");
+                await loop.Tick(CancellationToken.None);
+                Check(coordinator.Objectives.Count == 1, "active review never overlaps");
+                continue;
+            }
+
+            Check(schedule.Schedule.NextRunAt == now.AddMinutes(scenario.Expected), scenario.Name + " deadline");
+            Check(coordinator.Objectives.Count == 0, scenario.Name + " does not start early");
+            using var restarted = new CompanyLoop(schedule, runs, coordinator, new LoopSnapshotReader(), time);
+            if (scenario.Expected < 60)
+            {
+                coordinator.FailStart = scenario.Name == "future";
+                time.Advance(TimeSpan.FromMinutes(scenario.Expected));
+                await restarted.Tick(CancellationToken.None);
+                Check(coordinator.Objectives.Count == 1, scenario.Name + " due review survives restart");
+                if (coordinator.FailStart)
+                {
+                    using var afterFailure = new CompanyLoop(
+                        schedule,
+                        runs,
+                        coordinator,
+                        new LoopSnapshotReader(),
+                        time
+                    );
+                    var deferred = schedule.Schedule.NextRunAt;
+                    time.Advance(TimeSpan.FromMinutes(16));
+                    await afterFailure.Tick(CancellationToken.None);
+                    Check(
+                        coordinator.Objectives.Count == 1 && schedule.Schedule.NextRunAt == deferred,
+                        "restart does not reapply an old deadline after a failed start"
+                    );
+                }
+            }
+        }
     }
 
     private static async Task DeadlineAlignment()

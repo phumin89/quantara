@@ -13,6 +13,8 @@ public sealed class BitkubExecutionMarketReader : IExecutionMarketReader
 
     private static readonly string[] errorFields = ["error", "code"];
 
+    private const string historyUnavailable = "Fewer than 51 consecutive recent completed candles could be verified.";
+
     private readonly HttpClient client;
 
     private readonly IIntradayMarketReader? intraday;
@@ -23,9 +25,10 @@ public sealed class BitkubExecutionMarketReader : IExecutionMarketReader
 
     private (DateTimeOffset ExpiresAt, string Payload)? universeCache;
 
-    private readonly ConcurrentDictionary<string, (long Slot, IReadOnlyList<MarketCandle> Candles)> history = new(
-        StringComparer.Ordinal
-    );
+    private readonly ConcurrentDictionary<
+        string,
+        (long Slot, int Interval, IReadOnlyList<MarketCandle> Candles)
+    > history = new(StringComparer.Ordinal);
 
     public BitkubExecutionMarketReader(
         HttpClient client,
@@ -41,7 +44,8 @@ public sealed class BitkubExecutionMarketReader : IExecutionMarketReader
     public async Task<string> Read(
         IReadOnlyList<string> symbols,
         CancellationToken cancellationToken,
-        bool includeHistory = true
+        bool includeHistory = true,
+        bool adaptiveTimeframes = false
     )
     {
         ValidateSymbols(symbols);
@@ -75,8 +79,15 @@ public sealed class BitkubExecutionMarketReader : IExecutionMarketReader
                     await parallelism.WaitAsync(budget.Token);
                     try
                     {
-                        var market = await this.ReadMarket(symbol, metadata, snapshot, includeHistory, budget.Token);
-                        return (Market: market, Symbol: symbol, Error: (string?)null);
+                        var market = await this.ReadMarket(
+                            symbol,
+                            metadata,
+                            snapshot,
+                            includeHistory,
+                            adaptiveTimeframes,
+                            budget.Token
+                        );
+                        return (market.Market, market.Evidence, Symbol: symbol, market.Error);
                     }
                     finally
                     {
@@ -86,16 +97,25 @@ public sealed class BitkubExecutionMarketReader : IExecutionMarketReader
                 catch (Exception exception) when (IsEvidenceFailure(exception, cancellationToken))
                 {
                     var error =
-                        exception is OperationCanceledException
-                            ? "Public market evidence timed out."
-                            : "Public market rules, order book or completed candles could not be verified.";
-                    return (Market: (object?)null, Symbol: symbol, Error: error);
+                        exception is OperationCanceledException ? "Public market evidence timed out."
+                        : exception is InvalidDataException && exception.Message == historyUnavailable
+                            ? historyUnavailable
+                        : "Public market rules, order book or completed candles could not be verified.";
+                    return (
+                        Market: (object?)null,
+                        Evidence: (IReadOnlyList<ExecutionHistoryEvidence>)[],
+                        Symbol: symbol,
+                        Error: (string?)error
+                    );
                 }
             })
         );
         return this.Serialize(
             results.Where(result => result.Market is not null).Select(result => result.Market),
-            results.Where(result => result.Error is not null).Select(result => (result.Symbol, result.Error ?? ""))
+            results.Where(result => result.Error is not null).Select(result => (result.Symbol, result.Error ?? "")),
+            adaptiveTimeframes && includeHistory
+                ? results.SelectMany(result => result.Evidence).Select(item => (object?)item)
+                : null
         );
     }
 
@@ -167,6 +187,59 @@ public sealed class BitkubExecutionMarketReader : IExecutionMarketReader
                 jsonOptions
             );
         }
+    }
+
+    public async Task<string> ReadHistorical(
+        string symbol,
+        int timeframeSeconds,
+        long from,
+        long until,
+        CancellationToken cancellationToken
+    )
+    {
+        if (symbol.Length is < 1 or > 30 || symbol.Any(c => c is not (>= 'A' and <= 'Z' or >= '0' and <= '9')))
+        {
+            throw new ArgumentException("Invalid symbol.", nameof(symbol));
+        }
+
+        if (timeframeSeconds is not (300 or 900 or 3600))
+        {
+            throw new ArgumentException("Timeframe must be 300, 900 or 3600 seconds.", nameof(timeframeSeconds));
+        }
+
+        if (
+            from < 0
+            || until <= from
+            || until - from > 31L * 86400
+            || (until - from) / timeframeSeconds > 999
+            || from % timeframeSeconds != 0
+            || until % timeframeSeconds != 0
+            || until > this.timeProvider.GetUtcNow().ToUnixTimeSeconds() / timeframeSeconds * timeframeSeconds
+        )
+        {
+            throw new ArgumentException("History window must be aligned, positive, and no longer than 31 days.");
+        }
+
+        var raw = await this.Get(
+            $"/tradingview/history?symbol={symbol}_THB&resolution={timeframeSeconds / 60}&from={from}&to={until}",
+            cancellationToken
+        );
+        var missing = raw.TryGetProperty("s", out var historyStatus) && historyStatus.GetString() == "no_data";
+        var candles = missing ? [] : CandleParser.Parse(raw, from, until, timeframeSeconds, 1000);
+        return JsonSerializer.Serialize(
+            new
+            {
+                symbol,
+                timeframeSeconds,
+                source = "bitkub-tradingview",
+                from,
+                to = until,
+                observedAt = this.timeProvider.GetUtcNow(),
+                candles,
+                error = missing ? "Historical candles are unavailable; gap cause unknown." : (string?)null,
+            },
+            jsonOptions
+        );
     }
 
     private static bool IsTradableRule(JsonElement rule)
@@ -274,11 +347,12 @@ public sealed class BitkubExecutionMarketReader : IExecutionMarketReader
             : throw new InvalidDataException("Public order book has no usable top level.");
     }
 
-    private async Task<object?> ReadMarket(
+    private async Task<(object? Market, IReadOnlyList<ExecutionHistoryEvidence> Evidence, string? Error)> ReadMarket(
         string symbol,
         JsonElement metadata,
         IntradaySnapshot? snapshot,
         bool includeHistory,
+        bool adaptiveTimeframes,
         CancellationToken cancellationToken
     )
     {
@@ -327,7 +401,16 @@ public sealed class BitkubExecutionMarketReader : IExecutionMarketReader
             throw new InvalidDataException("Public order book is crossed.");
         }
 
-        var bars = includeHistory ? await this.ReadBars(symbol, snapshot, cancellationToken) : [];
+        var historyResult = includeHistory
+            ? await this.ReadBars(symbol, snapshot, cancellationToken, adaptiveTimeframes)
+            : new MarketHistory([], 300);
+        var bars = historyResult.Candles;
+        var timeframe = historyResult.TimeframeSeconds;
+        if (adaptiveTimeframes && includeHistory && bars.Count < 51)
+        {
+            return (null, historyResult.Evidence ?? [], historyUnavailable);
+        }
+
         var market = new Dictionary<string, object?>
         {
             ["symbol"] = symbol,
@@ -349,18 +432,80 @@ public sealed class BitkubExecutionMarketReader : IExecutionMarketReader
             market["sellEnabled"] = !freezeSell;
         }
 
-        return market;
+        if (adaptiveTimeframes && includeHistory)
+        {
+            market["timeframeSeconds"] = timeframe;
+        }
+
+        return (market, historyResult.Evidence ?? [], null);
     }
 
-    private async Task<IReadOnlyList<MarketCandle>> ReadBars(
+    private async Task<MarketHistory> ReadBars(
         string symbol,
         IntradaySnapshot? snapshot,
-        CancellationToken cancellationToken
+        CancellationToken cancellationToken,
+        bool adaptiveTimeframes = false
     )
     {
         var now = this.timeProvider.GetUtcNow();
         var to = now.ToUnixTimeSeconds() / 300 * 300;
         var from = to - 120 * 300;
+        if (adaptiveTimeframes)
+        {
+            var evidence = new List<ExecutionHistoryEvidence>();
+            foreach (var interval in new[] { 300, 900, 3600 })
+            {
+                var alignedTo = now.ToUnixTimeSeconds() / interval * interval;
+                var fromAdaptive = alignedTo - 120L * interval;
+                try
+                {
+                    var rows = await this.ReadBarsAt(symbol, fromAdaptive, alignedTo, interval, cancellationToken);
+                    var selected = CompletedWindow(rows, fromAdaptive, alignedTo, interval);
+                    var missing = 120 - rows.Select(bar => bar.Timestamp).Distinct().Count();
+                    evidence.Add(
+                        new(
+                            symbol,
+                            this.timeProvider.GetUtcNow(),
+                            "bitkub-tradingview",
+                            interval,
+                            rows.Count,
+                            selected.Length,
+                            missing,
+                            selected.Length >= 51 ? "ready" : "unavailable",
+                            missing == 0 ? "none" : "unknown",
+                            selected.Length >= 51 ? null : historyUnavailable,
+                            rows.Count(bar => bar.Volume == 0)
+                        )
+                    );
+                    if (selected.Length >= 51)
+                    {
+                        return new MarketHistory(selected, interval, evidence);
+                    }
+                }
+                catch (Exception error) when (IsEvidenceFailure(error, cancellationToken))
+                {
+                    evidence.Add(
+                        new(
+                            symbol,
+                            this.timeProvider.GetUtcNow(),
+                            "bitkub-tradingview",
+                            interval,
+                            0,
+                            0,
+                            120,
+                            "unavailable",
+                            error is HttpRequestException or OperationCanceledException
+                                ? "source-unavailable"
+                                : "unknown",
+                            "Native completed history could not be verified."
+                        )
+                    );
+                }
+            }
+
+            return new MarketHistory([], 300, evidence);
+        }
+
         var retained = snapshot?.Series.SingleOrDefault(series => series.Symbol == symbol + "_THB");
         if (
             snapshot is { Available: true, Error: null }
@@ -370,29 +515,35 @@ public sealed class BitkubExecutionMarketReader : IExecutionMarketReader
             && now - retained.FetchedAt <= TimeSpan.FromMinutes(5)
         )
         {
-            var completed = retained
-                .Candles.Where(candle => candle.Timestamp >= from && candle.Timestamp < to)
-                .TakeLast(120)
-                .ToArray();
-            if (completed.Length >= 51 && completed[^1].Timestamp == to - 300)
+            var completed = CompletedWindow(retained.Candles, from, to);
+            if (completed.Length >= 51)
             {
-                return completed;
+                return new MarketHistory(completed, 300);
             }
         }
 
-        if (this.history.TryGetValue(symbol, out var cached) && cached.Slot == to)
+        if (this.history.TryGetValue(symbol, out var cached) && cached.Slot == to && cached.Interval == 300)
         {
-            return cached.Candles;
+            return new MarketHistory(cached.Candles, 300);
         }
 
         var raw = await this.Get(
             $"/tradingview/history?symbol={symbol}_THB&resolution=5&from={from}&to={to}",
             cancellationToken
         );
-        var candles = CandleParser.Parse(raw, from, to, 300, 121).TakeLast(120).ToArray();
-        if (candles.Length < 51 || candles[^1].Timestamp != to - 300)
+        if (
+            raw.TryGetProperty("s", out var status)
+            && status.ValueKind == JsonValueKind.String
+            && status.GetString() == "no_data"
+        )
         {
-            throw new InvalidDataException("Sufficient recent completed candles could not be verified.");
+            throw new InvalidDataException(historyUnavailable);
+        }
+
+        var candles = CompletedWindow(CandleParser.Parse(raw, from, to, 300, 121), from, to);
+        if (candles.Length < 51)
+        {
+            throw new InvalidDataException(historyUnavailable);
         }
 
         if (this.history.Count >= 256)
@@ -401,8 +552,66 @@ public sealed class BitkubExecutionMarketReader : IExecutionMarketReader
         }
 
         var verified = Array.AsReadOnly(candles);
-        this.history[symbol] = (to, verified);
-        return verified;
+        this.history[symbol] = (to, 300, verified);
+        return new MarketHistory(verified, 300);
+    }
+
+    private async Task<IReadOnlyList<MarketCandle>> ReadBarsAt(
+        string symbol,
+        long from,
+        long to,
+        int interval,
+        CancellationToken cancellationToken
+    )
+    {
+        var key = $"{symbol}:{interval}:{to}";
+        if (this.history.TryGetValue(key, out var cached) && cached.Slot == to && cached.Interval == interval)
+        {
+            return cached.Candles;
+        }
+
+        var raw = await this.Get(
+            $"/tradingview/history?symbol={symbol}_THB&resolution={interval / 60}&from={from}&to={to}",
+            cancellationToken
+        );
+        if (raw.TryGetProperty("s", out var status) && status.GetString() == "no_data")
+        {
+            throw new InvalidDataException("no_data");
+        }
+
+        var candles = CandleParser.Parse(raw, from, to, interval, 121).TakeLast(120).ToArray();
+        if (this.history.Count >= 256)
+        {
+            this.history.Clear();
+        }
+
+        this.history[key] = (to, interval, Array.AsReadOnly(candles));
+        return candles;
+    }
+
+    private static MarketCandle[] CompletedWindow(
+        IReadOnlyList<MarketCandle> source,
+        long from,
+        long to,
+        long interval = 300
+    )
+    {
+        var completed = source
+            .Where(candle => candle.Timestamp >= from && candle.Timestamp < to)
+            .TakeLast(120)
+            .ToArray();
+        if (completed.Length == 0 || completed[^1].Timestamp != to - interval)
+        {
+            return [];
+        }
+
+        var start = completed.Length - 1;
+        while (start > 0 && completed[start].Timestamp - completed[start - 1].Timestamp == interval)
+        {
+            start--;
+        }
+
+        return completed[start..];
     }
 
     private async Task<JsonElement> Get(string path, CancellationToken cancellationToken)
@@ -423,17 +632,24 @@ public sealed class BitkubExecutionMarketReader : IExecutionMarketReader
         return document.RootElement.Clone();
     }
 
-    private string Serialize(IEnumerable<object?> markets, IEnumerable<(string Symbol, string Error)> errors)
+    private string Serialize(
+        IEnumerable<object?> markets,
+        IEnumerable<(string Symbol, string Error)> errors,
+        IEnumerable<object?>? evidence = null
+    )
     {
-        var result = JsonSerializer.Serialize(
-            new
-            {
-                observedAt = this.timeProvider.GetUtcNow(),
-                markets,
-                errors = errors.Select(error => new { symbol = error.Symbol, error = error.Error }),
-            },
-            BitkubExecutionMarketReader.jsonOptions
-        );
+        var payload = new Dictionary<string, object?>
+        {
+            ["observedAt"] = this.timeProvider.GetUtcNow(),
+            ["markets"] = markets,
+            ["errors"] = errors.Select(error => new { symbol = error.Symbol, error = error.Error }),
+        };
+        if (evidence is not null)
+        {
+            payload["evidence"] = evidence;
+        }
+
+        var result = JsonSerializer.Serialize(payload, BitkubExecutionMarketReader.jsonOptions);
         return Encoding.UTF8.GetByteCount(result) <= 1_048_576
             ? result
             : throw new InvalidDataException("Public market evidence exceeds its size limit.");

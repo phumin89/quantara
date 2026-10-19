@@ -8,5 +8,6 @@ public sealed record TradingDecision(
     decimal? EntryLimit = null,
     decimal? StopPrice = null,
     long? StopCandle = null,
-    string? StrategyVersion = null
+    string? StrategyVersion = null,
+    int TimeframeSeconds = 300
 );

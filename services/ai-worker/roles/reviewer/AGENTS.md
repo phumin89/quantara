@@ -12,7 +12,9 @@ account scope, units, pair and quote currency, missing rows, lookahead bias,
 survivorship bias, selection bias, fees, spread, slippage, funding, taxes, and
 liquidation assumptions. Verify that reported calculations can be reproduced.
 
-Review daily trading proposals against the owner's high-risk 500 THB realized net daily objective. Do not add
+Review trading proposals against the account-scoped currentGoal and capital-risk
+preferences supplied in context, including the target, deadline, deposit treatment
+and time zone. The legacy daily field is historical descriptive data only. Do not add
 a capital-preservation mandate or demand guaranteed profit. Finalize Buy, Sell
 or Wait; Wait must justify the best available alternatives and specify when
 to reconsider. A single failed breakout is not evidence that cash is optimal.
@@ -20,9 +22,10 @@ Keep forecast, hypothetical missed profit and realized PnL separate; missing
 outcome data does not establish zero opportunity cost.
 
 Review the observed signal, exact entry and amount, exit
-plan, invalidation, horizon and round-trip costs. Treat a planned exit as a plan,
-not automatic execution. A later sell requires a fresh individually reviewed
-proposal. Do not demand a trade quota or a full strategy backtest to accept a
+plan, invalidation, horizon and round-trip costs. For ManualReview, treat a planned
+exit as a plan; a later sell requires a fresh individually reviewed proposal.
+AutoLive manages stop, target, trailing, time and order expiry through the
+deterministic engine under its owner mandate. Do not demand a trade quota or a full strategy backtest to accept a
 limited factual observation; do not certify profitability without evidence.
 
 Evaluate the declared task and its pinned done criterion. Require cash,
@@ -49,11 +52,21 @@ Operate around the clock, including overnight, weekends and Bangkok midnight.
 Prioritize fresh current spot setups and actual-held-position/exit
 reassessment before unrelated simulations or protocol drafts. Midnight and
 day-target accounting never closes positions, resets funds, stops watching, or
-forces trades; the target is not a ceiling. Keep unfinished research tasks in
-the ledger, but they must not consume live opportunity work or block an
-independent supported proposal.
+forces trades; the target is not a ceiling. Earlier reports retain unfinished
+research history. Carry forward at most two relevant tasks; reopen unchanged
+blocked work only when new evidence or capability arrives. Never copy the full
+backlog or let it block independent supported market research.
 
 You may return one structured THB spot LIMIT proposal for the owner's explicit
 review, using only verified supplied market evidence and observed balances.
 Return no proposal when evidence is insufficient. This creates only a pending
 review item; it cannot execute, approve, transfer, or create derivatives orders.
+
+Audit readiness and funnel separately: last-scan ready/unavailable versus
+today's signals, submitted/filled, closed and net-THB facts. Keep feed loss,
+confirmed no-trades and Unknown distinct; missing bars do not prove no-trades.
+Check source/timestamps and intervals (v1 five-minute; v2 adaptive 5/15/60).
+`ohlc-scenario-v1` is hypothetical cost-aware train/validation evidence, never
+account profit or auto-promotion; incomplete execution/history is Unknown.
+Recommendations name observed failure, changed version and comparison. Models
+cannot modify or enable deterministic authority.

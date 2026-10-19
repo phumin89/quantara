@@ -19,14 +19,21 @@ public static class TradingJsonCompatibility
         {
             var name = property.Name.ToLowerInvariant();
             if (
-                info.Type == typeof(TradingRuleSet) && name == "adaptive"
-                || info.Type == typeof(TradingState) && name == "autonomy"
-                || info.Type == typeof(TradingIntent) && name == "sizing"
-                || info.Type == typeof(TradingHolding) && name is "stopprice" or "targetprice" or "trailingdistance"
+                info.Type == typeof(TradingRuleSet) && name is "adaptive" or "exitpolicy"
+                || info.Type == typeof(TradingState) && name is "autonomy" or "evaluation"
+                || info.Type == typeof(AutonomousTradingStatus) && name == "history"
+                || info.Type == typeof(TradingIntent) && name is "sizing" or "exitplan" or "exitstudyplan"
+                || info.Type == typeof(TradingHolding)
+                    && name is "stopprice" or "targetprice" or "trailingdistance" or "exitplan"
+                || info.Type == typeof(TradingAlert) && name is "claimedat" or "messageid" or "sentat" or "retryat"
                 || info.Type == typeof(TradingBook) && name == "sellenabled"
             )
             {
                 property.ShouldSerialize = (_, value) => value is not null;
+            }
+            else if (info.Type == typeof(TradingAlert) && name == "retrycount")
+            {
+                property.ShouldSerialize = (_, value) => value is int count && count > 0;
             }
             else if (info.Type == typeof(TradingState) && name == "observedfundingflows")
             {
@@ -36,9 +43,29 @@ public static class TradingJsonCompatibility
             {
                 property.ShouldSerialize = (_, value) => value is IReadOnlyList<TradingShadow> { Count: > 0 };
             }
+            else if (info.Type == typeof(TradingState) && name == "exitstudies")
+            {
+                property.ShouldSerialize = (_, value) => value is IReadOnlyList<TradingExitStudySample> { Count: > 0 };
+            }
             else if (info.Type == typeof(RiskMarketEvidence) && name == "resting")
             {
                 property.ShouldSerialize = (_, value) => value is true;
+            }
+            else if (
+                name == "timeframeseconds"
+                && info.Type is { } type
+                && (
+                    type == typeof(TradingBook)
+                    || type == typeof(TradingDecisionRecord)
+                    || type == typeof(RiskMarketEvidence)
+                )
+            )
+            {
+                property.ShouldSerialize = (_, value) => value is not 300;
+            }
+            else if (info.Type == typeof(TradingDecisionRecord) && name == "signalaction")
+            {
+                property.ShouldSerialize = (_, value) => value is not null;
             }
         }
     }
