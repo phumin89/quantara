@@ -25,5 +25,6 @@ public static class PortfolioJson
         options.Converters.Add(new CostStatusJsonConverter());
         options.Converters.Add(new TradeSideJsonConverter());
         options.Converters.Add(new JsonStringEnumConverter<RiskProfile>(JsonNamingPolicy.CamelCase, false));
+        options.Converters.Add(new JsonStringEnumConverter<CapitalSource>(JsonNamingPolicy.CamelCase, false));
     }
 }

@@ -169,8 +169,30 @@ public static class TradingStorageChecks
             0
         );
         TradingStorageChecks.CheckDiffs(state);
+        TradingStorageChecks.CheckDiffAllocations(state.Paper.Fills[0]);
         Console.WriteLine(
             "Trading storage checks passed: strict JSON, revision/account guards, bounded mirror diffs and immutable retained fills; no SQL connection used."
+        );
+    }
+
+    private static void CheckDiffAllocations(TradingFill fill)
+    {
+        var retained = Enumerable
+            .Range(0, 10000)
+            .Select(index => fill with { BrokerFillId = $"performance-{index}" })
+            .ToArray();
+        var restored = retained.Select(item => item with { }).ToArray();
+        _ = TradingStorageChecks.Changed(restored, retained, item => item.BrokerFillId, true);
+        var before = GC.GetAllocatedBytesForCurrentThread();
+        var started = System.Diagnostics.Stopwatch.GetTimestamp();
+        var changes = TradingStorageChecks.Changed(restored, retained, item => item.BrokerFillId, true);
+        var allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+        Console.WriteLine(
+            $"Retained mirror diff: {retained.Length} synthetic fills; {allocated} bytes; {System.Diagnostics.Stopwatch.GetElapsedTime(started).TotalMilliseconds:0.00}ms; {changes.Count} writes."
+        );
+        TradingStorageChecks.Check(
+            allocated < 8_000_000,
+            "Equal retained records must not be serialized twice on every event; allocation budget exceeded."
         );
     }
 

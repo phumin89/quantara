@@ -23,6 +23,7 @@ internal static class TradingJson
         options.Converters.Add(new JsonStringEnumConverter<TradingMode>(JsonNamingPolicy.CamelCase, false));
         options.Converters.Add(new JsonStringEnumConverter<TradingAction>(JsonNamingPolicy.CamelCase, false));
         options.Converters.Add(new JsonStringEnumConverter<RiskProfile>(JsonNamingPolicy.CamelCase, false));
+        options.Converters.Add(new JsonStringEnumConverter<CapitalSource>(JsonNamingPolicy.CamelCase, false));
         options.Converters.Add(new JsonStringEnumConverter<TradingShadowState>(JsonNamingPolicy.CamelCase, false));
         options.Converters.Add(new TradeSideJsonConverter());
         return options;

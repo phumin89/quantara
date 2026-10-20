@@ -494,10 +494,10 @@ public sealed class SqlTradingStore : ITradingStore
         bool immutable
     )
     {
-        var known = new Dictionary<string, string>(StringComparer.Ordinal);
+        var known = new Dictionary<string, T>(StringComparer.Ordinal);
         foreach (var value in previous)
         {
-            if (!known.TryAdd(identity(value), JsonSerializer.Serialize(value, SqlTradingStore.jsonOptions)))
+            if (!known.TryAdd(identity(value), value))
             {
                 throw new InvalidDataException("Stored trading history contains duplicate identities.");
             }
@@ -515,7 +515,13 @@ public sealed class SqlTradingStore : ITradingStore
 
             if (known.TryGetValue(id, out var stored))
             {
-                if (StringComparer.Ordinal.Equals(stored, JsonSerializer.Serialize(value, SqlTradingStore.jsonOptions)))
+                if (
+                    EqualityComparer<T>.Default.Equals(stored, value)
+                    || StringComparer.Ordinal.Equals(
+                        JsonSerializer.Serialize(stored, SqlTradingStore.jsonOptions),
+                        JsonSerializer.Serialize(value, SqlTradingStore.jsonOptions)
+                    )
+                )
                 {
                     continue;
                 }

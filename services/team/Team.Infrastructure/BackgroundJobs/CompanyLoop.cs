@@ -94,7 +94,7 @@ public sealed class CompanyLoop : BackgroundService, ICompanyLoop
             {
                 visibleStatus = CompanyLoopStatus.Running;
             }
-            else if (this.schedule.DeferredReason is not null && this.schedule.NextRunAt > this.time.GetUtcNow())
+            else if (this.schedule.DeferredReason is not null)
             {
                 visibleStatus =
                     this.schedule.DeferredReason == "waiting_for_evidence"

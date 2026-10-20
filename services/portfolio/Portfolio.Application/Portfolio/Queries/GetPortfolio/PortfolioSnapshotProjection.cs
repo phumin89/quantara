@@ -1,4 +1,5 @@
 using Quantara.Portfolio.Domain;
+using Quantara.Portfolio.Domain.Risk;
 using Quantara.Portfolio.Domain.Trading;
 
 namespace Quantara.Portfolio.Application;
@@ -26,6 +27,7 @@ public static class PortfolioSnapshotProjection
         if (
             accountKey is null
             || capital is null
+            || capital.Source != CapitalSource.Broker
             || capital.AccountKey != accountKey
             || capital.Blocker is not null
             || capital.HasUncertainOrders
