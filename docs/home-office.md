@@ -84,5 +84,19 @@ contain synthetic evidence from the upstream App. Earlier Library uploads depict
 the superseded custom office.
 
 Earlier successful builds of four Docker images targeted the previous UI. SQL
-fixture tests completed. The revised Web image and container-readiness check have
-not been revalidated. No live deployment was performed.
+fixture tests completed. The revised Web Docker image also builds successfully.
+No live deployment was performed.
+
+The container fixture uses its own ordinary Docker bridge and publishes only
+loopback ports. On this host an internal bridge left the configured Web port
+unpublished, despite a healthy container; the same image returned HTTP 200 on the
+separate ordinary bridge. It has no production network, mounts or credentials.
+`tools/verify-container-home.cjs` verifies actual HTTP proxies, static assets,
+backend loss/recovery, state transitions and Web restart readiness. Set
+`VERIFY_TAG` and `FIXTURE_MODE_PATH` for the task namespace.
+
+The optional `tools/fixtures/preview-shell.mjs` wrapper adds a persistent synthetic
+data label outside the app, with no hydration changes. It accepts only GET and
+frames the isolated Web port. Its backend fixture rejects every write. Runtime
+image IDs, exact commit, test outcomes and helper state are recorded in the task
+checkpoint; none of these helpers connects to the running account.
