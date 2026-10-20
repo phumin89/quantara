@@ -91,6 +91,8 @@ The container fixture uses its own ordinary Docker bridge and publishes only
 loopback ports. On this host an internal bridge left the configured Web port
 unpublished, despite a healthy container; the same image returned HTTP 200 on the
 separate ordinary bridge. It has no production network, mounts or credentials.
+Set `QUANTARA_CONTAINER_RUNTIME=true` as compose does; local Host and Origin
+validation remains enabled.
 `tools/verify-container-home.cjs` verifies actual HTTP proxies, static assets,
 backend loss/recovery, state transitions and Web restart readiness. Set
 `VERIFY_TAG` and `FIXTURE_MODE_PATH` for the task namespace.

@@ -6,7 +6,7 @@ const { chromium } = require('playwright');
 
 async function verify() {
   const tag = process.env.VERIFY_TAG ?? '7873a7a';
-  assert(/^[a-f0-9]{7}$/.test(tag), 'Use the task verification namespace.');
+  assert(/^[a-f0-9]{6,8}$/.test(tag), 'Use the task verification namespace.');
   const project = `quantara-verify-${tag}`;
   const url = 'http://127.0.0.1:3109';
   assert.equal(
@@ -22,6 +22,11 @@ async function verify() {
     assert.deepEqual(Object.keys(info.NetworkSettings.Networks), [
       `quantara-verify-run-${tag}`,
     ]);
+    if (name.endsWith('-web'))
+      assert(
+        info.Config.Env.includes('QUANTARA_CONTAINER_RUNTIME=true'),
+        'Use the same explicit container runtime flag as compose.',
+      );
   }
   const modePath = path.resolve(
     process.env.FIXTURE_MODE_PATH ?? 'work/quality/integration/home-mode.json',
@@ -146,7 +151,7 @@ async function verify() {
     assert.deepEqual(writes, []);
     assert.deepEqual(errors, []);
     console.log(
-      'Container Home passed: standalone assets, real HTTP proxy, backend loss/recovery, old/empty/initial failure state, web restart/readiness and GET-only requests. Internal fixture network; no real accounts.',
+      'Container Home passed: standalone assets, real HTTP proxy, backend loss/recovery, old/empty/initial failure state, web restart/readiness and GET-only requests. Dedicated task fixture network; no real accounts.',
     );
   } finally {
     await mode('healthy');
