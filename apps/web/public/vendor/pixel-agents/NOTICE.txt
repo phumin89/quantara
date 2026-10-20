@@ -1,0 +1,20 @@
+Pixel Agents renderer integration
+
+Upstream: https://github.com/pixel-agents-hq/pixel-agents
+Pinned commit: b1bafd02896d90d83457266575a1e8e5011ce997 (v1.5.0)
+Renderer code: MIT License, Copyright (c) 2026 Pablo De Lucca. See LICENSE.
+
+Character atlases char_0.png through char_5.png are the upstream's adaptations
+of MetroCity by JIK-A-4, Creative Commons Zero v1.0 Universal:
+https://jik-a-4.itch.io/metrocity-free-topdown-character-pack
+https://creativecommons.org/publicdomain/zero/1.0/
+Upstream attribution: README.md at the pinned commit, “Diverse characters”.
+The original creator permits commercial use and appreciates attribution.
+
+Quantara supplies its own desk/chair pixel definitions and office layout.
+No upstream furniture, floors, walls, pet packs or third-party asset libraries
+are distributed. The renderer's original MIT bubble definitions are included.
+
+Only the client canvas renderer and character assets are reused. Upstream
+App, transports, server, terminal, hooks, transcript readers and browserMock
+are excluded. Canvas activity is driven by recorded Quantara research steps.

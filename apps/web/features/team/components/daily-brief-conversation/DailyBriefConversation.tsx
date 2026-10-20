@@ -24,6 +24,8 @@ export default class DailyBriefConversation extends Component<
 
   private readonly viewport = createRef<HTMLDivElement>();
 
+  private anchorOpened = false;
+
   public override componentDidMount(): void {
     this.scrollToLatest();
   }
@@ -138,6 +140,19 @@ export default class DailyBriefConversation extends Component<
   private scrollToLatest(): void {
     const viewport = this.viewport.current;
     if (this.props.active && viewport !== null) {
+      const anchor = window.location.hash.slice(1);
+      const report = /^run-[0-9a-f-]{36}$/i.test(anchor)
+        ? document.getElementById(anchor)
+        : null;
+      if (!this.anchorOpened && report && viewport.contains(report)) {
+        viewport.scrollTop +=
+          report.getBoundingClientRect().top -
+          viewport.getBoundingClientRect().top;
+        this.anchorOpened = true;
+
+        return;
+      }
+
       viewport.scrollTop = viewport.scrollHeight;
     }
   }
@@ -184,6 +199,7 @@ export default class DailyBriefConversation extends Component<
         {brief.runs.map((run) => (
           <Stack
             key={run.id}
+            id={`run-${run.id}`}
             spacing={2}
           >
             <Box sx={{ pb: 1, borderBottom: '1px solid #e0e0e0' }}>

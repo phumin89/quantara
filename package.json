@@ -10,7 +10,10 @@
     "dev:market-data": "dotnet run --project services/market-data/MarketData.Api/MarketData.Api.csproj",
     "dev:api": "dotnet run --project services/portfolio/Portfolio.Api/Portfolio.Api.csproj",
     "dev:team": "dotnet run --project services/team/Team.Api/Team.Api.csproj",
-    "build": "npm run build --workspace @quantara/web",
+    "build": "npm run build:office && npm run build --workspace @quantara/web",
+    "build:office": "node tools/build-pixel-office.mjs",
+    "test:home-adapter": "node tools/verify-home-adapter.cjs",
+    "test:home": "node tools/verify-home.cjs",
     "start": "npm run start --workspace @quantara/web",
     "lint": "npm run lint --workspace @quantara/web",
     "typecheck": "npm run typecheck --workspace @quantara/web",
@@ -46,6 +49,7 @@
     "test:editor": "dotnet run --project tests/Analyzer.Checks/Analyzer.Checks.csproj && node tools/verify-editor-rules.cjs"
   },
   "devDependencies": {
+    "esbuild": "0.28.0",
     "playwright": "^1.64.0",
     "prettier": "^3.9.10",
     "typescript": "^5.9.0"

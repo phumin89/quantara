@@ -77,6 +77,12 @@ ownership. SQL Server may host the three databases in the same container.
 
 App labels and compact, accessible layout follow [DESIGN.md](../DESIGN.md).
 
+Home projects recorded Team steps into eight stable office seats through a pure
+state adapter. Its lazy renderer imports only the pinned Pixel Agents engine;
+it has no upstream transport, terminal, discovery or execution bridge. Home reads
+existing Team queries and never starts research or trading. See
+[Home office](home-office.md) for state, lifecycle, licensing and fixture checks.
+
 ## Trading execution
 
 Portfolio has three separate paths:

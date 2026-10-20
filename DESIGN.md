@@ -122,3 +122,19 @@ Daily Brief is an operating view:
 - Research briefs and learning notes are collapsed initially, with all original text available.
 - Show the latest Reviewer summary first and put previous summaries in a disclosure.
 - Preserve plain text rendering, focus indicators and 44px interaction targets.
+
+## Home research office
+
+Home inherits this guide's neutral surfaces, container geometry, system sans
+fallback and labelled semantic states. The pinned Pixel Agents office is the
+focal view, with eight stable role seats. At desktop's `lg` breakpoint, office
+and roster sit side by side; tablet and phone layouts stack them.
+
+The keyboard-accessible roster and character selection reveal the same plain-text
+evidence, recorded Bangkok time and date/run link to Daily Brief. Keep visible
+status labels and selected-row treatment. Only verified current running work
+animates; reduced motion, hidden or offscreen content and Pause animation stop
+motion. Loading, renderer failure and retained stale evidence remain explicit.
+
+Home's composition and behavior are recorded in the
+[Home surface brief](.impeccable/surfaces/home.md).

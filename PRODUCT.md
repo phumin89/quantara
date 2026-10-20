@@ -27,7 +27,7 @@ broker orders.
 
 | Workspace                    | Behavior                                                  |
 | ---------------------------- | --------------------------------------------------------- |
-| Home (`/`)                   | Remains empty.                                            |
+| Home (`/`)                   | Read-only research office showing recorded role states.   |
 | Crypto (`/crypto`)           | Shows actual balances, prices and imported trade history. |
 | Daily Brief (`/daily-brief`) | Opens with compact trading status and optional team chat. |
 

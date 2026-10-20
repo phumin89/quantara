@@ -1,1 +1,1 @@
-export { default } from '../shared/layout/HomePage';
+export { default } from '../features/home/components/home-screen/HomeScreen';

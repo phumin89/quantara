@@ -57,7 +57,24 @@ export default class DailyBriefPage extends Component<
 
   public override componentDidMount(): void {
     this.mounted = true;
-    this.setState({ date: DailyBriefPage.today() }, () => void this.load());
+    const query = new URLSearchParams(window.location.search);
+    const date = query.get('date') ?? '';
+    const validDate =
+      /^\d{4}-\d{2}-\d{2}$/.test(date) &&
+      !Number.isNaN(Date.parse(`${date}T00:00:00Z`)) &&
+      new Date(`${date}T00:00:00Z`).toISOString().slice(0, 10) === date &&
+      date >= '1970-01-01' &&
+      date <= DailyBriefPage.today();
+    this.setState(
+      {
+        date: validDate ? date : DailyBriefPage.today(),
+        view:
+          query.get('view') === DailyBriefView.TeamChat
+            ? DailyBriefView.TeamChat
+            : DailyBriefView.Trading,
+      },
+      () => void this.load(),
+    );
   }
 
   public override componentWillUnmount(): void {

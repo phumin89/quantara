@@ -1,0 +1,204 @@
+{
+  "repository": "https://github.com/pixel-agents-hq/pixel-agents",
+  "commit": "b1bafd02896d90d83457266575a1e8e5011ce997",
+  "files": [
+    {
+      "path": "vendor/pixel-agents/upstream/core/src/paletteUtils.ts",
+      "upstreamPath": "core/src/paletteUtils.ts",
+      "sha256": "2ab445e24ea5cf197bb50a8303b66e077c261acbf27180fa5b75b50d08d7eb42",
+      "license": "MIT"
+    },
+    {
+      "path": "vendor/pixel-agents/upstream/webview-ui/src/constants.ts",
+      "upstreamPath": "webview-ui/src/constants.ts",
+      "sha256": "4321137918de250070238bef22fe47bcbcd50193fa671f88746170ecb9ba9a13",
+      "license": "MIT"
+    },
+    {
+      "path": "vendor/pixel-agents/upstream/webview-ui/src/office/layout/furnitureCatalog.ts",
+      "upstreamPath": "webview-ui/src/office/layout/furnitureCatalog.ts",
+      "sha256": "26c9feacfcf4b6db18a7cdffe5fb10053703ed5398ae5fbeb0f8048fbc6c98c4",
+      "license": "MIT"
+    },
+    {
+      "path": "vendor/pixel-agents/upstream/webview-ui/src/office/colorize.ts",
+      "upstreamPath": "webview-ui/src/office/colorize.ts",
+      "sha256": "9c1acd0bff5315bb03bd916cb38d97547f5d2464c890e4fcb5fef4af057f48a7",
+      "license": "MIT"
+    },
+    {
+      "path": "vendor/pixel-agents/upstream/webview-ui/src/office/types.ts",
+      "upstreamPath": "webview-ui/src/office/types.ts",
+      "sha256": "5c631866ef28e3c8d01fdfb222a119c02ef75f1009095d90fef63754f2c074a7",
+      "license": "MIT"
+    },
+    {
+      "path": "vendor/pixel-agents/upstream/webview-ui/src/office/layout/layoutSerializer.ts",
+      "upstreamPath": "webview-ui/src/office/layout/layoutSerializer.ts",
+      "sha256": "baffda0115c0604c0081766562be44605b6ddae25d2efec0159b5b19209ed109",
+      "license": "MIT"
+    },
+    {
+      "path": "vendor/pixel-agents/upstream/webview-ui/src/office/layout/tileMap.ts",
+      "upstreamPath": "webview-ui/src/office/layout/tileMap.ts",
+      "sha256": "0564fec7ad749668ab9a2317fb658eb3e5d0cf2aecc9b5c4f63d82a475b54790",
+      "license": "MIT"
+    },
+    {
+      "path": "vendor/pixel-agents/upstream/webview-ui/src/office/sprites/petSpriteData.ts",
+      "upstreamPath": "webview-ui/src/office/sprites/petSpriteData.ts",
+      "sha256": "4d972482c1ad20e36b08d6be191f3a7c38d5657684228d3d8166cdf172d169fe",
+      "license": "MIT"
+    },
+    {
+      "path": "vendor/pixel-agents/upstream/webview-ui/src/office/sprites/bubble-permission.json",
+      "upstreamPath": "webview-ui/src/office/sprites/bubble-permission.json",
+      "sha256": "c1c5843455f8a4201eef1aa4d15d3bae41ef30f209ba6936004606f2adc7d8df",
+      "license": "MIT"
+    },
+    {
+      "path": "vendor/pixel-agents/upstream/webview-ui/src/office/sprites/bubble-pet.json",
+      "upstreamPath": "webview-ui/src/office/sprites/bubble-pet.json",
+      "sha256": "d5254d4fdcd1ed0daa471951d56bed5b33afa263272efa5efcbc8ddd2cdede53",
+      "license": "MIT"
+    },
+    {
+      "path": "vendor/pixel-agents/upstream/webview-ui/src/office/sprites/bubble-waiting.json",
+      "upstreamPath": "webview-ui/src/office/sprites/bubble-waiting.json",
+      "sha256": "58cadd14f6b18c2f773a8bf3a8b25da82da81333d93d17fff6ce10dd20410c32",
+      "license": "MIT"
+    },
+    {
+      "path": "vendor/pixel-agents/upstream/webview-ui/src/office/sprites/spriteData.ts",
+      "upstreamPath": "webview-ui/src/office/sprites/spriteData.ts",
+      "sha256": "b6b7153bccb3c12a9d9719b6fab36dcd793b55df71fd53e71e10816072c20bcb",
+      "license": "MIT"
+    },
+    {
+      "path": "vendor/pixel-agents/upstream/webview-ui/src/office/toolUtils.ts",
+      "upstreamPath": "webview-ui/src/office/toolUtils.ts",
+      "sha256": "223c39a91a551ad88b03ea83e31890f3564d3844276614953dc0d31c92d08092",
+      "license": "MIT"
+    },
+    {
+      "path": "vendor/pixel-agents/upstream/webview-ui/src/office/engine/characters.ts",
+      "upstreamPath": "webview-ui/src/office/engine/characters.ts",
+      "sha256": "a50f7f2822bf19a2b88b5076f2a9e69f19bdef53b55601717f7e7da3acc2be92",
+      "license": "MIT"
+    },
+    {
+      "path": "vendor/pixel-agents/upstream/webview-ui/src/office/engine/matrixEffectState.ts",
+      "upstreamPath": "webview-ui/src/office/engine/matrixEffectState.ts",
+      "sha256": "55c4508949d14b5dc05498744eaee2e23acdab0275122750221f814c2e1b78a0",
+      "license": "MIT"
+    },
+    {
+      "path": "vendor/pixel-agents/upstream/webview-ui/src/office/engine/petEntity.ts",
+      "upstreamPath": "webview-ui/src/office/engine/petEntity.ts",
+      "sha256": "fb6edcd6a72a81712bfff227a36b8bea8c2f96e640aabc093c738ad35c4211b9",
+      "license": "MIT"
+    },
+    {
+      "path": "vendor/pixel-agents/upstream/webview-ui/src/office/engine/seatPlacement.ts",
+      "upstreamPath": "webview-ui/src/office/engine/seatPlacement.ts",
+      "sha256": "cef18fb154b31040f112a00d3cb916a77544cf9c0dc5223bd1673d3c0706db6b",
+      "license": "MIT"
+    },
+    {
+      "path": "vendor/pixel-agents/upstream/webview-ui/src/office/engine/officeState.ts",
+      "upstreamPath": "webview-ui/src/office/engine/officeState.ts",
+      "sha256": "b878198ec034c14dd77606a3303242294a7b61fc3240a6ac5c4ec730d6310da4",
+      "license": "MIT"
+    },
+    {
+      "path": "vendor/pixel-agents/upstream/webview-ui/src/office/floorTiles.ts",
+      "upstreamPath": "webview-ui/src/office/floorTiles.ts",
+      "sha256": "86a1279b5119b8059771daa3a59540ede8fdcc1e761a328c280b43eafa22a2be",
+      "license": "MIT"
+    },
+    {
+      "path": "vendor/pixel-agents/upstream/webview-ui/src/office/projection.ts",
+      "upstreamPath": "webview-ui/src/office/projection.ts",
+      "sha256": "dfa409f8f18b10930fe401fa7cc5cf05c22e83061cdcff9a0ce78f44ff58b7ce",
+      "license": "MIT"
+    },
+    {
+      "path": "vendor/pixel-agents/upstream/webview-ui/src/office/sprites/carpetTiles.ts",
+      "upstreamPath": "webview-ui/src/office/sprites/carpetTiles.ts",
+      "sha256": "cc09f55aff372298badb346ffd0df510780a46c8b86ed1aadb81043b66b30985",
+      "license": "MIT"
+    },
+    {
+      "path": "vendor/pixel-agents/upstream/webview-ui/src/office/sprites/spriteCache.ts",
+      "upstreamPath": "webview-ui/src/office/sprites/spriteCache.ts",
+      "sha256": "fd615d74508e9dc32ecda030a087a0de2bf0a06b5e242e5cee93e8525b268e60",
+      "license": "MIT"
+    },
+    {
+      "path": "vendor/pixel-agents/upstream/webview-ui/src/office/wallTiles.ts",
+      "upstreamPath": "webview-ui/src/office/wallTiles.ts",
+      "sha256": "a292703da788ddb5586c432376a0b9f8ce3e085a672112d63270776240bc188e",
+      "license": "MIT"
+    },
+    {
+      "path": "vendor/pixel-agents/upstream/webview-ui/src/office/engine/matrixEffect.ts",
+      "upstreamPath": "webview-ui/src/office/engine/matrixEffect.ts",
+      "sha256": "96913fedebf4d3c07e78b1868a667059f19a0f110cfefd83fa1cd27863fd4070",
+      "license": "MIT"
+    },
+    {
+      "path": "vendor/pixel-agents/upstream/webview-ui/src/office/engine/renderer.ts",
+      "upstreamPath": "webview-ui/src/office/engine/renderer.ts",
+      "sha256": "a7171fc25d3039342a7e7ae704cf76ec9f823a5632815bb8a1434081caad71cf",
+      "license": "MIT"
+    },
+    {
+      "path": "vendor/pixel-agents/LICENSE",
+      "upstreamPath": "LICENSE",
+      "sha256": "20729e3cb9d06d64cdf78d43070ead3eae96e67a5b35b1aa35b5520906cb8ab5",
+      "license": "MIT"
+    },
+    {
+      "path": "apps/web/public/vendor/pixel-agents/LICENSE",
+      "upstreamPath": "LICENSE",
+      "sha256": "20729e3cb9d06d64cdf78d43070ead3eae96e67a5b35b1aa35b5520906cb8ab5",
+      "license": "MIT"
+    },
+    {
+      "path": "apps/web/public/vendor/pixel-agents/char_0.png",
+      "upstreamPath": "webview-ui/public/assets/characters/char_0.png",
+      "sha256": "9ece93c20765abb876e3dacfe01e0cd1801323eff41c1779be0c47369886c09a",
+      "license": "CC0-1.0 + MIT adaptation"
+    },
+    {
+      "path": "apps/web/public/vendor/pixel-agents/char_1.png",
+      "upstreamPath": "webview-ui/public/assets/characters/char_1.png",
+      "sha256": "f935f033726b06f73dbbe590db5a23cfb20d2d02c1329fd5d67d57a262e9b05e",
+      "license": "CC0-1.0 + MIT adaptation"
+    },
+    {
+      "path": "apps/web/public/vendor/pixel-agents/char_2.png",
+      "upstreamPath": "webview-ui/public/assets/characters/char_2.png",
+      "sha256": "9f63ee7be4577e1d60de3b64d198d387d1c09794bed3a608958e77c7b955575d",
+      "license": "CC0-1.0 + MIT adaptation"
+    },
+    {
+      "path": "apps/web/public/vendor/pixel-agents/char_3.png",
+      "upstreamPath": "webview-ui/public/assets/characters/char_3.png",
+      "sha256": "ee5ebe0847471e4834e367f8a4108e6caf2f402ed506bbfebd90c64a43a79348",
+      "license": "CC0-1.0 + MIT adaptation"
+    },
+    {
+      "path": "apps/web/public/vendor/pixel-agents/char_4.png",
+      "upstreamPath": "webview-ui/public/assets/characters/char_4.png",
+      "sha256": "fcf72626bbee3045d0f3e10bb87a41dab19a331d1affdfc53b483567f9c083aa",
+      "license": "CC0-1.0 + MIT adaptation"
+    },
+    {
+      "path": "apps/web/public/vendor/pixel-agents/char_5.png",
+      "upstreamPath": "webview-ui/public/assets/characters/char_5.png",
+      "sha256": "4b2c639a50e089a4e3b87be440ffb52b5c5c8cfd6473a386f325b25f99db7381",
+      "license": "CC0-1.0 + MIT adaptation"
+    }
+  ]
+}
