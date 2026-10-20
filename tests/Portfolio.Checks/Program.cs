@@ -12,6 +12,12 @@ if (args.Contains("--storage-only", StringComparer.Ordinal))
     return;
 }
 
+if (args.Contains("--storage-sql-only", StringComparer.Ordinal))
+{
+    await TradingPersistenceSqlChecks.Run();
+    return;
+}
+
 if (args.Contains("--reconciliation-isolation-only", StringComparer.Ordinal))
 {
     await TradingIsolationChecks.Run();
