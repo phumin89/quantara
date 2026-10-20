@@ -192,7 +192,7 @@ public static class TradingStorageChecks
         );
         TradingStorageChecks.Check(
             allocated < 8_000_000,
-            "Equal retained records must not be serialized twice on every event; allocation budget exceeded."
+            "Retained comparison must reuse buffers; allocation budget exceeded."
         );
     }
 
@@ -214,6 +214,18 @@ public static class TradingStorageChecks
             "Appending one fill must produce one mirror write regardless of retained history size."
         );
         var changed = retained.ToArray();
+        var scaled = fill with { FeeThb = decimal.Parse("0.250", System.Globalization.CultureInfo.InvariantCulture) };
+        TradingStorageChecks.RefusedHistory(() =>
+            TradingStorageChecks.Changed([scaled], new[] { fill }, item => item.BrokerFillId, true)
+        );
+        TradingStorageChecks.RefusedHistory(() =>
+            TradingStorageChecks.Changed(
+                [fill with { OccurredAt = fill.OccurredAt.ToOffset(TimeSpan.FromHours(7)) }],
+                new[] { fill },
+                item => item.BrokerFillId,
+                true
+            )
+        );
         changed[0] = changed[0] with { FeeThb = 1m };
         TradingStorageChecks.RefusedHistory(() =>
             TradingStorageChecks.Changed(changed, retained, item => item.BrokerFillId, true)

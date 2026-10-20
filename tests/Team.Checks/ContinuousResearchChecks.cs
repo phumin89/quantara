@@ -196,7 +196,8 @@ public static class ContinuousResearchChecks
             },
             CancellationToken.None
         );
-        using var loop = new CompanyLoop(store, runs, new LoopCoordinator(runs, time), new LoopSnapshotReader(), time);
+        var portfolio = new LoopSnapshotReader();
+        using var loop = new CompanyLoop(store, runs, new LoopCoordinator(runs, time), portfolio, time);
         Check(
             (await loop.Read(CancellationToken.None)).Status == CompanyLoopStatus.Waiting,
             "Evidence deferral is visible separately from the historical failed report."
@@ -208,6 +209,15 @@ public static class ContinuousResearchChecks
                 && due.Error is null
                 && (await runs.Latest(CancellationToken.None))?.Error == failed.Error,
             "Crossing the recheck deadline must not resurrect a historical error or erase report evidence."
+        );
+        portfolio.Available = false;
+        await loop.Tick(CancellationToken.None);
+        var unavailable = await loop.Read(CancellationToken.None);
+        Check(
+            unavailable.Status == CompanyLoopStatus.WaitingForPortfolio
+                && unavailable.Error == "Waiting for verified portfolio data before the next analysis."
+                && (await runs.Latest(CancellationToken.None))?.Error == failed.Error,
+            "A current portfolio failure takes precedence over a retained evidence deferral."
         );
     }
 

@@ -12,6 +12,7 @@ public static class TradingIsolationChecks
         await FailedInspectionPreservesPeers(false);
         await FailedInspectionPreservesPeers(true);
         await ChangedIntentRejectsPreparedEvidence();
+        await SlowPeersPreserveHealthyEvidence();
         Console.WriteLine("Trading reconciliation isolation checks passed.");
     }
 
@@ -110,6 +111,54 @@ public static class TradingIsolationChecks
         Check(
             store.State.Live.Orders.Single() == changed,
             "Prepared observations bind the entire retained intent, including price and cancellation claim."
+        );
+    }
+
+    private static async Task SlowPeersPreserveHealthyEvidence()
+    {
+        var time = new OrderCheckTime();
+        var initial = TradingStateFactory.Create(time.Now);
+        var healthy = Intent(initial, time, "BTC");
+        var orders = new[] { healthy }
+            .Concat(Enumerable.Range(0, 4).Select(index => Intent(initial, time, $"PEER{index}")))
+            .ToArray();
+        var store = new FakeTradingStore(
+            initial with
+            {
+                Mode = TradingMode.Stopped,
+                Live = initial.Live with { Orders = orders },
+            }
+        );
+        var exchange = new FakeTradingExchange
+        {
+            Observation = order =>
+            {
+                if (order.Id == healthy.Id)
+                {
+                    return new("cancelled", order.BrokerOrderId, order.Amount, []);
+                }
+
+                time.Now = time.Now.AddSeconds(10);
+                throw new HttpRequestException("Isolated slow peer.");
+            },
+        };
+        using var gate = new SemaphoreSlim(1);
+        var engine = Engine(store, exchange, time, gate);
+        await engine.PrepareReconciliation(CancellationToken.None);
+        await engine.Process(new(TradingEventKind.Reconcile, "", 0, time.Now), CancellationToken.None);
+        Check(
+            store.State.Live.Orders.Single(order => order.Id == healthy.Id).Status == "cancelled",
+            "Slow peer failures must not make healthy prepared evidence expire indefinitely."
+        );
+        await engine.PrepareReconciliation(CancellationToken.None);
+        await engine.Process(new(TradingEventKind.Reconcile, "", 0, time.Now), CancellationToken.None);
+        Check(
+            store.State.Live.Orders.All(order => order.LastInspectedAt is not null),
+            "A bounded inspection batch must eventually inspect every due order."
+        );
+        Check(
+            exchange.Submissions == 0 && exchange.Cancellations == 0,
+            "Inspection batches must never send broker actions."
         );
     }
 

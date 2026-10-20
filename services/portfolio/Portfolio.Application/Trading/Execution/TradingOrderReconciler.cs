@@ -23,20 +23,24 @@ internal sealed class TradingOrderReconciler(
             this.ready.TryRemove(id, out _);
         }
 
-        foreach (
-            var order in state.Live.Orders.Where(order =>
-                TradingLedgerAccounting.Active(order) && order.Status != "pending"
+        var now = time.GetUtcNow();
+        var due = state
+            .Live.Orders.Where(order =>
+                TradingLedgerAccounting.Active(order)
+                && order.Status != "pending"
+                && (order.LastInspectedAt is null || now - order.LastInspectedAt >= TimeSpan.FromSeconds(30))
             )
-        )
-        {
-            if (order.LastInspectedAt is { } inspected && time.GetUtcNow() - inspected < TimeSpan.FromSeconds(30))
+            .OrderBy(order => order.LastInspectedAt ?? DateTimeOffset.MinValue)
+            .ThenBy(order => order.CreatedAt)
+            .Take(4);
+        // Publish one bounded concurrent batch before slow peers can age out healthy evidence.
+        await Task.WhenAll(
+            due.Select(async order =>
             {
-                continue;
-            }
-
-            var observation = await this.Inspect(order, cancellationToken);
-            this.ready[order.Id] = new(order, observation, time.GetUtcNow());
-        }
+                var observation = await this.Inspect(order, cancellationToken);
+                this.ready[order.Id] = new(order, observation, time.GetUtcNow());
+            })
+        );
     }
 
     internal async Task<TradingState> Reconcile(

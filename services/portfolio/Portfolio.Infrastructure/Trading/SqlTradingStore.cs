@@ -1,3 +1,4 @@
+using System.Buffers;
 using System.Data;
 using System.Globalization;
 using System.Text.Json;
@@ -505,6 +506,10 @@ public sealed class SqlTradingStore : ITradingStore
 
         var seen = new HashSet<string>(StringComparer.Ordinal);
         var changed = new List<T>();
+        var previousJson = new ArrayBufferWriter<byte>();
+        var currentJson = new ArrayBufferWriter<byte>();
+        using var previousWriter = new Utf8JsonWriter(previousJson);
+        using var currentWriter = new Utf8JsonWriter(currentJson);
         foreach (var value in current)
         {
             var id = identity(value);
@@ -515,13 +520,15 @@ public sealed class SqlTradingStore : ITradingStore
 
             if (known.TryGetValue(id, out var stored))
             {
-                if (
-                    EqualityComparer<T>.Default.Equals(stored, value)
-                    || StringComparer.Ordinal.Equals(
-                        JsonSerializer.Serialize(stored, SqlTradingStore.jsonOptions),
-                        JsonSerializer.Serialize(value, SqlTradingStore.jsonOptions)
-                    )
-                )
+                previousJson.Clear();
+                currentJson.Clear();
+                previousWriter.Reset(previousJson);
+                currentWriter.Reset(currentJson);
+                JsonSerializer.Serialize(previousWriter, stored, SqlTradingStore.jsonOptions);
+                JsonSerializer.Serialize(currentWriter, value, SqlTradingStore.jsonOptions);
+                previousWriter.Flush();
+                currentWriter.Flush();
+                if (previousJson.WrittenSpan.SequenceEqual(currentJson.WrittenSpan))
                 {
                     continue;
                 }

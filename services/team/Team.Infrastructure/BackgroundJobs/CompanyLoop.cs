@@ -94,6 +94,13 @@ public sealed class CompanyLoop : BackgroundService, ICompanyLoop
             {
                 visibleStatus = CompanyLoopStatus.Running;
             }
+            else if (this.error is not null)
+            {
+                visibleStatus =
+                    this.status == CompanyLoopStatus.WaitingForPortfolio
+                        ? CompanyLoopStatus.WaitingForPortfolio
+                        : CompanyLoopStatus.Error;
+            }
             else if (this.schedule.DeferredReason is not null)
             {
                 visibleStatus =
