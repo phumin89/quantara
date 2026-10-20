@@ -17,6 +17,8 @@
     "@mui/icons-material": "9.5.0",
     "@mui/material": "9.5.0",
     "@mui/material-nextjs": "9.5.0",
+    "@mui/x-date-pickers": "9.15.0",
+    "dayjs": "1.11.20",
     "next": "16.4.0",
     "react": "19.3.0",
     "react-dom": "19.3.0",

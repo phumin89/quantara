@@ -125,16 +125,35 @@ Daily Brief is an operating view:
 
 ## Home research office
 
-Home inherits this guide's neutral surfaces, container geometry, system sans
-fallback and labelled semantic states. The pinned Pixel Agents office is the
-focal view, with eight stable role seats. At desktop's `lg` breakpoint, office
-and roster sit side by side; tablet and phone layouts stack them.
+Home retains the neutral Quantara shell and labelled semantic states. Its primary
+view is the full-width original Pixel Agents App in an iframe, preserving the
+upstream office layout, assets and pixel font. Keep the native office UI intact
+inside the workspace; place role controls and recorded evidence below it.
 
-The keyboard-accessible roster and character selection reveal the same plain-text
-evidence, recorded Bangkok time and date/run link to Daily Brief. Keep visible
-status labels and selected-row treatment. Only verified current running work
-animates; reduced motion, hidden or offscreen content and Pause animation stop
-motion. Loading, renderer failure and retained stale evidence remain explicit.
+Eight role identities connect native character/card selection with the
+keyboard-accessible role controls. Selection focuses the native camera and shows
+bounded plain-text evidence, recorded Bangkok time and an available date/run link
+to Daily Brief. Show stale, missing and error states explicitly. Motion pauses
+for reduced motion, hidden or offscreen content, explicit pause, or no active
+research role.
 
-Home's composition and behavior are recorded in the
-[Home surface brief](.impeccable/surfaces/home.md).
+Team chat is a persistent modal overlay: a right panel on desktop and full screen
+below `md`. Preserve conversation position across route changes and keep
+freshness, errors and Retry visible. Home's composition and behavior are recorded
+in the [Home surface brief](.impeccable/surfaces/home.md).
+
+## Dashboard summary
+
+Dashboard is a separate route with current wallet, selected-day engine results,
+research and current attention. Use compact outlined sections, clear labels and
+existing semantic colors. Critical wallet, engine, authority and research errors
+stay visible.
+
+Keep current balances and operating state separate from the selected Bangkok
+report day. Show confirmed engine fills and realized net P/L only within their
+recorded scope; paper simulation and manual trades are excluded. Missing values
+stay unavailable. Do not invent whole-account P/L or historical equity.
+
+The shared date-only picker uses MUI X Community with Dayjs, Bangkok timezone,
+`DD/MM/YYYY` display and visible validation. Changing a report date does not
+change account authority or current wallet evidence.

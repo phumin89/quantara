@@ -5,6 +5,9 @@ import { PureComponent } from 'react';
 import CssBaseline from '@mui/material/CssBaseline';
 import { createTheme, ThemeProvider } from '@mui/material/styles';
 import type { ProvidersProps } from './ProvidersProps';
+import { LocalizationProvider } from '@mui/x-date-pickers/LocalizationProvider';
+import { AdapterDayjs } from '@mui/x-date-pickers/AdapterDayjs';
+import '../presentation/BangkokDate';
 
 export default class Providers extends PureComponent<ProvidersProps> {
   private static readonly theme = createTheme({
@@ -74,7 +77,12 @@ export default class Providers extends PureComponent<ProvidersProps> {
       <AppRouterCacheProvider>
         <ThemeProvider theme={Providers.theme}>
           <CssBaseline />
-          {children}
+          <LocalizationProvider
+            dateAdapter={AdapterDayjs}
+            adapterLocale="en"
+          >
+            {children}
+          </LocalizationProvider>
         </ThemeProvider>
       </AppRouterCacheProvider>
     );

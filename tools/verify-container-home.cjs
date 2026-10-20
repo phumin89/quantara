@@ -61,10 +61,11 @@ async function verify() {
     await team
       .getByRole('button', { name: 'Intraday Working', exact: true })
       .waitFor();
-    await page.locator('canvas[data-ready="true"]').waitFor();
+    await page.locator('iframe[data-ready="true"]').waitFor();
     for (const asset of [
-      'renderer.js',
-      'char_0.png',
+      'office/index.html',
+      'office/fonts/FSPixelSansUnicode-Regular.ttf',
+      'office/provenance.json',
       'LICENSE',
       'NOTICE.txt',
     ]) {

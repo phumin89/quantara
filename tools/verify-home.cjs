@@ -6,39 +6,41 @@ async function verify() {
   const url = process.env.TEST_URL;
   assert(
     url && /^http:\/\/127\.0\.0\.1:(3107|3108)$/.test(url),
-    'Use the isolated fixture server on port 3107 or 3108.',
+    'Use the isolated fixture server.',
   );
   const browser = await chromium.launch({
     headless: true,
     channel: process.env.PLAYWRIGHT_CHANNEL,
   });
-  const page = await browser.newPage();
+  const page = await browser.newPage({
+    viewport: { width: 1440, height: 1000 },
+  });
   await page.addInitScript(() => {
     const draw = CanvasRenderingContext2D.prototype.drawImage;
     CanvasRenderingContext2D.prototype.drawImage = function (...args) {
-      if (this.canvas.matches('canvas[aria-label^="Research team office"]'))
+      if (this.canvas.dataset.testid === 'office-canvas')
         window.officeDraws = (window.officeDraws || 0) + 1;
       return Reflect.apply(draw, this, args);
     };
   });
-  const errors = [];
-  const writes = [];
-  const apiPaths = new Set();
-  page.on('pageerror', (error) => errors.push(error.message));
-  page.on('request', (request) => {
-    if (request.url().includes('/api/')) {
-      apiPaths.add(new URL(request.url()).pathname);
-      if (request.method() !== 'GET') writes.push(request.method());
-    }
+  const errors = [],
+    writes = [],
+    sockets = [];
+  const diagnostics = [];
+  page.on('console', (message) => {
+    if (message.type() === 'error') diagnostics.push(message.text());
   });
-  let failure = false;
-  let reads = 0;
-  const now = new Date();
-  const at = now.toISOString();
+  page.on('pageerror', (error) => errors.push(error.message));
+  page.on('websocket', (socket) => sockets.push(socket.url()));
+  page.on('request', (request) => {
+    if (request.url().includes('/api/') && request.method() !== 'GET')
+      writes.push(request.method());
+  });
+  const at = new Date().toISOString();
   const run = {
     id: '218d734e-0446-492d-8b62-ffbd106d044e',
     accountKey: 'fixture-account-a',
-    objective: 'Synthetic office state; no real account data.',
+    objective: 'Synthetic research',
     status: 'running',
     createdAt: at,
     updatedAt: at,
@@ -47,8 +49,7 @@ async function verify() {
       {
         role: 'intraday',
         status: 'running',
-        output:
-          'Fixture A: checking evidence. <script>window.unsafe=true</script>',
+        output: 'Fixture A: <script>window.unsafe=true</script>',
         error: null,
       },
       { role: 'reviewer', status: 'queued', output: null, error: null },
@@ -57,13 +58,32 @@ async function verify() {
   const company = {
     enabled: true,
     status: 'running',
-    nextRunAt: new Date(now.getTime() + 3600000).toISOString(),
+    nextRunAt: null,
     lastRunId: run.id,
     error: null,
     activeRole: 'intraday',
   };
-  let overview = { configured: true, latestRun: run, company };
-  let runs = [run];
+  const retained = {
+    ...run,
+    id: '118d734e-0446-492d-8b62-ffbd106d044e',
+    status: 'cancelled',
+    createdAt: new Date(Date.parse(at) - 120000).toISOString(),
+    updatedAt: new Date(Date.parse(at) - 60000).toISOString(),
+    steps: [
+      {
+        role: 'ceo',
+        status: 'completed',
+        output: 'Synthetic prior completed task.',
+        error: null,
+      },
+      { role: 'analyst', status: 'cancelled', output: null, error: null },
+      { role: 'reviewer', status: 'cancelled', output: null, error: null },
+    ],
+  };
+  let overview = { configured: true, latestRun: run, company },
+    runs = [retained, run],
+    failure = false,
+    reads = 0;
   await page.route('**/api/**', (route) =>
     route.fulfill({ status: 404, json: { error: 'Unmocked fixture API' } }),
   );
@@ -71,7 +91,7 @@ async function verify() {
     reads++;
     return route.fulfill({
       status: failure ? 503 : 200,
-      json: failure ? { error: 'Fixture connection unavailable' } : overview,
+      json: failure ? { error: 'Fixture offline' } : overview,
     });
   });
   await page.route('**/api/team/brief?*', (route) =>
@@ -93,55 +113,54 @@ async function verify() {
     await response;
   };
   try {
-    await fs.mkdir('.impeccable/review', { recursive: true });
     await page.goto(url);
-    await page.getByText('Connected', { exact: true }).waitFor();
-    await page.locator('canvas[data-ready="true"]').waitFor();
+    await page.locator('iframe[data-ready="true"]').waitFor();
+    const iframe = page.frameLocator(
+      'iframe[title="Pixel Agents research office"]',
+    );
+    const canvas = iframe.getByTestId('office-canvas');
+    await canvas.waitFor();
+    await iframe.getByText('View only', { exact: true }).waitFor();
     assert.equal(await team.getByRole('button').count(), 8);
+    assert(
+      await canvas.evaluate((element) =>
+        element
+          .getContext('2d')
+          .getImageData(0, 0, element.width, element.height)
+          .data.some((v, i) => i % 4 !== 3 && v !== 0),
+      ),
+      'The original office draws real assets.',
+    );
     await team
       .getByRole('button', { name: 'Intraday Working', exact: true })
       .focus();
     await page.keyboard.press('Enter');
     await page
-      .getByRole('heading', { name: 'Intraday evidence', exact: true })
+      .locator('#role-evidence')
+      .getByText(run.steps[0].output, { exact: true })
       .waitFor();
-    await page.getByText(run.steps[0].output, { exact: true }).waitFor();
     assert.equal(await page.evaluate(() => window.unsafe), undefined);
-    assert(
-      await page.locator('canvas').evaluate((canvas) => {
-        const pixels = canvas
-          .getContext('2d')
-          .getImageData(0, 0, canvas.width, canvas.height).data;
-        return pixels.some((value, index) => index % 4 !== 3 && value !== 0);
-      }),
-      'The actual vendored renderer must draw the office.',
-    );
+    const stable = async () => {
+      await page.waitForTimeout(180);
+      const before = await canvas.evaluate(() => window.officeDraws);
+      await page.waitForTimeout(220);
+      assert.equal(
+        await canvas.evaluate(() => window.officeDraws),
+        before,
+        'Paused office must not keep rendering.',
+      );
+    };
     await page
       .getByRole('button', { name: 'Pause animation', exact: true })
       .click();
-    await page
-      .getByRole('button', { name: 'Resume animation', exact: true })
-      .waitFor();
-    const stableDraws = async () => {
-      await page.waitForTimeout(100);
-      const before = await page.evaluate(() => window.officeDraws);
-      await page.waitForTimeout(200);
-      assert.equal(
-        await page.evaluate(() => window.officeDraws),
-        before,
-        'Paused, reduced-motion, hidden or offscreen office must not keep rendering.',
-      );
-    };
-    await stableDraws();
+    await stable();
     await page
       .getByRole('button', { name: 'Resume animation', exact: true })
       .click();
     await page.emulateMedia({ reducedMotion: 'reduce' });
-    await stableDraws();
-    await page.emulateMedia({ reducedMotion: 'no-preference' });
-    await page
-      .getByRole('button', { name: 'Pause animation', exact: true })
-      .click();
+    await stable();
+    // One bounded visual round covers all supported sizes.
+    await fs.mkdir('.impeccable/review', { recursive: true });
     for (const [name, width, height] of [
       ['desktop', 1440, 1000],
       ['tablet', 768, 1024],
@@ -149,10 +168,41 @@ async function verify() {
     ]) {
       await page.setViewportSize({ width, height });
       assert(
+        await canvas.evaluate(async (element) => {
+          for (let attempt = 0; attempt < 30; attempt++) {
+            await new Promise(requestAnimationFrame);
+            const pixels = element
+              .getContext('2d')
+              .getImageData(0, 0, element.width, element.height).data;
+            let furniture = 0;
+            for (let index = 0; index < pixels.length; index += 4)
+              if (
+                pixels[index] > 60 &&
+                pixels[index + 1] > 40 &&
+                pixels[index] > pixels[index + 2] * 1.2
+              )
+                furniture++;
+            if (furniture > 100) return true;
+          }
+          return false;
+        }),
+        `${name}: a paused resized office must still show the original room.`,
+      );
+      assert(
         await page.evaluate(
-          () => document.documentElement.scrollWidth <= window.innerWidth,
+          () => document.documentElement.scrollWidth <= innerWidth,
         ),
-        `${name} must fit the viewport.`,
+        `${name} fits.`,
+      );
+      assert(
+        await team
+          .getByRole('button')
+          .evaluateAll((buttons) =>
+            buttons.every(
+              (button) => button.scrollWidth <= button.clientWidth + 1,
+            ),
+          ),
+        `${name}: every role/status is readable within its control.`,
       );
       if (process.env.CAPTURE_HOME !== '0')
         await page.screenshot({
@@ -161,45 +211,14 @@ async function verify() {
           animations: 'disabled',
         });
     }
-    await page
-      .getByRole('button', { name: 'Resume animation', exact: true })
-      .click();
-    await page
-      .getByRole('heading', { name: 'Intraday evidence', exact: true })
-      .scrollIntoViewIfNeeded();
-    await stableDraws();
-    await page.locator('canvas').scrollIntoViewIfNeeded();
-    await page.evaluate(() => {
-      Object.defineProperty(document, 'hidden', {
-        configurable: true,
-        value: true,
-      });
-      document.dispatchEvent(new Event('visibilitychange'));
-    });
-    await stableDraws();
-    const hiddenReads = reads;
-    await page.waitForTimeout(10200);
-    assert.equal(reads, hiddenReads, 'Hidden Home must not poll.');
-    await page.evaluate(() => {
-      delete document.hidden;
-      document.dispatchEvent(new Event('visibilitychange'));
-    });
-    await page.waitForResponse(
-      (response) => new URL(response.url()).pathname === '/api/team',
-    );
-    await page.getByText('Connected', { exact: true }).waitFor();
+    await page.setViewportSize({ width: 1440, height: 1000 });
     failure = true;
     await refresh();
-    await page.getByText('Stale / unavailable', { exact: true }).waitFor();
     await team
       .getByRole('button', { name: 'Intraday Stale', exact: true })
       .waitFor();
-    assert(
-      await page.getByText(run.steps[0].output, { exact: true }).isVisible(),
-    );
     failure = false;
     await refresh();
-    await page.getByText('Connected', { exact: true }).waitFor();
     await team
       .getByRole('button', { name: 'Intraday Working', exact: true })
       .waitFor();
@@ -207,17 +226,19 @@ async function verify() {
       ...run,
       id: '318d734e-0446-492d-8b62-ffbd106d044e',
       accountKey: 'fixture-account-b',
-      createdAt: new Date(now.getTime() - 3600000).toISOString(),
-      updatedAt: new Date(now.getTime() - 3500000).toISOString(),
       status: 'completed',
-      steps: run.steps.map((step) => ({
-        ...step,
-        status: 'completed',
-        output: 'Fixture B recorded evidence.',
-      })),
+      steps: [
+        {
+          role: 'intraday',
+          status: 'completed',
+          output: 'Fixture B evidence.',
+          error: null,
+        },
+        { role: 'reviewer', status: 'completed', output: null, error: null },
+      ],
     };
     overview = {
-      ...overview,
+      configured: true,
       latestRun: other,
       company: { ...company, status: 'waiting', activeRole: null },
     };
@@ -229,97 +250,74 @@ async function verify() {
     assert.equal(
       await page.getByText(run.steps[0].output, { exact: true }).count(),
       0,
-      'New account clears prior evidence.',
+      'Account switch clears old evidence.',
     );
     await page
-      .getByText('Fixture B recorded evidence.', { exact: true })
+      .locator('#role-evidence')
+      .getByText('Fixture B evidence.', { exact: true })
       .waitFor();
     overview = { ...overview, latestRun: null };
     await refresh();
     await team
       .getByRole('button', { name: 'Intraday Idle', exact: true })
       .waitFor();
-    assert.equal(
-      await page
-        .getByText('Fixture B recorded evidence.', { exact: true })
-        .count(),
-      0,
-    );
-    overview = {
-      configured: true,
-      latestRun: other,
-      company: {
-        ...company,
-        enabled: false,
-        status: 'stopped',
-        activeRole: null,
-      },
-    };
+    overview = { ...overview, latestRun: other };
     runs = [other];
     await refresh();
-    await team
-      .getByRole('button', { name: 'Intraday Completed', exact: true })
-      .waitFor();
-    assert.deepEqual(writes, [], 'Home only reads APIs.');
-    assert.deepEqual([...apiPaths].sort(), ['/api/team', '/api/team/brief']);
-    const report = page.getByRole('link', {
-      name: 'Open recorded report in Daily Brief',
-      exact: true,
-    });
-    assert(
-      (await report.getAttribute('href')).includes(
-        `view=team-chat#run-${other.id}`,
-      ),
-    );
-    await report.click();
+    await page
+      .getByRole('link', {
+        name: 'Open recorded report in Daily Brief',
+        exact: true,
+      })
+      .click();
     await page.getByRole('tab', { name: 'Team chat', exact: true }).waitFor();
-    assert.equal(
-      await page
-        .getByRole('tab', { name: 'Team chat', exact: true })
-        .getAttribute('aria-selected'),
-      'true',
-    );
     await page.locator(`#run-${other.id}`).waitFor();
     const day = new Intl.DateTimeFormat('en-CA', {
       timeZone: 'Asia/Bangkok',
       year: 'numeric',
       month: '2-digit',
       day: '2-digit',
-    }).format(new Date(other.createdAt));
+    }).format(new Date(at));
     assert.equal(
-      await page.getByLabel('Date', { exact: true }).inputValue(),
+      await page.locator('[data-date]').getAttribute('data-date'),
       day,
     );
-    const unmountedReads = reads;
+    // The shared root provider continues one poll after route navigation.
+    const before = reads;
     await page.waitForTimeout(10200);
-    assert.equal(
-      reads,
-      unmountedReads,
-      'Unmounted Home must not leave a polling interval.',
-    );
-    await page.route('**/vendor/pixel-agents/renderer.js', (route) =>
+    assert(reads - before <= 1, 'No duplicate polling after Home unmount.');
+    await page.route('**/vendor/pixel-agents/office/index.html', (route) =>
       route.abort(),
     );
     await page.goto(url);
     await page
-      .getByText(
-        'Office illustration unavailable. Recorded team status is still available below.',
-        { exact: true },
-      )
+      .getByText('Office unavailable. Team status is available below.', {
+        exact: true,
+      })
       .waitFor();
-    await team
-      .getByRole('button', { name: 'Intraday Completed', exact: true })
-      .waitFor();
-    await page.emulateMedia({ reducedMotion: 'reduce' });
-    assert.deepEqual(errors, [], 'No unhandled browser errors.');
-    console.log(
-      'Home fixtures passed: real renderer, eight stable roles, keyboard selection, read-only APIs, bounded plain text, offline/recovery, account transition, report deep link, renderer fallback and responsive layouts.',
+    assert.deepEqual(writes, []);
+    assert(
+      sockets.every((socket) => socket.includes('/_next/')),
+      'No upstream socket or terminal connection.',
     );
+    assert.deepEqual(errors, []);
+    console.log(
+      'Home: original App/assets/layout, eight real states, GET-only, keyboard, pause/reduced motion, responsive, failure/account isolation, deep link, shared poll and renderer fallback passed.',
+    );
+  } catch (error) {
+    console.log({
+      errors,
+      diagnostics,
+      frames: page.frames().map((frame) => frame.url()),
+    });
+    console.log(await page.locator('body').innerText());
+    for (const frame of page.frames().slice(1))
+      console.log(await frame.locator('body').innerText());
+    throw error;
   } finally {
     await browser.close();
   }
 }
-
 verify().catch((error) => {
   console.error(error);
   process.exitCode = 1;

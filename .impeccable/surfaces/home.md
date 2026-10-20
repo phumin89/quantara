@@ -9,74 +9,58 @@ related_targets: ["apps/web/features/home"]
 
 ## Scope and visitor mode
 
-**Mode: Operate.** The owner checks recorded Team activity, selects a role, and
-opens its report in Daily Brief. Home is a read-only research view. Research
-activity does not grant trading authority.
+**Mode: Operate.** The owner inspects recorded Team work, selects a role and opens
+its evidence in Daily Brief. Research remains read-only.
 
-This is the built-state contract for `/`, derived from the Home components and
-the desktop, tablet and mobile fixture screenshots. The screenshots contain
-synthetic evidence.
+This contract records the current source implementation. Build and browser
+verification for this revision are pending; earlier fixture screenshots show the
+superseded custom office.
 
 ## Direction and composition
 
-Inherit the neutral white and gray surfaces, system sans fallback, outlined
-panels, restrained corners and shadow-free composition in
-[DESIGN.md](../../DESIGN.md). The focal element is the pinned Pixel Agents office
-inside the shared Quantara navigation shell.
+The Quantara shell retains [DESIGN.md](../../DESIGN.md). A full-width iframe of
+the original pinned Pixel Agents App is Home's primary view, preserving its
+default layout, native office UI, assets and pixel font inside the neutral shell.
+The reading order is Home and Refresh status, current connection and research
+state, office, role controls, evidence and credits.
 
-The reading order is title and actions, connection and research operation,
-office and Team roster, selected role evidence, then renderer credits. Home is
-left aligned within the existing workspace width. At the MUI `lg` breakpoint,
-the office and a 280px roster share one outlined panel. Tablet and phone layouts
-stack the roster below the office; header actions wrap. The canvas fits the
-available width with a 3:2 aspect ratio and a 440px height cap.
+Home uses the available width up to 1440px. The iframe height is 480px on phones,
+600px from `sm` and 680px from `lg`. Role controls sit below the office in two
+columns on phones and four from `sm`.
 
-## Signature interaction and role states
+## Selection and recorded state
 
-Eight stable seats form two rows of four: CEO, Analyst, Reviewer and Intraday;
-then Swing, News, Positions and Quant. Selecting a character or its roster button
-selects the same evidence. The selected roster row has a neutral tonal fill.
-Roster buttons expose their pressed state and control the labelled evidence
-region, providing keyboard access independently of the canvas.
+CEO, Analyst, Reviewer, Intraday, Swing, News, Positions and Quant retain stable
+role IDs. Native character/card selection and parent role buttons select the
+same evidence; parent selection focuses the native camera. Role buttons expose
+their pressed state and control the labelled evidence region. Status text remains
+visible alongside semantic color.
 
-Status labels carry the meaning alongside semantic color:
+Working and Completed use green; Queued uses blue; Failed uses red; Blocked,
+Stale and Unknown use amber; Idle and Cancelled remain neutral. Active work
+requires a fresh running step in the matching current running run. No timer or
+next-role hint creates activity. Native motion pauses for reduced motion, hidden
+or offscreen content, explicit pause, or no active role. Office failure leaves
+the role controls and evidence usable.
 
-| Label | Meaning and treatment |
-| --- | --- |
-| Working | Green; a fresh running step in the matching current running run. |
-| Completed | Green; a recorded completed step. |
-| Queued | Blue; recorded queued work. |
-| Failed | Red; a recorded failure. |
-| Blocked | Amber; configuration or stopped research prevents activity. |
-| Stale | Amber; retained work without a fresh successful read. |
-| Unknown | Amber; missing verified state or a running step without its matching current running run. |
-| Idle | Neutral; no recorded work for the role. Idle is not a completed report. |
-| Cancelled | Neutral; a recorded cancelled step. |
+Evidence is plain text capped at 700 characters with normalized whitespace,
+recorded Bangkok time and an available date/run link to Daily Brief. Keep
+loading, missing evidence, stale state and critical errors explicit.
 
-Only Working seats animate. Timers and next-role hints do not synthesize activity.
-Animation pauses for reduced motion, an offscreen canvas, a hidden document,
-explicit Pause animation, or no active role. Resume animation changes the visual
-pause state only. Renderer failure leaves the roster and evidence available.
+## Shared workspace behavior
 
-## Evidence and freshness
+Home consumes the root Team activity provider's current-day read pair every ten
+seconds, with one pair in flight and an eight-second timeout. Daily Brief and the
+persistent Team chat widget use the same current state. Historical report dates
+are read separately as needed. Retain stale records after failure; clear prior
+evidence when account scope changes or the current run is empty.
 
-Selection shows bounded plain text, up to 700 characters, with wrapping and
-normalized whitespace. Recorded times use Asia/Bangkok and the visible ICT
-suffix. Evidence with a date and run ID links to
-`/daily-brief?date=<Bangkok date>&view=team-chat#run-<id>`.
-
-Home reads `GET /api/team` and `GET /api/team/brief` every ten seconds, with an
-eight-second timeout and one request pair in flight. Refresh status uses the same
-read path. A successful read is fresh for thirty seconds. Loading, connection
-failure, retained stale records and unavailable state remain visible. Older or
-conflicting revisions cannot overwrite retained work for the same account;
-account changes and an empty current run clear prior evidence.
-
-Polling pauses while the document is hidden. In-flight reads abort on hiding or
-unmount, and canvas frames, observers and listeners are cleaned up on unmount.
+Team chat is a modal right panel on desktop and full screen below `md`. It stays
+mounted across routes and preserves conversation position. Dashboard is a
+separate summary route; it does not displace the office on Home.
 
 ## Sources
 
 - [Home components and adapter](../../apps/web/features/home)
-- [Data lifecycle and pinned renderer provenance](../../docs/home-office.md)
-- Synthetic screenshot evidence is retained in the task's Library uploads; local QA uses `.impeccable/review/home-{desktop,tablet,mobile}.png`.
+- [Shared activity provider](../../apps/web/features/team/components/team-activity-provider)
+- [Integration, provenance and verification scope](../../docs/home-office.md)

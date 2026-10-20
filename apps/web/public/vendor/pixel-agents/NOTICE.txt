@@ -1,20 +1,18 @@
-Pixel Agents renderer integration
+Pixel Agents office integration
 
 Upstream: https://github.com/pixel-agents-hq/pixel-agents
 Pinned commit: b1bafd02896d90d83457266575a1e8e5011ce997 (v1.5.0)
-Renderer code: MIT License, Copyright (c) 2026 Pablo De Lucca. See LICENSE.
+MIT License, Copyright (c) 2026 Pablo De Lucca. See LICENSE.
 
-Character atlases char_0.png through char_5.png are the upstream's adaptations
-of MetroCity by JIK-A-4, Creative Commons Zero v1.0 Universal:
+Characters are upstream adaptations of MetroCity by JIK-A-4, CC0-1.0:
 https://jik-a-4.itch.io/metrocity-free-topdown-character-pack
 https://creativecommons.org/publicdomain/zero/1.0/
-Upstream attribution: README.md at the pinned commit, “Diverse characters”.
-The original creator permits commercial use and appreciates attribution.
 
-Quantara supplies its own desk/chair pixel definitions and office layout.
-No upstream furniture, floors, walls, pet packs or third-party asset libraries
-are distributed. The renderer's original MIT bubble definitions are included.
+Quantara reuses the original App, office UI, renderer, bundled furniture,
+floor/wall/carpet sprites, font and default-layout-1.json. Original source and
+asset hashes are recorded in manifest.json. Read-only/accessibility adaptations
+are recorded in the build's provenance.json.
 
-Only the client canvas renderer and character assets are reused. Upstream
-App, transports, server, terminal, hooks, transcript readers and browserMock
-are excluded. Canvas activity is driven by recorded Quantara research steps.
+A restricted bridge replaces upstream transports. No upstream server, socket,
+terminal, host hooks or transcript reader executes. Only eight role labels,
+recorded research statuses, selection and animation pause cross the bridge.

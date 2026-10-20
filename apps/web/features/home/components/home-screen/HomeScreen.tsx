@@ -14,8 +14,7 @@ import {
 import RefreshOutlined from '@mui/icons-material/RefreshOutlined';
 import PauseOutlined from '@mui/icons-material/PauseOutlined';
 import PlayArrowOutlined from '@mui/icons-material/PlayArrowOutlined';
-import ArrowForwardOutlined from '@mui/icons-material/ArrowForwardOutlined';
-import { TeamServiceContext } from '../../../team/context/TeamServiceContext';
+import { TeamActivityContext } from '../../../team/context/TeamActivityContext';
 import { TeamRole } from '../../../team/contracts/TeamRole';
 import { OfficeStateAdapter } from '../../presentation/OfficeStateAdapter';
 import { OfficePresentation } from '../../presentation/OfficePresentation';
@@ -26,235 +25,122 @@ export default class HomeScreen extends Component<
   Record<string, never>,
   HomeScreenState
 > {
-  public static override contextType = TeamServiceContext.value;
+  public static override contextType = TeamActivityContext.value;
 
-  declare public context: ContextType<typeof TeamServiceContext.value>;
+  declare public context: ContextType<typeof TeamActivityContext.value>;
 
   public override state: HomeScreenState = {
-    overview: null,
-    runs: [],
-    loading: true,
-    error: null,
-    fetchedAt: null,
-    now: 0,
     selectedRole: TeamRole.Reviewer,
     paused: false,
   };
 
-  private controller: AbortController | null = null;
-
-  private poll: ReturnType<typeof setInterval> | null = null;
-
-  private mounted = false;
+  private initialRoleSelected = false;
 
   public override componentDidMount(): void {
-    this.mounted = true;
-    document.addEventListener('visibilitychange', this.visibility);
-    void this.load();
-    this.poll = setInterval(() => {
-      if (!document.hidden) {
-        this.setState({ now: Date.now() });
-        void this.load();
-      }
-    }, 10000);
+    this.selectInitialRole();
   }
 
-  public override componentWillUnmount(): void {
-    this.mounted = false;
-    this.controller?.abort();
-    if (this.poll) {
-      clearInterval(this.poll);
-    }
-
-    document.removeEventListener('visibilitychange', this.visibility);
+  public override componentDidUpdate(): void {
+    this.selectInitialRole();
   }
 
-  private readonly visibility = (): void => {
-    if (document.hidden) {
-      this.controller?.abort();
-    } else {
-      this.setState({ now: Date.now() });
-      void this.load();
-    }
-  };
-
-  private async load(): Promise<void> {
-    if (this.controller) {
-      return;
-    }
-
-    const controller = new AbortController();
-    this.controller = controller;
-    const timeout = setTimeout(() => {
-      controller.abort();
-    }, 8000);
-    try {
-      const service = TeamServiceContext.require(this.context);
-      const [overview, brief] = await Promise.all([
-        service.get(controller.signal),
-        service.brief(OfficeStateAdapter.date(), controller.signal),
-      ]);
-      if (!this.mounted || controller.signal.aborted) {
-        return;
-      }
-
-      if (OfficeStateAdapter.isOlder(this.state.overview, overview)) {
-        throw new Error(
-          'An older team snapshot was received. Retaining the last verified state.',
-        );
-      }
-
-      const selectedRole =
-        this.state.fetchedAt === null
-          ? (overview.company?.activeRole ??
-            overview.latestRun?.steps[0]?.role ??
-            TeamRole.Reviewer)
-          : this.state.selectedRole;
+  private selectInitialRole(): void {
+    const activity = TeamActivityContext.require(this.context);
+    if (!this.initialRoleSelected && activity.fetchedAt !== null) {
+      this.initialRoleSelected = true;
       this.setState({
-        overview,
-        runs: [...brief.runs]
-          .sort(
-            (left, right) =>
-              Date.parse(right.updatedAt) - Date.parse(left.updatedAt),
-          )
-          .slice(0, 100),
-        fetchedAt: Date.now(),
-        now: Date.now(),
-        loading: false,
-        error: null,
-        selectedRole,
+        selectedRole:
+          activity.overview?.company?.activeRole ??
+          activity.overview?.latestRun?.steps[0]?.role ??
+          TeamRole.Reviewer,
       });
-    } catch (error) {
-      if (this.mounted && !document.hidden) {
-        this.setState({
-          loading: false,
-          now: Date.now(),
-          error:
-            error instanceof Error
-              ? OfficeStateAdapter.clean(error.message)
-              : 'Unable to load research status.',
-        });
-      }
-    } finally {
-      clearTimeout(timeout);
-      if (this.controller === controller) {
-        this.controller = null;
-      }
     }
   }
 
   public override render() {
-    const {
-      overview,
-      runs,
-      loading,
-      error,
-      fetchedAt,
-      now,
-      selectedRole,
-      paused,
-    } = this.state;
+    const activity = TeamActivityContext.require(this.context);
+    const { overview, loading, error, fetchedAt, now } = activity;
+    const { selectedRole, paused } = this.state;
     const fresh =
       fetchedAt !== null && error === null && now - fetchedAt <= 30000;
-    const agents = OfficeStateAdapter.project(overview, runs, fresh);
+    const agents = OfficeStateAdapter.project(
+      overview,
+      activity.brief?.runs ?? [],
+      fresh,
+    );
     const selected = agents.find((agent) => agent.role === selectedRole);
     const company = overview?.company;
-    const connectionLabel = fresh ? 'Connected' : 'Stale / unavailable';
+    let connection = fresh ? 'Connected' : 'Stale / unavailable';
+    if (loading) {
+      connection = 'Checking';
+    }
 
     return (
-      <Box sx={{ width: '100%', maxWidth: 1280 }}>
+      <Box sx={{ width: '100%', maxWidth: 1440 }}>
         <Stack
-          direction={{ xs: 'column', sm: 'row' }}
-          sx={{ mb: 3, justifyContent: 'space-between', gap: 2 }}
+          direction="row"
+          sx={{
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            gap: 2,
+            mb: 2,
+            flexWrap: 'wrap',
+          }}
         >
-          <Box>
-            <Typography
-              component="h1"
-              variant="h1"
-              sx={{ m: 0 }}
-            >
-              Home
-            </Typography>
-            <Typography
-              color="text.secondary"
-              sx={{ mt: 1 }}
-            >
-              Your research team, in view.
-            </Typography>
-          </Box>
-          <Stack
-            direction="row"
-            sx={{ gap: 1, alignItems: 'center', flexWrap: 'wrap' }}
+          <Typography
+            component="h1"
+            variant="h1"
+            sx={{ m: 0 }}
           >
-            <Button
-              variant="outlined"
-              startIcon={<RefreshOutlined />}
-              onClick={() => {
-                void this.load();
-              }}
-            >
-              Refresh status
-            </Button>
-            <Button
-              component={NextLink}
-              href="/daily-brief"
-              endIcon={<ArrowForwardOutlined />}
-            >
-              Daily Brief
-            </Button>
-          </Stack>
+            Home
+          </Typography>
+          <Button
+            variant="outlined"
+            startIcon={<RefreshOutlined />}
+            onClick={() => {
+              void activity.refresh();
+            }}
+          >
+            Refresh status
+          </Button>
         </Stack>
         {error && (
           <Alert
             severity="warning"
             sx={{ mb: 2 }}
           >
-            {error}{' '}
-            {fetchedAt !== null
-              ? 'Showing the last known records; activity is marked stale.'
-              : 'No verified team state is available yet.'}
+            {error}
           </Alert>
         )}
         <Box
           component="section"
           aria-label="Research operation"
           sx={{
-            mb: 3,
             display: 'flex',
-            flexWrap: 'wrap',
             gap: 1.5,
             alignItems: 'center',
+            flexWrap: 'wrap',
+            mb: 2,
           }}
         >
           <Chip
             size="small"
-            label={loading ? 'Checking' : connectionLabel}
-            color={fresh ? 'success' : 'default'}
             variant="outlined"
+            color={fresh ? 'success' : 'default'}
+            label={connection}
           />
-          <Typography>
-            {loading
-              ? 'Checking the recorded research state…'
-              : OfficePresentation.company(company)}
+          <Typography variant="body2">
+            {OfficePresentation.company(company)}
           </Typography>
           <Typography
-            color="text.secondary"
             variant="body2"
-            sx={{ width: '100%' }}
+            color="text.secondary"
           >
-            Last checked: {OfficePresentation.time(fetchedAt)}
-            {company?.nextRunAt
-              ? ` · Next assessment check: ${OfficePresentation.time(company.nextRunAt)}`
-              : ''}
+            Checked {OfficePresentation.time(fetchedAt)}
           </Typography>
         </Box>
         <Box
           sx={{
-            display: 'grid',
-            gridTemplateColumns: {
-              xs: 'minmax(0, 1fr)',
-              lg: 'minmax(0, 1fr) 280px',
-            },
             border: '1px solid',
             borderColor: 'divider',
             borderRadius: '8px',
@@ -264,17 +150,15 @@ export default class HomeScreen extends Component<
           <Box
             component="section"
             aria-labelledby="office-heading"
-            sx={{ minWidth: 0 }}
           >
             <Stack
               direction="row"
               sx={{
+                px: 2,
+                py: 1,
                 alignItems: 'center',
                 justifyContent: 'space-between',
-                px: 2,
-                py: 1.5,
-                borderBottom: '1px solid',
-                borderColor: 'divider',
+                gap: 1,
               }}
             >
               <Typography
@@ -305,31 +189,20 @@ export default class HomeScreen extends Component<
                 }
               }}
             />
-            <Typography
-              variant="body2"
-              color="text.secondary"
-              sx={{ px: 2, py: 2 }}
-            >
-              Only a recorded running step animates. Select a character or a
-              role for its evidence. Research never authorizes trades.
-            </Typography>
           </Box>
           <Box
             component="section"
-            aria-labelledby="roles-heading"
+            aria-label="Team"
             sx={{
-              borderLeft: { lg: '1px solid' },
-              borderTop: { xs: '1px solid', lg: 0 },
+              display: 'grid',
+              gridTemplateColumns: {
+                xs: 'repeat(2, minmax(0, 1fr))',
+                xl: 'repeat(4, minmax(0, 1fr))',
+              },
+              borderTop: '1px solid',
               borderColor: 'divider',
             }}
           >
-            <Typography
-              component="h2"
-              id="roles-heading"
-              sx={{ fontSize: 18, fontWeight: 600, px: 2, py: 2 }}
-            >
-              Team
-            </Typography>
             {agents.map((agent) => (
               <Button
                 key={agent.role}
@@ -339,8 +212,6 @@ export default class HomeScreen extends Component<
                   this.setState({ selectedRole: agent.role });
                 }}
                 sx={{
-                  display: 'flex',
-                  width: '100%',
                   justifyContent: 'space-between',
                   px: 2,
                   py: 1.5,
@@ -350,6 +221,9 @@ export default class HomeScreen extends Component<
                       ? 'action.selected'
                       : 'transparent',
                   gap: 1,
+                  minWidth: 0,
+                  flexWrap: 'wrap',
+                  alignContent: 'center',
                 }}
               >
                 <Typography
@@ -374,7 +248,7 @@ export default class HomeScreen extends Component<
           component="section"
           id="role-evidence"
           aria-labelledby="evidence-heading"
-          sx={{ mt: 4 }}
+          sx={{ mt: 3 }}
         >
           <Stack
             direction="row"
@@ -401,20 +275,18 @@ export default class HomeScreen extends Component<
             variant="body2"
             sx={{ mt: 1 }}
           >
-            Last recorded: {OfficePresentation.time(selected?.updatedAt)}
+            {OfficePresentation.time(selected?.updatedAt)}
           </Typography>
           <Typography
             sx={{
-              mt: 2,
+              mt: 1.5,
               maxWidth: '75ch',
               overflowWrap: 'anywhere',
               whiteSpace: 'pre-wrap',
             }}
           >
             {selected?.summary ??
-              (loading
-                ? 'Loading recorded work…'
-                : 'No recorded work for this role today. Idle is not a completed report.')}
+              (loading ? 'Loading…' : 'No recorded work today.')}
           </Typography>
           {company?.error && (
             <Alert
@@ -428,7 +300,7 @@ export default class HomeScreen extends Component<
             <Link
               component={NextLink}
               href={`/daily-brief?date=${selected.date}&view=team-chat#run-${selected.runId}`}
-              sx={{ display: 'inline-block', mt: 2, py: 1.5 }}
+              sx={{ display: 'inline-block', mt: 1, py: 1.5 }}
             >
               Open recorded report in Daily Brief
             </Link>
@@ -437,9 +309,8 @@ export default class HomeScreen extends Component<
         <Typography
           variant="body2"
           color="text.secondary"
-          sx={{ mt: 5 }}
+          sx={{ mt: 4 }}
         >
-          Office renderer:{' '}
           <Link
             href="https://github.com/pixel-agents-hq/pixel-agents"
             target="_blank"
@@ -447,10 +318,7 @@ export default class HomeScreen extends Component<
           >
             Pixel Agents
           </Link>{' '}
-          ·{' '}
-          <Link href="/vendor/pixel-agents/NOTICE.txt">
-            Licenses and asset credits
-          </Link>
+          · <Link href="/vendor/pixel-agents/NOTICE.txt">Credits</Link>
         </Typography>
       </Box>
     );

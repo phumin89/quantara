@@ -26,6 +26,7 @@ export default class SummaryMetric extends PureComponent<SummaryMetricProps> {
             lineHeight: 1.2,
             fontWeight: 650,
             fontVariantNumeric: 'tabular-nums',
+            overflowWrap: 'anywhere',
           }}
         >
           {value}

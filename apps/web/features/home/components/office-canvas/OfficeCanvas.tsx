@@ -4,8 +4,6 @@ import { Component, createRef } from 'react';
 import { Box, Typography } from '@mui/material';
 import type { OfficeCanvasProps } from './OfficeCanvasProps';
 import type { OfficeCanvasState } from './OfficeCanvasState';
-import type { PixelOfficeBridge } from '../../office/PixelOfficeBridge';
-import type { PixelOfficeModule } from '../../office/PixelOfficeModule';
 import { OfficeAgentStatus } from '../../contracts/OfficeAgentStatus';
 
 export class OfficeCanvas extends Component<
@@ -14,30 +12,40 @@ export class OfficeCanvas extends Component<
 > {
   public override state: OfficeCanvasState = { error: false, ready: false };
 
-  private readonly canvas = createRef<HTMLCanvasElement>();
+  private readonly frame = createRef<HTMLIFrameElement>();
 
-  private bridge: PixelOfficeBridge | null = null;
-
-  private resizeObserver: ResizeObserver | null = null;
-
-  private intersectionObserver: IntersectionObserver | null = null;
+  private observer: IntersectionObserver | null = null;
 
   private media: MediaQueryList | null = null;
 
-  private frame = 0;
-
-  private lastFrame = 0;
-
-  private mounted = false;
+  private timeout: ReturnType<typeof setTimeout> | null = null;
 
   private visible = true;
 
   public override componentDidMount(): void {
-    this.mounted = true;
-    this.media = window.matchMedia('(prefers-reduced-motion: reduce)');
-    this.media.addEventListener('change', this.updateAnimation);
-    document.addEventListener('visibilitychange', this.updateAnimation);
-    void this.initialize();
+    window.addEventListener('message', this.onMessage);
+    document.addEventListener('visibilitychange', this.sync);
+    this.media = matchMedia('(prefers-reduced-motion: reduce)');
+    this.media.addEventListener('change', this.sync);
+    this.observer = new IntersectionObserver((entries) => {
+      this.visible = entries.some((entry) => entry.isIntersecting);
+      this.sync();
+    });
+    if (this.frame.current) {
+      this.observer.observe(this.frame.current);
+    }
+
+    // SSR may load the child before hydration registers this message listener.
+    this.frame.current?.contentWindow?.postMessage(
+      { source: 'quantara-home', type: 'request-ready' },
+      location.origin,
+    );
+
+    this.timeout = setTimeout(() => {
+      if (!this.state.ready) {
+        this.setState({ error: true });
+      }
+    }, 10000);
   }
 
   public override componentDidUpdate(): void {
@@ -45,157 +53,99 @@ export class OfficeCanvas extends Component<
   }
 
   public override componentWillUnmount(): void {
-    this.mounted = false;
-    cancelAnimationFrame(this.frame);
-    this.resizeObserver?.disconnect();
-    this.intersectionObserver?.disconnect();
-    this.media?.removeEventListener('change', this.updateAnimation);
-    document.removeEventListener('visibilitychange', this.updateAnimation);
-    this.bridge = null;
-  }
-
-  private async initialize(): Promise<void> {
-    try {
-      const source = '/vendor/pixel-agents/renderer.js';
-      const module: unknown = await import(
-        /* webpackIgnore: true */ /* turbopackIgnore: true */ source
-      );
-      if (
-        !module ||
-        typeof module !== 'object' ||
-        !('PixelAgentsOffice' in module)
-      ) {
-        throw new Error('Renderer unavailable.');
-      }
-
-      const canvas = this.canvas.current;
-      if (!canvas || !this.mounted) {
-        return;
-      }
-
-      const bridge = await (
-        module as PixelOfficeModule
-      ).PixelAgentsOffice.create(canvas);
-      if (!this.isAttached(canvas)) {
-        return;
-      }
-
-      this.bridge = bridge;
-      this.resizeObserver = new ResizeObserver(() => {
-        this.resize();
-      });
-      this.resizeObserver.observe(canvas);
-      this.intersectionObserver = new IntersectionObserver((entries) => {
-        this.visible = entries.some((entry) => entry.isIntersecting);
-        this.updateAnimation();
-      });
-      this.intersectionObserver.observe(canvas);
-      this.resize();
-      this.setState({ ready: true });
-    } catch {
-      if (this.mounted) {
-        this.setState({ error: true });
-      }
+    window.removeEventListener('message', this.onMessage);
+    document.removeEventListener('visibilitychange', this.sync);
+    this.media?.removeEventListener('change', this.sync);
+    this.observer?.disconnect();
+    if (this.timeout) {
+      clearTimeout(this.timeout);
     }
   }
 
-  private isAttached(canvas: HTMLCanvasElement): boolean {
-    return this.mounted && this.canvas.current === canvas;
-  }
-
-  private resize(): void {
-    const canvas = this.canvas.current;
-    if (!canvas) {
+  private readonly onMessage = (event: MessageEvent): void => {
+    if (
+      event.source !== this.frame.current?.contentWindow ||
+      event.origin !== location.origin
+    ) {
       return;
     }
 
-    const bounds = canvas.getBoundingClientRect();
-    const ratio = Math.min(2, window.devicePixelRatio || 1);
-    // The engine's one-pixel sprites require zoom >= 1; CSS can scale down the room.
-    canvas.width = Math.max(400, Math.round(bounds.width * ratio));
-    canvas.height = Math.max(272, Math.round(bounds.height * ratio));
-    this.sync();
-  }
-
-  private sync(): void {
-    this.bridge?.sync(
-      this.props.agents.map((agent) => ({
-        id: agent.id,
-        active: agent.status === OfficeAgentStatus.Active,
-      })),
-    );
-    this.bridge?.select(this.props.selectedId);
-    this.updateAnimation();
-  }
-
-  private readonly updateAnimation = (): void => {
-    cancelAnimationFrame(this.frame);
-    this.lastFrame = 0;
-    this.bridge?.draw();
+    const data: unknown = event.data;
     if (
-      this.mounted &&
-      this.bridge &&
-      this.visible &&
-      !document.hidden &&
-      !this.media?.matches &&
-      !this.props.paused &&
-      this.props.agents.some(
-        (agent) => agent.status === OfficeAgentStatus.Active,
-      )
+      !data ||
+      typeof data !== 'object' ||
+      !('source' in data) ||
+      data.source !== 'pixel-agents-office' ||
+      !('type' in data)
     ) {
-      this.frame = requestAnimationFrame(this.animate);
+      return;
+    }
+
+    if (data.type === 'ready') {
+      this.setState({ ready: true, error: false });
+      this.sync();
+    }
+
+    if (
+      data.type === 'select' &&
+      'id' in data &&
+      typeof data.id === 'number' &&
+      this.props.agents.some((agent) => agent.id === data.id)
+    ) {
+      this.props.onSelect(data.id);
     }
   };
 
-  private readonly animate = (at: number): void => {
-    if (!this.mounted || !this.bridge) {
-      return;
-    }
-
-    this.bridge.advance(this.lastFrame ? (at - this.lastFrame) / 1000 : 0);
-    this.lastFrame = at;
-    this.bridge.draw();
-    this.frame = requestAnimationFrame(this.animate);
+  private readonly sync = (): void => {
+    this.frame.current?.contentWindow?.postMessage(
+      {
+        source: 'quantara-home',
+        type: 'snapshot',
+        agents: this.props.agents.map(({ id, label, status }) => ({
+          id,
+          label,
+          status,
+        })),
+        selectedId: this.props.selectedId,
+        paused:
+          this.props.paused ||
+          !this.visible ||
+          document.hidden ||
+          this.media?.matches === true ||
+          !this.props.agents.some(
+            (agent) => agent.status === OfficeAgentStatus.Active,
+          ),
+      },
+      location.origin,
+    );
   };
 
   public override render() {
     return (
-      <Box sx={{ position: 'relative', bgcolor: '#f3f3f3', minWidth: 0 }}>
-        <canvas
-          ref={this.canvas}
-          aria-label="Research team office. Select a role from the team list for recorded details."
-          role="img"
+      <Box sx={{ position: 'relative', minWidth: 0, bgcolor: '#1e1e2e' }}>
+        <Box
+          component="iframe"
+          ref={this.frame}
+          title="Pixel Agents research office"
+          src="/vendor/pixel-agents/office/index.html"
+          sandbox="allow-scripts allow-same-origin"
+          referrerPolicy="no-referrer"
           data-ready={this.state.ready}
-          onClick={(event) => {
-            const bounds = event.currentTarget.getBoundingClientRect();
-            const id = this.bridge?.hitTest(
-              ((event.clientX - bounds.left) * event.currentTarget.width) /
-                bounds.width,
-              ((event.clientY - bounds.top) * event.currentTarget.height) /
-                bounds.height,
-            );
-            if (id) {
-              this.props.onSelect(id);
-            }
-          }}
-          style={{
+          sx={{
             display: 'block',
             width: '100%',
-            height: '100%',
-            aspectRatio: '3 / 2',
-            maxHeight: 440,
+            height: { xs: 480, sm: 600, lg: 680 },
+            border: 0,
           }}
-        >
-          Recorded role status is available in the team list below.
-        </canvas>
+        />
         {(!this.state.ready || this.state.error) && (
           <Typography
             role="status"
-            sx={{ p: 2 }}
+            sx={{ p: 2, color: '#fff' }}
           >
             {this.state.error
-              ? 'Office illustration unavailable. Recorded team status is still available below.'
-              : 'Loading team office…'}
+              ? 'Office unavailable. Team status is available below.'
+              : 'Loading office…'}
           </Typography>
         )}
       </Box>

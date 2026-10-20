@@ -52,15 +52,15 @@ export class OfficePresentation {
     }
 
     if (company.error) {
-      return 'Research needs attention. The last recorded error is retained below.';
+      return 'Research needs attention.';
     }
 
     if (company.budgetReason === 'waiting_for_evidence') {
-      return 'Waiting for fresh evidence before the next assessment.';
+      return 'Waiting for fresh evidence.';
     }
 
     if (company.status === CompanyLoopStatus.Running) {
-      return 'Research is in progress. Reports remain read-only.';
+      return 'Research in progress.';
     }
 
     if (company.status === CompanyLoopStatus.WaitingForCodex) {
@@ -72,10 +72,10 @@ export class OfficePresentation {
     }
 
     if (company.status === CompanyLoopStatus.DeferredBudget) {
-      return 'Research is deferred until the next budget window.';
+      return 'Waiting for research budget.';
     }
 
-    return 'Research is enabled and waiting for its next assessment.';
+    return 'Waiting for the next assessment.';
   }
 
   public static time(at: string | number | null | undefined): string {

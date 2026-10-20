@@ -5,6 +5,8 @@ import { PureComponent } from 'react';
 import HomeOutlinedIcon from '@mui/icons-material/HomeOutlined';
 import CurrencyBitcoinIcon from '@mui/icons-material/CurrencyBitcoin';
 import GroupsOutlinedIcon from '@mui/icons-material/GroupsOutlined';
+import ForumOutlinedIcon from '@mui/icons-material/ForumOutlined';
+import DashboardOutlinedIcon from '@mui/icons-material/DashboardOutlined';
 import {
   Box,
   List,
@@ -38,6 +40,11 @@ export default class Navigation extends PureComponent<
     const { pathname } = this.state;
     const items = [
       { href: '/', label: 'Home', icon: <HomeOutlinedIcon fontSize="small" /> },
+      {
+        href: '/dashboard',
+        label: 'Dashboard',
+        icon: <DashboardOutlinedIcon fontSize="small" />,
+      },
       {
         href: '/daily-brief',
         label: 'Daily Brief',
@@ -97,6 +104,25 @@ export default class Navigation extends PureComponent<
               </ListItemButton>
             );
           })}
+          {this.props.onOpenTeamChat && (
+            <ListItemButton
+              onClick={this.props.onOpenTeamChat}
+              aria-haspopup="dialog"
+              aria-expanded={this.props.teamChatOpen ?? false}
+              aria-controls="team-chat-dialog"
+              sx={{ minHeight: 44 }}
+            >
+              <ListItemIcon sx={{ minWidth: 36, color: 'inherit' }}>
+                <ForumOutlinedIcon fontSize="small" />
+              </ListItemIcon>
+              <ListItemText
+                primary="Team chat"
+                slotProps={{
+                  primary: { sx: { fontSize: 14, fontWeight: 600 } },
+                }}
+              />
+            </ListItemButton>
+          )}
         </List>
       </Box>
     );
