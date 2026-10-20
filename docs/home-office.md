@@ -77,10 +77,11 @@ timezone, a `DD/MM/YYYY` display and validation before date changes are applied.
 The upstream-App, shared-chat, Dashboard and date control passed isolated browser
 fixtures and a production build. The independent finish review requested two
 responsive fixes for role controls and summary metrics. Those fixes are applied
-and the production build passes; their screenshot confirmation and final reviewer
-verdict remain pending at this checkpoint. Current local screenshots contain
-synthetic evidence from the upstream App. Earlier Library uploads depict the
-superseded custom office.
+and the production build passes. All five affected browser suites passed again
+after the fixes. Fresh desktop/tablet/phone screenshots received an independent
+`ship` verdict with both responsive findings resolved. Current local screenshots
+contain synthetic evidence from the upstream App. Earlier Library uploads depict
+the superseded custom office.
 
 Earlier successful builds of four Docker images targeted the previous UI. SQL
 fixture tests completed. The revised Web image and container-readiness check have

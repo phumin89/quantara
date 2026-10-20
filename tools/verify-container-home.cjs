@@ -5,7 +5,9 @@ const path = require('node:path');
 const { chromium } = require('playwright');
 
 async function verify() {
-  const project = 'quantara-verify-7873a7a';
+  const tag = process.env.VERIFY_TAG ?? '7873a7a';
+  assert(/^[a-f0-9]{7}$/.test(tag), 'Use the task verification namespace.');
+  const project = `quantara-verify-${tag}`;
   const url = 'http://127.0.0.1:3109';
   assert.equal(
     process.env.TEST_URL,
@@ -16,12 +18,18 @@ async function verify() {
     execFileSync('docker', args, { encoding: 'utf8' }).trim();
   for (const name of [`${project}-web`, `${project}-fixture`]) {
     const info = JSON.parse(docker('inspect', name))[0];
-    assert.equal(info.Config.Labels['quantara.verification'], '7873a7a');
+    assert.equal(info.Config.Labels['quantara.verification'], tag);
     assert.deepEqual(Object.keys(info.NetworkSettings.Networks), [
-      'quantara-verify-run-7873a7a',
+      `quantara-verify-run-${tag}`,
     ]);
   }
-  const modePath = path.resolve('work/quality/integration/home-mode.json');
+  const modePath = path.resolve(
+    process.env.FIXTURE_MODE_PATH ?? 'work/quality/integration/home-mode.json',
+  );
+  assert(
+    modePath.startsWith(path.resolve('work/quality/integration') + path.sep),
+    'Mode file must stay in the isolated task.',
+  );
   const mode = (value) =>
     fs.writeFile(modePath, JSON.stringify({ mode: value }));
   const ready = async () => {
@@ -77,12 +85,15 @@ async function verify() {
         'Standalone image must retain public renderer/license assets.',
       );
     }
-    docker('stop', '--time', '2', `${project}-fixture`);
+    docker('stop', '--timeout', '2', `${project}-fixture`);
     await refresh();
     await team
       .getByRole('button', { name: 'Intraday Stale', exact: true })
       .waitFor();
-    await page.getByText('Stale / unavailable', { exact: true }).waitFor();
+    await page
+      .getByText('Stale / unavailable', { exact: true })
+      .first()
+      .waitFor();
     docker('start', `${project}-fixture`);
     await refresh();
     await team
@@ -104,13 +115,24 @@ async function verify() {
       .getByRole('button', { name: 'Intraday Unknown', exact: true })
       .waitFor();
     await mode('healthy');
-    docker('restart', '--time', '2', `${project}-web`);
+    docker('restart', '--timeout', '2', `${project}-web`);
     await ready();
     await page.goto(url);
     await team
       .getByRole('button', { name: 'Intraday Working', exact: true })
       .waitFor();
-    await page.locator('canvas[data-ready="true"]').waitFor();
+    await page.locator('iframe[data-ready="true"]').waitFor();
+    await page.getByRole('link', { name: 'Dashboard', exact: true }).click();
+    await page.getByTestId('total-assets').waitFor();
+    assert(
+      (await page.getByTestId('total-assets').textContent()).includes(
+        '12,500.00',
+      ),
+    );
+    await page
+      .getByTestId('dashboard-day-net')
+      .getByText('THB 12.25', { exact: true })
+      .waitFor();
     const stats = JSON.parse(
       docker(
         'exec',
