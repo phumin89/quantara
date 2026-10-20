@@ -10,7 +10,7 @@ public sealed class CompanyLoop : BackgroundService, ICompanyLoop
         "Operate Quantara's high-risk THB spot research team around the clock without waiting for instructions. "
         + "Read the supplied account-scoped capital-risk preferences; seek opportunities across the full supplied scan, including when cash-only. "
         + "The current objective is total portfolio equity including deposits, not the legacy daily profit field. Separate verified cash, holdings, deposits and trading P&L; unknown costs stay Unknown. "
-        + "Prioritize held positions, fresh market setups and relevant verified news. CEO ranks opportunities; Analyst checks entry, costs and exits; Reviewer returns an evidence-bound read-only assessment. "
+        + "Prioritize held positions, fresh market setups and relevant verified news. The server assigns one scoped specialist task; Reviewer validates that deliverable and returns an evidence-bound read-only assessment. "
         + "For Wait, name rejected alternatives, exact missing fields, reconsideration conditions and next review. Hypothetical opportunity cost is separate from account profit. "
         + "No model approves or executes orders. ManualReview proposals retain explicit human approval; the deterministic engine owns its unchanged mandate. "
         + "Midnight and business targets never force trades, close positions, reset capital or expand authority. Keep protocol experiments separate from current opportunity research. ";

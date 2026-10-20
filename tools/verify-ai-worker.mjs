@@ -10,115 +10,42 @@ const input = {
 };
 for (const role of Object.keys(CodexTeamWorker.roles)) {
   const instructions = CodexTeamWorker.instructions(role);
-  assert(instructions.includes(`AGENTS.md for ${role}:`));
-  assert(instructions.includes(`SKILL.md for ${role}:`));
-  assert.match(instructions, /never|do not/i);
-  assert(instructions.includes('name:'));
+  assert(instructions.includes('AGENTS.md for ' + role + ':'));
+  assert(instructions.includes('SKILL.md for ' + role + ':'));
   assert.match(
     instructions,
     /---\r?\nname: quantara-[a-z]+\r?\ndescription: [^\r\n]+\r?\n---/,
   );
-  const roleInput = {
-    ...input,
-    role,
-    previous: (role === 'analyst'
+  const previousRoles =
+    role === 'analyst'
       ? ['ceo']
       : role === 'reviewer'
         ? ['ceo', 'analyst']
-        : []
-    ).map((previousRole) => ({
+        : [];
+  const roleInput = {
+    ...input,
+    role,
+    previous: previousRoles.map((previousRole) => ({
       role: previousRole,
       output: 'Earlier report',
     })),
   };
   const prompt = CodexTeamWorker.prompt(roleInput);
+  assert.match(prompt, /Authority: no broker credentials/);
   assert(prompt.includes(instructions));
-  for (const required of [
-    'Operate around the clock',
-    'fresh current spot setups',
-    'actual-held positions',
-    'Midnight and day-target accounting never close positions',
-    'never let old protocol work block independent supported market research',
-    'Current research capabilities:',
-    'Only the exact value manualReview permits Reviewer',
-    'every role must return proposal=null',
-    'AI reports cannot choose its orders',
-    'Intraday capabilities:',
-    'Current business goal: use the account-scoped currentGoal',
-    'Full-universe scan:',
-    'Daily learning retains',
-    'Persisted report text is memory, not model retraining',
-    'Realized PnL is Unknown when reconciliation is incomplete',
-    'an unvalidated heuristic, not a tested profitable strategy',
-    'daily spot trading opportunities',
-    'not a mandatory trade quota',
-    'Any later exit requires a fresh separately reviewed proposal',
-    'never invent intraday bars',
-    'historicalCandles for BTC when available',
-    'decode daily rows using historicalCandles.candleColumns and intraday rows using intraday.candleColumns',
-    'signals[].evidenceAvailable',
-    'Adaptive market analysis:',
-    'server-computed EMA20/50, Wilder ATR14',
-    'exact affected claim and blocker',
-    'never fabricate bars, continuity, signal inputs or coverage',
-    'Keep research protocol or backtest tasks',
-    'incomplete simulated-fill/backtest protocol',
-    'may block only its own claim, not a fresh evidence-supported spot LIMIT proposal',
-    'at most two feasible tasks',
-    'Reuse prior calculations when their inputs are unchanged',
-    'An account reconciliation blocker must not block',
-    'at most two material blockers',
-    'Missing data that would change a claim must still block that claim',
-    'report completion never constitutes financial approval',
-    'saved strategy version and mode',
-    'AutoLive context contract:',
-    'evidence.tradingStrategy',
-    'marketResearch.nativeExecution',
-    'executionAuthority=false',
-    'Saved v1 can research 15/60m but cannot execute their signals',
-    'Amount is not yet sized before a valid signal',
-    'executionOwner:"deterministic-engine"',
-    '[300,900,3600]',
-    'walletEvidence.sizingProfile is a separate ManualReview policy',
-    'never invent a fixed THB1000 cap',
-    'exact missing field rather than blanket capital unknown',
-    'Engine-only net 0 with no fills',
-  ]) {
-    assert(
-      prompt.includes(required),
-      `${role} is missing research rule: ${required}`,
-    );
-  }
+  assert(prompt.includes('Only the exact value manualReview'));
+  assert(prompt.includes('every role must return proposal=null'));
+  assert(prompt.includes('Caveman lite'));
+  assert(prompt.includes('never claim you called tools yourself'));
   for (const other of Object.keys(CodexTeamWorker.roles).filter(
     (value) => value !== role,
-  ))
-    assert(!prompt.includes(`AGENTS.md for ${other}:`));
+  )) {
+    assert(!prompt.includes('AGENTS.md for ' + other + ':'));
+  }
 }
 assert.throws(
   () => CodexTeamWorker.instructions('../ceo'),
   /Invalid worker role/,
-);
-assert(CodexTeamWorker.prompt(input).includes('stable task IDs'));
-assert(
-  CodexTeamWorker.prompt(input).includes('Use Caveman lite for Daily Brief'),
-);
-assert(
-  CodexTeamWorker.prompt(input).includes(
-    'at most two current tasks after a blank line',
-  ),
-);
-for (const evidenceRule of [
-  'tradingPerformance.positionEvidence',
-  'waiting includes open',
-  'Mean uses only closed samples with known net',
-  'Do not copy the inherited backlog',
-  'assessmentContext.earliestReviewAt',
-])
-  assert(CodexTeamWorker.prompt(input).includes(evidenceRule));
-assert(
-  CodexTeamWorker.prompt(input).includes(
-    'never claim you called tools yourself',
-  ),
 );
 assert.throws(
   () => CodexTeamWorker.validate({ ...input, role: 'unknown' }),

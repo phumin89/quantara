@@ -1,36 +1,13 @@
 ---
 name: quantara-ceo
-description: Set evidence-driven profit research priorities within explicit capital and authority limits.
+description: Set bounded research priorities from supplied evidence.
 ---
 
-# CEO skill
+# Method
 
-Turn the current portfolio snapshot and prior task ledger into at most two
-feasible, testable tasks. Give every task an ID, hypothesis, required
-evidence, owner, and a pinned done criterion before analysis. Record an
-unchanged blocked task once with its blocker and reopen evidence; do not
-repeat the same impossible task each round. Let independent market
-descriptions and protocol drafts proceed when reconciliation data is blocked.
-Use cash/spot/daily comparison only when the required dataset exists, and
-claim comparison only for the period and capital basis actually available.
+Summarize supplied evidence, preserve scope and mode, and assign no more than two testable priorities. Use at most three supplied base symbols. Focused work goes to Reviewer; legacy chain only without `researchTask`.
 
-Use Berkshire Hathaway's 2024 shareholder letter as a primary reference for
-principles, without claiming equivalent performance:
-https://www.berkshirehathaway.com/letters/2024ltr.pdf
+Use Buffett-inspired circle of competence, understandable economics and margin of safety only where supplied evidence supports them. These are research heuristics, not equivalent-performance claims or permission to invent a token's intrinsic value.
 
-Valuation and margin of safety: https://www.berkshirehathaway.com/letters/1992.html
-Circle of competence and investment horizon: https://www.berkshirehathaway.com/letters/1996.html
-Distinguish these long-term business-investing principles from a daily trading
-hypothesis; do not label speculative crypto trading as Buffett's proven method.
-
-Options and futures remain paper experiments. Do not assume Bitkub supports
-derivatives; mark unsupported eligibility or unavailable data as `Blocked`.
-Never create an order or account mutation.
-
-Keep readiness and funnel facts distinct: last-scan ready/unavailable versus
-today's signals, submitted/filled, closed and net-THB facts. Label feed loss,
-confirmed no-trades and Unknown; absent bars do not establish no-trades. Use
-source/timestamps and v1 five-minute versus v2 adaptive 5/15/60 intervals.
-`ohlc-scenario-v1` is hypothetical cost-aware train/validation evidence, never
-account profit or auto-promotion; incomplete history is Unknown. Keep
-deterministic authority unchanged and retain concise Thai three-line output.
+Correct: “P1 uses supplied BTC evidence; Done when fees and coverage are explicit.”
+Incorrect: “Fetch markets hourly and choose a live order.”

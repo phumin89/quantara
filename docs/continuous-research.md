@@ -22,6 +22,23 @@ and no full research backlog. Only CEO and Intraday may request up to three scan
 symbols for server-side read-only detail collection. Reviewers receive the full
 current evidence needed for their typed assessment. They never receive broker credentials.
 
+Role contracts define the goal, supplied evidence, method, completion criterion and
+handoff, with correct/incorrect examples. Shared instructions cover evidence, authority
+and concise Thai reports; market and proposal details are included only for relevant roles.
+The schema supplies the research-symbol allowance so prompt and transport limits agree.
+
+Focused specialists receive `specialistMemory`: at most two completed reviewed lessons
+from the existing seven-day learning window, matching their role, account and exact policy
+hash. Each lesson retains its report ID and timestamp. Future, incomplete, invalid and
+unscoped reports are excluded. Memory is reported history, not verified performance,
+model retraining, instructions or permission to change policy. No applicable lesson is
+an ordinary empty result. CEO and Reviewer retain their broader learning context.
+
+Memory stays within 4,000 characters and yields whole entries when the existing context
+or wire limit requires it; omitted counts remain visible and current evidence is preserved.
+These checks prove context construction and permission boundaries. They do not establish
+that shorter prompts or recalled lessons improve forecasts or trading profit.
+
 - One model task executes at a time per coordinator; a normal automatic run has two calls.
 - Position work has a reserved lane. Ordinary work alternates intraday and due background
   specialties; oldest background work is selected first so alert traffic cannot starve it.
@@ -64,6 +81,9 @@ actual failure or eligibility state rather than claiming that an agent is workin
 - Before accepting a focused response, recheck account, policy, trading mode, holdings
   quantity/availability and task expiry. Rejected or late outputs cannot launch a dependent
   reviewer or become an assessment. Returned usage remains recorded even if claims fail validation.
+- `worker_evidence_changed` means that this recheck rejected stale research, not that
+  the Codex runtime crashed. The failed report remains in history; later research uses
+  fresh evidence under the existing schedule and budget. No immediate retry is added.
 - A pending/running task recovered after restart is retained with a terminal interrupted
   status by the existing recovery path. It is not silently resumed or resent. Later eligible
   research is a new task, subject to the retained budget and cadence.
