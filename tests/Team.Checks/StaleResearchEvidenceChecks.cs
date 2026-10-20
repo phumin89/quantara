@@ -55,6 +55,15 @@ public static class StaleResearchEvidenceChecks
                     run.Assessment is null && run.Steps[0].Output is null && run.Steps[0].Usage?.InputTokens == 12,
                     mutation + ": rejected results retain actual usage without accepting their claims."
                 );
+                Check(
+                    run.Error is { } runError
+                        && run.Steps[0].Error is { } stepError
+                        && runError.Contains("worker_evidence_changed", StringComparison.Ordinal)
+                        && !runError.Contains("runtime_failed", StringComparison.Ordinal)
+                        && stepError.Contains("worker_evidence_changed", StringComparison.Ordinal)
+                        && !stepError.Contains("runtime_failed", StringComparison.Ordinal),
+                    mutation + ": stale evidence uses the specific safe error code."
+                );
             }
             finally
             {

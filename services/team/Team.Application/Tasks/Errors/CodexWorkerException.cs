@@ -5,12 +5,20 @@ namespace Quantara.Team.Application;
 public sealed class CodexWorkerException : InvalidOperationException
 {
     public CodexWorkerException(string code)
-        : base("Codex worker failed [" + Normalize(code) + "]. " + Describe(code))
+        : base(CreateMessage(code))
     {
         this.Code = Normalize(code);
     }
 
     public string Code { get; }
+
+    private static string CreateMessage(string code)
+    {
+        var normalized = Normalize(code);
+        return normalized == "worker_evidence_changed"
+            ? "Research context changed [worker_evidence_changed]. " + Describe(code)
+            : "Codex worker failed [" + normalized + "]. " + Describe(code);
+    }
 
     public static CodexWorkerException FromDiagnostic(string diagnostic)
     {
@@ -51,7 +59,8 @@ public sealed class CodexWorkerException : InvalidOperationException
             or "worker_lesson_invalid"
             or "worker_selection_invalid"
             or "worker_response_rejected"
-            or "worker_unsupported_tool" => code,
+            or "worker_unsupported_tool"
+            or "worker_evidence_changed" => code,
             _ => "worker_runtime_failed",
         };
 
@@ -71,6 +80,8 @@ public sealed class CodexWorkerException : InvalidOperationException
             "worker_selection_invalid" => "The analysis returned an invalid market selection.",
             "worker_response_rejected" => "The model declined the research request.",
             "worker_unsupported_tool" => "The analysis attempted an unsupported tool.",
+            "worker_evidence_changed" =>
+                "The account, holdings, trading settings or research window changed during analysis. Stale results were discarded.",
             _ => "The worker runtime failed. Check the server configuration.",
         };
 }

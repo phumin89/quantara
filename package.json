@@ -27,7 +27,7 @@
     "test:di": "node tools/verify-di.cjs",
     "test:lifecycle": "node tools/verify-lifecycle.cjs",
     "test:team": "dotnet run --project tests/Team.Checks/Team.Checks.csproj",
-    "test:ai-worker": "node tools/verify-ai-worker.mjs && node tools/verify-worker-failure.mjs",
+    "test:ai-worker": "node tools/verify-ai-worker.mjs && node tools/verify-role-prompts.mjs && node tools/verify-worker-failure.mjs",
     "test:runtime": "pwsh -NoProfile -File tools/verify-runtime.ps1",
     "test:docker": "pwsh -NoProfile -File tools/verify-docker.ps1 && node tools/verify-local-request.cjs",
     "test:team-ui": "node tools/verify-team.cjs",

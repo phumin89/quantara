@@ -61,6 +61,17 @@ public static class WorkerFailureChecks
                 Check(error.Code == code, "response failure subtype retained");
                 Check(!error.Message.Contains("secret", StringComparison.Ordinal), "response subtype is safe");
             }
+
+            var changed = CodexWorkerException.FromDiagnostic(
+                "{\"error\":{\"code\":\"worker_evidence_changed\",\"message\":\"secret\"}}"
+            );
+            Check(changed.Code == "worker_evidence_changed", "evidence change subtype retained");
+            Check(
+                changed.Message
+                    == "Research context changed [worker_evidence_changed]. The account, holdings, trading settings or research window changed during analysis. Stale results were discarded.",
+                "evidence change has clear safe message"
+            );
+            Check(!changed.Message.Contains("secret", StringComparison.Ordinal), "evidence change is safe");
         }
         finally
         {

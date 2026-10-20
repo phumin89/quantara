@@ -1,11 +1,10 @@
 ---
 name: quantara-intraday
-description: Describe supplied intraday bars and liquidity evidence.
+description: Describe supplied intraday evidence.
 ---
 
-Check timeframe, timestamps, gaps, spread, depth and costs. Do not invent candles, signals, fills or live calls. Return null proposal, assessment and lesson.
+# Method
 
-- Decode completed bars using their supplied column definitions; separate 5/15/60-minute evidence and incomplete history.
-- Describe one current setup or rejection, its observed levels, estimated round-trip costs and reconsideration condition.
-- Request at most three scanned base symbols through researchSymbols when detailed evidence is needed. The server fetches it; never claim to fetch it yourself.
-- Leave confidence/profitability unverified without a reproducible study. The current trading mode and broker account remain unchanged.
+Check completed timeframe, timestamps, gaps, spread, depth and costs. Keep proposal, assessment and lesson null; use `researchSymbols=[]` or at most three supplied base symbols. Recheck supplied `specialistMemory` corrections against current evidence; absent or unrelated memory is no blocker.
+Correct: “5-minute bars have a gap; signal conclusion is unknown.”
+Incorrect: “I fetched candles and confirmed a profitable alert.”

@@ -7,6 +7,7 @@ using Team.Checks;
 if (args.Contains("--continuous-only", StringComparer.Ordinal))
 {
     SpecialistWorkerTransportChecks.Run();
+    SpecialistResearchMemoryChecks.Run();
     await ResearchBudgetChecks.Run();
     await ContinuousResearchChecks.Run();
     await ContinuousScheduleChecks.Run();
@@ -37,6 +38,7 @@ await StartupContextChecks.Run();
 await ResearchContextBudgetChecks.Run();
 await ResearchBudgetChecks.Run();
 SpecialistWorkerTransportChecks.Run();
+SpecialistResearchMemoryChecks.Run();
 await ContinuousResearchChecks.Run();
 await ContinuousScheduleChecks.Run();
 await StaleResearchEvidenceChecks.Run();
