@@ -35,13 +35,13 @@ export default class PortfolioSummary extends PureComponent<PortfolioSummaryProp
         }}
       >
         <Stack
-          direction={{ xs: 'column', sm: 'row' }}
+          direction={{ xs: 'column', lg: 'row' }}
           divider={
             <Divider
               flexItem
               sx={{
-                borderBottomWidth: { xs: 1, sm: 0 },
-                borderRightWidth: { xs: 0, sm: 1 },
+                borderBottomWidth: { xs: 1, lg: 0 },
+                borderRightWidth: { xs: 0, lg: 1 },
               }}
             />
           }

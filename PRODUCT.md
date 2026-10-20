@@ -25,13 +25,16 @@ broker orders.
 
 ## Current Scope
 
-| Workspace                    | Behavior                                                  |
-| ---------------------------- | --------------------------------------------------------- |
-| Home (`/`)                   | Remains empty.                                            |
-| Crypto (`/crypto`)           | Shows actual balances, prices and imported trade history. |
-| Daily Brief (`/daily-brief`) | Opens with compact trading status and optional team chat. |
+| Workspace                    | Behavior                                                               |
+| ---------------------------- | ---------------------------------------------------------------------- |
+| Home (`/`)                   | Original Pixel Agents office UI showing recorded research role states. |
+| Dashboard (`/dashboard`)     | Current wallet, selected-day engine results, research and attention.   |
+| Crypto (`/crypto`)           | Shows actual balances, prices and imported trade history.              |
+| Daily Brief (`/daily-brief`) | Opens with compact trading status and optional team chat.              |
 
-- A single-page application with shared left navigation; Home and Crypto are reachable without a full document reload.
+- A single-page application with shared navigation for Home, Dashboard, Daily Brief and Crypto.
+- Team chat is a persistent research-report overlay available across routes: a side panel on desktop and full screen on mobile. Home, Daily Brief and the widget share current Team activity reads.
+- Dashboard separates the current wallet from Bangkok selected-day results. It uses confirmed engine evidence and retained research; unavailable whole-account profit and historical equity are never invented.
 - The interface language is English, including accessible control labels.
 - Crypto displays real imported account evidence. Paper trading is explicitly simulated; real spot LIMIT transactions require owner-enabled trading authority.
 - The backend persists imported records in SQL Server. Closed coins remain visible.

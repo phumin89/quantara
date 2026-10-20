@@ -6,5 +6,8 @@ work/
 .runtime/
 .impeccable/
 package-lock.json
+vendor/pixel-agents/upstream/
+apps/web/public/vendor/pixel-agents/renderer.js
+apps/web/public/vendor/pixel-agents/office/
 # Roslyn release tracking uses its own fixed table grammar.
 tools/Quantara.Analyzers/AnalyzerReleases.*.md

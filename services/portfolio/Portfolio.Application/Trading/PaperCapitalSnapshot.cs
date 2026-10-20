@@ -50,6 +50,9 @@ public static class PaperCapitalSnapshot
                 .ToArray(),
             false,
             equity is null ? "Simulated positions require fresh valuation." : null
-        );
+        )
+        {
+            Source = CapitalSource.Paper,
+        };
     }
 }

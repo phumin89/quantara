@@ -10,4 +10,7 @@ public sealed record CapitalSnapshot(
     IReadOnlyList<CapitalAsset> Assets,
     bool HasUncertainOrders,
     string? Blocker
-);
+)
+{
+    public CapitalSource Source { get; init; }
+}

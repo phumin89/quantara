@@ -1,0 +1,15 @@
+{
+  "repository": "https://github.com/pixel-agents-hq/pixel-agents",
+  "commit": "b1bafd02896d90d83457266575a1e8e5011ce997",
+  "originalApp": "webview-ui/src/App.tsx",
+  "originalLayout": "webview-ui/public/assets/default-layout-1.json",
+  "adaptations": [
+    "parent selection: native camera",
+    "native card status: recorded research semantics",
+    "paused camera: immediate focus without animation",
+    "gameLoop: pause and reduced motion",
+    "native cards: role labels and keyboard access, no close authority"
+  ],
+  "readOnly": true,
+  "network": "connect-src none"
+}

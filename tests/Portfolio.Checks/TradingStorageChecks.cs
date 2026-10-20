@@ -169,8 +169,30 @@ public static class TradingStorageChecks
             0
         );
         TradingStorageChecks.CheckDiffs(state);
+        TradingStorageChecks.CheckDiffAllocations(state.Paper.Fills[0]);
         Console.WriteLine(
             "Trading storage checks passed: strict JSON, revision/account guards, bounded mirror diffs and immutable retained fills; no SQL connection used."
+        );
+    }
+
+    private static void CheckDiffAllocations(TradingFill fill)
+    {
+        var retained = Enumerable
+            .Range(0, 10000)
+            .Select(index => fill with { BrokerFillId = $"performance-{index}" })
+            .ToArray();
+        var restored = retained.Select(item => item with { }).ToArray();
+        _ = TradingStorageChecks.Changed(restored, retained, item => item.BrokerFillId, true);
+        var before = GC.GetAllocatedBytesForCurrentThread();
+        var started = System.Diagnostics.Stopwatch.GetTimestamp();
+        var changes = TradingStorageChecks.Changed(restored, retained, item => item.BrokerFillId, true);
+        var allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+        Console.WriteLine(
+            $"Retained mirror diff: {retained.Length} synthetic fills; {allocated} bytes; {System.Diagnostics.Stopwatch.GetElapsedTime(started).TotalMilliseconds:0.00}ms; {changes.Count} writes."
+        );
+        TradingStorageChecks.Check(
+            allocated < 8_000_000,
+            "Retained comparison must reuse buffers; allocation budget exceeded."
         );
     }
 
@@ -192,6 +214,18 @@ public static class TradingStorageChecks
             "Appending one fill must produce one mirror write regardless of retained history size."
         );
         var changed = retained.ToArray();
+        var scaled = fill with { FeeThb = decimal.Parse("0.250", System.Globalization.CultureInfo.InvariantCulture) };
+        TradingStorageChecks.RefusedHistory(() =>
+            TradingStorageChecks.Changed([scaled], new[] { fill }, item => item.BrokerFillId, true)
+        );
+        TradingStorageChecks.RefusedHistory(() =>
+            TradingStorageChecks.Changed(
+                [fill with { OccurredAt = fill.OccurredAt.ToOffset(TimeSpan.FromHours(7)) }],
+                new[] { fill },
+                item => item.BrokerFillId,
+                true
+            )
+        );
         changed[0] = changed[0] with { FeeThb = 1m };
         TradingStorageChecks.RefusedHistory(() =>
             TradingStorageChecks.Changed(changed, retained, item => item.BrokerFillId, true)

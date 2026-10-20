@@ -1,6 +1,7 @@
 import Providers from '../shared/theme/Providers';
-import AppShell from '../shared/layout/AppShell';
 import ServiceProvider from './providers/service-provider/ServiceProvider';
+import { TeamActivityProvider } from '../features/team/components/team-activity-provider/TeamActivityProvider';
+import { WorkspaceShell } from './providers/workspace-shell/WorkspaceShell';
 import type { RootLayoutProps } from './RootLayoutProps';
 
 export class RootDocument {
@@ -11,7 +12,9 @@ export class RootDocument {
         <body>
           <Providers>
             <ServiceProvider>
-              <AppShell>{children}</AppShell>
+              <TeamActivityProvider>
+                <WorkspaceShell>{children}</WorkspaceShell>
+              </TeamActivityProvider>
             </ServiceProvider>
           </Providers>
         </body>

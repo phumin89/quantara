@@ -2,7 +2,8 @@
 
 import { Component } from 'react';
 import MenuIcon from '@mui/icons-material/Menu';
-import { Box, Drawer, IconButton } from '@mui/material';
+import ForumOutlinedIcon from '@mui/icons-material/ForumOutlined';
+import { Box, Button, Drawer, IconButton, Stack } from '@mui/material';
 import Navigation from './Navigation';
 import type { AppShellProps } from './AppShellProps';
 import type { AppShellState } from './AppShellState';
@@ -33,6 +34,8 @@ export default class AppShell extends Component<AppShellProps, AppShellState> {
     const { isMobile, open } = this.state;
     const navigation = (
       <Navigation
+        onOpenTeamChat={isMobile ? undefined : this.props.onOpenTeamChat}
+        teamChatOpen={this.props.teamChatOpen}
         onNavigate={() => {
           this.setState({ open: false });
         }}
@@ -79,16 +82,37 @@ export default class AppShell extends Component<AppShellProps, AppShellState> {
           sx={{ flexGrow: 1, minWidth: 0, p: { xs: 3, md: 6 } }}
         >
           {isMobile && (
-            <IconButton
-              onClick={() => {
-                this.setState({ open: true });
+            <Stack
+              direction="row"
+              sx={{
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                mb: 4,
               }}
-              aria-label="Open menu"
-              aria-expanded={open}
-              sx={{ mb: 4, color: 'text.primary', width: 44, height: 44 }}
             >
-              <MenuIcon />
-            </IconButton>
+              <IconButton
+                onClick={() => {
+                  this.setState({ open: true });
+                }}
+                aria-label="Open menu"
+                aria-expanded={open}
+                sx={{ color: 'text.primary', width: 44, height: 44 }}
+              >
+                <MenuIcon />
+              </IconButton>
+              {this.props.onOpenTeamChat && (
+                <Button
+                  onClick={this.props.onOpenTeamChat}
+                  startIcon={<ForumOutlinedIcon />}
+                  aria-haspopup="dialog"
+                  aria-expanded={this.props.teamChatOpen ?? false}
+                  aria-controls="team-chat-dialog"
+                  sx={{ minHeight: 44 }}
+                >
+                  Team chat
+                </Button>
+              )}
+            </Stack>
           )}
           {children}
         </Box>

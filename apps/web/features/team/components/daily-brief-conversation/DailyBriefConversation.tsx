@@ -24,6 +24,10 @@ export default class DailyBriefConversation extends Component<
 
   private readonly viewport = createRef<HTMLDivElement>();
 
+  private anchorOpened = false;
+
+  private readingPosition: number | null = null;
+
   public override componentDidMount(): void {
     this.scrollToLatest();
   }
@@ -33,6 +37,21 @@ export default class DailyBriefConversation extends Component<
   ): boolean {
     if (!this.props.active) {
       return false;
+    }
+
+    if (this.props.preservePosition) {
+      if (previousProps.date !== this.props.date) {
+        this.readingPosition = null;
+        this.anchorOpened = false;
+      } else if (
+        previousProps.active &&
+        this.viewport.current &&
+        previousProps.brief?.runs.length
+      ) {
+        this.readingPosition = this.viewport.current.scrollTop;
+      }
+
+      return true;
     }
 
     if (!previousProps.active || previousProps.date !== this.props.date) {
@@ -67,36 +86,57 @@ export default class DailyBriefConversation extends Component<
     return (
       <Paper
         variant="outlined"
-        sx={{ borderRadius: '8px', overflow: 'hidden' }}
+        sx={{
+          borderRadius: this.props.embedded ? 0 : '8px',
+          border: this.props.embedded ? 0 : undefined,
+          overflow: 'hidden',
+          height: this.props.embedded ? '100%' : undefined,
+          display: 'flex',
+          flexDirection: 'column',
+        }}
       >
-        <Box
-          sx={{
-            bgcolor: '#141414',
-            color: '#fff',
-            p: 2,
-            display: 'flex',
-            alignItems: 'center',
-            gap: 1,
-          }}
-        >
-          <ForumOutlinedIcon fontSize="small" />
-          <Typography
-            component="h2"
-            sx={{ fontSize: 15, fontWeight: 600, flex: 1 }}
+        {!this.props.embedded && (
+          <Box
+            sx={{
+              bgcolor: '#141414',
+              color: '#fff',
+              p: 2,
+              display: 'flex',
+              alignItems: 'center',
+              gap: 1,
+            }}
           >
-            Team conversation
-          </Typography>
-          <Typography variant="caption">{reports.length} reports</Typography>
-        </Box>
+            <ForumOutlinedIcon fontSize="small" />
+            <Typography
+              component="h2"
+              sx={{ fontSize: 15, fontWeight: 600, flex: 1 }}
+            >
+              Team conversation
+            </Typography>
+            <Typography variant="caption">{reports.length} reports</Typography>
+          </Box>
+        )}
         <Box
           ref={this.viewport}
           role="region"
           aria-label="Daily conversation"
           tabIndex={0}
           aria-busy={loading}
+          onScroll={() => {
+            if (
+              this.props.preservePosition &&
+              this.props.active &&
+              this.props.brief?.runs.length &&
+              this.viewport.current
+            ) {
+              this.readingPosition = this.viewport.current.scrollTop;
+            }
+          }}
           sx={{
             bgcolor: '#f6f6f6',
-            height: { xs: 420, md: 500 },
+            height: this.props.embedded ? 'auto' : { xs: 420, md: 500 },
+            flex: this.props.embedded ? 1 : undefined,
+            minHeight: 0,
             overflowY: 'auto',
             p: { xs: 2, sm: 3 },
             '&:focus-visible': {
@@ -123,14 +163,16 @@ export default class DailyBriefConversation extends Component<
             this.renderConversation()
           )}
         </Box>
-        <Box sx={{ px: 2, py: 1, borderTop: '1px solid #e0e0e0' }}>
-          <Typography
-            variant="caption"
-            color="text.secondary"
-          >
-            Recorded team reports · Dates in Bangkok time
-          </Typography>
-        </Box>
+        {!this.props.embedded && (
+          <Box sx={{ px: 2, py: 1, borderTop: '1px solid #e0e0e0' }}>
+            <Typography
+              variant="caption"
+              color="text.secondary"
+            >
+              Recorded team reports · Dates in Bangkok time
+            </Typography>
+          </Box>
+        )}
       </Paper>
     );
   }
@@ -138,6 +180,27 @@ export default class DailyBriefConversation extends Component<
   private scrollToLatest(): void {
     const viewport = this.viewport.current;
     if (this.props.active && viewport !== null) {
+      if (this.props.preservePosition && this.readingPosition !== null) {
+        viewport.scrollTop = this.readingPosition;
+
+        return;
+      }
+
+      const anchor = window.location.hash.slice(1);
+      const report = /^run-[0-9a-f-]{36}$/i.test(anchor)
+        ? document.getElementById(
+            `${this.props.idPrefix ?? 'run-'}${anchor.slice(4)}`,
+          )
+        : null;
+      if (!this.anchorOpened && report && viewport.contains(report)) {
+        viewport.scrollTop +=
+          report.getBoundingClientRect().top -
+          viewport.getBoundingClientRect().top;
+        this.anchorOpened = true;
+
+        return;
+      }
+
       viewport.scrollTop = viewport.scrollHeight;
     }
   }
@@ -184,6 +247,7 @@ export default class DailyBriefConversation extends Component<
         {brief.runs.map((run) => (
           <Stack
             key={run.id}
+            id={`${this.props.idPrefix ?? 'run-'}${run.id}`}
             spacing={2}
           >
             <Box sx={{ pb: 1, borderBottom: '1px solid #e0e0e0' }}>

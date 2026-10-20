@@ -6,6 +6,30 @@ using Quantara.Portfolio.Application;
 using Quantara.Portfolio.Domain;
 using Quantara.Portfolio.Infrastructure;
 
+if (args.Contains("--storage-only", StringComparer.Ordinal))
+{
+    await TradingStorageChecks.Run();
+    return;
+}
+
+if (args.Contains("--storage-sql-only", StringComparer.Ordinal))
+{
+    await TradingPersistenceSqlChecks.Run();
+    return;
+}
+
+if (args.Contains("--reconciliation-isolation-only", StringComparer.Ordinal))
+{
+    await TradingIsolationChecks.Run();
+    return;
+}
+
+if (args.Contains("--paper-provenance-only", StringComparer.Ordinal))
+{
+    PaperCapitalProvenanceChecks.Run();
+    return;
+}
+
 if (args.Contains("--telegram-receipts-sql-only", StringComparer.Ordinal))
 {
     await TradingNotificationReceiptSqlChecks.Run();
@@ -79,6 +103,8 @@ await HangfireDeliveryChecks.Run();
 await HangfireSqlChecks.Run();
 await TradingProjectionChecks.Run();
 await TradingEngineChecks.Run();
+await TradingIsolationChecks.Run();
+PaperCapitalProvenanceChecks.Run();
 await TradingPrecisionChecks.Run();
 await TradingActivationPrecisionChecks.Run();
 await TradingControlChecks.Run();

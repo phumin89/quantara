@@ -13,6 +13,7 @@ public static class ContinuousResearchChecks
         await FocusedHandoff();
         await DeferredRestart();
         await LegacyCooldownRestart();
+        await EvidenceWaitPreservesHistoricalFailure();
         Console.WriteLine(
             "Continuous research: focused routing, role provenance, selective handoff and durable deferral passed."
         );
@@ -168,6 +169,55 @@ public static class ContinuousResearchChecks
                 && state.NextRole == TeamRole.News
                 && state.NextRunAt == store.Schedule.NextRunAt,
             "Restart preserves budget reason, exact next time and queued specialist."
+        );
+    }
+
+    private static async Task EvidenceWaitPreservesHistoricalFailure()
+    {
+        var time = new ManualTimeProvider();
+        var store = new FakeCompanyScheduleStore(time.GetUtcNow());
+        var runs = new FakeTeamRunStore();
+        var failed = new TeamRun(
+            Guid.NewGuid(),
+            "fixture",
+            TeamRunStatus.Failed,
+            time.GetUtcNow().AddHours(-1),
+            time.GetUtcNow().AddMinutes(-59),
+            [],
+            "Codex worker failed [worker_runtime_failed]."
+        );
+        await runs.Save(failed, CancellationToken.None);
+        await store.Save(
+            store.Schedule with
+            {
+                NextRunAt = time.GetUtcNow().AddSeconds(1),
+                DeferredReason = "waiting_for_evidence",
+                LastRunId = failed.Id,
+            },
+            CancellationToken.None
+        );
+        var portfolio = new LoopSnapshotReader();
+        using var loop = new CompanyLoop(store, runs, new LoopCoordinator(runs, time), portfolio, time);
+        Check(
+            (await loop.Read(CancellationToken.None)).Status == CompanyLoopStatus.Waiting,
+            "Evidence deferral is visible separately from the historical failed report."
+        );
+        time.Advance(TimeSpan.FromSeconds(2));
+        var due = await loop.Read(CancellationToken.None);
+        Check(
+            due.Status == CompanyLoopStatus.Waiting
+                && due.Error is null
+                && (await runs.Latest(CancellationToken.None))?.Error == failed.Error,
+            "Crossing the recheck deadline must not resurrect a historical error or erase report evidence."
+        );
+        portfolio.Available = false;
+        await loop.Tick(CancellationToken.None);
+        var unavailable = await loop.Read(CancellationToken.None);
+        Check(
+            unavailable.Status == CompanyLoopStatus.WaitingForPortfolio
+                && unavailable.Error == "Waiting for verified portfolio data before the next analysis."
+                && (await runs.Latest(CancellationToken.None))?.Error == failed.Error,
+            "A current portfolio failure takes precedence over a retained evidence deferral."
         );
     }
 

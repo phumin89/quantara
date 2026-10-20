@@ -8,11 +8,10 @@ import {
   Stack,
   Tab,
   Tabs,
-  TextField,
   Typography,
 } from '@mui/material';
-import { TeamServiceContext } from '../../context/TeamServiceContext';
-import { TeamRunStatus } from '../../contracts/TeamRunStatus';
+import { TeamActivityContext } from '../../context/TeamActivityContext';
+import { TeamActivitySnapshot } from '../../presentation/TeamActivitySnapshot';
 import { CompanyLoopStatus } from '../../contracts/CompanyLoopStatus';
 import type { DailyBriefPageState } from './DailyBriefPageState';
 import OrderReviewPanel from '../../../orders/components/order-review-panel/OrderReviewPanel';
@@ -23,19 +22,21 @@ import TeamResearchStatus from '../team-research-status/TeamResearchStatus';
 import TeamMembers from '../team-members/TeamMembers';
 import TradingPanel from '../../../trading/components/trading-panel/TradingPanel';
 import { DailyBriefView } from './DailyBriefView';
+import { DateOnlyPicker } from '../../../../shared/components/date-only-picker/DateOnlyPicker';
 
 export default class DailyBriefPage extends Component<
   object,
   DailyBriefPageState
 > {
-  public static override readonly contextType = TeamServiceContext.value;
+  public static override readonly contextType = TeamActivityContext.value;
 
-  public override context: ContextType<typeof TeamServiceContext.value> = null;
+  public override context: ContextType<typeof TeamActivityContext.value> = null;
 
   public override state: DailyBriefPageState = {
     date: '',
     brief: null,
-    overview: null,
+    scopeRevision: -1,
+    newsScopeRevision: -1,
     loading: true,
     error: null,
     membersOpen: false,
@@ -51,13 +52,67 @@ export default class DailyBriefPage extends Component<
 
   private request: AbortController | null = null;
 
-  private timer: number | null = null;
+  private newsRequest: AbortController | null = null;
+
+  private observedScopeRevision = -1;
+
+  private observedFetchedAt: number | null = null;
+
+  private observedDate = '';
 
   private action: AbortController | null = null;
 
   public override componentDidMount(): void {
     this.mounted = true;
-    this.setState({ date: DailyBriefPage.today() }, () => void this.load());
+    const activity = TeamActivityContext.require(this.context);
+    this.observedScopeRevision = activity.scopeRevision;
+    this.observedFetchedAt = activity.fetchedAt;
+    this.observedDate = activity.date;
+    const query = new URLSearchParams(window.location.search);
+    const date = query.get('date') ?? '';
+    const validDate =
+      /^\d{4}-\d{2}-\d{2}$/.test(date) &&
+      !Number.isNaN(Date.parse(`${date}T00:00:00Z`)) &&
+      new Date(`${date}T00:00:00Z`).toISOString().slice(0, 10) === date &&
+      date >= '1970-01-01' &&
+      date <= TeamActivitySnapshot.today();
+    this.setState(
+      {
+        date: validDate ? date : TeamActivitySnapshot.today(),
+        view:
+          query.get('view') === DailyBriefView.TeamChat
+            ? DailyBriefView.TeamChat
+            : DailyBriefView.Trading,
+      },
+      () => void this.load(),
+    );
+  }
+
+  public override componentDidUpdate(): void {
+    const activity = TeamActivityContext.require(this.context);
+    const scopeChanged = this.observedScopeRevision !== activity.scopeRevision;
+    const dayChanged = this.observedDate !== activity.date;
+    this.observedScopeRevision = activity.scopeRevision;
+    this.observedDate = activity.date;
+    if (scopeChanged || dayChanged) {
+      this.request?.abort();
+      this.newsRequest?.abort();
+      this.newsRequest = null;
+      this.generation += 1;
+      this.setState(
+        { brief: null, news: null, error: null, loading: true },
+        () => void this.load(),
+      );
+
+      return;
+    }
+
+    if (this.observedFetchedAt !== activity.fetchedAt) {
+      this.observedFetchedAt = activity.fetchedAt;
+      if (this.state.date === activity.date) {
+        void this.loadNews();
+      }
+    }
   }
 
   public override componentWillUnmount(): void {
@@ -65,21 +120,26 @@ export default class DailyBriefPage extends Component<
     this.generation += 1;
     this.request?.abort();
     this.action?.abort();
-    this.clearTimer();
+    this.newsRequest?.abort();
   }
 
   public override render(): ReactNode {
-    const {
-      date,
-      brief,
-      loading,
-      error,
-      membersOpen,
-      controlling,
-      overview,
-      view,
-    } = this.state;
-    const { news, newsError } = this.state;
+    const { date, membersOpen, controlling, view } = this.state;
+    const activity = TeamActivityContext.require(this.context);
+    const current = date === activity.date;
+    const historicalBrief =
+      this.state.scopeRevision === activity.scopeRevision
+        ? this.state.brief
+        : null;
+    const brief = current ? activity.brief : historicalBrief;
+    const loading = current ? activity.loading : this.state.loading;
+    const error = this.state.error ?? (current ? activity.error : null);
+    const overview = activity.overview;
+    const news =
+      this.state.newsScopeRevision === activity.scopeRevision
+        ? this.state.news
+        : null;
+    const { newsError } = this.state;
 
     return (
       <Stack
@@ -121,19 +181,12 @@ export default class DailyBriefPage extends Component<
               Trading at a glance. Your team, one tab away.
             </Typography>
           </Box>
-          <TextField
-            type="date"
-            label="Date"
-            helperText="Report date · Bangkok"
+          <DateOnlyPicker
             value={date}
-            slotProps={{
-              inputLabel: { shrink: true },
-              htmlInput: { max: DailyBriefPage.today(), min: '1970-01-01' },
+            maxDate={TeamActivitySnapshot.today()}
+            onChange={(value) => {
+              this.selectDate(value);
             }}
-            onChange={(event) => {
-              this.selectDate(event.target.value);
-            }}
-            sx={{ width: { xs: 170, sm: 190 } }}
           />
         </Box>
         {error && (
@@ -220,6 +273,7 @@ export default class DailyBriefPage extends Component<
                 onControl={() => void this.controlCompany()}
               />
               <DailyBriefConversation
+                key={`${String(activity.scopeRevision)}:${date}`}
                 active={view === DailyBriefView.TeamChat}
                 brief={brief}
                 loading={loading}
@@ -248,7 +302,6 @@ export default class DailyBriefPage extends Component<
 
   private selectDate(date: string): void {
     this.request?.abort();
-    this.clearTimer();
     this.generation += 1;
     this.setState(
       { date, brief: null, error: null, loading: Boolean(date) },
@@ -265,7 +318,6 @@ export default class DailyBriefPage extends Component<
       return;
     }
 
-    this.clearTimer();
     this.request?.abort();
     const request = new AbortController();
     this.request = request;
@@ -275,27 +327,22 @@ export default class DailyBriefPage extends Component<
       loading: true,
       error: preserveError ? this.state.error : null,
     });
+    void this.loadNews();
     try {
-      const service = TeamServiceContext.require(this.context);
-      const [brief, overview, newsResult] = await Promise.all([
-        service.brief(date, request.signal),
-        service.get(request.signal),
-        service.news(request.signal).then(
-          (news) => ({ news, error: null as string | null }),
-          (cause: unknown) => ({
-            news: null,
-            error:
-              cause instanceof Error ? cause.message : 'Source unavailable.',
-          }),
-        ),
-      ]);
-      if (this.isCurrent(generation)) {
-        this.setState({
-          brief,
-          overview,
-          news: newsResult.news,
-          newsError: newsResult.error,
-        });
+      const activity = TeamActivityContext.require(this.context);
+      if (date === activity.date) {
+        await activity.refresh();
+      } else {
+        const brief = await activity.service.brief(date, request.signal);
+        if (this.isCurrent(generation)) {
+          const scoped = activity.overview
+            ? TeamActivitySnapshot.scope(activity.overview, brief)
+            : { ...brief, runs: [] };
+          this.setState({
+            brief: scoped,
+            scopeRevision: activity.scopeRevision,
+          });
+        }
       }
     } catch (cause) {
       if (this.isCurrent(generation) && !request.signal.aborted) {
@@ -308,51 +355,67 @@ export default class DailyBriefPage extends Component<
       }
     } finally {
       if (this.isCurrent(generation)) {
-        this.setState({ loading: false }, () => {
-          const status = this.state.overview?.latestRun?.status;
-          if (
-            this.mounted &&
-            generation === this.generation &&
-            date === DailyBriefPage.today() &&
-            (!this.state.overview ||
-              Boolean(this.state.error) ||
-              this.state.overview.company?.enabled ||
-              status === TeamRunStatus.Queued ||
-              status === TeamRunStatus.Running)
-          ) {
-            const interval =
-              status === TeamRunStatus.Queued ||
-              status === TeamRunStatus.Running
-                ? 5000
-                : 30000;
-            this.timer = window.setTimeout(() => void this.load(), interval);
-          }
-        });
+        this.setState({ loading: false });
       }
     }
   }
 
-  private clearTimer(): void {
-    if (this.timer !== null) {
-      window.clearTimeout(this.timer);
-      this.timer = null;
+  private async loadNews(): Promise<void> {
+    if (!this.mounted || this.newsRequest) {
+      return;
+    }
+
+    const request = new AbortController();
+    this.newsRequest = request;
+    const activity = TeamActivityContext.require(this.context);
+    try {
+      const news = await activity.service.news(request.signal);
+      if (
+        this.isNewsCurrent(request) &&
+        activity.scopeRevision ===
+          TeamActivityContext.require(this.context).scopeRevision
+      ) {
+        this.setState({
+          news,
+          newsError: null,
+          newsScopeRevision: activity.scopeRevision,
+        });
+      }
+    } catch (cause) {
+      if (this.isNewsCurrent(request)) {
+        this.setState({
+          news: null,
+          newsError:
+            cause instanceof Error ? cause.message : 'Source unavailable.',
+        });
+      }
+    } finally {
+      if (this.newsRequest === request) {
+        this.newsRequest = null;
+      }
     }
   }
 
+  private isNewsCurrent(request: AbortController): boolean {
+    return (
+      this.mounted && this.newsRequest === request && !request.signal.aborted
+    );
+  }
+
   private async controlCompany(): Promise<void> {
-    const company = this.state.overview?.company;
+    const activity = TeamActivityContext.require(this.context);
+    const company = activity.overview?.company;
     if (!company || this.action) {
       return;
     }
 
-    this.clearTimer();
     this.request?.abort();
     this.generation += 1;
     const action = new AbortController();
     this.action = action;
     this.setState({ controlling: true, error: null });
     try {
-      await TeamServiceContext.require(this.context).setCompanyEnabled(
+      await activity.service.setCompanyEnabled(
         company.status === CompanyLoopStatus.Error ? false : !company.enabled,
         action.signal,
       );
@@ -375,23 +438,5 @@ export default class DailyBriefPage extends Component<
 
   private isCurrent(generation: number): boolean {
     return this.mounted && generation === this.generation;
-  }
-
-  private static today(): string {
-    const parts = new Intl.DateTimeFormat('en', {
-      timeZone: 'Asia/Bangkok',
-      year: 'numeric',
-      month: '2-digit',
-      day: '2-digit',
-      numberingSystem: 'latn',
-    }).formatToParts(new Date());
-    const year = parts.find((part) => part.type === 'year');
-    const month = parts.find((part) => part.type === 'month');
-    const day = parts.find((part) => part.type === 'day');
-    if (!year || !month || !day) {
-      throw new Error('Unable to determine the current date.');
-    }
-
-    return `${year.value}-${month.value}-${day.value}`;
   }
 }

@@ -194,7 +194,10 @@ public sealed class RiskCapitalReader(
             walletAssets,
             uncertain,
             blocker
-        );
+        )
+        {
+            Source = CapitalSource.Broker,
+        };
         return new(snapshot, evidence, books);
     }
 }

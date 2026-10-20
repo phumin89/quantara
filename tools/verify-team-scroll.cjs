@@ -3,11 +3,23 @@ const fs = require('node:fs/promises');
 const { chromium } = require('playwright');
 
 async function verify() {
+  const url = process.env.TEST_URL;
+  assert(
+    url && /^http:\/\/127\.0\.0\.1:(3107|3108)$/.test(url),
+    'Use the isolated fixture server.',
+  );
   const browser = await chromium.launch({
     headless: true,
     channel: process.env.PLAYWRIGHT_CHANNEL,
   });
   const page = await browser.newPage({ reducedMotion: 'reduce' });
+  const main = page.getByRole('main');
+  const chooseDay = async (day) => {
+    await main.getByRole('button', { name: /choose date/i }).click();
+    await page.clock.runFor(300);
+    await page.getByRole('gridcell', { name: day, exact: true }).click();
+    await page.clock.runFor(300);
+  };
   let writes = 0;
   let count = 12;
   const errors = [];
@@ -30,9 +42,9 @@ async function verify() {
     const response = page.waitForResponse((item) =>
       item.url().includes('/api/team/brief?'),
     );
-    await page.clock.runFor(5100);
+    await page.clock.runFor(10100);
     await response;
-    await page
+    await main
       .getByText(`Scroll fixture ${String(count)}`, { exact: true })
       .waitFor({ state: 'attached' });
   };
@@ -40,7 +52,7 @@ async function verify() {
     await page.waitForFunction(
       () => {
         const element = document.querySelector(
-          '[aria-label="Daily conversation"]',
+          'main [aria-label="Daily conversation"]',
         );
         return (
           element &&
@@ -85,13 +97,11 @@ async function verify() {
   });
   try {
     await page.clock.install({ time: new Date('2026-10-19T03:00:00Z') });
-    await page.goto(
-      `${process.env.TEST_URL || 'http://127.0.0.1:3000'}/daily-brief`,
-    );
-    await page.getByLabel('Date', { exact: true }).waitFor();
+    await page.goto(`${url}/daily-brief`);
+    await main.getByRole('button', { name: /choose date/i }).waitFor();
     const chat = page.getByRole('tab', { name: 'Team chat', exact: true });
     await chat.click();
-    const conversation = page.getByRole('region', {
+    const conversation = main.getByRole('region', {
       name: 'Daily conversation',
     });
     await conversation
@@ -149,7 +159,7 @@ async function verify() {
     await conversation.evaluate((element) => {
       element.scrollTop = 0;
     });
-    await page.getByLabel('Date', { exact: true }).fill('2026-10-18');
+    await chooseDay('18');
     await conversation
       .getByText('reviewer · report 8 · verified fixture evidence', {
         exact: true,
@@ -175,10 +185,11 @@ async function verify() {
         ),
         `${name} overflow`,
       );
-      await page.screenshot({
-        path: `.impeccable/review/chat-scroll-${name}.png`,
-        fullPage: true,
-      });
+      if (process.env.CAPTURE !== '0')
+        await page.screenshot({
+          path: `.impeccable/review/chat-scroll-${name}.png`,
+          fullPage: true,
+        });
     }
     assert.equal(writes, 0, 'Chat following never sends commands');
     assert.deepEqual(errors, []);

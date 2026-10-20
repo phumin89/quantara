@@ -334,6 +334,7 @@ public static class PortfolioAccountingChecks
             false,
             null
         );
+        capital = capital with { Source = CapitalSource.Broker };
         var autonomy = new AutonomousTradingStatus(
             capital.ObservedAt,
             null,
@@ -360,6 +361,14 @@ public static class PortfolioAccountingChecks
         foreach (
             var unavailable in new[]
             {
+                capital with
+                {
+                    Source = CapitalSource.Unknown,
+                },
+                capital with
+                {
+                    Source = CapitalSource.Paper,
+                },
                 capital with
                 {
                     AccountKey = "another-account",

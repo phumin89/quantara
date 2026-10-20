@@ -1,0 +1,1350 @@
+{
+  "repository": "https://github.com/pixel-agents-hq/pixel-agents",
+  "commit": "b1bafd02896d90d83457266575a1e8e5011ce997",
+  "files": [
+    {
+      "path": "vendor/pixel-agents/upstream/LICENSE",
+      "upstreamPath": "LICENSE",
+      "sha256": "20729e3cb9d06d64cdf78d43070ead3eae96e67a5b35b1aa35b5520906cb8ab5",
+      "license": "MIT"
+    },
+    {
+      "path": "vendor/pixel-agents/upstream/core/src/adapter.ts",
+      "upstreamPath": "core/src/adapter.ts",
+      "sha256": "685af0a1f075aada84fc1a1e685f3e5d450af2b29f9f2187380714c8bf83b5e9",
+      "license": "MIT"
+    },
+    {
+      "path": "vendor/pixel-agents/upstream/core/src/assets/build.ts",
+      "upstreamPath": "core/src/assets/build.ts",
+      "sha256": "4e4b151b2cbfd150c09fe0f96df46171e9f642eb1461a21369bcfc60672729d4",
+      "license": "MIT"
+    },
+    {
+      "path": "vendor/pixel-agents/upstream/core/src/assets/colorUtils.ts",
+      "upstreamPath": "core/src/assets/colorUtils.ts",
+      "sha256": "c943c0416bbd17b34a30400902afcb35c1efd2b47a2ef83359b9234fb78473e3",
+      "license": "MIT"
+    },
+    {
+      "path": "vendor/pixel-agents/upstream/core/src/assets/constants.ts",
+      "upstreamPath": "core/src/assets/constants.ts",
+      "sha256": "c7e8765ee01b3d86c10dea41615e8c80ebad9c27e1f2fa48bf78a72a9a53533f",
+      "license": "MIT"
+    },
+    {
+      "path": "vendor/pixel-agents/upstream/core/src/assets/loader.ts",
+      "upstreamPath": "core/src/assets/loader.ts",
+      "sha256": "6a6e6fa606c2ed04c93226ad550c205d2506586958237166692b0f7bf1d3353f",
+      "license": "MIT"
+    },
+    {
+      "path": "vendor/pixel-agents/upstream/core/src/assets/manifestUtils.ts",
+      "upstreamPath": "core/src/assets/manifestUtils.ts",
+      "sha256": "eae9723287ca3d521f2ce1c3aa0f03b4ac02c0c003e1fd9e50182b32c843a076",
+      "license": "MIT"
+    },
+    {
+      "path": "vendor/pixel-agents/upstream/core/src/assets/pngDecoder.ts",
+      "upstreamPath": "core/src/assets/pngDecoder.ts",
+      "sha256": "6d675aadf017eaf4f1e768ded80469713051336a74387cdf0154615eeb246dbf",
+      "license": "MIT"
+    },
+    {
+      "path": "vendor/pixel-agents/upstream/core/src/assets/types.ts",
+      "upstreamPath": "core/src/assets/types.ts",
+      "sha256": "0c7b252ee931fec65a1e27314b9c486dfccfe5a311f24046fac38fce7300f8e5",
+      "license": "MIT"
+    },
+    {
+      "path": "vendor/pixel-agents/upstream/core/src/constants.ts",
+      "upstreamPath": "core/src/constants.ts",
+      "sha256": "63e80a9f707665131268a7e7f81e975c4d55abcace6a0c5d27d2ae1faaab358f",
+      "license": "MIT"
+    },
+    {
+      "path": "vendor/pixel-agents/upstream/core/src/index.ts",
+      "upstreamPath": "core/src/index.ts",
+      "sha256": "7ab7a66ef1dcf7a73214216d4ba5f6a36d3893b95be4edcbeeb6622f5c130fc6",
+      "license": "MIT"
+    },
+    {
+      "path": "vendor/pixel-agents/upstream/core/src/messages.ts",
+      "upstreamPath": "core/src/messages.ts",
+      "sha256": "d00c1c9621bac15bb415af6ec5a3360fe5a06bbbefa234fab9c13a762bf64f59",
+      "license": "MIT"
+    },
+    {
+      "path": "vendor/pixel-agents/upstream/core/src/normalizeProjectPath.ts",
+      "upstreamPath": "core/src/normalizeProjectPath.ts",
+      "sha256": "ec7b80d0d419408a2de7d01e69e96ea859c46155f710bb1100a0c6916ed3c235",
+      "license": "MIT"
+    },
+    {
+      "path": "vendor/pixel-agents/upstream/core/src/paletteUtils.ts",
+      "upstreamPath": "core/src/paletteUtils.ts",
+      "sha256": "2ab445e24ea5cf197bb50a8303b66e077c261acbf27180fa5b75b50d08d7eb42",
+      "license": "MIT"
+    },
+    {
+      "path": "vendor/pixel-agents/upstream/core/src/provider.ts",
+      "upstreamPath": "core/src/provider.ts",
+      "sha256": "c1101e082b9be6dac7ac61ccb369b9208b8111c47eb336df01f8b0bd6938cd9e",
+      "license": "MIT"
+    },
+    {
+      "path": "vendor/pixel-agents/upstream/core/src/schemas.ts",
+      "upstreamPath": "core/src/schemas.ts",
+      "sha256": "d780fc3d98caedb3ad5f01ccb4b9477d89e458e905495daf92d9726864829e5d",
+      "license": "MIT"
+    },
+    {
+      "path": "vendor/pixel-agents/upstream/core/src/teamProvider.ts",
+      "upstreamPath": "core/src/teamProvider.ts",
+      "sha256": "1da71763cb37f3f0a563cc56b36809a5166918e2f46236e885bcc03085b8db7f",
+      "license": "MIT"
+    },
+    {
+      "path": "vendor/pixel-agents/upstream/core/src/terminalAdapter.ts",
+      "upstreamPath": "core/src/terminalAdapter.ts",
+      "sha256": "351b0bb1eaee229940be33a21be29fa0b57132216cc826a7ac9ff46eee5468b7",
+      "license": "MIT"
+    },
+    {
+      "path": "vendor/pixel-agents/upstream/core/src/terminalFrames.ts",
+      "upstreamPath": "core/src/terminalFrames.ts",
+      "sha256": "39ac7f7bf0a2424caa10f318c49d96374a76ad5b872e02ffdc1f5d4b06daa4c3",
+      "license": "MIT"
+    },
+    {
+      "path": "vendor/pixel-agents/upstream/core/src/transport.ts",
+      "upstreamPath": "core/src/transport.ts",
+      "sha256": "1227df66a17279124156f14a4aa0895ef7024ea5d45256c56e80636aca6d224e",
+      "license": "MIT"
+    },
+    {
+      "path": "vendor/pixel-agents/upstream/webview-ui/index.html",
+      "upstreamPath": "webview-ui/index.html",
+      "sha256": "7577d9d1c2bc18046021d5940d6d3619b3d4e1a710660d233d004c85af7eb497",
+      "license": "MIT"
+    },
+    {
+      "path": "vendor/pixel-agents/upstream/webview-ui/package.json",
+      "upstreamPath": "webview-ui/package.json",
+      "sha256": "d81adcf6f1b57b2083f1e64ad5944a0aa05fdb7fc0e60a024f52a1c97874372e",
+      "license": "MIT"
+    },
+    {
+      "path": "vendor/pixel-agents/upstream/webview-ui/public/assets/carpets/carpet_0.png",
+      "upstreamPath": "webview-ui/public/assets/carpets/carpet_0.png",
+      "sha256": "a3a2b9789dd7b6e4345fe9f6204e668aa3b0ec52ae13cbc567e9abdac708a385",
+      "license": "MIT"
+    },
+    {
+      "path": "vendor/pixel-agents/upstream/webview-ui/public/assets/carpets/carpet_1.png",
+      "upstreamPath": "webview-ui/public/assets/carpets/carpet_1.png",
+      "sha256": "5fdc496323782dd846c0fa485b51da8827a907dc85058005905329d8d8d7b05e",
+      "license": "MIT"
+    },
+    {
+      "path": "vendor/pixel-agents/upstream/webview-ui/public/assets/carpets/carpet_2.png",
+      "upstreamPath": "webview-ui/public/assets/carpets/carpet_2.png",
+      "sha256": "926017fb0052dd8466b88618a309889edaa5c37b83b3b4f24ea52a00d84ce72e",
+      "license": "MIT"
+    },
+    {
+      "path": "vendor/pixel-agents/upstream/webview-ui/public/assets/characters/char_0.png",
+      "upstreamPath": "webview-ui/public/assets/characters/char_0.png",
+      "sha256": "9ece93c20765abb876e3dacfe01e0cd1801323eff41c1779be0c47369886c09a",
+      "license": "CC0-1.0 + MIT adaptation"
+    },
+    {
+      "path": "vendor/pixel-agents/upstream/webview-ui/public/assets/characters/char_1.png",
+      "upstreamPath": "webview-ui/public/assets/characters/char_1.png",
+      "sha256": "f935f033726b06f73dbbe590db5a23cfb20d2d02c1329fd5d67d57a262e9b05e",
+      "license": "CC0-1.0 + MIT adaptation"
+    },
+    {
+      "path": "vendor/pixel-agents/upstream/webview-ui/public/assets/characters/char_2.png",
+      "upstreamPath": "webview-ui/public/assets/characters/char_2.png",
+      "sha256": "9f63ee7be4577e1d60de3b64d198d387d1c09794bed3a608958e77c7b955575d",
+      "license": "CC0-1.0 + MIT adaptation"
+    },
+    {
+      "path": "vendor/pixel-agents/upstream/webview-ui/public/assets/characters/char_3.png",
+      "upstreamPath": "webview-ui/public/assets/characters/char_3.png",
+      "sha256": "ee5ebe0847471e4834e367f8a4108e6caf2f402ed506bbfebd90c64a43a79348",
+      "license": "CC0-1.0 + MIT adaptation"
+    },
+    {
+      "path": "vendor/pixel-agents/upstream/webview-ui/public/assets/characters/char_4.png",
+      "upstreamPath": "webview-ui/public/assets/characters/char_4.png",
+      "sha256": "fcf72626bbee3045d0f3e10bb87a41dab19a331d1affdfc53b483567f9c083aa",
+      "license": "CC0-1.0 + MIT adaptation"
+    },
+    {
+      "path": "vendor/pixel-agents/upstream/webview-ui/public/assets/characters/char_5.png",
+      "upstreamPath": "webview-ui/public/assets/characters/char_5.png",
+      "sha256": "4b2c639a50e089a4e3b87be440ffb52b5c5c8cfd6473a386f325b25f99db7381",
+      "license": "CC0-1.0 + MIT adaptation"
+    },
+    {
+      "path": "vendor/pixel-agents/upstream/webview-ui/public/assets/default-layout-1.json",
+      "upstreamPath": "webview-ui/public/assets/default-layout-1.json",
+      "sha256": "ac4a7ea4bb9ddaedead465dd2a9cd0761dc46361f19b1a609cfbf5cd3e7ff616",
+      "license": "MIT"
+    },
+    {
+      "path": "vendor/pixel-agents/upstream/webview-ui/public/assets/floors/floor_0.png",
+      "upstreamPath": "webview-ui/public/assets/floors/floor_0.png",
+      "sha256": "7ac83e6dafab1d73c2ee346880929718920123a7057b0cd9ee34dec6543eacc2",
+      "license": "MIT"
+    },
+    {
+      "path": "vendor/pixel-agents/upstream/webview-ui/public/assets/floors/floor_1.png",
+      "upstreamPath": "webview-ui/public/assets/floors/floor_1.png",
+      "sha256": "6199f7135d3f5e233e0f33a925a20e348fcc17e396347799ac7573241c1416b8",
+      "license": "MIT"
+    },
+    {
+      "path": "vendor/pixel-agents/upstream/webview-ui/public/assets/floors/floor_2.png",
+      "upstreamPath": "webview-ui/public/assets/floors/floor_2.png",
+      "sha256": "ac112a1f1b2bc0068649e7cfd8be47f9c794f343388fb2e4437f140eb2ed0dee",
+      "license": "MIT"
+    },
+    {
+      "path": "vendor/pixel-agents/upstream/webview-ui/public/assets/floors/floor_3.png",
+      "upstreamPath": "webview-ui/public/assets/floors/floor_3.png",
+      "sha256": "8befc77b71238aa01d19cc73d5fe747831e0e85b1a986838c02df2f76cdf2690",
+      "license": "MIT"
+    },
+    {
+      "path": "vendor/pixel-agents/upstream/webview-ui/public/assets/floors/floor_4.png",
+      "upstreamPath": "webview-ui/public/assets/floors/floor_4.png",
+      "sha256": "fdf610ffa4583c688ed72cc3b8c8b9496c4843b341c201ead62ba769804a9cbb",
+      "license": "MIT"
+    },
+    {
+      "path": "vendor/pixel-agents/upstream/webview-ui/public/assets/floors/floor_5.png",
+      "upstreamPath": "webview-ui/public/assets/floors/floor_5.png",
+      "sha256": "b935a21804f12c18e0b0cc4db2ba873e4e39c2c6cf80c59cc9dfa01c00e497bb",
+      "license": "MIT"
+    },
+    {
+      "path": "vendor/pixel-agents/upstream/webview-ui/public/assets/floors/floor_6.png",
+      "upstreamPath": "webview-ui/public/assets/floors/floor_6.png",
+      "sha256": "dc7dc8722e3a03b28385400b76079c168a5d93d50e7b06f6a40ebd1dd8f178b4",
+      "license": "MIT"
+    },
+    {
+      "path": "vendor/pixel-agents/upstream/webview-ui/public/assets/floors/floor_7.png",
+      "upstreamPath": "webview-ui/public/assets/floors/floor_7.png",
+      "sha256": "aa44b7de3ced5e0bb2ef3fbd8bd27e9993a83bf8b901c37da2a97c162d7e6dad",
+      "license": "MIT"
+    },
+    {
+      "path": "vendor/pixel-agents/upstream/webview-ui/public/assets/floors/floor_8.png",
+      "upstreamPath": "webview-ui/public/assets/floors/floor_8.png",
+      "sha256": "653e4534e66844d72ea78fef499c5052ed337f7c10ada4d818d21255ad27bdfe",
+      "license": "MIT"
+    },
+    {
+      "path": "vendor/pixel-agents/upstream/webview-ui/public/assets/furniture/BIN/BIN.png",
+      "upstreamPath": "webview-ui/public/assets/furniture/BIN/BIN.png",
+      "sha256": "738129d621fabc15b100f7129b854d1fe36201dbe92c0800bb1e80cb06793284",
+      "license": "MIT"
+    },
+    {
+      "path": "vendor/pixel-agents/upstream/webview-ui/public/assets/furniture/BIN/manifest.json",
+      "upstreamPath": "webview-ui/public/assets/furniture/BIN/manifest.json",
+      "sha256": "6d3c3d075e3f77bcf4bc2bbd6809bb8b747c34dcc557be881146ca0122dd7e35",
+      "license": "MIT"
+    },
+    {
+      "path": "vendor/pixel-agents/upstream/webview-ui/public/assets/furniture/BOOKSHELF/BOOKSHELF.png",
+      "upstreamPath": "webview-ui/public/assets/furniture/BOOKSHELF/BOOKSHELF.png",
+      "sha256": "bd05119962080fd4cff6697fec0c3730c5a9c3def01b31ca0fa929971144322e",
+      "license": "MIT"
+    },
+    {
+      "path": "vendor/pixel-agents/upstream/webview-ui/public/assets/furniture/BOOKSHELF/manifest.json",
+      "upstreamPath": "webview-ui/public/assets/furniture/BOOKSHELF/manifest.json",
+      "sha256": "f162c5c78a8e7e3357d99ac8dc9f9e5ebda30e5756474aa8891888eeb39bda7e",
+      "license": "MIT"
+    },
+    {
+      "path": "vendor/pixel-agents/upstream/webview-ui/public/assets/furniture/CACTUS/CACTUS.png",
+      "upstreamPath": "webview-ui/public/assets/furniture/CACTUS/CACTUS.png",
+      "sha256": "830dbba8ac4912858e22eed1e89d4290202113363a934389e54fffb794ad893b",
+      "license": "MIT"
+    },
+    {
+      "path": "vendor/pixel-agents/upstream/webview-ui/public/assets/furniture/CACTUS/manifest.json",
+      "upstreamPath": "webview-ui/public/assets/furniture/CACTUS/manifest.json",
+      "sha256": "78e4ecb0a0ccfe4da323ca5bcb32f1b43a79967f83b573bda44c917bd01605b3",
+      "license": "MIT"
+    },
+    {
+      "path": "vendor/pixel-agents/upstream/webview-ui/public/assets/furniture/CLOCK/CLOCK.png",
+      "upstreamPath": "webview-ui/public/assets/furniture/CLOCK/CLOCK.png",
+      "sha256": "f1ff567d71508dfdba37f2ff94ffde734940b56b3999e29b213ab6774e67b20f",
+      "license": "MIT"
+    },
+    {
+      "path": "vendor/pixel-agents/upstream/webview-ui/public/assets/furniture/CLOCK/manifest.json",
+      "upstreamPath": "webview-ui/public/assets/furniture/CLOCK/manifest.json",
+      "sha256": "10a2596fda4958c436bdc7fbae18bc2bd8fe72d58e1dd7a98b5392e6a9568944",
+      "license": "MIT"
+    },
+    {
+      "path": "vendor/pixel-agents/upstream/webview-ui/public/assets/furniture/COFFEE/COFFEE.png",
+      "upstreamPath": "webview-ui/public/assets/furniture/COFFEE/COFFEE.png",
+      "sha256": "6bed27c8de5a4ce98b3646d233803b3192cc5980c8f4caf779eb1344a87f8e0d",
+      "license": "MIT"
+    },
+    {
+      "path": "vendor/pixel-agents/upstream/webview-ui/public/assets/furniture/COFFEE/manifest.json",
+      "upstreamPath": "webview-ui/public/assets/furniture/COFFEE/manifest.json",
+      "sha256": "8f671ece319b7ee5b462bc2afe7bf072538ad71f08370ebede83ae926c67ccb8",
+      "license": "MIT"
+    },
+    {
+      "path": "vendor/pixel-agents/upstream/webview-ui/public/assets/furniture/COFFEE_TABLE/COFFEE_TABLE.png",
+      "upstreamPath": "webview-ui/public/assets/furniture/COFFEE_TABLE/COFFEE_TABLE.png",
+      "sha256": "0b0fd17c95b29e3b86da00031452166a1400a534c8adff1dc98bb4e5ce72aad3",
+      "license": "MIT"
+    },
+    {
+      "path": "vendor/pixel-agents/upstream/webview-ui/public/assets/furniture/COFFEE_TABLE/manifest.json",
+      "upstreamPath": "webview-ui/public/assets/furniture/COFFEE_TABLE/manifest.json",
+      "sha256": "acca0880e88e6ada927eddef632559ed7941ce3c5bc2d8a576f4a33dd98034cb",
+      "license": "MIT"
+    },
+    {
+      "path": "vendor/pixel-agents/upstream/webview-ui/public/assets/furniture/CUSHIONED_BENCH/CUSHIONED_BENCH.png",
+      "upstreamPath": "webview-ui/public/assets/furniture/CUSHIONED_BENCH/CUSHIONED_BENCH.png",
+      "sha256": "b66ba12ce7921b3ab34515c319bc72775c49351d75ad146c6b29adf46459eaa0",
+      "license": "MIT"
+    },
+    {
+      "path": "vendor/pixel-agents/upstream/webview-ui/public/assets/furniture/CUSHIONED_BENCH/manifest.json",
+      "upstreamPath": "webview-ui/public/assets/furniture/CUSHIONED_BENCH/manifest.json",
+      "sha256": "854d701f00f9dec17141f266edf12868c1faa396ca88596cb1c2c9dd0fc28a27",
+      "license": "MIT"
+    },
+    {
+      "path": "vendor/pixel-agents/upstream/webview-ui/public/assets/furniture/CUSHIONED_CHAIR/CUSHIONED_CHAIR_BACK.png",
+      "upstreamPath": "webview-ui/public/assets/furniture/CUSHIONED_CHAIR/CUSHIONED_CHAIR_BACK.png",
+      "sha256": "7eba17a7c86115caba0246599988e3169dc766af7814e51c7afa566e0fe40846",
+      "license": "MIT"
+    },
+    {
+      "path": "vendor/pixel-agents/upstream/webview-ui/public/assets/furniture/CUSHIONED_CHAIR/CUSHIONED_CHAIR_FRONT.png",
+      "upstreamPath": "webview-ui/public/assets/furniture/CUSHIONED_CHAIR/CUSHIONED_CHAIR_FRONT.png",
+      "sha256": "30a021a8356125a743be8352da9756ec6d0832e232aca1ae2dd76a5e038a2208",
+      "license": "MIT"
+    },
+    {
+      "path": "vendor/pixel-agents/upstream/webview-ui/public/assets/furniture/CUSHIONED_CHAIR/CUSHIONED_CHAIR_SIDE.png",
+      "upstreamPath": "webview-ui/public/assets/furniture/CUSHIONED_CHAIR/CUSHIONED_CHAIR_SIDE.png",
+      "sha256": "ac2d90e87ce198271f50fd3e9161c4c9b8ea4befd3befdb0c5c9720256febb70",
+      "license": "MIT"
+    },
+    {
+      "path": "vendor/pixel-agents/upstream/webview-ui/public/assets/furniture/CUSHIONED_CHAIR/manifest.json",
+      "upstreamPath": "webview-ui/public/assets/furniture/CUSHIONED_CHAIR/manifest.json",
+      "sha256": "a8a1a949ca45f9b0c65ac2ff2726004ec1a3a60db842f448a6de31a1be9cd8ec",
+      "license": "MIT"
+    },
+    {
+      "path": "vendor/pixel-agents/upstream/webview-ui/public/assets/furniture/DESK/DESK_FRONT.png",
+      "upstreamPath": "webview-ui/public/assets/furniture/DESK/DESK_FRONT.png",
+      "sha256": "4df9ed2b04efb98dbd901d400d65fa5a1729e4508787ad70eb93e747017220ca",
+      "license": "MIT"
+    },
+    {
+      "path": "vendor/pixel-agents/upstream/webview-ui/public/assets/furniture/DESK/DESK_SIDE.png",
+      "upstreamPath": "webview-ui/public/assets/furniture/DESK/DESK_SIDE.png",
+      "sha256": "b5421b3b3fc30b4a295c67c67d4a138877a1d179b532ffe25973200277107ff9",
+      "license": "MIT"
+    },
+    {
+      "path": "vendor/pixel-agents/upstream/webview-ui/public/assets/furniture/DESK/manifest.json",
+      "upstreamPath": "webview-ui/public/assets/furniture/DESK/manifest.json",
+      "sha256": "2f68f60b61f6ee5aaa40b526af7dcf8581072d936b38ae3a0a25e5caa61cf3db",
+      "license": "MIT"
+    },
+    {
+      "path": "vendor/pixel-agents/upstream/webview-ui/public/assets/furniture/DOUBLE_BOOKSHELF/DOUBLE_BOOKSHELF.png",
+      "upstreamPath": "webview-ui/public/assets/furniture/DOUBLE_BOOKSHELF/DOUBLE_BOOKSHELF.png",
+      "sha256": "b27bd0cc4c73dab38eebbf6b8ed68257acb8264d23a8e87c2cf5026138842cda",
+      "license": "MIT"
+    },
+    {
+      "path": "vendor/pixel-agents/upstream/webview-ui/public/assets/furniture/DOUBLE_BOOKSHELF/manifest.json",
+      "upstreamPath": "webview-ui/public/assets/furniture/DOUBLE_BOOKSHELF/manifest.json",
+      "sha256": "e3af4890e8f9e140a58b3db79c1718c6bf742ae4dca21aa17b2dcf235465db91",
+      "license": "MIT"
+    },
+    {
+      "path": "vendor/pixel-agents/upstream/webview-ui/public/assets/furniture/HANGING_PLANT/HANGING_PLANT.png",
+      "upstreamPath": "webview-ui/public/assets/furniture/HANGING_PLANT/HANGING_PLANT.png",
+      "sha256": "a6e9c025d0a84e960d3c84d55f18d01585eb8e079cd84f9970de08d636877de2",
+      "license": "MIT"
+    },
+    {
+      "path": "vendor/pixel-agents/upstream/webview-ui/public/assets/furniture/HANGING_PLANT/manifest.json",
+      "upstreamPath": "webview-ui/public/assets/furniture/HANGING_PLANT/manifest.json",
+      "sha256": "200ca5deaef21d2b135dd8d894a4445f96ecf43d325321b904e35c0088c3aed1",
+      "license": "MIT"
+    },
+    {
+      "path": "vendor/pixel-agents/upstream/webview-ui/public/assets/furniture/LARGE_PAINTING/LARGE_PAINTING.png",
+      "upstreamPath": "webview-ui/public/assets/furniture/LARGE_PAINTING/LARGE_PAINTING.png",
+      "sha256": "f6355392631f0004ccd49c3d9ddf4df8ef60c59ec8b23d0b3fb1d0dce6c01c2b",
+      "license": "MIT"
+    },
+    {
+      "path": "vendor/pixel-agents/upstream/webview-ui/public/assets/furniture/LARGE_PAINTING/manifest.json",
+      "upstreamPath": "webview-ui/public/assets/furniture/LARGE_PAINTING/manifest.json",
+      "sha256": "906af931475def2450e40d553e2e900b2b2068f5d990b1301433e622942046bf",
+      "license": "MIT"
+    },
+    {
+      "path": "vendor/pixel-agents/upstream/webview-ui/public/assets/furniture/LARGE_PLANT/LARGE_PLANT.png",
+      "upstreamPath": "webview-ui/public/assets/furniture/LARGE_PLANT/LARGE_PLANT.png",
+      "sha256": "196a4f1748160cdbf69400e370b1d7d1254b49902b8c091bcabd7676934f3149",
+      "license": "MIT"
+    },
+    {
+      "path": "vendor/pixel-agents/upstream/webview-ui/public/assets/furniture/LARGE_PLANT/manifest.json",
+      "upstreamPath": "webview-ui/public/assets/furniture/LARGE_PLANT/manifest.json",
+      "sha256": "3d45775a4c7930f4d53c3436d9eda4527633eb51a572c106acea1f90b4cf5184",
+      "license": "MIT"
+    },
+    {
+      "path": "vendor/pixel-agents/upstream/webview-ui/public/assets/furniture/PC/PC_BACK.png",
+      "upstreamPath": "webview-ui/public/assets/furniture/PC/PC_BACK.png",
+      "sha256": "48f3d9aa7f571cc0ce1e5d702977987432bca292995ff67e36d47361d4b6f9a0",
+      "license": "MIT"
+    },
+    {
+      "path": "vendor/pixel-agents/upstream/webview-ui/public/assets/furniture/PC/PC_FRONT_OFF.png",
+      "upstreamPath": "webview-ui/public/assets/furniture/PC/PC_FRONT_OFF.png",
+      "sha256": "a5d6f40f500f14f440cf981950630f5433521faa7578ae0f83684b9ededdc2bf",
+      "license": "MIT"
+    },
+    {
+      "path": "vendor/pixel-agents/upstream/webview-ui/public/assets/furniture/PC/PC_FRONT_ON_1.png",
+      "upstreamPath": "webview-ui/public/assets/furniture/PC/PC_FRONT_ON_1.png",
+      "sha256": "d00d95a9c4718f770dee1a93240be8b7dc6d2e8abab4071179dd79c2d73a9337",
+      "license": "MIT"
+    },
+    {
+      "path": "vendor/pixel-agents/upstream/webview-ui/public/assets/furniture/PC/PC_FRONT_ON_2.png",
+      "upstreamPath": "webview-ui/public/assets/furniture/PC/PC_FRONT_ON_2.png",
+      "sha256": "dc083d31848be3661b4ea571ee8d8d7e5dcd34cdbcef48d4dd6c444166eb7a69",
+      "license": "MIT"
+    },
+    {
+      "path": "vendor/pixel-agents/upstream/webview-ui/public/assets/furniture/PC/PC_FRONT_ON_3.png",
+      "upstreamPath": "webview-ui/public/assets/furniture/PC/PC_FRONT_ON_3.png",
+      "sha256": "773c5e0cfee45ad12669c082ff26c0041f12a6369e4622db3eab35685aeabc0f",
+      "license": "MIT"
+    },
+    {
+      "path": "vendor/pixel-agents/upstream/webview-ui/public/assets/furniture/PC/PC_SIDE.png",
+      "upstreamPath": "webview-ui/public/assets/furniture/PC/PC_SIDE.png",
+      "sha256": "c327f64a39cc84d3a2c4e97b7165e5a07e355003d0f1a9bca27fc8f8deef9603",
+      "license": "MIT"
+    },
+    {
+      "path": "vendor/pixel-agents/upstream/webview-ui/public/assets/furniture/PC/manifest.json",
+      "upstreamPath": "webview-ui/public/assets/furniture/PC/manifest.json",
+      "sha256": "4f33a91b789e22c4e3f5aa05b53eb903581612ef3aa004330143646b8c830f82",
+      "license": "MIT"
+    },
+    {
+      "path": "vendor/pixel-agents/upstream/webview-ui/public/assets/furniture/PLANT/PLANT.png",
+      "upstreamPath": "webview-ui/public/assets/furniture/PLANT/PLANT.png",
+      "sha256": "b9f845e7930e685161a21ac0f1743c2906cb7cbb0bd6b79ef1e4fb5aafff98c6",
+      "license": "MIT"
+    },
+    {
+      "path": "vendor/pixel-agents/upstream/webview-ui/public/assets/furniture/PLANT/manifest.json",
+      "upstreamPath": "webview-ui/public/assets/furniture/PLANT/manifest.json",
+      "sha256": "94bfbdc7ba97c86517a8b6bcefda8b23b7c10128b479eabc433ba72ba1e136f5",
+      "license": "MIT"
+    },
+    {
+      "path": "vendor/pixel-agents/upstream/webview-ui/public/assets/furniture/PLANT_2/PLANT_2.png",
+      "upstreamPath": "webview-ui/public/assets/furniture/PLANT_2/PLANT_2.png",
+      "sha256": "b0d2e82fefd1f7ebada9656260571aa3e810db55975495e72a62d9ce8a878b42",
+      "license": "MIT"
+    },
+    {
+      "path": "vendor/pixel-agents/upstream/webview-ui/public/assets/furniture/PLANT_2/manifest.json",
+      "upstreamPath": "webview-ui/public/assets/furniture/PLANT_2/manifest.json",
+      "sha256": "238248bdd213f7f6a18875153ccaee50e5b7d44f916a9f310abbef516197c6ba",
+      "license": "MIT"
+    },
+    {
+      "path": "vendor/pixel-agents/upstream/webview-ui/public/assets/furniture/POT/POT.png",
+      "upstreamPath": "webview-ui/public/assets/furniture/POT/POT.png",
+      "sha256": "cc2889e6fe22350bbeba94d55157f5bb2a38fe40f3a85ef96429f1af88506585",
+      "license": "MIT"
+    },
+    {
+      "path": "vendor/pixel-agents/upstream/webview-ui/public/assets/furniture/POT/manifest.json",
+      "upstreamPath": "webview-ui/public/assets/furniture/POT/manifest.json",
+      "sha256": "1e6106dd6e888adae7701597f565e0a9c1741d72918708b6421dafcfb7cb7d5e",
+      "license": "MIT"
+    },
+    {
+      "path": "vendor/pixel-agents/upstream/webview-ui/public/assets/furniture/SMALL_PAINTING/SMALL_PAINTING.png",
+      "upstreamPath": "webview-ui/public/assets/furniture/SMALL_PAINTING/SMALL_PAINTING.png",
+      "sha256": "15f370af43455d303b5ccb21429e298f7a603c3b6db10d6ed9270aa62caa71a3",
+      "license": "MIT"
+    },
+    {
+      "path": "vendor/pixel-agents/upstream/webview-ui/public/assets/furniture/SMALL_PAINTING/manifest.json",
+      "upstreamPath": "webview-ui/public/assets/furniture/SMALL_PAINTING/manifest.json",
+      "sha256": "02f09ec0d22404f102f609f8aabc0ca41f3e4d9af4274206167088db95cd13f6",
+      "license": "MIT"
+    },
+    {
+      "path": "vendor/pixel-agents/upstream/webview-ui/public/assets/furniture/SMALL_PAINTING_2/SMALL_PAINTING_2.png",
+      "upstreamPath": "webview-ui/public/assets/furniture/SMALL_PAINTING_2/SMALL_PAINTING_2.png",
+      "sha256": "148d161726fb08dc7887e75e91f0332bf69d1aadfc649dce6fbc4b2678f5d0f0",
+      "license": "MIT"
+    },
+    {
+      "path": "vendor/pixel-agents/upstream/webview-ui/public/assets/furniture/SMALL_PAINTING_2/manifest.json",
+      "upstreamPath": "webview-ui/public/assets/furniture/SMALL_PAINTING_2/manifest.json",
+      "sha256": "b023f4e593a868efb5dc98ac283e9a15d923848514849ed6e836944d6605867a",
+      "license": "MIT"
+    },
+    {
+      "path": "vendor/pixel-agents/upstream/webview-ui/public/assets/furniture/SMALL_TABLE/SMALL_TABLE_FRONT.png",
+      "upstreamPath": "webview-ui/public/assets/furniture/SMALL_TABLE/SMALL_TABLE_FRONT.png",
+      "sha256": "dc224670ea2c5752830143337fd8b3a080f93980287706d4efd614aaabd4882f",
+      "license": "MIT"
+    },
+    {
+      "path": "vendor/pixel-agents/upstream/webview-ui/public/assets/furniture/SMALL_TABLE/SMALL_TABLE_SIDE.png",
+      "upstreamPath": "webview-ui/public/assets/furniture/SMALL_TABLE/SMALL_TABLE_SIDE.png",
+      "sha256": "5568526f6393ad643606b0095eceee5b7674b5588d7105144adc3fb99f0a3f42",
+      "license": "MIT"
+    },
+    {
+      "path": "vendor/pixel-agents/upstream/webview-ui/public/assets/furniture/SMALL_TABLE/manifest.json",
+      "upstreamPath": "webview-ui/public/assets/furniture/SMALL_TABLE/manifest.json",
+      "sha256": "cfd626759f52304db591b28caab63832813e846a02bd974e4cee43950005e854",
+      "license": "MIT"
+    },
+    {
+      "path": "vendor/pixel-agents/upstream/webview-ui/public/assets/furniture/SOFA/SOFA_BACK.png",
+      "upstreamPath": "webview-ui/public/assets/furniture/SOFA/SOFA_BACK.png",
+      "sha256": "62a40318fce1d3166f1ea3811ca2081b39ad3161974c6bcd2edb0bdaf9b06d08",
+      "license": "MIT"
+    },
+    {
+      "path": "vendor/pixel-agents/upstream/webview-ui/public/assets/furniture/SOFA/SOFA_FRONT.png",
+      "upstreamPath": "webview-ui/public/assets/furniture/SOFA/SOFA_FRONT.png",
+      "sha256": "7e4c7e98e46d32daa2776651f6f413f68a84252b357b01d722fce6bb2a0ca52f",
+      "license": "MIT"
+    },
+    {
+      "path": "vendor/pixel-agents/upstream/webview-ui/public/assets/furniture/SOFA/SOFA_SIDE.png",
+      "upstreamPath": "webview-ui/public/assets/furniture/SOFA/SOFA_SIDE.png",
+      "sha256": "b583fa6261dbbc4c4020c0a887023d3f707a70b7e5524535d541b453b22f9e94",
+      "license": "MIT"
+    },
+    {
+      "path": "vendor/pixel-agents/upstream/webview-ui/public/assets/furniture/SOFA/manifest.json",
+      "upstreamPath": "webview-ui/public/assets/furniture/SOFA/manifest.json",
+      "sha256": "aa3615e2e2b9de9766d1936d06f630c0a4053030cef7f9f054f16cba6661b8d6",
+      "license": "MIT"
+    },
+    {
+      "path": "vendor/pixel-agents/upstream/webview-ui/public/assets/furniture/TABLE_FRONT/TABLE_FRONT.png",
+      "upstreamPath": "webview-ui/public/assets/furniture/TABLE_FRONT/TABLE_FRONT.png",
+      "sha256": "fef9638fd372f081f4c80cc52f9bcb4be8db9db194fa46f88968ec08e5463b4a",
+      "license": "MIT"
+    },
+    {
+      "path": "vendor/pixel-agents/upstream/webview-ui/public/assets/furniture/TABLE_FRONT/manifest.json",
+      "upstreamPath": "webview-ui/public/assets/furniture/TABLE_FRONT/manifest.json",
+      "sha256": "d7868924b6edd92f0b6f135e254fe7c291fe1134c56f84fc3b98b2ca1bc72373",
+      "license": "MIT"
+    },
+    {
+      "path": "vendor/pixel-agents/upstream/webview-ui/public/assets/furniture/WHITEBOARD/WHITEBOARD.png",
+      "upstreamPath": "webview-ui/public/assets/furniture/WHITEBOARD/WHITEBOARD.png",
+      "sha256": "42fb63a8d8041f602c6cd0e7491be3ea95c3f4699b6a5ba6e47851ba8a473059",
+      "license": "MIT"
+    },
+    {
+      "path": "vendor/pixel-agents/upstream/webview-ui/public/assets/furniture/WHITEBOARD/manifest.json",
+      "upstreamPath": "webview-ui/public/assets/furniture/WHITEBOARD/manifest.json",
+      "sha256": "70c1924a08f76f042a8bcaf0d56e7fd3724e717ea207f5ab31e0ec9c3ea1dd67",
+      "license": "MIT"
+    },
+    {
+      "path": "vendor/pixel-agents/upstream/webview-ui/public/assets/furniture/WOODEN_BENCH/WOODEN_BENCH.png",
+      "upstreamPath": "webview-ui/public/assets/furniture/WOODEN_BENCH/WOODEN_BENCH.png",
+      "sha256": "b2a889a7e67dd1bd59ce1035daffeda8c0b34e696f07658ee0bc8ae514e1af49",
+      "license": "MIT"
+    },
+    {
+      "path": "vendor/pixel-agents/upstream/webview-ui/public/assets/furniture/WOODEN_BENCH/manifest.json",
+      "upstreamPath": "webview-ui/public/assets/furniture/WOODEN_BENCH/manifest.json",
+      "sha256": "cc37d68a0cd451d4329b8efc43e6b01ac157df69f928751b2eca27c96c07407a",
+      "license": "MIT"
+    },
+    {
+      "path": "vendor/pixel-agents/upstream/webview-ui/public/assets/furniture/WOODEN_CHAIR/WOODEN_CHAIR_BACK.png",
+      "upstreamPath": "webview-ui/public/assets/furniture/WOODEN_CHAIR/WOODEN_CHAIR_BACK.png",
+      "sha256": "244fd28f4650e469d836f4287613e834805d3a00b7e14f68ae8415dd30411d5c",
+      "license": "MIT"
+    },
+    {
+      "path": "vendor/pixel-agents/upstream/webview-ui/public/assets/furniture/WOODEN_CHAIR/WOODEN_CHAIR_FRONT.png",
+      "upstreamPath": "webview-ui/public/assets/furniture/WOODEN_CHAIR/WOODEN_CHAIR_FRONT.png",
+      "sha256": "fb4c4bf7def68c98e4eedffe1d9ee0cbeaa054fc5bc4aa6785f37cc83b1cd44d",
+      "license": "MIT"
+    },
+    {
+      "path": "vendor/pixel-agents/upstream/webview-ui/public/assets/furniture/WOODEN_CHAIR/WOODEN_CHAIR_SIDE.png",
+      "upstreamPath": "webview-ui/public/assets/furniture/WOODEN_CHAIR/WOODEN_CHAIR_SIDE.png",
+      "sha256": "b57e3fd470a60e9f9800e9cdfe629b2a187cc0f936ed81314522a17fc7bb2198",
+      "license": "MIT"
+    },
+    {
+      "path": "vendor/pixel-agents/upstream/webview-ui/public/assets/furniture/WOODEN_CHAIR/manifest.json",
+      "upstreamPath": "webview-ui/public/assets/furniture/WOODEN_CHAIR/manifest.json",
+      "sha256": "ba184e498776b354b5642f579499c1a60a0b4e5a4fdbe452009d4cca2cc5cc9b",
+      "license": "MIT"
+    },
+    {
+      "path": "vendor/pixel-agents/upstream/webview-ui/public/assets/pets/claudio/manifest.json",
+      "upstreamPath": "webview-ui/public/assets/pets/claudio/manifest.json",
+      "sha256": "ccd0ba576f92542087da3a70ace663f21d65fc0969bae7dc5a8d69ec353c07ce",
+      "license": "MIT"
+    },
+    {
+      "path": "vendor/pixel-agents/upstream/webview-ui/public/assets/pets/claudio/pet.png",
+      "upstreamPath": "webview-ui/public/assets/pets/claudio/pet.png",
+      "sha256": "174acbe0a597830bd311c241eed3ac8ad70bd46a55a78b6d9a77ae1728f23185",
+      "license": "MIT"
+    },
+    {
+      "path": "vendor/pixel-agents/upstream/webview-ui/public/assets/pets/gitcat/manifest.json",
+      "upstreamPath": "webview-ui/public/assets/pets/gitcat/manifest.json",
+      "sha256": "dea53fd2b975ba95ccf3eab6cf147df935d22226b7657afe9eb6373ed39c6f67",
+      "license": "MIT"
+    },
+    {
+      "path": "vendor/pixel-agents/upstream/webview-ui/public/assets/pets/gitcat/pet.png",
+      "upstreamPath": "webview-ui/public/assets/pets/gitcat/pet.png",
+      "sha256": "cb4163bc000da739d988dda58402b4a27cea970ae772d0b107bef515af092a68",
+      "license": "MIT"
+    },
+    {
+      "path": "vendor/pixel-agents/upstream/webview-ui/public/assets/walls/wall_0.png",
+      "upstreamPath": "webview-ui/public/assets/walls/wall_0.png",
+      "sha256": "f2afc6dacc44986a388695a720839ed00da03e9b308d6c727f5292740a62adfa",
+      "license": "MIT"
+    },
+    {
+      "path": "vendor/pixel-agents/upstream/webview-ui/public/fonts/FSPixelSansUnicode-Regular.ttf",
+      "upstreamPath": "webview-ui/public/fonts/FSPixelSansUnicode-Regular.ttf",
+      "sha256": "3b4e53ff037fc509b24688029948b55111a5e6089f56d669f356864b4dccd819",
+      "license": "MIT"
+    },
+    {
+      "path": "vendor/pixel-agents/upstream/webview-ui/src/App.tsx",
+      "upstreamPath": "webview-ui/src/App.tsx",
+      "sha256": "11a4ffb955fa2a819db761a3806e3349ada97e314ecbf03183449fa748222402",
+      "license": "MIT"
+    },
+    {
+      "path": "vendor/pixel-agents/upstream/webview-ui/src/browserMock.ts",
+      "upstreamPath": "webview-ui/src/browserMock.ts",
+      "sha256": "14c4e0cfd4cf763256ad4519d231f632bd78db77a1d5474926996cbfd812d787",
+      "license": "MIT"
+    },
+    {
+      "path": "vendor/pixel-agents/upstream/webview-ui/src/changelogData.ts",
+      "upstreamPath": "webview-ui/src/changelogData.ts",
+      "sha256": "4f5637d4e272ab371380e70fdabedc313c922b71e38c55502b576e25c0d2a490",
+      "license": "MIT"
+    },
+    {
+      "path": "vendor/pixel-agents/upstream/webview-ui/src/components/AgentCard.tsx",
+      "upstreamPath": "webview-ui/src/components/AgentCard.tsx",
+      "sha256": "439c23894439e67830398bfc95e0cf4b144925adc6669e5dbdc0ce88ed695696",
+      "license": "MIT"
+    },
+    {
+      "path": "vendor/pixel-agents/upstream/webview-ui/src/components/AgentCardBar.tsx",
+      "upstreamPath": "webview-ui/src/components/AgentCardBar.tsx",
+      "sha256": "9c4cbf099565d088d555e20b571ac37d1e79814fe04f44f4ba04addd0afcc6c8",
+      "license": "MIT"
+    },
+    {
+      "path": "vendor/pixel-agents/upstream/webview-ui/src/components/BottomToolbar.tsx",
+      "upstreamPath": "webview-ui/src/components/BottomToolbar.tsx",
+      "sha256": "d40a668e6078d43f4199713e5bfbb101cda282a221bfad6048b90e91270b5e8e",
+      "license": "MIT"
+    },
+    {
+      "path": "vendor/pixel-agents/upstream/webview-ui/src/components/ChangelogModal.tsx",
+      "upstreamPath": "webview-ui/src/components/ChangelogModal.tsx",
+      "sha256": "a69ac7b1bc704801fc01479ea5a446024ad447974d3089f117a4c59074e23464",
+      "license": "MIT"
+    },
+    {
+      "path": "vendor/pixel-agents/upstream/webview-ui/src/components/CharacterMugShot.tsx",
+      "upstreamPath": "webview-ui/src/components/CharacterMugShot.tsx",
+      "sha256": "606c9dc79cc389f141e3920271f484eb7c0c73d5161771195f0d3b611e26abfe",
+      "license": "MIT"
+    },
+    {
+      "path": "vendor/pixel-agents/upstream/webview-ui/src/components/ConnectionIndicator.tsx",
+      "upstreamPath": "webview-ui/src/components/ConnectionIndicator.tsx",
+      "sha256": "1fd454a61ab2f177f4c9571b36f530d6fef361cdd09f948640660e95e3daea1e",
+      "license": "MIT"
+    },
+    {
+      "path": "vendor/pixel-agents/upstream/webview-ui/src/components/DebugView.tsx",
+      "upstreamPath": "webview-ui/src/components/DebugView.tsx",
+      "sha256": "1a9ba4eed7ae9beb71b7e937c0b65940de0f21f3e999cafc86f98a5d23bc5935",
+      "license": "MIT"
+    },
+    {
+      "path": "vendor/pixel-agents/upstream/webview-ui/src/components/DirectoryModal.tsx",
+      "upstreamPath": "webview-ui/src/components/DirectoryModal.tsx",
+      "sha256": "72b8a83c8ddd159a2f7f5a5d1635661a7c6489e5b8cfa9825168809f8c5d6020",
+      "license": "MIT"
+    },
+    {
+      "path": "vendor/pixel-agents/upstream/webview-ui/src/components/EditActionBar.tsx",
+      "upstreamPath": "webview-ui/src/components/EditActionBar.tsx",
+      "sha256": "b953d19898a6bb9243aee9c574e26397a1047f10365fa39e8f577ae4d57c8da2",
+      "license": "MIT"
+    },
+    {
+      "path": "vendor/pixel-agents/upstream/webview-ui/src/components/IntroBubble.tsx",
+      "upstreamPath": "webview-ui/src/components/IntroBubble.tsx",
+      "sha256": "573bfa7e2448e1d3903e9aaab807c5a6924931782d51cf41df8ff672308f953e",
+      "license": "MIT"
+    },
+    {
+      "path": "vendor/pixel-agents/upstream/webview-ui/src/components/LaunchDrawer.tsx",
+      "upstreamPath": "webview-ui/src/components/LaunchDrawer.tsx",
+      "sha256": "a5b055bd64959915ff3f1043aab359fe05bfc0730cc720c00d9e47733f031288",
+      "license": "MIT"
+    },
+    {
+      "path": "vendor/pixel-agents/upstream/webview-ui/src/components/MigrationNotice.tsx",
+      "upstreamPath": "webview-ui/src/components/MigrationNotice.tsx",
+      "sha256": "82544da0db997744d1fc051c1e30d87aba603c38616359267bf99038ac6fb6bc",
+      "license": "MIT"
+    },
+    {
+      "path": "vendor/pixel-agents/upstream/webview-ui/src/components/MobileAgentBar.tsx",
+      "upstreamPath": "webview-ui/src/components/MobileAgentBar.tsx",
+      "sha256": "8f90f1d79acfa967d37294a3feeb9bd0df986d98994a929024d1a8c5209c024d",
+      "license": "MIT"
+    },
+    {
+      "path": "vendor/pixel-agents/upstream/webview-ui/src/components/MobileKeyBar.tsx",
+      "upstreamPath": "webview-ui/src/components/MobileKeyBar.tsx",
+      "sha256": "e0fa75759ae232e047591a3aef61ddc688766bc3ae66f4c8af1987daeec74384",
+      "license": "MIT"
+    },
+    {
+      "path": "vendor/pixel-agents/upstream/webview-ui/src/components/MobileTerminalPage.tsx",
+      "upstreamPath": "webview-ui/src/components/MobileTerminalPage.tsx",
+      "sha256": "46d63849d9ad61e438f09479784a211cbe132095aa20360d7dcc536a9142c729",
+      "license": "MIT"
+    },
+    {
+      "path": "vendor/pixel-agents/upstream/webview-ui/src/components/SettingsModal.tsx",
+      "upstreamPath": "webview-ui/src/components/SettingsModal.tsx",
+      "sha256": "9ef202a038018a3ea823d527b64679d795c94204313e2f17b2f7b361588c5df3",
+      "license": "MIT"
+    },
+    {
+      "path": "vendor/pixel-agents/upstream/webview-ui/src/components/TerminalDrawer.tsx",
+      "upstreamPath": "webview-ui/src/components/TerminalDrawer.tsx",
+      "sha256": "9eba9ab16a68a4877a48406657da1bb7e6629946b083f905e1e02fdc3d135650",
+      "license": "MIT"
+    },
+    {
+      "path": "vendor/pixel-agents/upstream/webview-ui/src/components/TerminalPane.tsx",
+      "upstreamPath": "webview-ui/src/components/TerminalPane.tsx",
+      "sha256": "f64ca146d4abf675f0a464eb35244c6b8ab3737f161d9b5f719d1962f998d7b5",
+      "license": "MIT"
+    },
+    {
+      "path": "vendor/pixel-agents/upstream/webview-ui/src/components/TerminalPaneStack.tsx",
+      "upstreamPath": "webview-ui/src/components/TerminalPaneStack.tsx",
+      "sha256": "7a777bbaeef86d4279643cc066ec55b6801ccc8529097c5f32a1c5f21f842863",
+      "license": "MIT"
+    },
+    {
+      "path": "vendor/pixel-agents/upstream/webview-ui/src/components/Tooltip.tsx",
+      "upstreamPath": "webview-ui/src/components/Tooltip.tsx",
+      "sha256": "cfc417c3b99eb3d5c33533a2b49c4f048acfc719ad22d290ca65076d05f6edf6",
+      "license": "MIT"
+    },
+    {
+      "path": "vendor/pixel-agents/upstream/webview-ui/src/components/VersionIndicator.tsx",
+      "upstreamPath": "webview-ui/src/components/VersionIndicator.tsx",
+      "sha256": "3ccc34028114fa08aca065c5537e7b6795d3542a5f5e366a3545fd58b0a46e09",
+      "license": "MIT"
+    },
+    {
+      "path": "vendor/pixel-agents/upstream/webview-ui/src/components/VisualColorPicker.tsx",
+      "upstreamPath": "webview-ui/src/components/VisualColorPicker.tsx",
+      "sha256": "2d20048eead8d3106a8fc3fdeb6b54c768477c324ed742d17652dba12f2bae4e",
+      "license": "MIT"
+    },
+    {
+      "path": "vendor/pixel-agents/upstream/webview-ui/src/components/ZoomControls.tsx",
+      "upstreamPath": "webview-ui/src/components/ZoomControls.tsx",
+      "sha256": "b730ee00bcc7f3c4c1f96edd7b446a1eae91aa223647dda738c8ecd517c27784",
+      "license": "MIT"
+    },
+    {
+      "path": "vendor/pixel-agents/upstream/webview-ui/src/components/cardBar.ts",
+      "upstreamPath": "webview-ui/src/components/cardBar.ts",
+      "sha256": "8f5764cb40b26a1306ee3855262265636ddce15108e75299fc57bcd9c4dcd581",
+      "license": "MIT"
+    },
+    {
+      "path": "vendor/pixel-agents/upstream/webview-ui/src/components/introBubbleGeometry.ts",
+      "upstreamPath": "webview-ui/src/components/introBubbleGeometry.ts",
+      "sha256": "824c2556be17c7d3ad31af23d8063def3deb42e1302355c66a3d6547164f09de",
+      "license": "MIT"
+    },
+    {
+      "path": "vendor/pixel-agents/upstream/webview-ui/src/components/ui/Button.tsx",
+      "upstreamPath": "webview-ui/src/components/ui/Button.tsx",
+      "sha256": "abacfc1f279420f1829fbbe07bb742458286e77980007d8134a6973a58f1d8bb",
+      "license": "MIT"
+    },
+    {
+      "path": "vendor/pixel-agents/upstream/webview-ui/src/components/ui/Checkbox.tsx",
+      "upstreamPath": "webview-ui/src/components/ui/Checkbox.tsx",
+      "sha256": "26cb94366f5e1415a3d3b19162bf51b9a59e1f714e6f233a07b09382434cfc29",
+      "license": "MIT"
+    },
+    {
+      "path": "vendor/pixel-agents/upstream/webview-ui/src/components/ui/ColorPicker.tsx",
+      "upstreamPath": "webview-ui/src/components/ui/ColorPicker.tsx",
+      "sha256": "f2c05dda98d2d33e608fa4b1eba7367ac7fb2cb680f09d7cc1f27e14adebce2a",
+      "license": "MIT"
+    },
+    {
+      "path": "vendor/pixel-agents/upstream/webview-ui/src/components/ui/Dropdown.tsx",
+      "upstreamPath": "webview-ui/src/components/ui/Dropdown.tsx",
+      "sha256": "a3659b77bf25b56ab37573138e9e1fb80c7c5e3b03e3c35921f165f42b197020",
+      "license": "MIT"
+    },
+    {
+      "path": "vendor/pixel-agents/upstream/webview-ui/src/components/ui/ItemSelect.tsx",
+      "upstreamPath": "webview-ui/src/components/ui/ItemSelect.tsx",
+      "sha256": "972cc589c7a84d7662dc5c508c05634f781cef59c71865cd9b80a847ab9d7a8d",
+      "license": "MIT"
+    },
+    {
+      "path": "vendor/pixel-agents/upstream/webview-ui/src/components/ui/MenuItem.tsx",
+      "upstreamPath": "webview-ui/src/components/ui/MenuItem.tsx",
+      "sha256": "35e6a911fe35a49a830be024ec7ac3dd8ee3cff968e9d60e20c87722f40add3e",
+      "license": "MIT"
+    },
+    {
+      "path": "vendor/pixel-agents/upstream/webview-ui/src/components/ui/Modal.tsx",
+      "upstreamPath": "webview-ui/src/components/ui/Modal.tsx",
+      "sha256": "38b89148b7a8a5b9afaab3334c60db4010efb36ad677e521428f0d9ea633d306",
+      "license": "MIT"
+    },
+    {
+      "path": "vendor/pixel-agents/upstream/webview-ui/src/components/ui/types.ts",
+      "upstreamPath": "webview-ui/src/components/ui/types.ts",
+      "sha256": "7a9ade9267557821ac33bca98ecf035ee6067fb2d9e6aa843e3faa823b5a2abf",
+      "license": "MIT"
+    },
+    {
+      "path": "vendor/pixel-agents/upstream/webview-ui/src/constants.ts",
+      "upstreamPath": "webview-ui/src/constants.ts",
+      "sha256": "4321137918de250070238bef22fe47bcbcd50193fa671f88746170ecb9ba9a13",
+      "license": "MIT"
+    },
+    {
+      "path": "vendor/pixel-agents/upstream/webview-ui/src/hooks/introTourState.ts",
+      "upstreamPath": "webview-ui/src/hooks/introTourState.ts",
+      "sha256": "08538993d76102b4ceccb118db4af0a93c8589790c8749bb9edf6beb33f081a4",
+      "license": "MIT"
+    },
+    {
+      "path": "vendor/pixel-agents/upstream/webview-ui/src/hooks/useDirectoryEditor.ts",
+      "upstreamPath": "webview-ui/src/hooks/useDirectoryEditor.ts",
+      "sha256": "a2b4563761c50805256f13b787c211e45f01652bde874f07622331bc21685813",
+      "license": "MIT"
+    },
+    {
+      "path": "vendor/pixel-agents/upstream/webview-ui/src/hooks/useEditorActions.ts",
+      "upstreamPath": "webview-ui/src/hooks/useEditorActions.ts",
+      "sha256": "ccf2a0f836de9f207dc865c73b68c92a4ec424886bcebd885af5d4e043ba1201",
+      "license": "MIT"
+    },
+    {
+      "path": "vendor/pixel-agents/upstream/webview-ui/src/hooks/useEditorKeyboard.ts",
+      "upstreamPath": "webview-ui/src/hooks/useEditorKeyboard.ts",
+      "sha256": "22333923cbba48b82db37cf35b75daec6f43f1042e2777eaf44b801af3aec36b",
+      "license": "MIT"
+    },
+    {
+      "path": "vendor/pixel-agents/upstream/webview-ui/src/hooks/useExtensionMessages.ts",
+      "upstreamPath": "webview-ui/src/hooks/useExtensionMessages.ts",
+      "sha256": "d1b1ef7c11e3d61e14f4ebc2efbad72c302bcbf828f7df4d98773f17a5f37560",
+      "license": "MIT"
+    },
+    {
+      "path": "vendor/pixel-agents/upstream/webview-ui/src/hooks/useFurnitureColorActions.ts",
+      "upstreamPath": "webview-ui/src/hooks/useFurnitureColorActions.ts",
+      "sha256": "3960a34a93f6a4c8360f4943a9d2bbe5461dc51e76e4eefa2dcfadf55ddc1eb6",
+      "license": "MIT"
+    },
+    {
+      "path": "vendor/pixel-agents/upstream/webview-ui/src/hooks/useIntroTour.ts",
+      "upstreamPath": "webview-ui/src/hooks/useIntroTour.ts",
+      "sha256": "e0c41962a6d399e858e26f74bf1cc74fa6d7f57cfd8aa5103ef0f41c0017cfe8",
+      "license": "MIT"
+    },
+    {
+      "path": "vendor/pixel-agents/upstream/webview-ui/src/hooks/useIsMobile.ts",
+      "upstreamPath": "webview-ui/src/hooks/useIsMobile.ts",
+      "sha256": "8fed5082d5d827f8c9543215d365858a11cd73ab3adc8e18ad23a4436da6f893",
+      "license": "MIT"
+    },
+    {
+      "path": "vendor/pixel-agents/upstream/webview-ui/src/hooks/useKeyboardViewport.ts",
+      "upstreamPath": "webview-ui/src/hooks/useKeyboardViewport.ts",
+      "sha256": "aeb10f4f58c64517b17a09c7d78d7ca4f85f8f986cf80aaca95de3c09c935871",
+      "license": "MIT"
+    },
+    {
+      "path": "vendor/pixel-agents/upstream/webview-ui/src/hooks/useTerminalDrawer.ts",
+      "upstreamPath": "webview-ui/src/hooks/useTerminalDrawer.ts",
+      "sha256": "7b23dc839075916963e8e35279ffd354baeb635d10ae9d6c2be917945dcf0a79",
+      "license": "MIT"
+    },
+    {
+      "path": "vendor/pixel-agents/upstream/webview-ui/src/index.css",
+      "upstreamPath": "webview-ui/src/index.css",
+      "sha256": "49dacf94ca3210fc13b289a93edcf5ea9785baaa5d16f6bc7dbedd5c01551007",
+      "license": "MIT"
+    },
+    {
+      "path": "vendor/pixel-agents/upstream/webview-ui/src/main.tsx",
+      "upstreamPath": "webview-ui/src/main.tsx",
+      "sha256": "91fcbcb8ac888a4b688fffa71c59d6134326f47497b3d216522d18d6f14d0a12",
+      "license": "MIT"
+    },
+    {
+      "path": "vendor/pixel-agents/upstream/webview-ui/src/mobile/MobileShell.tsx",
+      "upstreamPath": "webview-ui/src/mobile/MobileShell.tsx",
+      "sha256": "b269233636ed24a1677c5c5fa3c84a9c570ab9a76c79329ad62ed4214be6ebb0",
+      "license": "MIT"
+    },
+    {
+      "path": "vendor/pixel-agents/upstream/webview-ui/src/mobile/edgeSwipe.ts",
+      "upstreamPath": "webview-ui/src/mobile/edgeSwipe.ts",
+      "sha256": "86ddbebc867ba0460b2c7b56fdb3038d8f7f0ccd434ac595755b3976a683b1a1",
+      "license": "MIT"
+    },
+    {
+      "path": "vendor/pixel-agents/upstream/webview-ui/src/mobile/keyboardViewport.ts",
+      "upstreamPath": "webview-ui/src/mobile/keyboardViewport.ts",
+      "sha256": "b87b3f7ebf8dc43bd22b8f5f73b218b09f203999f062802b9f0b04a94fc41949",
+      "license": "MIT"
+    },
+    {
+      "path": "vendor/pixel-agents/upstream/webview-ui/src/mobile/useEdgeSwipe.ts",
+      "upstreamPath": "webview-ui/src/mobile/useEdgeSwipe.ts",
+      "sha256": "441d1882b1e7fb4cec5047efc43980dcd97311603545b770e7e833e22484532d",
+      "license": "MIT"
+    },
+    {
+      "path": "vendor/pixel-agents/upstream/webview-ui/src/mobile/useMobileShell.ts",
+      "upstreamPath": "webview-ui/src/mobile/useMobileShell.ts",
+      "sha256": "b7ca5f7cb60850c6fcfd9d5497d228ba2dcfc9673aa75471b0e0d1771f62dded",
+      "license": "MIT"
+    },
+    {
+      "path": "vendor/pixel-agents/upstream/webview-ui/src/notificationSound.ts",
+      "upstreamPath": "webview-ui/src/notificationSound.ts",
+      "sha256": "f5a4d4d08e135d813a9041c9087fd3c6419ed7f8c6a17dfac8ed2128e7d88536",
+      "license": "MIT"
+    },
+    {
+      "path": "vendor/pixel-agents/upstream/webview-ui/src/office/colorize.ts",
+      "upstreamPath": "webview-ui/src/office/colorize.ts",
+      "sha256": "9c1acd0bff5315bb03bd916cb38d97547f5d2464c890e4fcb5fef4af057f48a7",
+      "license": "MIT"
+    },
+    {
+      "path": "vendor/pixel-agents/upstream/webview-ui/src/office/components/OfficeCanvas.tsx",
+      "upstreamPath": "webview-ui/src/office/components/OfficeCanvas.tsx",
+      "sha256": "94c0f0d68c42c55a5cf713da979b8ade99ed5c4da38fde759d1fa94cb80ef15e",
+      "license": "MIT"
+    },
+    {
+      "path": "vendor/pixel-agents/upstream/webview-ui/src/office/components/ToolOverlay.tsx",
+      "upstreamPath": "webview-ui/src/office/components/ToolOverlay.tsx",
+      "sha256": "fbae5e2ca4ab683aa1be5acbde93e18eabfafba6befdf0da01b236ec6dcd1ec1",
+      "license": "MIT"
+    },
+    {
+      "path": "vendor/pixel-agents/upstream/webview-ui/src/office/components/index.ts",
+      "upstreamPath": "webview-ui/src/office/components/index.ts",
+      "sha256": "5510ab55371ddd59d56387685b1ef51a15043bdd77efc1b2e5f3bf94da48d7c3",
+      "license": "MIT"
+    },
+    {
+      "path": "vendor/pixel-agents/upstream/webview-ui/src/office/components/officeCanvasCursor.ts",
+      "upstreamPath": "webview-ui/src/office/components/officeCanvasCursor.ts",
+      "sha256": "4dd12ae94436b82cadc077dff286b78484fbad58cf332a2da76e3f10c38f7353",
+      "license": "MIT"
+    },
+    {
+      "path": "vendor/pixel-agents/upstream/webview-ui/src/office/components/useCanvasTouchGestures.ts",
+      "upstreamPath": "webview-ui/src/office/components/useCanvasTouchGestures.ts",
+      "sha256": "9c56ec22cca66448779145a946b11fd17f325718b464cc041f17b88f53dfc306",
+      "license": "MIT"
+    },
+    {
+      "path": "vendor/pixel-agents/upstream/webview-ui/src/office/editor/EditorToolbar.tsx",
+      "upstreamPath": "webview-ui/src/office/editor/EditorToolbar.tsx",
+      "sha256": "71919f409e6f0be4ee27d70f0c00ddd2521ef6ca13073d378bd83431e1c8cd57",
+      "license": "MIT"
+    },
+    {
+      "path": "vendor/pixel-agents/upstream/webview-ui/src/office/editor/editorActions.ts",
+      "upstreamPath": "webview-ui/src/office/editor/editorActions.ts",
+      "sha256": "c12116d7f65fd19b6bd8ac1d33e72821c149dae2392ef99fe3f33d148c9d908c",
+      "license": "MIT"
+    },
+    {
+      "path": "vendor/pixel-agents/upstream/webview-ui/src/office/editor/editorRenderState.ts",
+      "upstreamPath": "webview-ui/src/office/editor/editorRenderState.ts",
+      "sha256": "7f31925d1a186b328104f44b4c69ad00571fb58d905fbb260b12d9774099a800",
+      "license": "MIT"
+    },
+    {
+      "path": "vendor/pixel-agents/upstream/webview-ui/src/office/editor/editorState.ts",
+      "upstreamPath": "webview-ui/src/office/editor/editorState.ts",
+      "sha256": "ff9d246a474c58f23217c28f325df1bc1ec2abb74751703cb9cd00ccb2b1c9ae",
+      "license": "MIT"
+    },
+    {
+      "path": "vendor/pixel-agents/upstream/webview-ui/src/office/editor/index.ts",
+      "upstreamPath": "webview-ui/src/office/editor/index.ts",
+      "sha256": "076613784faaff8faa33fc1fac0a0e48335136702027af4a8fb98148db3dbfe8",
+      "license": "MIT"
+    },
+    {
+      "path": "vendor/pixel-agents/upstream/webview-ui/src/office/engine/characters.ts",
+      "upstreamPath": "webview-ui/src/office/engine/characters.ts",
+      "sha256": "a50f7f2822bf19a2b88b5076f2a9e69f19bdef53b55601717f7e7da3acc2be92",
+      "license": "MIT"
+    },
+    {
+      "path": "vendor/pixel-agents/upstream/webview-ui/src/office/engine/existingAgents.ts",
+      "upstreamPath": "webview-ui/src/office/engine/existingAgents.ts",
+      "sha256": "7815c8789530d1ce2993db9f06369c92e033a774243677842f1f803ab96c9929",
+      "license": "MIT"
+    },
+    {
+      "path": "vendor/pixel-agents/upstream/webview-ui/src/office/engine/gameLoop.ts",
+      "upstreamPath": "webview-ui/src/office/engine/gameLoop.ts",
+      "sha256": "07fc4e15f0e02c7e146b5500e03653303498db94b6bd622f0cb950d8c2188f38",
+      "license": "MIT"
+    },
+    {
+      "path": "vendor/pixel-agents/upstream/webview-ui/src/office/engine/index.ts",
+      "upstreamPath": "webview-ui/src/office/engine/index.ts",
+      "sha256": "c5e8788296297076ed115c3f3c5c810b6f08b5b5c0f90c5f72e4881660306d55",
+      "license": "MIT"
+    },
+    {
+      "path": "vendor/pixel-agents/upstream/webview-ui/src/office/engine/matrixEffect.ts",
+      "upstreamPath": "webview-ui/src/office/engine/matrixEffect.ts",
+      "sha256": "96913fedebf4d3c07e78b1868a667059f19a0f110cfefd83fa1cd27863fd4070",
+      "license": "MIT"
+    },
+    {
+      "path": "vendor/pixel-agents/upstream/webview-ui/src/office/engine/matrixEffectState.ts",
+      "upstreamPath": "webview-ui/src/office/engine/matrixEffectState.ts",
+      "sha256": "55c4508949d14b5dc05498744eaee2e23acdab0275122750221f814c2e1b78a0",
+      "license": "MIT"
+    },
+    {
+      "path": "vendor/pixel-agents/upstream/webview-ui/src/office/engine/officeState.ts",
+      "upstreamPath": "webview-ui/src/office/engine/officeState.ts",
+      "sha256": "b878198ec034c14dd77606a3303242294a7b61fc3240a6ac5c4ec730d6310da4",
+      "license": "MIT"
+    },
+    {
+      "path": "vendor/pixel-agents/upstream/webview-ui/src/office/engine/petEntity.ts",
+      "upstreamPath": "webview-ui/src/office/engine/petEntity.ts",
+      "sha256": "fb6edcd6a72a81712bfff227a36b8bea8c2f96e640aabc093c738ad35c4211b9",
+      "license": "MIT"
+    },
+    {
+      "path": "vendor/pixel-agents/upstream/webview-ui/src/office/engine/renderer.ts",
+      "upstreamPath": "webview-ui/src/office/engine/renderer.ts",
+      "sha256": "a7171fc25d3039342a7e7ae704cf76ec9f823a5632815bb8a1434081caad71cf",
+      "license": "MIT"
+    },
+    {
+      "path": "vendor/pixel-agents/upstream/webview-ui/src/office/engine/seatPlacement.ts",
+      "upstreamPath": "webview-ui/src/office/engine/seatPlacement.ts",
+      "sha256": "cef18fb154b31040f112a00d3cb916a77544cf9c0dc5223bd1673d3c0706db6b",
+      "license": "MIT"
+    },
+    {
+      "path": "vendor/pixel-agents/upstream/webview-ui/src/office/floorTiles.ts",
+      "upstreamPath": "webview-ui/src/office/floorTiles.ts",
+      "sha256": "86a1279b5119b8059771daa3a59540ede8fdcc1e761a328c280b43eafa22a2be",
+      "license": "MIT"
+    },
+    {
+      "path": "vendor/pixel-agents/upstream/webview-ui/src/office/layout/exportLayout.ts",
+      "upstreamPath": "webview-ui/src/office/layout/exportLayout.ts",
+      "sha256": "0e46b0e0facc05ea7d452c04841574333da83eefdde7890c3c6cb1f86c4a890a",
+      "license": "MIT"
+    },
+    {
+      "path": "vendor/pixel-agents/upstream/webview-ui/src/office/layout/furnitureCatalog.ts",
+      "upstreamPath": "webview-ui/src/office/layout/furnitureCatalog.ts",
+      "sha256": "26c9feacfcf4b6db18a7cdffe5fb10053703ed5398ae5fbeb0f8048fbc6c98c4",
+      "license": "MIT"
+    },
+    {
+      "path": "vendor/pixel-agents/upstream/webview-ui/src/office/layout/index.ts",
+      "upstreamPath": "webview-ui/src/office/layout/index.ts",
+      "sha256": "17e97c104f8330c315617dbb3d0a7cfb128c6659cf8d785cbfe23a996aaffb56",
+      "license": "MIT"
+    },
+    {
+      "path": "vendor/pixel-agents/upstream/webview-ui/src/office/layout/layoutSerializer.ts",
+      "upstreamPath": "webview-ui/src/office/layout/layoutSerializer.ts",
+      "sha256": "baffda0115c0604c0081766562be44605b6ddae25d2efec0159b5b19209ed109",
+      "license": "MIT"
+    },
+    {
+      "path": "vendor/pixel-agents/upstream/webview-ui/src/office/layout/tileMap.ts",
+      "upstreamPath": "webview-ui/src/office/layout/tileMap.ts",
+      "sha256": "0564fec7ad749668ab9a2317fb658eb3e5d0cf2aecc9b5c4f63d82a475b54790",
+      "license": "MIT"
+    },
+    {
+      "path": "vendor/pixel-agents/upstream/webview-ui/src/office/projection.ts",
+      "upstreamPath": "webview-ui/src/office/projection.ts",
+      "sha256": "dfa409f8f18b10930fe401fa7cc5cf05c22e83061cdcff9a0ce78f44ff58b7ce",
+      "license": "MIT"
+    },
+    {
+      "path": "vendor/pixel-agents/upstream/webview-ui/src/office/sprites/bubble-permission.json",
+      "upstreamPath": "webview-ui/src/office/sprites/bubble-permission.json",
+      "sha256": "c1c5843455f8a4201eef1aa4d15d3bae41ef30f209ba6936004606f2adc7d8df",
+      "license": "MIT"
+    },
+    {
+      "path": "vendor/pixel-agents/upstream/webview-ui/src/office/sprites/bubble-pet.json",
+      "upstreamPath": "webview-ui/src/office/sprites/bubble-pet.json",
+      "sha256": "d5254d4fdcd1ed0daa471951d56bed5b33afa263272efa5efcbc8ddd2cdede53",
+      "license": "MIT"
+    },
+    {
+      "path": "vendor/pixel-agents/upstream/webview-ui/src/office/sprites/bubble-waiting.json",
+      "upstreamPath": "webview-ui/src/office/sprites/bubble-waiting.json",
+      "sha256": "58cadd14f6b18c2f773a8bf3a8b25da82da81333d93d17fff6ce10dd20410c32",
+      "license": "MIT"
+    },
+    {
+      "path": "vendor/pixel-agents/upstream/webview-ui/src/office/sprites/carpetTiles.ts",
+      "upstreamPath": "webview-ui/src/office/sprites/carpetTiles.ts",
+      "sha256": "cc09f55aff372298badb346ffd0df510780a46c8b86ed1aadb81043b66b30985",
+      "license": "MIT"
+    },
+    {
+      "path": "vendor/pixel-agents/upstream/webview-ui/src/office/sprites/index.ts",
+      "upstreamPath": "webview-ui/src/office/sprites/index.ts",
+      "sha256": "ba752f37f6a26a71dadc41547379fa7513742ba00e7d931d4b93566fd9ed2455",
+      "license": "MIT"
+    },
+    {
+      "path": "vendor/pixel-agents/upstream/webview-ui/src/office/sprites/petSpriteData.ts",
+      "upstreamPath": "webview-ui/src/office/sprites/petSpriteData.ts",
+      "sha256": "4d972482c1ad20e36b08d6be191f3a7c38d5657684228d3d8166cdf172d169fe",
+      "license": "MIT"
+    },
+    {
+      "path": "vendor/pixel-agents/upstream/webview-ui/src/office/sprites/spriteCache.ts",
+      "upstreamPath": "webview-ui/src/office/sprites/spriteCache.ts",
+      "sha256": "fd615d74508e9dc32ecda030a087a0de2bf0a06b5e242e5cee93e8525b268e60",
+      "license": "MIT"
+    },
+    {
+      "path": "vendor/pixel-agents/upstream/webview-ui/src/office/sprites/spriteData.ts",
+      "upstreamPath": "webview-ui/src/office/sprites/spriteData.ts",
+      "sha256": "b6b7153bccb3c12a9d9719b6fab36dcd793b55df71fd53e71e10816072c20bcb",
+      "license": "MIT"
+    },
+    {
+      "path": "vendor/pixel-agents/upstream/webview-ui/src/office/toolUtils.ts",
+      "upstreamPath": "webview-ui/src/office/toolUtils.ts",
+      "sha256": "223c39a91a551ad88b03ea83e31890f3564d3844276614953dc0d31c92d08092",
+      "license": "MIT"
+    },
+    {
+      "path": "vendor/pixel-agents/upstream/webview-ui/src/office/types.ts",
+      "upstreamPath": "webview-ui/src/office/types.ts",
+      "sha256": "5c631866ef28e3c8d01fdfb222a119c02ef75f1009095d90fef63754f2c074a7",
+      "license": "MIT"
+    },
+    {
+      "path": "vendor/pixel-agents/upstream/webview-ui/src/office/wallTiles.ts",
+      "upstreamPath": "webview-ui/src/office/wallTiles.ts",
+      "sha256": "a292703da788ddb5586c432376a0b9f8ce3e085a672112d63270776240bc188e",
+      "license": "MIT"
+    },
+    {
+      "path": "vendor/pixel-agents/upstream/webview-ui/src/runtime.ts",
+      "upstreamPath": "webview-ui/src/runtime.ts",
+      "sha256": "1357053cccc7b0350594464baca8b92b4bb9cbe337f7619c207357d697089554",
+      "license": "MIT"
+    },
+    {
+      "path": "vendor/pixel-agents/upstream/webview-ui/src/terminal/clipboard.ts",
+      "upstreamPath": "webview-ui/src/terminal/clipboard.ts",
+      "sha256": "7c10c18f1d252fbb7391af3c28d6cd2c68228fb51880c9461d3056b50d1560ab",
+      "license": "MIT"
+    },
+    {
+      "path": "vendor/pixel-agents/upstream/webview-ui/src/terminal/clipboardInput.ts",
+      "upstreamPath": "webview-ui/src/terminal/clipboardInput.ts",
+      "sha256": "c0501d6e228e4fc9145b08faab09781905ff9732428d2637b3f6f677cfe06565",
+      "license": "MIT"
+    },
+    {
+      "path": "vendor/pixel-agents/upstream/webview-ui/src/terminal/clipboardKeys.ts",
+      "upstreamPath": "webview-ui/src/terminal/clipboardKeys.ts",
+      "sha256": "d82e3561e99de7705ac41f2d2014f7c6e0b93cb4f7381a1a4a7aeb6d3e9556ef",
+      "license": "MIT"
+    },
+    {
+      "path": "vendor/pixel-agents/upstream/webview-ui/src/terminal/flowCopy.ts",
+      "upstreamPath": "webview-ui/src/terminal/flowCopy.ts",
+      "sha256": "d2c31b6194364493eb72a503c55bf91be4c86be7054109aaeb042dc0535faacc",
+      "license": "MIT"
+    },
+    {
+      "path": "vendor/pixel-agents/upstream/webview-ui/src/terminal/selectionMath.ts",
+      "upstreamPath": "webview-ui/src/terminal/selectionMath.ts",
+      "sha256": "0bd260bbd90ad04ffd735d0b38a4f60d413dba240a27b67ff5271d02bd4ffea2",
+      "license": "MIT"
+    },
+    {
+      "path": "vendor/pixel-agents/upstream/webview-ui/src/terminal/selectionOverlay.ts",
+      "upstreamPath": "webview-ui/src/terminal/selectionOverlay.ts",
+      "sha256": "7accc57484bd33722b6339212f71c3cc0c9286b042c43dbca60035f75bd5a36a",
+      "license": "MIT"
+    },
+    {
+      "path": "vendor/pixel-agents/upstream/webview-ui/src/terminal/terminalClient.ts",
+      "upstreamPath": "webview-ui/src/terminal/terminalClient.ts",
+      "sha256": "5cbcbf5bc49215e01073e188c3b9043f320eeb8f789dd33e275fd740bdb92d04",
+      "license": "MIT"
+    },
+    {
+      "path": "vendor/pixel-agents/upstream/webview-ui/src/terminal/terminalDom.ts",
+      "upstreamPath": "webview-ui/src/terminal/terminalDom.ts",
+      "sha256": "4b33cde3b61e359359e9d3384b706f30d36e6d1ce6db9450ccb37fa428bd667a",
+      "license": "MIT"
+    },
+    {
+      "path": "vendor/pixel-agents/upstream/webview-ui/src/terminal/terminalLinks.ts",
+      "upstreamPath": "webview-ui/src/terminal/terminalLinks.ts",
+      "sha256": "a528f0b95554467099a0509ead8cf68691cfa5f57048406ae20f8ebf2994936a",
+      "license": "MIT"
+    },
+    {
+      "path": "vendor/pixel-agents/upstream/webview-ui/src/terminal/touchGesture.ts",
+      "upstreamPath": "webview-ui/src/terminal/touchGesture.ts",
+      "sha256": "feb10a5089c2a9b5e7d735454f273e14b8372dea4a7e2725b3964430d09600b3",
+      "license": "MIT"
+    },
+    {
+      "path": "vendor/pixel-agents/upstream/webview-ui/src/terminal/touchInput.ts",
+      "upstreamPath": "webview-ui/src/terminal/touchInput.ts",
+      "sha256": "ca9c383a1dfe9119f5811b77f13d3a9d6a8e55309df5b173a1c8e0975a45393b",
+      "license": "MIT"
+    },
+    {
+      "path": "vendor/pixel-agents/upstream/webview-ui/src/testHooks.ts",
+      "upstreamPath": "webview-ui/src/testHooks.ts",
+      "sha256": "c62b6d1abbc68f6960f4aed5a535062b8867bf0a6073950a6dd2a559dbf910a9",
+      "license": "MIT"
+    },
+    {
+      "path": "vendor/pixel-agents/upstream/webview-ui/src/touch/touchPrimitives.ts",
+      "upstreamPath": "webview-ui/src/touch/touchPrimitives.ts",
+      "sha256": "a4fe2222622f567e1118e4d546c7073fe5ee58f00dddb08d715f2ee22b6fb06a",
+      "license": "MIT"
+    },
+    {
+      "path": "vendor/pixel-agents/upstream/webview-ui/src/transport/index.ts",
+      "upstreamPath": "webview-ui/src/transport/index.ts",
+      "sha256": "651878f9add806af355f59751605f98560e0ac54d10893c6a07d9e16f623d3e0",
+      "license": "MIT"
+    },
+    {
+      "path": "vendor/pixel-agents/upstream/webview-ui/src/transport/postMessageTransport.ts",
+      "upstreamPath": "webview-ui/src/transport/postMessageTransport.ts",
+      "sha256": "15ffedb9bd65d4c5b81202f2336b63a90b1285af8923ef25a1944b7681c5e97e",
+      "license": "MIT"
+    },
+    {
+      "path": "vendor/pixel-agents/upstream/webview-ui/src/transport/reconnectBackoff.ts",
+      "upstreamPath": "webview-ui/src/transport/reconnectBackoff.ts",
+      "sha256": "c37ee2358c327b2cd8b75dd19cd27eb92403ad57695275dd62a23141f0501141",
+      "license": "MIT"
+    },
+    {
+      "path": "vendor/pixel-agents/upstream/webview-ui/src/transport/serverToken.ts",
+      "upstreamPath": "webview-ui/src/transport/serverToken.ts",
+      "sha256": "f4fd8df4a10feb01b7d52646988533396f8f88154e4b266f8a7c80361ddb0d9c",
+      "license": "MIT"
+    },
+    {
+      "path": "vendor/pixel-agents/upstream/webview-ui/src/transport/types.ts",
+      "upstreamPath": "webview-ui/src/transport/types.ts",
+      "sha256": "40b05628ad78f6c3efe9a711af2c749807d85f2f1a69da299294a8bc88974a71",
+      "license": "MIT"
+    },
+    {
+      "path": "vendor/pixel-agents/upstream/webview-ui/src/transport/webSocketTransport.ts",
+      "upstreamPath": "webview-ui/src/transport/webSocketTransport.ts",
+      "sha256": "542f2d8c37c23f4d8272e3f5297d50c61bceaf37fd5003273933ec18caae6234",
+      "license": "MIT"
+    }
+  ]
+}
