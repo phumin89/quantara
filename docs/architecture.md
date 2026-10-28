@@ -72,8 +72,8 @@ ownership. SQL Server may host the three databases in the same container.
   Focused class components render trading books, market coverage, settings, mandate
   review, news and conversation. Shared presentation classes own formatting
   and repeated status metadata.
-- **Trading settings:** Adaptive setup opens with the system-managed plan and four
-  editable risk limits. Technical editors stay inside Advanced strategy settings;
+- **Trading settings:** Adaptive setup opens with the system-managed plan and saved
+  risk limits. Risk and technical editors stay inside Advanced overrides;
   opening the form preserves saved values. Material saves disarm live trading and
   require owner review again.
 - **Component rules:** Hooks, function components and standalone application functions
@@ -84,7 +84,7 @@ ownership. SQL Server may host the three databases in the same container.
   and control tokens never enter browser code.
 
 The root Team activity provider owns one current-day overview/brief request pair
-per ten seconds, shared across all screens and the persistent non-modal chat.
+per ten seconds, shared across all screens and the persistent modal chat overlay.
 Current-day Dashboard reads join its pending request; selected historical dates
 remain separate and account-scoped. Consumer aborts do not cancel shared reads.
 The class route template announces committed navigation to the persistent sidebar;

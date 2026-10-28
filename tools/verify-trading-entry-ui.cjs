@@ -328,12 +328,21 @@ async function verifyBrowser() {
         .getByRole('button', { name: 'Trading settings', exact: true })
         .click();
       const dialog = page.getByRole('dialog', { name: 'Trading settings' });
-      await dialog.getByRole('heading', { name: 'Your risk limits' }).waitFor();
+      await dialog
+        .getByRole('heading', { name: 'Saved risk limits' })
+        .waitFor();
+      assert.equal(await dialog.locator('input:visible').count(), 0);
+      assert.equal(
+        await dialog
+          .getByRole('button', { name: 'Save overrides and disarm live' })
+          .isVisible(),
+        false,
+      );
       const fields = await dialog.locator('form').evaluate((form) => {
         const technical = [...form.querySelectorAll('details')].find((item) =>
           item
             .querySelector('summary')
-            ?.textContent.includes('Advanced strategy settings'),
+            ?.textContent.includes('Advanced overrides'),
         );
         const names = [
           'maximumExposureFraction',
@@ -344,9 +353,10 @@ async function verifyBrowser() {
         return {
           values: [...new FormData(form).entries()],
           open: technical?.open,
-          outside: names.every(
+          insideOverrides: names.every(
             (name) =>
-              !form.querySelector(`[name="${name}"]`)?.closest('details'),
+              form.querySelector(`[name="${name}"]`)?.closest('details') ===
+              technical,
           ),
           count: names.map(
             (name) => form.querySelectorAll(`[name="${name}"]`).length,
@@ -355,7 +365,7 @@ async function verifyBrowser() {
         };
       });
       assert.equal(fields.open, false);
-      assert.equal(fields.outside, true);
+      assert.equal(fields.insideOverrides, true);
       assert.deepEqual(fields.count, [1, 1, 1, 1]);
       const values = Object.fromEntries(fields.values);
       assert.equal(values.maximumExposureFraction, '40');
@@ -373,6 +383,22 @@ async function verifyBrowser() {
       await page.screenshot({
         path: path.join(directory, `settings-${width}.png`),
       });
+      await dialog
+        .locator('summary')
+        .filter({ hasText: /^Advanced overrides$/ })
+        .press('Enter');
+      await dialog.getByRole('heading', { name: 'Your risk limits' }).waitFor();
+      for (const name of [
+        'maximumExposureFraction',
+        'maximumConcentrationFraction',
+        'riskToStopFraction',
+        'dailyLossFraction',
+      ]) {
+        assert.equal(
+          await dialog.locator(`input[name="${name}"]`).isVisible(),
+          true,
+        );
+      }
       await dialog
         .getByRole('button', { name: 'Close trading settings' })
         .click();

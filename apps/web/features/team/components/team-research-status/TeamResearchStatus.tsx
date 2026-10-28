@@ -134,7 +134,7 @@ export default class TeamResearchStatus extends Component<TeamResearchStatusProp
           <Box
             component="details"
             sx={{
-              mt: { xs: 0.5, sm: 1.5 },
+              mt: { xs: 0.5, sm: 1 },
               borderTop: 1,
               borderColor: 'divider',
             }}

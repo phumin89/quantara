@@ -220,7 +220,8 @@ async function verifyCrypto() {
           await verified
             .getByText(/19\.50/)
             .evaluate((element) => getComputedStyle(element).color),
-          'rgb(22, 101, 52)',
+          'rgb(166, 209, 188)',
+          'Verified gains use the Dusk success color.',
         );
         await page
           .getByRole('button', { name: 'View LEGACY history', exact: true })
@@ -247,7 +248,8 @@ async function verifyCrypto() {
           await loss
             .getByText(/12\.34/)
             .evaluate((element) => getComputedStyle(element).color),
-          'rgb(153, 27, 27)',
+          'rgb(242, 166, 169)',
+          'Verified losses use the Dusk error color.',
         );
       }
       const formattedMoney = (value) =>

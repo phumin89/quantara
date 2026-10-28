@@ -19,6 +19,8 @@ export default class ConnectionStatus extends PureComponent<
   ConnectionStatusProps,
   ConnectionStatusState
 > {
+  private statusDismissed = false;
+
   public override state: ConnectionStatusState = {
     statusOpen: false,
     statusPinned: false,
@@ -92,7 +94,7 @@ export default class ConnectionStatus extends PureComponent<
     return (
       <ClickAwayListener
         onClickAway={() => {
-          this.setState({ statusOpen: false, statusPinned: false });
+          this.dismissStatus();
         }}
       >
         <Tooltip
@@ -100,10 +102,17 @@ export default class ConnectionStatus extends PureComponent<
           describeChild
           open={this.state.statusOpen}
           onOpen={() => {
-            this.setState({ statusOpen: true });
+            if (!this.statusDismissed) {
+              this.setState({ statusOpen: true });
+            }
           }}
           onClose={(event) => {
-            if (event.type !== 'mouseleave' || !this.state.statusPinned) {
+            if (event.type === 'keydown') {
+              this.dismissStatus();
+            } else if (
+              event.type !== 'mouseleave' ||
+              !this.state.statusPinned
+            ) {
               this.setState({ statusOpen: false, statusPinned: false });
             }
           }}
@@ -113,15 +122,23 @@ export default class ConnectionStatus extends PureComponent<
         >
           <Button
             aria-label={`Snapshot status: ${status.label}`}
+            onMouseEnter={() => {
+              this.statusDismissed = false;
+            }}
+            onFocus={() => {
+              this.statusDismissed = false;
+            }}
             onClick={() => {
-              this.setState({
-                statusOpen: !this.state.statusPinned,
-                statusPinned: !this.state.statusPinned,
-              });
+              if (this.state.statusPinned) {
+                this.dismissStatus();
+              } else {
+                this.statusDismissed = false;
+                this.setState({ statusOpen: true, statusPinned: true });
+              }
             }}
             onKeyDown={(event) => {
               if (event.key === 'Escape') {
-                this.setState({ statusOpen: false, statusPinned: false });
+                this.dismissStatus();
               }
             }}
             sx={{
@@ -155,5 +172,10 @@ export default class ConnectionStatus extends PureComponent<
         </Tooltip>
       </ClickAwayListener>
     );
+  }
+
+  private dismissStatus(): void {
+    this.statusDismissed = true;
+    this.setState({ statusOpen: false, statusPinned: false });
   }
 }

@@ -76,6 +76,23 @@ async function verify() {
       });
       const tooltip = page.getByRole('tooltip');
       await button.waitFor();
+      await page.clock.pauseAt(
+        await page.evaluate(() => new Date(Date.now() + 100)),
+      );
+      await button.click();
+      await tooltip.waitFor();
+      await page.keyboard.press('Escape');
+      await page.clock.runFor(350);
+      await check(device + ' Escape cancels initial hover', async () =>
+        assert.equal(
+          await tooltip.count(),
+          0,
+          'A pending hover must not reopen click-dismissed details.',
+        ),
+      );
+      await main.getByRole('heading', { name: 'Crypto', exact: true }).click();
+      await page.mouse.move(0, 0);
+      await page.clock.runFor(1000);
       await page.keyboard.press('Tab');
       await button.focus();
       await page.clock.runFor(350);
@@ -94,6 +111,17 @@ async function verify() {
       await page.clock.runFor(350);
       await check(device + ' Escape', async () =>
         assert.equal(await tooltip.count(), 0),
+      );
+      await button.click();
+      await tooltip.waitFor();
+      await page.keyboard.press('Escape');
+      await page.clock.runFor(350);
+      await check(device + ' Escape cancels pending hover', async () =>
+        assert.equal(
+          await tooltip.count(),
+          0,
+          'A delayed hover must not reopen dismissed details.',
+        ),
       );
       await main.getByRole('heading', { name: 'Crypto', exact: true }).click();
       await page.mouse.move(0, 0);

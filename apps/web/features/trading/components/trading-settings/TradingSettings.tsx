@@ -242,27 +242,7 @@ export default class TradingSettings extends Component<TradingSettingsProps> {
           )}
           {adaptive ? (
             <>
-              <TradingPolicySummary
-                overview={overview}
-                showRiskLimits={false}
-              />
-              <Typography
-                component="h3"
-                sx={{ fontSize: 15, fontWeight: 700 }}
-              >
-                Your risk limits
-              </Typography>
-              <Typography
-                variant="body2"
-                color="text.secondary"
-              >
-                The saved strategy automatically selects eligible markets,
-                timeframe and size within these limits. Saved technical defaults
-                are ready to use; AI research does not change limits.
-              </Typography>
-              {this.renderAdaptiveRiskFields(overview)}
-              {this.renderSaveWarning()}
-              {this.renderSaveButton('Save risk limits and disarm live')}
+              <TradingPolicySummary overview={overview} />
               {overview.rules.version === 'adaptive-intraday-v1' && (
                 <Button
                   variant="outlined"
@@ -340,7 +320,7 @@ export default class TradingSettings extends Component<TradingSettingsProps> {
           >
             <Box component="summary">
               {adaptive
-                ? 'Advanced strategy settings'
+                ? 'Advanced overrides'
                 : 'Advanced settings · strategy & execution'}
             </Box>
             <Typography
@@ -357,6 +337,21 @@ export default class TradingSettings extends Component<TradingSettingsProps> {
                 spacing={2}
                 sx={{ mb: 2 }}
               >
+                <Typography
+                  component="h3"
+                  sx={{ fontSize: 15, fontWeight: 700 }}
+                >
+                  Your risk limits
+                </Typography>
+                <Typography
+                  variant="body2"
+                  color="text.secondary"
+                >
+                  The saved strategy automatically selects eligible markets,
+                  timeframe and size within these limits. Saved technical
+                  defaults are ready to use; AI research does not change limits.
+                </Typography>
+                {this.renderAdaptiveRiskFields(overview)}
                 {this.renderRuleFields(overview, false)}
               </Stack>
             )}
@@ -387,6 +382,15 @@ export default class TradingSettings extends Component<TradingSettingsProps> {
                   and time exit values remain unchanged by this form.
                 </Typography>
               </>
+            )}
+            {adaptive && (
+              <Stack
+                spacing={2}
+                sx={{ mt: 2 }}
+              >
+                {this.renderSaveWarning()}
+                {this.renderSaveButton('Save overrides and disarm live')}
+              </Stack>
             )}
           </Box>
           {!adaptive && this.renderSaveButton('Save rules and disarm live')}
