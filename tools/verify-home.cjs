@@ -121,9 +121,12 @@ async function verify() {
   };
   try {
     await page.goto(url);
-    await page
-      .getByRole('button', { name: 'Collapse team chat', exact: true })
-      .click();
+    const chatControl = page.getByRole('button', {
+      name: 'Expand team chat',
+      exact: true,
+    });
+    await chatControl.waitFor();
+    assert.equal(await chatControl.getAttribute('aria-expanded'), 'false');
     await page.locator('iframe[data-ready="true"]').waitFor();
     const iframe = page.frameLocator(
       'iframe[title="Pixel Agents research office"]',

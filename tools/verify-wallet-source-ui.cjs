@@ -145,23 +145,12 @@ async function verify() {
         page.on('pageerror', (error) => errors.push(error.message));
         await page.clock.install({ time: new Date(fixture.at) });
         await page.goto(process.env.TEST_URL + '/crypto');
-        await page
-          .getByRole('button', {
-            name: width >= 1024 ? 'Collapse team chat' : 'Expand team chat',
-            exact: true,
-          })
-          .waitFor();
-        const collapseChat = page.getByRole('button', {
-          name: 'Collapse team chat',
+        const chatControl = page.getByRole('button', {
+          name: 'Expand team chat',
           exact: true,
         });
-        if (await collapseChat.isVisible()) {
-          await collapseChat.click();
-          await page.clock.runFor(500);
-          await page
-            .getByRole('button', { name: 'Expand team chat' })
-            .waitFor();
-        }
+        await chatControl.waitFor();
+        assert.equal(await chatControl.getAttribute('aria-expanded'), 'false');
         const main = page.getByRole('main');
         if (scenario === 'error') {
           await main
@@ -188,31 +177,72 @@ async function verify() {
               await main.getByTestId('holding-count').textContent(),
               '0',
             );
-            await main
-              .getByText('Balance check needed:', {
+            const balanceWarning = main.getByRole('alert').filter({
+              hasText: 'Balance review needed',
+            });
+            await balanceWarning.waitFor();
+            assert.equal(await balanceWarning.count(), 1);
+            assert.match(
+              await balanceWarning.textContent(),
+              /BTC holdings differ from the saved strategy/,
+            );
+            assert.match(
+              await balanceWarning.textContent(),
+              /Historical cost and profit remain unverified/,
+            );
+            const review = main.getByRole('button', {
+              name: 'Review balances',
+              exact: true,
+            });
+            const balanceReview = page.getByRole('dialog', {
+              name: 'Balance review',
+              exact: true,
+            });
+            await balanceReview.waitFor({ state: 'hidden' });
+            await review.focus();
+            await page.keyboard.press('Enter');
+            await balanceReview.waitFor();
+            await balanceReview
+              .getByText(
+                'No previous live trading setup is recorded for this account.',
+                { exact: false },
+              )
+              .waitFor();
+            await balanceReview
+              .getByText(`Bitkub account …${trading.accountKey.slice(-8)}`, {
                 exact: false,
               })
               .waitFor();
-            const balanceWarning = main
-              .locator('summary')
-              .filter({ hasText: 'Balance check needed:' });
-            const explanation = main.getByText(
-              'Holdings use the saved Bitkub wallet observation.',
-              { exact: false },
+            assert.equal(
+              await balanceReview
+                .getByRole('button', {
+                  name: 'Verify sold holdings',
+                  exact: true,
+                })
+                .isVisible(),
+              false,
             );
-            assert.equal(await explanation.isVisible(), false);
-            await balanceWarning.focus();
-            await page.keyboard.press('Enter');
-            await explanation.waitFor();
-            await page.keyboard.press('Enter');
-            assert.equal(await explanation.isVisible(), false);
-            assert.match(
-              await balanceWarning.textContent(),
-              /Cost and profit are unverified/,
+            assert.equal(
+              await balanceReview.getAttribute('aria-modal'),
+              'true',
             );
+            assert(
+              await balanceReview.evaluate((element) =>
+                element.contains(document.activeElement),
+              ),
+            );
+            await page.keyboard.press('Escape');
+            await balanceReview.waitFor({ state: 'hidden' });
+            assert(
+              await review.evaluate(
+                (element) => element === document.activeElement,
+              ),
+            );
+            assert.equal(await balanceWarning.isVisible(), true);
             await main.getByText('Orders & positions', { exact: true }).click();
             await main
-              .getByText('Ledger lots & intents', { exact: false })
+              .locator('summary')
+              .filter({ hasText: /^Ledger details/ })
               .click();
             await main
               .getByText('BTC: Ledger quantity 0.2', { exact: false })

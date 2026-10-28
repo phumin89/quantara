@@ -372,6 +372,9 @@ async function verify() {
       .getByRole('complementary', { name: 'Team conversation', exact: true })
       .getByRole('button', { name: 'Refresh team chat', exact: true })
       .click();
+    await page.keyboard.press('Escape');
+    await page.clock.runFor(250);
+    await page.getByRole('main').waitFor();
     await page
       .getByRole('button', { name: 'View BTC history', exact: true })
       .filter({ hasText: 'Synthetic account B holding' })

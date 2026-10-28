@@ -95,7 +95,12 @@ async function verifyShell() {
           'Navigation fits the slim header.',
         );
         assert.equal(await menu.count(), 0);
-        assert.equal((await page.getByRole('main').boundingBox()).x, 0);
+        const mainBounds = await page.getByRole('main').boundingBox();
+        assert(mainBounds && mainBounds.width <= 1344 && mainBounds.x >= 0);
+        assert(
+          Math.abs(mainBounds.x * 2 + mainBounds.width - width) <= 1,
+          'Desktop content stays centered within its maximum width.',
+        );
         assert.equal(
           await page
             .locator('.MuiDrawer-paper')

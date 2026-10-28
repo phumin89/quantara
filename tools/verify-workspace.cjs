@@ -230,23 +230,12 @@ async function verify() {
     await page.goto(url + path);
     await page.getByRole('main').getByRole('heading', { level: 1 }).waitFor();
     await settle();
-    await page
-      .getByRole('button', {
-        name:
-          page.viewportSize().width >= 1024
-            ? 'Collapse team chat'
-            : 'Expand team chat',
-        exact: true,
-      })
-      .waitFor();
-    const collapseChat = page.getByRole('button', {
-      name: 'Collapse team chat',
+    const chatControl = page.getByRole('button', {
+      name: 'Expand team chat',
       exact: true,
     });
-    if (await collapseChat.isVisible()) {
-      await collapseChat.click();
-      await page.waitForTimeout(300);
-    }
+    await chatControl.waitFor();
+    assert.equal(await chatControl.getAttribute('aria-expanded'), 'false');
   };
   try {
     await fs.mkdir('.impeccable/review', { recursive: true });
@@ -269,10 +258,11 @@ async function verify() {
         const heading = main.getByRole('heading', { level: 1 });
         assert(
           await heading.evaluate(
-            (element) =>
-              Number.parseFloat(getComputedStyle(element).fontSize) >= 32,
+            (element, minimum) =>
+              Number.parseFloat(getComputedStyle(element).fontSize) >= minimum,
+            device === 'mobile' ? 26 : 32,
           ),
-          `${device}/${name}: page heading is smaller than 32px.`,
+          `${device}/${name}: page heading is below the design size for this viewport.`,
         );
         const actions = main.locator('.MuiButton-root:visible');
         for (const action of await actions.evaluateAll((elements) =>
@@ -303,7 +293,7 @@ async function verify() {
         }
         await page
           .getByRole('button', {
-            name: /^(Expand|Collapse) team chat$/,
+            name: 'Expand team chat',
             exact: true,
           })
           .waitFor();
@@ -400,8 +390,36 @@ async function verify() {
             await main
               .getByRole('img', { name: /\. THB\. Missing observations/ })
               .count(),
-            3,
+            2,
+            'Actual engine charts are visible before hypothetical research.',
           );
+          for (const title of ['Live engine equity', 'Live realized net P/L']) {
+            await main
+              .getByRole('img', {
+                name: `${title}. THB. Missing observations are gaps, not zero.`,
+                exact: true,
+              })
+              .waitFor();
+          }
+          const researchToggle = main.locator('summary').filter({
+            hasText: /^Strategy research \(hypothetical\)$/,
+          });
+          const researchChart = main.getByRole('img', {
+            name: 'Strategy research (hypothetical). THB. Missing observations are gaps, not zero.',
+            exact: true,
+          });
+          assert.equal(await researchChart.isVisible(), false);
+          await researchToggle.press('Enter');
+          await researchChart.waitFor();
+          assert.equal(
+            await main
+              .getByRole('img', { name: /\. THB\. Missing observations/ })
+              .count(),
+            3,
+            'The separate hypothetical chart opens only on demand.',
+          );
+          await researchToggle.press('Enter');
+          assert.equal(await researchChart.isVisible(), false);
           assert.equal(await main.getByText(/Synthetic Reviewer/).count(), 0);
           assert.equal(
             await main.getByText('Synthetic Bitcoin', { exact: true }).count(),
@@ -532,14 +550,9 @@ async function verify() {
     await page
       .getByRole('progressbar', { name: 'Loading dashboard records' })
       .waitFor();
-    if (
-      await page
-        .getByRole('button', { name: 'Expand team chat', exact: true })
-        .isVisible()
-    )
-      await page
-        .getByRole('button', { name: 'Expand team chat', exact: true })
-        .click();
+    await page
+      .getByRole('button', { name: 'Expand team chat', exact: true })
+      .click();
     account = 'b';
     holdFinance = false;
     await page

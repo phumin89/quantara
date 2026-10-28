@@ -76,6 +76,33 @@ async function verify() {
           name: 'Research reports',
           exact: true,
         });
+      const selector = main.locator('#daily-brief-report-select');
+      await selector.waitFor();
+      const retained = fixture.runs(count, account);
+      assert.equal(await selector.inputValue(), retained[2].id);
+      assert.equal(await selector.locator('option').count(), 3);
+      await reports
+        .getByText('Unrecognized plain report.', { exact: false })
+        .waitFor();
+      assert.equal(
+        await reports
+          .getByRole('heading', { name: 'Recorded summary' })
+          .count(),
+        0,
+        'Unstructured output does not acquire an invented summary.',
+      );
+      await selector.selectOption(retained[1].id);
+      await reports
+        .getByRole('heading', { name: 'Synthetic Markdown', exact: true })
+        .first()
+        .waitFor();
+      assert.equal(await main.locator('h1').count(), 1);
+      assert.equal(await reports.locator('script,iframe,img').count(), 0);
+      assert.equal(
+        await page.evaluate(() => window.syntheticReportScriptRan),
+        undefined,
+      );
+      await selector.selectOption(retained[0].id);
       await reports
         .getByRole('heading', { name: 'Recorded summary', exact: true })
         .waitFor();
@@ -93,17 +120,6 @@ async function verify() {
       await reports
         .getByRole('heading', { name: 'TEST/THB', exact: true })
         .waitFor();
-      assert.equal(await main.locator('h1').count(), 1);
-      assert.equal(await reports.locator('script,iframe,img').count(), 0);
-      assert.equal(
-        await page.evaluate(() => window.syntheticReportScriptRan),
-        undefined,
-      );
-      assert(
-        (await reports
-          .getByRole('heading', { name: 'Synthetic Markdown', exact: true })
-          .count()) > 0,
-      );
       await reports.getByText('Original report', { exact: true }).click();
       assert.equal(
         await reports
@@ -246,10 +262,18 @@ async function verify() {
       const box = await dialog.boundingBox();
       assert(box.height >= height * 0.6 && box.width <= width);
       const transcript = await conversation.boundingBox();
+      await dialog
+        .getByText('Open Trading to view execution and AI strategy status.', {
+          exact: true,
+        })
+        .waitFor();
+      await dialog
+        .getByRole('link', { name: 'View live trading', exact: true })
+        .waitFor();
       assert(
-        transcript.height >= box.height - 150 &&
+        transcript.height >= height / 2 &&
           Math.abs(transcript.y + transcript.height - box.y - box.height) < 4,
-        'The read-only conversation uses the panel through its bottom edge.',
+        'Below the wrapping snapshot and live-status context, the conversation fills the panel to its bottom and retains at least half the viewport.',
       );
       const edge = await collapse.boundingBox();
       assert(

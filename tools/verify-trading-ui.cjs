@@ -1443,29 +1443,18 @@ async function verifyBrowser() {
   });
   try {
     await page.clock.install({ time: new Date('2026-10-16T04:00:00Z') });
-    const collapseTeamChat = async () => {
-      await page
-        .getByRole('button', {
-          name:
-            page.viewportSize().width >= 1024
-              ? 'Collapse team chat'
-              : 'Expand team chat',
-          exact: true,
-        })
-        .waitFor();
-      const collapse = page.getByRole('button', {
-        name: 'Collapse team chat',
+    const verifyCollapsedTeamChat = async () => {
+      const chatControl = page.getByRole('button', {
+        name: 'Expand team chat',
         exact: true,
       });
-      if (await collapse.isVisible()) {
-        await collapse.click();
-        await page.clock.runFor(300);
-      }
+      await chatControl.waitFor();
+      assert.equal(await chatControl.getAttribute('aria-expanded'), 'false');
     };
     await page.goto(
       (process.env.TEST_URL || 'http://127.0.0.1:3000') + '/crypto',
     );
-    await collapseTeamChat();
+    await verifyCollapsedTeamChat();
     await page.getByText('Paper trading', { exact: true }).waitFor();
     await page
       .locator('summary')
@@ -1671,7 +1660,7 @@ async function verifyBrowser() {
     current = { ...current, heartbeatAt: '2026-10-16T03:00:00Z' };
     await page.reload();
     await page.getByText('Live status is unknown.', { exact: false }).waitFor();
-    await collapseTeamChat();
+    await verifyCollapsedTeamChat();
     assert.equal(
       writes.length,
       4,
@@ -1949,7 +1938,7 @@ async function verifyBrowser() {
     ]) {
       await page.setViewportSize({ width, height });
       await page.reload();
-      await collapseTeamChat();
+      await verifyCollapsedTeamChat();
       await page
         .locator('summary')
         .filter({ hasText: 'Orders & positions' })
@@ -2014,7 +2003,7 @@ async function verifyBrowser() {
       };
       await page.setViewportSize({ width, height });
       await page.reload();
-      await collapseTeamChat();
+      await verifyCollapsedTeamChat();
       await page
         .getByRole('heading', { name: 'Active orders (1)', exact: true })
         .waitFor();
@@ -2120,7 +2109,7 @@ async function verifyBrowser() {
       },
     };
     await page.reload();
-    await collapseTeamChat();
+    await verifyCollapsedTeamChat();
     await page.getByText('Enabled · Blocked', { exact: true }).waitFor();
     assert(
       await page
@@ -2150,7 +2139,7 @@ async function verifyBrowser() {
       },
     };
     await page.reload();
-    await collapseTeamChat();
+    await verifyCollapsedTeamChat();
     await page
       .getByRole('heading', {
         name: 'Live orders needing review (1)',
@@ -2219,7 +2208,7 @@ async function verifyBrowser() {
       };
       await page.setViewportSize({ width, height });
       await page.reload();
-      await collapseTeamChat();
+      await verifyCollapsedTeamChat();
       await page
         .getByRole('heading', {
           name: 'Live orders needing review (1)',
@@ -2268,7 +2257,7 @@ async function verifyBrowser() {
       });
       current = { ...current, objective: undefined };
       await page.reload();
-      await collapseTeamChat();
+      await verifyCollapsedTeamChat();
       await page
         .locator('summary')
         .filter({ hasText: /^System details$/ })

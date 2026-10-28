@@ -4,6 +4,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const Module = require('node:module');
 const assert = require('node:assert/strict');
+const { mock } = require('node:test');
 const ts = require('typescript');
 const root = path.resolve(__dirname, '..');
 const originals = Module._load;
@@ -76,22 +77,40 @@ try {
 }
 global.document = { hidden: false, removeEventListener: () => {} };
 const flush = () => new Promise(setImmediate);
-const overview = (enabled) => ({
-  latestRun: null,
+const overview = (enabled, accountKey = null) => ({
+  latestRun: accountKey
+    ? {
+        id: `run-${accountKey}`,
+        accountKey,
+        createdAt: '2026-10-25T00:00:00Z',
+        updatedAt: '2026-10-25T00:00:00Z',
+      }
+    : null,
   company: { enabled, status: enabled ? 'waiting' : 'stopped' },
 });
-function setup({ historical = false, briefFails = false } = {}) {
+function setup({
+  historical = false,
+  briefFails = false,
+  accountKey = null,
+  enabled = true,
+} = {}) {
   const counters = { get: 0, brief: 0, command: 0 };
-  let serverEnabled = true;
+  let serverEnabled = enabled;
+  const previousBrief = {
+    date: today,
+    runs: accountKey
+      ? [{ id: `run-${accountKey}`, accountKey, status: 'completed' }]
+      : [],
+  };
   const service = {
     get: async () => {
       counters.get++;
-      return overview(serverEnabled);
+      return overview(serverEnabled, accountKey);
     },
     brief: async (date) => {
       counters.brief++;
       if (briefFails) throw new Error('Synthetic brief failure');
-      return { date, runs: [] };
+      return { ...previousBrief, date };
     },
     news: async () => ({}),
     setCompanyEnabled: async (enabled) => {
@@ -106,10 +125,11 @@ function setup({ historical = false, briefFails = false } = {}) {
   provider.state = {
     ...provider.state,
     date: today,
-    overview: overview(true),
-    brief: { date: today, runs: [] },
+    overview: overview(enabled, accountKey),
+    brief: previousBrief,
     loading: false,
     fetchedAt: 1,
+    accountKey,
   };
   const page = new Page({});
   page.mounted = true;
@@ -130,6 +150,7 @@ async function run() {
   const results = [];
   const race = setup();
   let resolveOld;
+  let resolveOldBrief;
   race.service.get = () => {
     race.counters.get++;
     if (race.counters.get === 1)
@@ -138,11 +159,22 @@ async function run() {
       });
     return Promise.resolve(overview(false));
   };
+  race.service.brief = async (date) => {
+    race.counters.brief++;
+    if (race.counters.brief === 1)
+      return new Promise((resolve) => {
+        resolveOldBrief = resolve;
+      });
+    return { date, runs: [] };
+  };
   const oldRefresh = race.provider.refresh();
   await race.page.controlCompany();
+  const currentState = race.provider.state;
   resolveOld(overview(true));
+  resolveOldBrief({ date: today, runs: [{ id: 'old', accountKey: 'old' }] });
   await oldRefresh;
   await flush();
+  assert.equal(race.provider.state, currentState);
   assert.equal(race.serverEnabled(), false);
   assert.equal(race.provider.state.overview.company.enabled, false);
   assert.equal(race.provider.state.error, null);
@@ -169,11 +201,18 @@ async function run() {
   };
   const rejectedRefresh = rejectedLate.provider.refresh();
   await rejectedLate.page.controlCompany();
+  const recoveredState = rejectedLate.provider.state;
   rejectOld(new Error('old request failed'));
   await rejectedRefresh;
   await flush();
+  assert.equal(rejectedLate.provider.state, recoveredState);
   assert.equal(rejectedLate.provider.state.overview.company.enabled, false);
   assert.equal(rejectedLate.provider.state.error, null);
+  results.push({
+    scenario: 'Late failed pre-command read cannot overwrite recovered state',
+    displayedEnabled: rejectedLate.provider.state.overview.company.enabled,
+    error: rejectedLate.provider.state.error,
+  });
 
   const commandFailure = setup();
   commandFailure.service.setCompanyEnabled = async () => {
@@ -182,8 +221,20 @@ async function run() {
   };
   await commandFailure.page.controlCompany();
   await flush();
+  assert.equal(commandFailure.counters.get, 1);
+  assert.equal(commandFailure.counters.brief, 1);
+  assert.equal(commandFailure.page.state.controlling, false);
+  assert.equal(commandFailure.provider.state.overview.company.enabled, true);
+  await commandFailure.provider.refresh();
+  assert.equal(commandFailure.counters.get, 2);
   assert.equal(commandFailure.counters.command, 1);
   assert.equal(commandFailure.page.state.error, 'Synthetic command failure');
+  results.push({
+    scenario: 'Failed command refreshes reads without resubmission',
+    getCalls: commandFailure.counters.get,
+    commandCalls: commandFailure.counters.command,
+    error: commandFailure.page.state.error,
+  });
 
   const pending = setup();
   let resolvePending;
@@ -199,31 +250,116 @@ async function run() {
   await flush();
   assert.equal(pending.page.state.controlling, false);
 
-  const timeout = setup();
-  timeout.service.get = async () => overview(false);
-  timeout.service.brief = (_date, signal) =>
-    new Promise((_resolve, reject) => {
-      signal.addEventListener('abort', () => reject(new Error('aborted')));
-    });
-  const timeoutCommand = timeout.page.controlCompany();
-  await flush();
-  timeout.provider.controller?.abort();
-  await timeoutCommand;
-  assert.equal(timeout.provider.state.overview.company.enabled, true);
-  assert.equal(timeout.provider.state.fetchedAt, 1);
-  assert.match(timeout.provider.state.error, /timed out/);
+  for (const enabled of [true, false]) {
+    mock.timers.enable({ apis: ['setTimeout'] });
+    try {
+      const timeout = setup({ accountKey: 'A', enabled });
+      const timeoutBrief = timeout.provider.state.brief;
+      assert.equal(timeoutBrief.runs[0].accountKey, 'A');
+      timeout.service.brief = (_date, signal) => {
+        timeout.counters.brief++;
+        return new Promise((_resolve, reject) => {
+          signal.addEventListener('abort', () => reject(new Error('aborted')));
+        });
+      };
+      const timeoutCommand = timeout.page.controlCompany();
+      await flush();
+      assert.ok(timeout.provider.controller);
+      const controller = timeout.provider.controller;
+      mock.timers.tick(7999);
+      await flush();
+      assert.equal(controller.signal.aborted, false);
+      assert.equal(timeout.page.state.controlling, true);
+      assert.equal(timeout.page.state.loading, true);
+      mock.timers.tick(1);
+      assert.equal(controller.signal.aborted, true);
+      await timeoutCommand;
+      // A verified overview survives a brief timeout; the brief stays stale.
+      assert.equal(timeout.serverEnabled(), !enabled);
+      assert.equal(timeout.provider.state.overview.company.enabled, !enabled);
+      assert.equal(timeout.provider.state.brief, timeoutBrief);
+      assert.equal(timeout.provider.state.fetchedAt, 1);
+      assert.match(timeout.provider.state.error, /timed out/);
+      assert.equal(timeout.provider.state.loading, false);
+      assert.equal(timeout.page.state.loading, false);
+      assert.equal(timeout.page.state.controlling, false);
+      assert.equal(timeout.page.state.error, null);
+      assert.equal(timeout.counters.command, 1);
+      assert.equal(timeout.counters.get, 1);
+      assert.equal(timeout.counters.brief, 1);
+      results.push({
+        scenario: `Successful ${enabled ? 'pause' : 'resume'} and 8-second brief timeout`,
+        displayedEnabled: timeout.provider.state.overview.company.enabled,
+        briefRetained: timeout.provider.state.brief === timeoutBrief,
+        fetchedAt: timeout.provider.state.fetchedAt,
+        controlling: timeout.page.state.controlling,
+        commandCalls: timeout.counters.command,
+        error: timeout.provider.state.error,
+      });
+    } finally {
+      mock.timers.reset();
+    }
+  }
 
-  const unmounted = setup();
-  let resolveUnmounted;
-  unmounted.service.get = () =>
-    new Promise((resolve) => {
-      resolveUnmounted = resolve;
+  const overviewFailure = setup({ accountKey: 'A' });
+  const verifiedState = overviewFailure.provider.state;
+  overviewFailure.service.get = async () => {
+    overviewFailure.counters.get++;
+    throw new Error('Synthetic overview failure');
+  };
+  overviewFailure.service.brief = async (date) => {
+    overviewFailure.counters.brief++;
+    return { date, runs: [{ id: 'unverified', accountKey: 'B' }] };
+  };
+  await overviewFailure.page.controlCompany();
+  assert.equal(overviewFailure.serverEnabled(), false);
+  assert.equal(overviewFailure.counters.brief, 1);
+  assert.equal(overviewFailure.provider.state.overview, verifiedState.overview);
+  assert.equal(overviewFailure.provider.state.brief, verifiedState.brief);
+  assert.equal(overviewFailure.provider.state.fetchedAt, 1);
+  assert.equal(overviewFailure.provider.state.accountKey, 'A');
+  assert.equal(overviewFailure.provider.state.scopeRevision, 0);
+  assert.equal(
+    overviewFailure.provider.state.error,
+    'Synthetic overview failure',
+  );
+  assert.equal(overviewFailure.page.state.controlling, false);
+  assert.equal(overviewFailure.counters.command, 1);
+  results.push({
+    scenario: 'Failed overview cannot trust a successful brief',
+    displayedEnabled: overviewFailure.provider.state.overview.company.enabled,
+    retainedAccount: overviewFailure.provider.state.accountKey,
+    fetchedAt: overviewFailure.provider.state.fetchedAt,
+    error: overviewFailure.provider.state.error,
+  });
+
+  for (const outcome of ['fulfilled', 'rejected']) {
+    const unmounted = setup({ accountKey: 'A' });
+    let resolveUnmounted;
+    let rejectUnmounted;
+    unmounted.service.get = () =>
+      new Promise((resolve, reject) => {
+        resolveUnmounted = resolve;
+        rejectUnmounted = reject;
+      });
+    const unmountedRefresh = unmounted.provider.refresh();
+    unmounted.provider.componentWillUnmount();
+    const unmountedState = unmounted.provider.state;
+    if (outcome === 'fulfilled') {
+      resolveUnmounted(overview(false, 'B'));
+    } else {
+      rejectUnmounted(new Error('Late unmounted failure'));
+    }
+    await unmountedRefresh;
+    assert.equal(unmounted.provider.state, unmountedState);
+    assert.equal(unmounted.provider.controller, null);
+    assert.equal(unmounted.provider.pending, null);
+    results.push({
+      scenario: `Unmount ignores ${outcome} read completion`,
+      retainedAccount: unmounted.provider.state.accountKey,
+      fetchedAt: unmounted.provider.state.fetchedAt,
     });
-  const unmountedRefresh = unmounted.provider.refresh();
-  unmounted.provider.componentWillUnmount();
-  resolveUnmounted(overview(false));
-  await unmountedRefresh;
-  assert.equal(unmounted.provider.state.overview.company.enabled, true);
+  }
 
   const historical = setup({ historical: true });
   // Give history a known account so load() does not refresh solely to verify it.
@@ -247,23 +383,53 @@ async function run() {
     briefCalls: historical.counters.brief,
   });
 
-  const partial = setup({ briefFails: true });
-  const previousBrief = partial.provider.state.brief;
-  await partial.page.controlCompany();
-  await flush();
-  await partial.provider.refresh();
-  assert.equal(partial.serverEnabled(), false);
-  assert.equal(partial.provider.state.overview.company.enabled, false);
-  assert.equal(partial.counters.get, 2);
-  assert.equal(partial.provider.state.fetchedAt, 1);
-  assert.equal(partial.provider.state.brief, previousBrief);
-  assert.equal(partial.provider.state.error, 'Synthetic brief failure');
+  for (const enabled of [true, false]) {
+    const partial = setup({ briefFails: true, accountKey: 'A', enabled });
+    const previousBrief = partial.provider.state.brief;
+    await partial.page.controlCompany();
+    await flush();
+    await partial.provider.refresh();
+    assert.equal(partial.serverEnabled(), !enabled);
+    assert.equal(partial.provider.state.overview.company.enabled, !enabled);
+    assert.equal(partial.counters.get, 2);
+    assert.equal(partial.provider.state.fetchedAt, 1);
+    assert.equal(partial.provider.state.brief, previousBrief);
+    assert.equal(partial.provider.state.error, 'Synthetic brief failure');
+    assert.equal(partial.provider.state.loading, false);
+    assert.equal(partial.page.state.loading, false);
+    assert.equal(partial.page.state.controlling, false);
+    assert.equal(partial.counters.command, 1);
+    results.push({
+      scenario: `Verified ${enabled ? 'pause' : 'resume'} with repeated brief failure`,
+      serverEnabled: partial.serverEnabled(),
+      displayedEnabled: partial.provider.state.overview.company.enabled,
+      error: partial.provider.state.error,
+      getCalls: partial.counters.get,
+      commandCalls: partial.counters.command,
+    });
+  }
+
+  const changedAccount = setup({ briefFails: true, accountKey: 'A' });
+  assert.equal(changedAccount.provider.state.brief.runs[0].accountKey, 'A');
+  changedAccount.service.get = async () => {
+    changedAccount.counters.get++;
+    return overview(false, 'B');
+  };
+  await changedAccount.page.controlCompany();
+  assert.equal(changedAccount.provider.state.overview.company.enabled, false);
+  assert.equal(changedAccount.provider.state.accountKey, 'B');
+  assert.equal(changedAccount.provider.state.scopeRevision, 1);
+  assert.equal(changedAccount.provider.state.brief, null);
+  assert.equal(changedAccount.provider.state.fetchedAt, null);
+  assert.equal(changedAccount.provider.state.error, 'Synthetic brief failure');
+  assert.equal(changedAccount.page.state.controlling, false);
+  assert.equal(changedAccount.counters.command, 1);
   results.push({
-    scenario: 'Fresh company overview with repeated independent brief failure',
-    serverEnabled: partial.serverEnabled(),
-    displayedEnabled: partial.provider.state.overview.company.enabled,
-    error: partial.provider.state.error,
-    getCalls: partial.counters.get,
+    scenario: 'Account change clears the old brief despite a new brief failure',
+    accountKey: changedAccount.provider.state.accountKey,
+    scopeRevision: changedAccount.provider.state.scopeRevision,
+    brief: changedAccount.provider.state.brief,
+    fetchedAt: changedAccount.provider.state.fetchedAt,
   });
   const output = {
     note: 'Actual transpiled component methods with synchronous setState shim; verifies state transitions, not browser scheduling or layout.',

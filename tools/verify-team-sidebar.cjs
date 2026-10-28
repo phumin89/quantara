@@ -270,10 +270,10 @@ async function verify() {
           spacing.gutter,
           width >= 1024 ? 32 : width >= 600 ? 24 : 16,
         );
-        assert.deepEqual(
-          spacing.padding,
-          Array(4).fill(width >= 600 ? 24 : 16),
-        );
+        let panelPadding = width >= 600 ? 24 : 16;
+        if (new URL(page.url()).pathname === '/daily-brief')
+          panelPadding = width >= 600 ? 16 : 12;
+        assert.deepEqual(spacing.padding, Array(4).fill(panelPadding));
         assert.equal(spacing.radius, 16);
         assert(main.width > 0 && side.width > 0);
         assert(Math.abs(panel.y - header.y - header.height - 16) < 2);

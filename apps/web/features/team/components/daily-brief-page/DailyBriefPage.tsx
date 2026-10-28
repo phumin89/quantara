@@ -134,6 +134,8 @@ export default class DailyBriefPage extends Component<
       <Stack
         spacing="var(--section-gap)"
         sx={{
+          '--panel-padding': { xs: '12px', sm: '16px' },
+          '--section-gap': { xs: '16px', sm: '12px' },
           width: '100%',
           maxWidth: 1280,
           minWidth: 0,
