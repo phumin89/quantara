@@ -16,6 +16,336 @@ require.extensions['.ts'] = (module, filename) => {
 const { DashboardPresentation } = require(
   path.join(__dirname, '../presentation/DashboardPresentation.ts'),
 );
+const {
+  DashboardFinancials,
+} = require('../presentation/DashboardFinancials.ts');
+const observedNow = Date.parse('2026-10-20T03:00:00Z');
+const risky = {
+  policy: { maximumDataAgeSeconds: 90 },
+  capital: {
+    observedAt: '2026-10-20T03:00:00Z',
+    equityThb: '1000',
+    blocker: 'Incomplete source',
+    hasUncertainOrders: false,
+  },
+  performance: {
+    from: '2026-10-19T03:00:00Z',
+    to: '2026-10-20T03:00:00Z',
+    timeWeightedReturn: '0.01',
+  },
+};
+const objective = {
+  objective: {
+    valuationStatus: 'verified',
+    observedAt: '2026-10-20T03:00:00Z',
+    portfolioValueThb: '9999',
+  },
+};
+assert.equal(
+  DashboardFinancials.capital(risky, objective, observedNow),
+  null,
+  'A newer blocked capital observation cannot fall back to a different verified balance.',
+);
+const complete = { ...risky, capital: { ...risky.capital, blocker: null } };
+assert.equal(
+  DashboardFinancials.capital(complete, objective, observedNow),
+  1000,
+);
+assert.equal(
+  DashboardFinancials.capital(complete, objective, observedNow + 91000),
+  null,
+  'The actual source freshness policy controls verified capital.',
+);
+assert.equal(
+  DashboardFinancials.capitalCaption(complete, objective, observedNow),
+  'Current verified broker valuation',
+);
+assert.equal(
+  DashboardFinancials.capitalCaption(risky, objective, observedNow),
+  'Incomplete source',
+);
+assert.equal(
+  DashboardFinancials.capitalCaption(
+    { ...complete, capital: { ...complete.capital, hasUncertainOrders: true } },
+    objective,
+    observedNow,
+  ),
+  'An order outcome is unconfirmed. Review orders in Crypto.',
+);
+assert.equal(
+  DashboardFinancials.capitalCaption(complete, objective, observedNow + 91000),
+  'The latest account valuation is out of date.',
+);
+assert.equal(
+  DashboardFinancials.capitalCaption(null, null, observedNow),
+  'No verified account valuation is available.',
+);
+assert.equal(
+  DashboardFinancials.returnCaption(null, observedNow),
+  'Return needs a current, verified account valuation.',
+);
+assert.equal(
+  DashboardFinancials.returnCaption(
+    { ...complete, capital: null },
+    observedNow,
+  ),
+  'Return needs a current, verified account valuation.',
+);
+assert.equal(DashboardFinancials.accountReturn(complete, observedNow), 0.01);
+assert.equal(
+  DashboardFinancials.returnCaption(complete, observedNow),
+  'Recorded interval · adjusted for flows',
+);
+assert.equal(
+  DashboardFinancials.returnCaption(complete, observedNow + 91000),
+  'Return needs a current, verified account valuation.',
+);
+assert.equal(
+  DashboardFinancials.returnCaption(
+    {
+      ...complete,
+      performance: { ...complete.performance, to: '2026-10-20T02:59:59Z' },
+    },
+    observedNow,
+  ),
+  'Return is unavailable for the latest valuation.',
+);
+assert.equal(
+  DashboardFinancials.returnCaption(
+    {
+      ...complete,
+      performance: { ...complete.performance, from: '2026-10-20T04:00:00Z' },
+    },
+    observedNow,
+  ),
+  'Return is unavailable for the latest valuation.',
+);
+assert.equal(
+  DashboardFinancials.returnCaption(
+    { ...complete, performance: null },
+    observedNow,
+  ),
+  'No complete return interval has been recorded.',
+);
+assert.equal(
+  DashboardFinancials.returnCaption(
+    {
+      ...complete,
+      performance: {
+        ...complete.performance,
+        timeWeightedReturn: null,
+        explanation: 'Transfer evidence is incomplete.',
+      },
+    },
+    observedNow,
+  ),
+  'Transfer evidence is incomplete.',
+);
+assert.equal(
+  DashboardFinancials.returnCaption(
+    {
+      ...complete,
+      performance: {
+        ...complete.performance,
+        timeWeightedReturn: null,
+        explanation: '   ',
+      },
+    },
+    observedNow,
+  ),
+  'No complete return interval has been recorded.',
+);
+assert.equal(
+  DashboardFinancials.accountReturn(
+    {
+      ...complete,
+      performance: { ...complete.performance, timeWeightedReturn: null },
+    },
+    observedNow,
+  ),
+  null,
+);
+assert.equal(
+  DashboardFinancials.accountReturn(
+    {
+      ...complete,
+      performance: { ...complete.performance, to: '2026-10-20T02:59:59Z' },
+    },
+    observedNow,
+  ),
+  null,
+  'A return must match the observed closing capital watermark.',
+);
+const graphSource = {
+  mode: 'paper',
+  reports: [
+    {
+      date: '2026-10-19',
+      mode: 'autoLive',
+      revision: 1,
+      endingEquityThb: '1000',
+      realizedNetThb: '-5',
+      createdAt: '2026-10-19T02:00:00Z',
+    },
+    {
+      date: '2026-10-19',
+      mode: 'autoLive',
+      revision: 2,
+      endingEquityThb: '990',
+      realizedNetThb: '0',
+      createdAt: '2026-10-19T03:00:00Z',
+    },
+    {
+      date: '2026-10-19',
+      mode: 'paper',
+      revision: 3,
+      endingEquityThb: '99999',
+      realizedNetThb: '99999',
+      createdAt: '2026-10-19T04:00:00Z',
+    },
+  ],
+  live: { equityThb: '900' },
+  heartbeatAt: '2026-10-20T02:00:00Z',
+};
+const series = DashboardFinancials.series(
+  graphSource,
+  '2026-10-20',
+  'realizedNetThb',
+  observedNow,
+);
+assert.equal(
+  series.find((point) => point.label === '2026-10-19').value,
+  0,
+  'Zero is a known outcome; the latest live revision wins without mixing Paper.',
+);
+assert.equal(
+  series.find((point) => point.label === '2026-10-18').value,
+  null,
+  'Missing dates stay gaps.',
+);
+assert.equal(
+  DashboardFinancials.series(
+    { ...graphSource, mode: 'autoLive' },
+    '2026-10-20',
+    'endingEquityThb',
+    observedNow,
+  ).at(-1).value,
+  null,
+  'Stale current engine values cannot be placed on today as a fresh equity observation.',
+);
+const stoppedCurrent = {
+  ...graphSource,
+  mode: 'stopped',
+  live: { equityThb: '777' },
+  heartbeatAt: '2026-10-20T02:59:30Z',
+  autonomy: { funnel: { date: '2026-10-20', netThb: '42' } },
+  reports: [
+    {
+      date: '2026-10-20',
+      mode: 'autoLive',
+      revision: 1,
+      endingEquityThb: '700',
+      realizedNetThb: '5',
+      createdAt: '2026-10-20T01:00:00Z',
+    },
+  ],
+};
+assert.equal(
+  DashboardFinancials.series(
+    stoppedCurrent,
+    '2026-10-20',
+    'realizedNetThb',
+    observedNow,
+  ).at(-1).value,
+  42,
+  'Stopped current-day funnel evidence must override an older report revision.',
+);
+assert.equal(
+  DashboardFinancials.series(
+    stoppedCurrent,
+    '2026-10-20',
+    'endingEquityThb',
+    observedNow,
+  ).at(-1).value,
+  777,
+  'Stopped current-day equity must use the live ledger snapshot.',
+);
+assert.equal(
+  DashboardFinancials.series(
+    { ...stoppedCurrent, heartbeatAt: '2026-10-19T23:00:00Z' },
+    '2026-10-20',
+    'realizedNetThb',
+    observedNow,
+  ).at(-1).value,
+  null,
+  'A stale stopped heartbeat leaves the current-day result unknown.',
+);
+for (const mode of ['stopped', 'manualReview', 'autoLive']) {
+  const current = {
+    ...stoppedCurrent,
+    mode,
+    autonomy: { funnel: { date: '2026-10-20', netThb: '12', filledOrders: 2 } },
+  };
+  assert.equal(
+    DashboardFinancials.series(
+      current,
+      '2026-10-20',
+      'realizedNetThb',
+      observedNow,
+    ).at(-1).value,
+    12,
+    `${mode} uses matching current funnel evidence.`,
+  );
+  assert.equal(
+    DashboardFinancials.series(
+      {
+        ...current,
+        autonomy: { funnel: { date: '2026-10-20', netThb: null } },
+      },
+      '2026-10-20',
+      'realizedNetThb',
+      observedNow,
+    ).at(-1).value,
+    null,
+    `${mode} preserves unknown current funnel evidence.`,
+  );
+  for (const heartbeatAt of ['2026-10-19T23:00:00Z', '2026-10-20T04:00:01Z']) {
+    assert.equal(
+      DashboardFinancials.series(
+        { ...current, heartbeatAt },
+        '2026-10-20',
+        'endingEquityThb',
+        observedNow,
+      ).at(-1).value,
+      null,
+      `${mode} rejects stale or future heartbeat evidence.`,
+    );
+  }
+}
+assert.equal(
+  DashboardFinancials.series(
+    {
+      ...stoppedCurrent,
+      mode: 'paper',
+      autonomy: { funnel: { date: '2026-10-20', netThb: '99999' } },
+    },
+    '2026-10-20',
+    'realizedNetThb',
+    observedNow,
+  ).at(-1).value,
+  5,
+  'Paper keeps the retained live report and ignores its simulated funnel.',
+);
+assert.equal(
+  DashboardFinancials.series(
+    null,
+    '2026-10-20',
+    'realizedNetThb',
+    observedNow,
+  ).at(-1).value,
+  null,
+  'Missing trading scope remains a gap.',
+);
 const now = Date.parse('2026-10-20T18:00:00Z');
 assert.equal(
   DashboardPresentation.date('2026-10-21', now),
@@ -138,9 +468,56 @@ assert.equal(
   false,
   'A regular evidence wait is not a current failure.',
 );
-const uncertain = { ...live, live: { orders: [{ status: 'unknown' }] } };
+const tradingIssueCases = [
+  ['trading-fault', { ...live, fault: 'failed' }],
+  ['uncertain-orders', { ...live, live: { orders: [{ status: 'unknown' }] } }],
+  ['engine-stale', { ...live, heartbeatAt: null }],
+  ['mandate', live],
+  ['notification', { ...live, notifications: { unknown: 1 } }],
+];
+for (const [key, tradingCase] of tradingIssueCases) {
+  assert.equal(
+    DashboardPresentation.issues(null, tradingCase, activity).find(
+      (issue) => issue.key === key,
+    ).href,
+    '/crypto',
+    `${key} routes to Crypto.`,
+  );
+}
 assert.equal(
-  DashboardPresentation.issues(null, uncertain, activity).some(
+  DashboardPresentation.issues(
+    {
+      error: 'Wallet unavailable',
+      summary: { totalAssets: null },
+      performance: { unreconciledSymbols: [] },
+    },
+    null,
+    activity,
+  ).find((issue) => issue.key === 'wallet-error').href,
+  '/crypto',
+);
+assert.equal(
+  DashboardPresentation.issues(null, null, {
+    ...activity,
+    overview: { configured: false, company: null },
+  }).find((issue) => issue.key === 'team-auth').href,
+  '/daily-brief',
+);
+assert.equal(
+  DashboardPresentation.issues(null, null, {
+    ...activity,
+    overview: {
+      configured: true,
+      company: {
+        status: 'waitingForPortfolio',
+        error: 'Portfolio unavailable',
+      },
+    },
+  }).find((issue) => issue.key === 'team-error').href,
+  '/daily-brief',
+);
+assert.equal(
+  DashboardPresentation.issues(null, tradingIssueCases[1][1], activity).some(
     (issue) => issue.key === 'uncertain-orders',
   ),
   true,

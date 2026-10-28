@@ -1,27 +1,15 @@
 'use client';
 
 import { Component, type ContextType, type ReactNode } from 'react';
-import {
-  Alert,
-  Box,
-  Button,
-  Stack,
-  Tab,
-  Tabs,
-  Typography,
-} from '@mui/material';
+import { Alert, Box, Button, Stack, Typography } from '@mui/material';
+import AutoStoriesOutlinedIcon from '@mui/icons-material/AutoStoriesOutlined';
 import { TeamActivityContext } from '../../context/TeamActivityContext';
 import { TeamActivitySnapshot } from '../../presentation/TeamActivitySnapshot';
 import { CompanyLoopStatus } from '../../contracts/CompanyLoopStatus';
 import type { DailyBriefPageState } from './DailyBriefPageState';
-import OrderReviewPanel from '../../../orders/components/order-review-panel/OrderReviewPanel';
 import DailyBriefNews from '../daily-brief-news/DailyBriefNews';
 import DailyBriefConversation from '../daily-brief-conversation/DailyBriefConversation';
-import DailyBriefSummary from '../daily-brief-summary/DailyBriefSummary';
 import TeamResearchStatus from '../team-research-status/TeamResearchStatus';
-import TeamMembers from '../team-members/TeamMembers';
-import TradingPanel from '../../../trading/components/trading-panel/TradingPanel';
-import { DailyBriefView } from './DailyBriefView';
 import { DateOnlyPicker } from '../../../../shared/components/date-only-picker/DateOnlyPicker';
 
 export default class DailyBriefPage extends Component<
@@ -39,9 +27,7 @@ export default class DailyBriefPage extends Component<
     newsScopeRevision: -1,
     loading: true,
     error: null,
-    membersOpen: false,
     controlling: false,
-    view: DailyBriefView.Trading,
     news: null,
     newsError: null,
   };
@@ -68,6 +54,12 @@ export default class DailyBriefPage extends Component<
     this.observedScopeRevision = activity.scopeRevision;
     this.observedFetchedAt = activity.fetchedAt;
     this.observedDate = activity.date;
+    window.addEventListener('popstate', this.syncLocation);
+    window.addEventListener('quantara:route-change', this.syncLocation);
+    this.syncLocation();
+  }
+
+  private readonly syncLocation = (): void => {
     const query = new URLSearchParams(window.location.search);
     const date = query.get('date') ?? '';
     const validDate =
@@ -76,17 +68,11 @@ export default class DailyBriefPage extends Component<
       new Date(`${date}T00:00:00Z`).toISOString().slice(0, 10) === date &&
       date >= '1970-01-01' &&
       date <= TeamActivitySnapshot.today();
-    this.setState(
-      {
-        date: validDate ? date : TeamActivitySnapshot.today(),
-        view:
-          query.get('view') === DailyBriefView.TeamChat
-            ? DailyBriefView.TeamChat
-            : DailyBriefView.Trading,
-      },
-      () => void this.load(),
-    );
-  }
+    const selectedDate = validDate ? date : TeamActivitySnapshot.today();
+    if (selectedDate !== this.state.date) {
+      this.selectDate(selectedDate, false);
+    }
+  };
 
   public override componentDidUpdate(): void {
     const activity = TeamActivityContext.require(this.context);
@@ -121,74 +107,118 @@ export default class DailyBriefPage extends Component<
     this.request?.abort();
     this.action?.abort();
     this.newsRequest?.abort();
+    window.removeEventListener('popstate', this.syncLocation);
+    window.removeEventListener('quantara:route-change', this.syncLocation);
   }
 
   public override render(): ReactNode {
-    const { date, membersOpen, controlling, view } = this.state;
+    const { date, controlling } = this.state;
     const activity = TeamActivityContext.require(this.context);
     const current = date === activity.date;
-    const historicalBrief =
+    let brief =
       this.state.scopeRevision === activity.scopeRevision
         ? this.state.brief
         : null;
-    const brief = current ? activity.brief : historicalBrief;
+    if (current) {
+      brief = activity.brief;
+    }
+
     const loading = current ? activity.loading : this.state.loading;
     const error = this.state.error ?? (current ? activity.error : null);
-    const overview = activity.overview;
     const news =
       this.state.newsScopeRevision === activity.scopeRevision
         ? this.state.news
         : null;
-    const { newsError } = this.state;
 
     return (
       <Stack
-        spacing={2}
+        spacing="var(--section-gap)"
         sx={{
           width: '100%',
           maxWidth: 1280,
+          minWidth: 0,
           '& summary': {
             minHeight: 44,
             alignContent: 'center',
+            cursor: 'pointer',
+            borderRadius: 'var(--radius-control)',
             '&:focus-visible': {
-              outline: '2px solid #1e40af',
-              outlineOffset: 2,
+              outline: '2px solid',
+              outlineColor: 'info.main',
+              outlineOffset: 3,
             },
           },
         }}
       >
-        <Box
+        <Stack
+          direction={{ xs: 'column', sm: 'row' }}
           sx={{
-            display: 'flex',
-            flexWrap: 'wrap',
-            alignItems: 'center',
+            alignItems: { sm: 'center' },
             justifyContent: 'space-between',
-            gap: 2,
+            gap: { xs: 1, sm: 2 },
+            p: 'var(--panel-padding)',
+            border: '1px solid var(--border-panel)',
+            borderRadius: 'var(--radius-panel)',
+            bgcolor: 'var(--surface-panel)',
+            backdropFilter: 'blur(var(--glass-blur))',
+            boxShadow: 'var(--shadow-panel)',
           }}
         >
-          <Box>
-            <Typography
-              component="h1"
-              sx={{ fontSize: 26, fontWeight: 700 }}
+          <Stack
+            direction="row"
+            spacing={2}
+            sx={{ alignItems: 'center', minWidth: 0 }}
+          >
+            <Box
+              aria-hidden="true"
+              sx={{
+                display: { xs: 'none', sm: 'grid' },
+                placeItems: 'center',
+                width: 56,
+                height: 56,
+                flexShrink: 0,
+                borderRadius: 'var(--radius-control)',
+                bgcolor: 'var(--color-mint)',
+                color: 'text.primary',
+                transform: 'rotate(-4deg)',
+              }}
             >
-              Daily Brief
-            </Typography>
-            <Typography
-              variant="body2"
-              color="text.secondary"
-              sx={{ display: { xs: 'none', sm: 'block' } }}
-            >
-              Trading at a glance. Your team, one tab away.
-            </Typography>
-          </Box>
+              <AutoStoriesOutlinedIcon sx={{ fontSize: 28 }} />
+            </Box>
+            <Box sx={{ minWidth: 0 }}>
+              <Typography
+                component="h1"
+                sx={{
+                  fontSize: { xs: 26, sm: 36 },
+                  fontWeight: 600,
+                  lineHeight: 1.2,
+                  overflowWrap: 'break-word',
+                }}
+              >
+                Daily Brief
+              </Typography>
+              <Typography
+                variant="body2"
+                color="text.secondary"
+                sx={{
+                  mt: { xs: 0.25, sm: 0.75 },
+                  fontSize: { xs: 12, sm: 14 },
+                  lineHeight: 1.5,
+                }}
+              >
+                Research reports and evidence · Bangkok time
+              </Typography>
+            </Box>
+          </Stack>
           <DateOnlyPicker
+            label="Report date"
             value={date}
             maxDate={TeamActivitySnapshot.today()}
             onChange={(value) => {
               this.selectDate(value);
             }}
           />
-        </Box>
+        </Stack>
         {error && (
           <Alert
             severity="error"
@@ -204,103 +234,67 @@ export default class DailyBriefPage extends Component<
             {error}
           </Alert>
         )}
-        <Tabs
-          value={view}
-          onChange={(_, nextView: DailyBriefView) => {
-            this.setState({ view: nextView });
-          }}
-          aria-label="Daily brief sections"
-          sx={{ minHeight: 44, borderBottom: '1px solid #e0e0e0' }}
-        >
-          <Tab
-            id="brief-trading-tab"
-            aria-controls="brief-trading-panel"
-            value={DailyBriefView.Trading}
-            label="Trading status"
-          />
-          <Tab
-            id="brief-team-tab"
-            aria-controls="brief-team-panel"
-            value={DailyBriefView.TeamChat}
-            label="Team chat"
-          />
-        </Tabs>
-        <Box
-          role="tabpanel"
-          id="brief-trading-panel"
-          aria-labelledby="brief-trading-tab"
-          hidden={view !== DailyBriefView.Trading}
-          aria-label="Trading status"
-        >
-          <Stack
-            spacing={2}
-            sx={{ minWidth: 0 }}
-          >
-            <TradingPanel date={date} />
-            <DailyBriefNews
-              news={news}
-              error={newsError}
-            />
-            <OrderReviewPanel />
-          </Stack>
-        </Box>
-        <Box
-          role="tabpanel"
-          id="brief-team-panel"
-          aria-labelledby="brief-team-tab"
-          hidden={view !== DailyBriefView.TeamChat}
-          aria-label="Team chat"
-        >
+        <TeamResearchStatus
+          company={activity.overview?.company}
+          loading={loading}
+          controlling={controlling}
+          onControl={() => void this.controlCompany()}
+        />
+        <DailyBriefConversation
+          key={String(activity.scopeRevision) + ':' + date}
+          active
+          brief={brief}
+          loading={loading}
+          error={error}
+          date={date}
+          archive
+        />
+        {current ? (
           <Box
+            component="details"
             sx={{
-              display: 'grid',
-              gridTemplateColumns: {
-                xs: 'minmax(0, 1fr)',
-                lg: 'minmax(0, 1fr) 260px',
-              },
-              alignItems: 'start',
-              gap: 2,
+              p: 'var(--panel-padding)',
+              border: '1px solid var(--border-panel)',
+              borderRadius: 'var(--radius-panel)',
+              bgcolor: 'var(--surface-panel)',
             }}
           >
-            <Stack
-              spacing={2}
-              sx={{ minWidth: 0 }}
+            <Box
+              component="summary"
+              sx={{ fontWeight: 600 }}
             >
-              <TeamResearchStatus
-                company={overview?.company}
-                loading={loading}
-                controlling={controlling}
-                onControl={() => void this.controlCompany()}
-              />
-              <DailyBriefConversation
-                key={`${String(activity.scopeRevision)}:${date}`}
-                active={view === DailyBriefView.TeamChat}
-                brief={brief}
-                loading={loading}
-                error={error}
-                date={date}
-              />
-              <DailyBriefSummary
-                brief={brief}
-                error={error}
-              />
-            </Stack>
-            <TeamMembers
-              latest={brief?.runs.at(-1)}
-              overview={overview}
-              loading={loading}
-              membersOpen={membersOpen}
-              onToggle={() => {
-                this.setState({ membersOpen: !membersOpen });
-              }}
+              Current news sources
+            </Box>
+            <DailyBriefNews
+              news={news}
+              error={this.state.newsError}
             />
           </Box>
-        </Box>
+        ) : (
+          <Typography
+            variant="caption"
+            color="text.secondary"
+          >
+            Historical news sources are not retained for this date.
+          </Typography>
+        )}
       </Stack>
     );
   }
 
-  private selectDate(date: string): void {
+  private selectDate(date: string, updateLocation: boolean = true): void {
+    if (updateLocation) {
+      const location = new URL(window.location.href);
+      if (date) {
+        location.searchParams.set('date', date);
+      } else {
+        location.searchParams.delete('date');
+      }
+
+      location.hash = '';
+      window.history.replaceState(window.history.state, '', location.href);
+    }
+
     this.request?.abort();
     this.generation += 1;
     this.setState(
@@ -313,7 +307,10 @@ export default class DailyBriefPage extends Component<
     );
   }
 
-  private async load(preserveError: boolean = false): Promise<void> {
+  private async load(
+    preserveError: boolean = false,
+    forceStatus: boolean = false,
+  ): Promise<void> {
     if (!this.mounted || !this.state.date || this.action) {
       return;
     }
@@ -329,15 +326,34 @@ export default class DailyBriefPage extends Component<
     });
     void this.loadNews();
     try {
-      const activity = TeamActivityContext.require(this.context);
+      let activity = TeamActivityContext.require(this.context);
       if (date === activity.date) {
-        await activity.refresh();
+        await activity.refresh(forceStatus);
       } else {
+        if (forceStatus || !activity.overview?.latestRun || activity.error) {
+          await activity.refresh(forceStatus);
+          if (!this.isCurrent(generation)) {
+            return;
+          }
+
+          activity = TeamActivityContext.require(this.context);
+        }
+
+        if (!activity.overview || activity.error) {
+          throw new Error(
+            'Research account could not be verified. Retry to load this report.',
+          );
+        }
+
         const brief = await activity.service.brief(date, request.signal);
         if (this.isCurrent(generation)) {
-          const scoped = activity.overview
-            ? TeamActivitySnapshot.scope(activity.overview, brief)
-            : { ...brief, runs: [] };
+          if (!activity.overview.latestRun && brief.runs.length > 0) {
+            throw new Error(
+              'Report account could not be verified. Retry to refresh research status.',
+            );
+          }
+
+          const scoped = TeamActivitySnapshot.scope(activity.overview, brief);
           this.setState({
             brief: scoped,
             scopeRevision: activity.scopeRevision,
@@ -405,7 +421,7 @@ export default class DailyBriefPage extends Component<
   private async controlCompany(): Promise<void> {
     const activity = TeamActivityContext.require(this.context);
     const company = activity.overview?.company;
-    if (!company || this.action) {
+    if (!company || this.action || this.state.controlling) {
       return;
     }
 
@@ -430,8 +446,9 @@ export default class DailyBriefPage extends Component<
       }
     } finally {
       this.action = null;
+      await this.load(true, true);
       if (this.mounted) {
-        this.setState({ controlling: false }, () => void this.load(true));
+        this.setState({ controlling: false });
       }
     }
   }

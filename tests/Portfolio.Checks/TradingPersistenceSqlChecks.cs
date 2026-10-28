@@ -44,6 +44,7 @@ public static class TradingPersistenceSqlChecks
         await store.Initialize(CancellationToken.None);
         var initial = await store.Read(CancellationToken.None);
         Check(initial.Mode == TradingMode.Paper && initial.Mandate is null, "Fresh SQL never grants live authority.");
+        await TradingPersistenceSqlChecks.CheckIntentStates(connection, store, initial, account, now);
         var fill = new TradingFill(
             Guid.NewGuid(),
             Guid.NewGuid(),
@@ -158,6 +159,146 @@ public static class TradingPersistenceSqlChecks
         Console.WriteLine(
             "Trading persistence SQL passed: synthetic legacy JSON, stop/restart, CAS, atomic immutable rollback, exact fees and account isolation. No broker or service commands."
         );
+    }
+
+    private static async Task CheckIntentStates(
+        SqlConnection connection,
+        SqlTradingStore store,
+        TradingState initial,
+        string account,
+        DateTimeOffset now
+    )
+    {
+        var options = TradingStorageChecks.Options();
+        var original = JsonSerializer.Serialize(initial, options);
+        var intent = new TradingIntent(
+            Guid.NewGuid(),
+            "BTC",
+            TradeSide.Buy,
+            100m,
+            1000m,
+            0m,
+            now,
+            1,
+            initial.RulesHash,
+            "storage-state-fixture",
+            "filled",
+            CancellationState: "claimed"
+        );
+        try
+        {
+            foreach (var paperBook in new[] { true, false })
+            {
+                var supported = paperBook
+                    ? initial with
+                    {
+                        Paper = initial.Paper with { Orders = [intent] },
+                    }
+                    : initial with
+                    {
+                        Live = initial.Live with { Orders = [intent] },
+                    };
+                await TradingPersistenceSqlChecks.WriteRuntimePayload(
+                    connection,
+                    account,
+                    JsonSerializer.Serialize(supported, options)
+                );
+                var restored = await store.Read(CancellationToken.None);
+                Check(
+                    JsonSerializer.Serialize(restored, options) == JsonSerializer.Serialize(supported, options),
+                    "Read must preserve terminal status with an unresolved cancellation, authority and history."
+                );
+                foreach (
+                    var (invalid, message) in new[]
+                    {
+                        (intent with { Status = "UNKNOWN" }, "Trading intent has an unsupported status."),
+                        (
+                            intent with
+                            {
+                                CancellationState = "Unknown",
+                            },
+                            "Trading intent has an unsupported cancellation state."
+                        ),
+                    }
+                )
+                {
+                    var corrupt = paperBook
+                        ? initial with
+                        {
+                            Paper = initial.Paper with { Orders = [invalid] },
+                        }
+                        : initial with
+                        {
+                            Live = initial.Live with { Orders = [invalid] },
+                        };
+                    var payload = JsonSerializer.Serialize(corrupt, options);
+                    await TradingPersistenceSqlChecks.WriteRuntimePayload(connection, account, payload);
+                    await TradingPersistenceSqlChecks.RefusedState(
+                        async () =>
+                        {
+                            _ = await store.Read(CancellationToken.None);
+                        },
+                        message
+                    );
+                    await TradingPersistenceSqlChecks.RefusedState(
+                        async () =>
+                        {
+                            _ = await store.Save(
+                                supported with
+                                {
+                                    Revision = initial.Revision + 1,
+                                },
+                                initial.Revision,
+                                CancellationToken.None
+                            );
+                        },
+                        message
+                    );
+                    await using var retained = new SqlCommand(
+                        "SELECT Revision,Payload,(SELECT COUNT(*) FROM dbo.TradingOrderIntents WHERE AccountKey=@account) FROM dbo.TradingRuntime WHERE AccountKey=@account;",
+                        connection
+                    );
+                    retained.Parameters.Add("@account", SqlDbType.Char, 64).Value = account;
+                    await using var reader = await retained.ExecuteReaderAsync();
+                    Check(
+                        await reader.ReadAsync()
+                            && reader.GetInt64(0) == initial.Revision
+                            && reader.GetString(1) == payload
+                            && reader.GetInt32(2) == 0,
+                        "Rejected stored state must remain exact, with no revision advance or intent mirror writes."
+                    );
+                }
+            }
+        }
+        finally
+        {
+            await TradingPersistenceSqlChecks.WriteRuntimePayload(connection, account, original);
+        }
+    }
+
+    private static async Task WriteRuntimePayload(SqlConnection connection, string account, string payload)
+    {
+        await using var command = new SqlCommand(
+            "UPDATE dbo.TradingRuntime SET Payload=@payload WHERE AccountKey=@account;",
+            connection
+        );
+        command.Parameters.Add("@account", SqlDbType.Char, 64).Value = account;
+        command.Parameters.Add("@payload", SqlDbType.NVarChar, -1).Value = payload;
+        Check(await command.ExecuteNonQueryAsync() == 1, "Change only the isolated synthetic runtime fixture.");
+    }
+
+    private static async Task RefusedState(Func<Task> action, string message)
+    {
+        try
+        {
+            await action();
+        }
+        catch (InvalidDataException exception) when (exception.Message == message)
+        {
+            return;
+        }
+
+        throw new InvalidOperationException("Unsupported stored state was accepted or reported the wrong cause.");
     }
 
     private static void Check(bool condition, string message)

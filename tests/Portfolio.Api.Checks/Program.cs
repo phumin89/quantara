@@ -1,4 +1,5 @@
 using System.Text;
+using System.Text.Json;
 using Microsoft.AspNetCore.Http;
 using Quantara.Portfolio.Api;
 using Quantara.Portfolio.Application;
@@ -58,7 +59,73 @@ foreach (var size in new[] { 0, 8192, 8193, 10000 })
     Check(bodyContext.Request.Body.Position == 0, "body restored for MVC validation");
 }
 
-Console.WriteLine("Portfolio API security checks passed without SQL or network.");
+foreach (
+    var path in new[]
+    {
+        "/api/trading/reconciliation/manual-sale/preview",
+        "/api/trading/reconciliation/manual-sale/apply",
+        "/api/trading/reconciliation/manual-sale/cash-baseline/preview",
+        "/api/trading/reconciliation/manual-sale/cash-baseline/apply",
+    }
+)
+{
+    request.Path = path;
+    request.ContentType = "application/json";
+    request.Headers.Remove("X-Quantara-Trading-Control");
+    Check(
+        !TradingRequestPolicy.Allows(request, "portfolio", options),
+        "reconciliation review requires existing owner controls"
+    );
+    request.Headers["X-Quantara-Trading-Control"] = options.OwnerToken;
+    Check(
+        TradingRequestPolicy.Allows(request, "portfolio", options),
+        "owner review paths retain existing local authorization policy"
+    );
+}
+
+foreach (
+    var (method, readOnly) in new[]
+    {
+        ("GET", true),
+        ("get", true),
+        ("HEAD", true),
+        ("POST", false),
+        ("PUT", false),
+        ("PATCH", false),
+        ("DELETE", false),
+    }
+)
+{
+    var failureContext = new DefaultHttpContext();
+    failureContext.Request.Method = method;
+    failureContext.Request.Path = "/api/crypto/orders/synthetic/approve";
+    failureContext.Request.Headers["X-Synthetic-Secret"] = "do-not-leak";
+    await using var failureBody = new MemoryStream();
+    failureContext.Response.Body = failureBody;
+    await PortfolioFailureResponse.Write(failureContext);
+    using var failureDocument = JsonDocument.Parse(failureBody.ToArray());
+    var failureMessage = failureDocument.RootElement.GetProperty("error").GetString();
+    Check(failureContext.Response.StatusCode == 503, "unexpected failures preserve service-unavailable status");
+    Check(
+        failureContext.Response.ContentType?.StartsWith("application/json", StringComparison.Ordinal) == true,
+        "failure body remains JSON"
+    );
+    Check(
+        failureMessage
+            == (
+                readOnly
+                    ? "Portfolio data is unavailable. Refresh to try again."
+                    : "The action may have completed. Refresh status before taking another action."
+            ),
+        "read/write failure guidance " + method
+    );
+    Check(
+        !failureDocument.RootElement.ToString().Contains("do-not-leak", StringComparison.Ordinal),
+        "generic failures never echo request secrets"
+    );
+}
+
+Console.WriteLine("Portfolio API security and failure-response checks passed without SQL or network.");
 
 static void Check(bool condition, string name)
 {

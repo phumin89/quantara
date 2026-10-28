@@ -14,5 +14,6 @@ public sealed record TeamRun(
     LearningLesson? Lesson = null,
     LearningDecision? Decision = null,
     ResearchAssessment? Assessment = null,
-    ResearchTask? Task = null
+    ResearchTask? Task = null,
+    PolicyCandidate? PolicyCandidate = null
 );

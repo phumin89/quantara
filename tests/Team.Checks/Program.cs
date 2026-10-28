@@ -4,11 +4,25 @@ using Quantara.Team.Domain;
 using Quantara.Team.Infrastructure;
 using Team.Checks;
 
+if (args.Contains("--assessment-only", StringComparer.Ordinal))
+{
+    await ModelAuditChecks.Run();
+    await ResearchAssessmentChecks.Run();
+    await WorkerFailureChecks.Run();
+    Console.WriteLine("Assessment contract and safe failure diagnostics passed with fake workers only.");
+    return;
+}
+
 if (args.Contains("--continuous-only", StringComparer.Ordinal))
 {
     SpecialistWorkerTransportChecks.Run();
     SpecialistResearchMemoryChecks.Run();
     await ResearchBudgetChecks.Run();
+    await ResearchHistoryCoverageChecks.Run();
+    await ResearchAdmissionClockChecks.Run();
+    await ResearchIngressTransportChecks.Run();
+    await CompanyNewsSignalChecks.Run();
+    await SignalAdmissionFreshnessChecks.Run();
     await ContinuousResearchChecks.Run();
     await ContinuousScheduleChecks.Run();
     await StaleResearchEvidenceChecks.Run();
@@ -29,14 +43,21 @@ if (args.Contains("--worker-cleanup-only", StringComparer.Ordinal))
     return;
 }
 
+await ModelAuditChecks.Run();
 await WorkerFailureChecks.Run();
+await CompanyStopChecks.Run();
 await SignalLoopChecks.Run();
+await SignalAdmissionFreshnessChecks.Run();
 await DailyLearningChecks.Run();
 await AutonomousContextChecks.Run();
 await NativeResearchChecks.Run();
+await ResearchTransportBudgetChecks.Run();
+await ResearchIngressTransportChecks.Run();
 await StartupContextChecks.Run();
 await ResearchContextBudgetChecks.Run();
 await ResearchBudgetChecks.Run();
+await ResearchHistoryCoverageChecks.Run();
+await ResearchAdmissionClockChecks.Run();
 SpecialistWorkerTransportChecks.Run();
 SpecialistResearchMemoryChecks.Run();
 await ContinuousResearchChecks.Run();
@@ -67,6 +88,7 @@ await RestingEntryChecks.Run();
 await RequestedEvidenceChecks.Run();
 await TradingModeProposalChecks.Run();
 await AdaptiveSizingChecks.Run();
+PolicyCandidateChecks.Run();
 Console.WriteLine("Team checks passed.");
 
 static async Task Success()

@@ -30,6 +30,23 @@ public sealed class TradingOverviewProjection(
                 mode = Mode(state.Mode),
                 state.Rules,
                 state.RulesHash,
+                aiPolicy = state.AiPolicy is not { } ai
+                    ? null
+                    : new
+                    {
+                        enabled = TradingAuthority.Valid(state, account.AccountKey, time.GetUtcNow())
+                            && ai.RevokedAt is null,
+                        ai.CapitalCeilingFraction,
+                        ai.ExpiresAt,
+                        ai.OriginalRulesHash,
+                        ai.EffectiveRulesHash,
+                        status = ai.RevokedAt is not null || time.GetUtcNow() >= ai.ExpiresAt ? "stopped" : ai.Status,
+                        ai.Reason,
+                        lastChangedAt = state
+                            .PolicyChanges.Where(change => change.Authorization.MandateId == ai.MandateId)
+                            .Select(change => (DateTimeOffset?)change.AppliedAt)
+                            .LastOrDefault(),
+                    },
                 mandate = state.Mandate is null
                     ? null
                     : new
@@ -136,6 +153,13 @@ public sealed class TradingOverviewProjection(
                 fill.Side == TradeSide.Sell && fill.OccurredAt.ToOffset(TimeSpan.FromHours(7)).Date == today
             )
             .ToArray();
+        var realizedNetToday =
+            sells.Any(fill => fill.RealizedNetThb is null)
+            || ledger.ExternalSales.Any(sale =>
+                sale.Allocation.Execution.OccurredAt.ToOffset(TimeSpan.FromHours(7)).Date == today
+            )
+                ? null
+                : Decimal(sells.Sum(fill => fill.RealizedNetThb ?? 0));
         return new
         {
             status.ObservedAt,
@@ -186,9 +210,7 @@ public sealed class TradingOverviewProjection(
                     && order.Status == "filled"
                     && order.LastInspectedAt?.ToOffset(TimeSpan.FromHours(7)).Date == today
                 ),
-                netThb = sells.Any(fill => fill.RealizedNetThb is null)
-                    ? null
-                    : Decimal(sells.Sum(fill => fill.RealizedNetThb ?? 0)),
+                netThb = realizedNetToday,
                 blockedReasons = state
                     .Decisions.Where(item =>
                         item.Mode == (state.Mode == TradingMode.Paper ? TradingMode.Paper : TradingMode.AutoLive)
@@ -231,9 +253,7 @@ public sealed class TradingOverviewProjection(
                 assumptions = "Sampled hypothetical entries using subsequent observed books, visible liquidity and fees. Budget is ten exchange minimum notionals per sample. Seven-day model window; not actual fills or missed account profit.",
                 days = TradingOpportunityReview.Days(state, now),
             },
-            realizedNetTodayThb = sells.Any(fill => fill.RealizedNetThb is null)
-                ? null
-                : Decimal(sells.Sum(fill => fill.RealizedNetThb ?? 0)),
+            realizedNetTodayThb = realizedNetToday,
         };
     }
 
@@ -281,7 +301,7 @@ public sealed class TradingOverviewProjection(
                 ? mark.EquityThb
                 : null;
         var sells = ledger.Fills.Where(fill => fill.Side == TradeSide.Sell).ToArray();
-        var known = ledger.FundingThb > 0;
+        var known = ledger.FundingThb > 0 && ledger.ExternalSales.Count == 0;
         decimal? realizedGross =
             known && sells.All(fill => fill.RealizedGrossThb.HasValue)
                 ? sells.Sum(fill => fill.RealizedGrossThb.GetValueOrDefault())
@@ -359,6 +379,12 @@ public sealed class TradingOverviewProjection(
                     expiresAt = order.CreatedAt.AddMinutes(rules.OrderLifetimeMinutes),
                     order.BrokerOrderId,
                     order.Reason,
+                    order.CancellationState,
+                    order.LastInspectedAt,
+                    order.LastInspectionError,
+                    order.LastExecutionMessage,
+                    order.LastExecutionAt,
+                    originalAmount = order.OriginalAmount is { } originalAmount ? Decimal(originalAmount) : null,
                     remaining = Decimal(order.Remaining),
                 }),
         };

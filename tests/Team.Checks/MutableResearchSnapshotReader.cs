@@ -9,6 +9,14 @@ public sealed class MutableResearchSnapshotReader : IPortfolioSnapshotReader
 
     public string? Mutation { get; set; }
 
+    public string? RequestedMutation { get; init; }
+
+    public bool EmptyHoldings { get; init; }
+
+    public Action? OnRequestedRead { get; init; }
+
+    public int RequestedCount { get; private set; }
+
     public Task Refresh(CancellationToken cancellationToken) => Task.CompletedTask;
 
     public async Task<string> Read(CancellationToken cancellationToken)
@@ -29,6 +37,12 @@ public sealed class MutableResearchSnapshotReader : IPortfolioSnapshotReader
 
         var coin =
             root["walletEvidence"]?["balances"]?[1] ?? throw new InvalidOperationException("Fixture balance missing.");
+        if (this.EmptyHoldings)
+        {
+            coin["quantity"] = 0;
+            coin["available"] = 0;
+        }
+
         if (this.Mutation == "quantity")
         {
             coin["quantity"] = 2;
@@ -39,6 +53,22 @@ public sealed class MutableResearchSnapshotReader : IPortfolioSnapshotReader
             coin["available"] = 0.5m;
         }
 
+        if (this.RequestedCount > 0)
+        {
+            var market =
+                root["marketResearch"]?["markets"]?[0]
+                ?? throw new InvalidOperationException("Fixture market missing.");
+            market["last"] = 101m;
+        }
+
         return root.ToJsonString();
+    }
+
+    public Task<string> ReadForMarkets(IReadOnlyList<string> symbols, CancellationToken cancellationToken)
+    {
+        this.RequestedCount++;
+        this.Mutation = this.RequestedMutation;
+        this.OnRequestedRead?.Invoke();
+        return this.Read(cancellationToken);
     }
 }

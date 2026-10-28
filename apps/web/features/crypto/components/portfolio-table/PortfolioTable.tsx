@@ -6,10 +6,12 @@ import {
   TableContainer,
   TableHead,
   TableRow,
+  Typography,
 } from '@mui/material';
 import { PureComponent } from 'react';
 import PortfolioRow from '../portfolio-row/PortfolioRow';
 import type { PortfolioTableProps } from './PortfolioTableProps';
+import { PortfolioFilter } from '../../contracts/PortfolioFilter';
 
 export default class PortfolioTable extends PureComponent<PortfolioTableProps> {
   public override render(): React.ReactNode {
@@ -23,90 +25,124 @@ export default class PortfolioTable extends PureComponent<PortfolioTableProps> {
       historyErrors,
       onRetry,
     } = this.props;
-    const headers = [
-      'Coin',
-      'Status',
-      'Quantity',
-      'Last buy',
-      'Avg. cost (fees incl.)',
-      'Current Price',
-      'Value',
-      'Engine unrealized P/L',
-      'Engine realized P/L',
-    ];
+    const headers = ['Coin', 'Status', 'Quantity', 'Current Price', 'Value'];
+    let emptyMessage = 'No verified holdings or trading history yet.';
+    if (!this.props.holdingsKnown) {
+      emptyMessage =
+        'Wallet holdings unavailable. A verified snapshot is required.';
+    } else if (this.props.filter === PortfolioFilter.Holding) {
+      emptyMessage = 'No assets currently held in this snapshot.';
+    } else if (hasRecords) {
+      emptyMessage = 'No coins match this filter.';
+    }
+
+    if (positions.length === 0) {
+      return (
+        <Paper
+          variant="outlined"
+          role="region"
+          aria-label="Crypto holdings and trading history"
+          sx={{
+            p: 'var(--panel-padding)',
+            borderColor: 'var(--border-panel)',
+            bgcolor: 'var(--surface-raised)',
+            borderRadius: 'var(--radius-panel)',
+          }}
+        >
+          <Typography
+            variant="body2"
+            color="text.secondary"
+          >
+            {emptyMessage}
+          </Typography>
+        </Paper>
+      );
+    }
 
     return (
-      <TableContainer
-        tabIndex={0}
-        role="region"
-        aria-label="Crypto holdings and trading history"
-        component={Paper}
-        variant="outlined"
-        sx={{ borderColor: '#f0f0f0', boxShadow: 'none', overflowX: 'auto' }}
-      >
-        <Table
-          size="small"
-          sx={{ minWidth: 1040 }}
+      <>
+        <Typography
+          variant="caption"
+          color="text.secondary"
+          sx={{ display: { xs: 'block', sm: 'none' } }}
         >
-          <TableHead>
-            <TableRow>
-              {headers.map((head) => (
-                <TableCell
-                  key={head}
-                  title={
-                    head === 'Engine unrealized P/L'
-                      ? 'Current value less verified cost; excludes future exit fees'
+          Scroll to view quantities and values.
+        </Typography>
+        <TableContainer
+          tabIndex={0}
+          role="region"
+          aria-label="Crypto holdings and trading history"
+          component={Paper}
+          variant="outlined"
+          sx={{
+            borderColor: 'var(--border-panel)',
+            bgcolor: 'var(--surface-raised)',
+            borderRadius: 'var(--radius-panel)',
+            boxShadow: 'var(--shadow-panel)',
+            overflowX: 'auto',
+          }}
+        >
+          <Table
+            size="small"
+            stickyHeader
+            sx={{ minWidth: 600 }}
+          >
+            <TableHead>
+              <TableRow>
+                {headers.map((head) => (
+                  <TableCell
+                    key={head}
+                    align={
+                      head === 'Coin' || head === 'Status' ? 'left' : 'right'
+                    }
+                    sx={{
+                      bgcolor: 'primary.main',
+                      color: 'primary.contrastText',
+                      fontSize: 12,
+                      fontWeight: 600,
+                      whiteSpace: 'nowrap',
+                      height: 40,
+                      py: 1,
+                      px: 2,
+                    }}
+                  >
+                    {head}
+                  </TableCell>
+                ))}
+              </TableRow>
+            </TableHead>
+            <TableBody>
+              {positions.map((item) => (
+                <PortfolioRow
+                  key={item.symbol}
+                  item={item}
+                  expanded={expanded === item.symbol}
+                  onOpenHistory={() => {
+                    onOpenHistory(item.symbol);
+                  }}
+                  history={
+                    Object.hasOwn(history, item.symbol)
+                      ? history[item.symbol]
                       : undefined
                   }
-                  align={
-                    head === 'Coin' || head === 'Status' ? 'left' : 'right'
+                  historyLoading={
+                    Object.hasOwn(historyLoading, item.symbol) &&
+                    Boolean(historyLoading[item.symbol])
                   }
-                  sx={{
-                    fontSize: 12,
-                    fontWeight: 600,
-                    whiteSpace: 'nowrap',
-                    height: 40,
-                    py: 1,
-                    px: 2,
+                  historyError={
+                    Object.hasOwn(historyErrors, item.symbol)
+                      ? historyErrors[item.symbol]
+                      : undefined
+                  }
+                  onRetry={() => {
+                    onRetry(item.symbol);
                   }}
-                >
-                  {head}
-                </TableCell>
+                />
               ))}
-            </TableRow>
-          </TableHead>
-          <TableBody>
-            {positions.map((item) => (
-              <PortfolioRow
-                key={item.symbol}
-                item={item}
-                expanded={expanded === item.symbol}
-                onOpenHistory={() => {
-                  onOpenHistory(item.symbol);
-                }}
-                history={history[item.symbol]}
-                historyLoading={Boolean(historyLoading[item.symbol])}
-                historyError={historyErrors[item.symbol]}
-                onRetry={() => {
-                  onRetry(item.symbol);
-                }}
-              />
-            ))}
-            {!positions.length && (
-              <TableRow>
-                <TableCell
-                  colSpan={9}
-                  sx={{ py: 5, textAlign: 'center', color: '#707070' }}
-                >
-                  {hasRecords
-                    ? 'No coins match this filter.'
-                    : 'No verified holdings or trading history yet.'}
-                </TableCell>
-              </TableRow>
-            )}
-          </TableBody>
-        </Table>
-      </TableContainer>
+            </TableBody>
+          </Table>
+        </TableContainer>
+      </>
     );
   }
 }

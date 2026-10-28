@@ -8,6 +8,8 @@ namespace Quantara.Portfolio.Infrastructure.Risk;
 
 public sealed class BitkubRiskEvidenceReader(BitkubAccountReader accountReader, TimeProvider time) : IRiskEvidenceReader
 {
+    public RiskEvidenceOrigin Origin { get; } = new("bitkub", "TH", "production", "bitkub-risk-read-only-v1");
+
     private const int maximumSymbols = 1000;
 
     private const int maximumPages = 1000;
@@ -280,6 +282,5 @@ public sealed class BitkubRiskEvidenceReader(BitkubAccountReader accountReader, 
 
     private static decimal Number(JsonElement item, string name) => Number(item.GetProperty(name));
 
-    private static decimal Number(JsonElement value) =>
-        decimal.Parse(value.ToString(), NumberStyles.Float, CultureInfo.InvariantCulture);
+    private static decimal Number(JsonElement value) => DecimalPrecision.Read(value, NumberStyles.Float);
 }

@@ -132,10 +132,6 @@ public static class TelegramMessageChecks
                 && summary.Contains("21:27", StringComparison.Ordinal),
             "plan summary exposes trusted target, invalidation and review time"
         );
-        Check(
-            !summary.Contains("999.99", StringComparison.Ordinal),
-            "plan summary excludes embedded fake target marker"
-        );
         var sellText = TelegramTransport.Text(
             Proposal(planReason, TradeSide.Sell, 0.25m, 153.39m),
             "⏳ Awaiting your approval"
@@ -221,10 +217,14 @@ public static class TelegramMessageChecks
             153.39m
         );
         var fakeText = TelegramTransport.Text(fakeMarker with { State = OrderState.Submitted }, "Submitted");
+        var fakeSummary = fakeText[..fakeText.IndexOf("<blockquote expandable>", StringComparison.Ordinal)];
         Check(
-            fakeText.Contains("155.20", StringComparison.Ordinal)
-                && fakeText.Contains("152.59", StringComparison.Ordinal)
-                && fakeText.Contains("21:27", StringComparison.Ordinal),
+            fakeSummary.Contains("155.20", StringComparison.Ordinal)
+                && fakeSummary.Contains("152.59", StringComparison.Ordinal)
+                && fakeSummary.Contains("21:27", StringComparison.Ordinal)
+                && !fakeSummary.Contains("999.99", StringComparison.Ordinal)
+                && !fakeSummary.Contains("1.11", StringComparison.Ordinal)
+                && !fakeSummary.Contains("2020-01-01", StringComparison.Ordinal),
             "parser uses the anchored final plan suffix"
         );
         var malformed = TelegramTransport.Text(

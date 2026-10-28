@@ -1,5 +1,17 @@
 const assert = require('node:assert/strict');
 const { chromium } = require('playwright');
+const fs = require('node:fs');
+const ts = require('typescript');
+require.extensions['.ts'] = (module, filename) => {
+  const output = ts.transpileModule(fs.readFileSync(filename, 'utf8'), {
+    compilerOptions: {
+      module: ts.ModuleKind.CommonJS,
+      target: ts.ScriptTarget.ES2022,
+    },
+    fileName: filename,
+  }).outputText;
+  module._compile(output, filename);
+};
 
 async function verifyContracts() {
   const url = process.env.TEST_URL || 'http://127.0.0.1:3000';
@@ -14,20 +26,42 @@ async function verifyContracts() {
         json: { error: 'Isolated fixture: unavailable.' },
       }),
     );
-    const invalidSymbol = await page.request.get(
-      `${url}/api/crypto/history?coin=bad%2Fsymbol`,
-    );
-    assert.equal(invalidSymbol.status(), 400);
-    assert.deepEqual(await invalidSymbol.json(), {
-      error: 'Invalid coin symbol.',
-    });
-    const crossOrigin = await page.request.post(`${url}/api/crypto/sync`, {
-      headers: { origin: 'http://untrusted.invalid' },
-    });
-    assert.equal(crossOrigin.status(), 403);
-    assert.deepEqual(await crossOrigin.json(), {
-      error: 'Cross-origin sync is not allowed.',
-    });
+    const {
+      CryptoController,
+    } = require('../apps/web/features/crypto/api/CryptoController.ts');
+    const originalFetch = global.fetch;
+    let outbound = 0;
+    global.fetch = async () => {
+      outbound++;
+      throw new Error('Controller validation must not call a service.');
+    };
+    try {
+      const invalidSymbol = await CryptoController.history(
+        new (require('next/server').NextRequest)(
+          'http://127.0.0.1/api/crypto/history?coin=bad%2Fsymbol',
+        ),
+      );
+      assert.equal(invalidSymbol.status, 400);
+      assert.deepEqual(await invalidSymbol.json(), {
+        error: 'Invalid coin symbol.',
+      });
+      const crossOrigin = await CryptoController.sync(
+        new (require('next/server').NextRequest)(
+          'http://127.0.0.1/api/crypto/sync',
+          { method: 'POST', headers: { origin: 'http://untrusted.invalid' } },
+        ),
+      );
+      assert.equal(crossOrigin.status, 403);
+      assert.deepEqual(await crossOrigin.json(), {
+        error: 'Cross-origin sync is not allowed.',
+      });
+      assert.equal(outbound, 0);
+    } finally {
+      global.fetch = originalFetch;
+    }
+    const portfolioRetry = page
+      .locator('main button:not(#trading button)')
+      .filter({ hasText: /^Retry$/ });
     const errors = [];
     page.on('pageerror', (error) => errors.push(error.message));
     let payload = { positions: 'invalid API data' };
@@ -35,9 +69,9 @@ async function verifyContracts() {
       route.fulfill({ json: payload }),
     );
     await page.goto(`${url}/crypto`);
-    await page.getByRole('button', { name: 'Retry', exact: true }).waitFor();
+    await portfolioRetry.waitFor();
     await page
-      .getByRole('button', { name: 'Bitkub status: Error', exact: true })
+      .getByRole('button', { name: 'Snapshot status: Error', exact: true })
       .waitFor();
     assert.equal(await page.getByTestId('total-assets').count(), 0);
     // Fixtures exist only in this isolated test browser.
@@ -53,9 +87,12 @@ async function verifyContracts() {
       totalSymbols: 0,
       error: null,
     };
-    await page.getByRole('button', { name: 'Retry', exact: true }).click();
+    await portfolioRetry.click();
     await page
-      .getByRole('button', { name: 'Bitkub status: Checking', exact: true })
+      .getByRole('button', {
+        name: 'Snapshot status: Unavailable',
+        exact: true,
+      })
       .waitFor();
     for (const id of ['total-assets', 'available-thb', 'holding-count'])
       assert.equal(await page.getByTestId(id).textContent(), '—');
@@ -71,6 +108,12 @@ async function verifyContracts() {
       realizedPnl: null,
       costStatus: 'Unknown',
     };
+    payload = {
+      ...payload,
+      updatedAt: '2026-01-01T00:00:00Z',
+      priceUpdatedAt: '2026-01-01T00:00:00Z',
+      historyUpdatedAt: '2026-01-01T00:00:00Z',
+    };
     const fixturePortfolio = payload;
     for (const status of ['Unsupported', 0]) {
       payload = {
@@ -78,7 +121,7 @@ async function verifyContracts() {
         positions: [{ ...fixturePosition, status }],
       };
       await page.reload();
-      await page.getByRole('button', { name: 'Retry', exact: true }).waitFor();
+      await portfolioRetry.waitFor();
       assert.equal(await page.getByTestId('total-assets').count(), 0);
     }
     payload = { ...fixturePortfolio, positions: [fixturePosition] };

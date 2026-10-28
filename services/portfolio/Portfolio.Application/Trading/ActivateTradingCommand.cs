@@ -6,5 +6,6 @@ public sealed record ActivateTradingCommand(
     string AccountKey,
     string RulesHash,
     DateTimeOffset ExpiresAt,
-    string Acknowledgement
+    string Acknowledgement,
+    bool AiManaged = false
 ) : ICommand<string>;

@@ -2,22 +2,38 @@ import { Component, type ReactNode } from 'react';
 import { Stack, Typography } from '@mui/material';
 import TradingFormatting from '../../presentation/TradingFormatting';
 import type { TradingReportsViewProps } from './TradingReportsViewProps';
+import type { TradingReportsViewState } from './TradingReportsViewState';
+import { DateOnlyPicker } from '../../../../shared/components/date-only-picker/DateOnlyPicker';
 
-export default class TradingReportsView extends Component<TradingReportsViewProps> {
+export default class TradingReportsView extends Component<
+  TradingReportsViewProps,
+  TradingReportsViewState
+> {
+  public override state: TradingReportsViewState = { date: null };
+
   public override render(): ReactNode {
     const overview = this.props.overview;
+    const date = this.state.date ?? this.props.date;
     const reports = overview.reports
-      .filter((report) => report.date === this.props.date)
+      .filter((report) => report.date === date)
       .sort((left, right) => right.revision - left.revision);
     const report = reports.at(0);
 
     return (
       <Stack spacing={1}>
+        <DateOnlyPicker
+          label="Trading report date"
+          value={date}
+          maxDate={this.props.date}
+          onChange={(value) => {
+            this.setState({ date: value });
+          }}
+        />
         <Typography
           component="h3"
           sx={{ fontSize: 14, fontWeight: 700 }}
         >
-          Trading daily report · {this.props.date || 'Select a date'}
+          Trading daily report · {date || 'Select a date'}
         </Typography>
         <Typography
           variant="caption"

@@ -46,7 +46,7 @@ public static class TradingExitStudy
                 if (prior is { Status: "hypothetical" or "unknown" or "baseline" })
                 {
                     if (
-                        prior.Quantity != fills.Sum(fill => fill.Quantity)
+                        prior.Quantity != fills.Sum(TradingLedgerAccounting.CreditedQuantity)
                         || prior.EntryCostThb != fills.Sum(fill => fill.GrossThb + fill.FeeThb)
                     )
                     {
@@ -57,7 +57,7 @@ public static class TradingExitStudy
                             HypotheticalExitAt = null,
                             BaselineNetThb = null,
                             BaselineExitAt = null,
-                            Reason = "Additional entry fill arrived after the hypothetical exit.",
+                            Reason = "Entry quantity or cost evidence changed after the hypothetical exit.",
                         };
                         continue;
                     }
@@ -76,7 +76,7 @@ public static class TradingExitStudy
                 }
 
                 var first = fills[0];
-                var quantity = fills.Sum(fill => fill.Quantity);
+                var quantity = fills.Sum(TradingLedgerAccounting.CreditedQuantity);
                 var cost = fills.Sum(fill => fill.GrossThb + fill.FeeThb);
                 var book =
                     books.FirstOrDefault(item =>
@@ -242,7 +242,7 @@ public static class TradingExitStudy
             .ToArray();
         var baseline =
             sells.Length > 0
-            && sells.Sum(fill => fill.Quantity) == buys.Sum(fill => fill.Quantity)
+            && TradingLedgerAccounting.RemainingQuantity(buys.Concat(sells)) == 0m
             && sells.All(fill => fill.RealizedNetThb.HasValue)
                 ? sells.Sum(fill => fill.RealizedNetThb.GetValueOrDefault())
                 : (decimal?)null;

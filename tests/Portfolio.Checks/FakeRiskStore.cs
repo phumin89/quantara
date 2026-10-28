@@ -15,6 +15,8 @@ public sealed class FakeRiskStore : IRiskStore
 
     public bool FailFills { get; set; }
 
+    public TaskCompletionSource? BeforeObserve { get; set; }
+
     public Task<RiskPolicyState> ReadPolicy(CancellationToken cancellationToken) => Task.FromResult(this.Policy);
 
     public Task<CapitalSnapshot?> ReadCapital(CancellationToken cancellationToken) => Task.FromResult(this.Capital);
@@ -33,15 +35,19 @@ public sealed class FakeRiskStore : IRiskStore
         return Task.CompletedTask;
     }
 
-    public Task Observe(
+    public async Task Observe(
         CapitalSnapshot snapshot,
         IReadOnlyList<CapitalCashFlow> cashFlows,
         DateTimeOffset coverageFrom,
         CancellationToken cancellationToken
     )
     {
+        if (this.BeforeObserve is { } pending)
+        {
+            await pending.Task.WaitAsync(cancellationToken);
+        }
+
         this.Capital = snapshot;
-        return Task.CompletedTask;
     }
 
     public Task RecordSizing(Guid orderId, RiskSizingSnapshot snapshot, CancellationToken cancellationToken)

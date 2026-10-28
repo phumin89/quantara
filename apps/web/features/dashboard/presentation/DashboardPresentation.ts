@@ -153,7 +153,7 @@ export class DashboardPresentation {
           title: trading.emergencyStopped
             ? 'Emergency stop is active'
             : 'Trading needs attention',
-          href: '/daily-brief',
+          href: '/crypto',
           action: 'Review trading',
         });
       }
@@ -166,7 +166,7 @@ export class DashboardPresentation {
           key: 'uncertain-orders',
           severity: 'error',
           title: `${String(uncertain)} live order outcome(s) need reconciliation`,
-          href: '/daily-brief',
+          href: '/crypto',
           action: 'Review orders',
         });
       }
@@ -179,7 +179,7 @@ export class DashboardPresentation {
           key: 'engine-stale',
           severity: 'warning',
           title: 'Trading heartbeat is unavailable or older than 3 minutes',
-          href: '/daily-brief',
+          href: '/crypto',
           action: 'Check trading status',
         });
       }
@@ -197,7 +197,7 @@ export class DashboardPresentation {
           key: 'mandate',
           severity: 'error',
           title: 'Live authority needs review',
-          href: '/daily-brief',
+          href: '/crypto',
           action: 'Review authority',
         });
       }
@@ -207,7 +207,7 @@ export class DashboardPresentation {
           key: 'notification',
           severity: 'warning',
           title: 'Notification delivery is uncertain',
-          href: '/daily-brief',
+          href: '/crypto',
           action: 'Review delivery',
         });
       }

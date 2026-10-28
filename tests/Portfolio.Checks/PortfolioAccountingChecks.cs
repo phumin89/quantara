@@ -19,6 +19,8 @@ public static class PortfolioAccountingChecks
         await DuplicateEvidence();
         await InvalidEvidenceIsolatesSymbols();
         await UnreconciledHoldings();
+        await HistoricalResidualQuarantine(.00001902m);
+        await HistoricalResidualQuarantine(268.30338665m);
         await UnavailableQuotes();
         await ImportedHistoryRemainsUnknown();
         await FreshAccountSnapshot();
@@ -279,6 +281,31 @@ public static class PortfolioAccountingChecks
                 "Unavailable, stale or future quotes must preserve verified cost and realized profit without inventing valuation."
             );
         }
+    }
+
+    private static async Task HistoricalResidualQuarantine(decimal quantity)
+    {
+        var residual = new TradingHolding("ETH", quantity, 1m, startedAt, 100m);
+        var retained = Ledger() with { Positions = [residual] };
+        var wallet = Wallet("ETH", 0m, null);
+        var view = await View(retained, wallet);
+        var position = view.Positions.Single();
+        var performance = Performance(view);
+        Check(
+            position.Quantity == 0m
+                && position.AverageCost is null
+                && position.CostStatus == CostStatus.Unknown
+                && position.RealizedPnl is null
+                && position.UnrealizedPnl is null
+                && view.Summary.HoldingCount == 0
+                && Amount(performance, "realizedPnl") is null
+                && Amount(performance, "unrealizedPnl") is null
+                && Amount(performance, "totalPnl") is null
+                && performance.GetProperty("unreconciledSymbols").EnumerateArray().Single().GetString() == "ETH"
+                && retained.Positions.Single() == residual
+                && retained.Fills.Count == 0,
+            "A zero broker wallet remains zero holdings while a historical residual is quarantined as unreconciled accounting, never fabricated profit, fill, or a written-off lot."
+        );
     }
 
     private static async Task ImportedHistoryRemainsUnknown()

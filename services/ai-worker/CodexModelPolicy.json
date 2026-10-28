@@ -1,0 +1,10 @@
+{
+  "ceo": { "model": "gpt-6.1-sol", "effort": "low" },
+  "analyst": { "model": "gpt-6.1-sol", "effort": "medium" },
+  "intraday": { "model": "gpt-6.1-sol", "effort": "medium" },
+  "swing": { "model": "gpt-6.1-sol", "effort": "medium" },
+  "news": { "model": "gpt-6-luna", "effort": "low" },
+  "positions": { "model": "gpt-6.1-sol", "effort": "medium" },
+  "quant": { "model": "gpt-6.1-sol", "effort": "high" },
+  "reviewer": { "model": "gpt-6.1-sol", "effort": "medium" }
+}

@@ -19,9 +19,13 @@ public static class MarketWatchSelection
         var rawRules = symbols
             .GetProperty("result")
             .EnumerateArray()
-            .Where(MarketWatchSelection.IsActive)
-            .GroupBy(rule => rule.GetProperty("base_asset").GetString(), StringComparer.Ordinal)
-            .ToDictionary(group => group.Key ?? string.Empty, group => group.ToArray(), StringComparer.Ordinal);
+            .Where(MarketUniverseScanner.IsEligibleRule)
+            .GroupBy(rule => MarketUniverseScanner.Text(rule, "base_asset"), StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(
+                group => group.Key,
+                group => group.DistinctBy(rule => rule.GetRawText()).ToArray(),
+                StringComparer.OrdinalIgnoreCase
+            );
         foreach (var baseSymbol in required)
         {
             if (!rawRules.TryGetValue(baseSymbol, out var rules) || rules.Length != 1)
@@ -31,7 +35,7 @@ public static class MarketWatchSelection
 
             if (
                 int.TryParse(
-                    rules[0].GetProperty("pairing_id").ToString(),
+                    MarketUniverseScanner.Text(rules[0], "pairing_id"),
                     NumberStyles.None,
                     CultureInfo.InvariantCulture,
                     out var pairingId
@@ -84,16 +88,6 @@ public static class MarketWatchSelection
         && pairingId > 0
             ? new MarketWatchSymbol(entry.Symbol, pairingId, entry.Volume24h ?? 0m)
             : null;
-
-    private static bool IsActive(JsonElement rule) =>
-        rule.TryGetProperty("status", out var status)
-        && status.GetString() == "active"
-        && rule.TryGetProperty("quote_asset", out var quote)
-        && quote.GetString() == "THB"
-        && rule.TryGetProperty("market_segment", out var segment)
-        && segment.GetString() == "SPOT"
-        && rule.TryGetProperty("source", out var source)
-        && source.GetString() == "exchange";
 
     private static void ValidateRequired(IReadOnlyList<string> required)
     {

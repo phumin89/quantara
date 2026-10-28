@@ -140,11 +140,13 @@ public sealed class BitkubResearchMarketReader : IResearchMarketReader
             {
                 item["depth"] = await this.GetOptional(
                     $"/api/v3/market/depth?sym={Uri.EscapeDataString(symbol)}&lmt=5",
-                    timeout.Token
+                    timeout.Token,
+                    cancellationToken
                 );
                 item["trades"] = await this.GetOptional(
                     $"/api/v3/market/trades?sym={Uri.EscapeDataString(symbol)}&lmt=10",
-                    timeout.Token
+                    timeout.Token,
+                    cancellationToken
                 );
             }
 
@@ -552,11 +554,15 @@ public sealed class BitkubResearchMarketReader : IResearchMarketReader
         }
     }
 
-    private async Task<JsonElement?> GetOptional(string path, CancellationToken token)
+    private async Task<JsonElement?> GetOptional(string path, CancellationToken token, CancellationToken requestToken)
     {
         try
         {
             return await this.Get(path, token);
+        }
+        catch (OperationCanceledException) when (requestToken.IsCancellationRequested)
+        {
+            throw;
         }
         catch (Exception)
         {

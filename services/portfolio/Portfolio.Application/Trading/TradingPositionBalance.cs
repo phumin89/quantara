@@ -30,6 +30,9 @@ public static class TradingPositionBalance
             throw new InvalidDataException("Invalid market scale.");
         }
 
-        return quantity >= decimal.Round(position.Quantity, scale, MidpointRounding.ToZero);
+        var executable = decimal.Round(position.Quantity, scale, MidpointRounding.ToZero);
+        // Precision can reconcile a positive tradable quantity, never erase a
+        // positive historical lot when the verified wallet cannot cover it.
+        return executable > 0 && quantity >= executable;
     }
 }

@@ -13,6 +13,10 @@ internal sealed class AdaptiveTimeframeHandler(DateTimeOffset now, IReadOnlySet<
 
     public ConcurrentQueue<Uri> Requests { get; } = new();
 
+    public bool OmitLatestCompleted { get; set; }
+
+    public long TimestampOffsetSeconds { get; set; }
+
     private readonly IReadOnlySet<string> unavailable = unavailable ?? new HashSet<string>(StringComparer.Ordinal);
 
     protected override async Task<HttpResponseMessage> SendAsync(
@@ -54,7 +58,7 @@ internal sealed class AdaptiveTimeframeHandler(DateTimeOffset now, IReadOnlySet<
         var to = query.TryGetValue("to", out var requestedTo)
             ? long.Parse(requestedTo, CultureInfo.InvariantCulture)
             : this.clock.ToUnixTimeSeconds() / interval * interval;
-        return Response(Bars(interval, 121, to));
+        return Response(Bars(interval, 121, to, this.OmitLatestCompleted, this.TimestampOffsetSeconds));
     }
 
     private static Dictionary<string, string> Parse(string query) =>
@@ -74,13 +78,16 @@ internal sealed class AdaptiveTimeframeHandler(DateTimeOffset now, IReadOnlySet<
         )
         + "]}";
 
-    private static string Bars(int interval, int count, long to)
+    private static string Bars(int interval, int count, long to, bool omitLatestCompleted, long timestampOffset)
     {
-        var times = string.Join(
-            ',',
-            Enumerable.Range(0, count).Select(i => (to - (120 - i) * interval).ToString(CultureInfo.InvariantCulture))
-        );
-        var values = string.Join(',', Enumerable.Repeat("10", count));
+        var timestamps = Enumerable
+            .Range(0, count)
+            .Select(i => to - (count - 1 - i) * interval)
+            .Where(timestamp => !omitLatestCompleted || timestamp != to - interval)
+            .Select(timestamp => timestamp + timestampOffset)
+            .ToArray();
+        var times = string.Join(',', timestamps.Select(timestamp => timestamp.ToString(CultureInfo.InvariantCulture)));
+        var values = string.Join(',', Enumerable.Repeat("10", timestamps.Length));
         return $"{{\"s\":\"ok\",\"t\":[{times}],\"o\":[{values}],\"h\":[{values}],\"l\":[{values}],\"c\":[{values}],\"v\":[{values}]}}";
     }
 

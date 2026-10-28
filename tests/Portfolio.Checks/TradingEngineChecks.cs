@@ -14,12 +14,73 @@ public static class TradingEngineChecks
         await Reconciliation();
         await Unknown();
         await Cancellation();
+        await CancellationClaimExpiry();
         await Authority();
         await Exposure();
         await ClaimExpiry();
         await DelayedQuotes();
         await LastBaseUnit();
+        await ExecutionPriceRounding();
         Console.WriteLine("Trading engine checks passed.");
+    }
+
+    private static async Task ExecutionPriceRounding()
+    {
+        var time = new OrderCheckTime();
+        var initial = Initial(time);
+        var rules = initial.Rules with { SlippageBps = 20 };
+        var state = initial with
+        {
+            Rules = rules,
+            RulesHash = TradingRuleHash.Compute(rules),
+            Paper = initial.Paper with
+            {
+                CashThb = 100,
+                Positions = [new TradingHolding("BTC", 1000m, 20m, time.Now.AddMinutes(-121), 0.02m)],
+            },
+        };
+        var store = new FakeTradingStore(state);
+        var markets = new FakeTradingMarketReader([
+            Book(time, bid: 0.01m, ask: 0.01m, askQuantity: 1000m) with
+            {
+                BidQuantity = 1000m,
+                PriceStep = 0.01m,
+            },
+        ]);
+        var exchange = new FakeTradingExchange();
+        using var gate = new SemaphoreSlim(1);
+        await Engine(store, markets, exchange, time, gate).Tick(CancellationToken.None);
+        Check(
+            store.State.Paper.Orders.Single() is { Side: TradeSide.Sell, LimitPrice: 0.01m, Status: "filled" }
+                && store.State.Paper.Positions.Single().Quantity == 0m,
+            "Sell at the minimum tick uses a nonzero executable limit."
+        );
+        Check(exchange.Submissions == 0, "Paper rounding regression never reaches a broker.");
+
+        var coarseRules = initial.Rules with { SlippageBps = 20 };
+        var coarse = initial with
+        {
+            Rules = coarseRules,
+            RulesHash = TradingRuleHash.Compute(coarseRules),
+            Paper = initial.Paper with
+            {
+                CashThb = 100,
+                Positions = [new TradingHolding("BTC", 1m, 100, time.Now.AddMinutes(-121), 100)],
+            },
+        };
+        var coarseStore = new FakeTradingStore(coarse);
+        var coarseMarkets = new FakeTradingMarketReader([
+            Book(time, bid: 100, ask: 100, askQuantity: 1) with
+            {
+                PriceStep = 1,
+            },
+        ]);
+        await Engine(coarseStore, coarseMarkets, new FakeTradingExchange(), time, gate).Tick(CancellationToken.None);
+        Check(
+            coarseStore.State.Paper.Orders.Single() is { Side: TradeSide.Sell, LimitPrice: 100m, Status: "filled" }
+                && coarseStore.State.Paper.Positions.Single().Quantity == 0m,
+            "Coarse sell ticks round up to the permitted price."
+        );
     }
 
     private static async Task Paper()
@@ -253,6 +314,88 @@ public static class TradingEngineChecks
         );
     }
 
+    private static async Task CancellationClaimExpiry()
+    {
+        foreach (var outcome in new[] { "unchanged", "new-revision", "changed-order", "receipt-failed" })
+        {
+            var time = new OrderCheckTime();
+            var store = new FakeTradingStore(Initial(time));
+            var markets = new FakeTradingMarketReader([Book(time)]);
+            var exchange = new FakeTradingExchange();
+            using var gate = new SemaphoreSlim(1);
+            await Activate(store, markets, exchange, time, gate);
+            var intent = Intent(store.State, time, "submitted") with
+            {
+                CreatedAt = time.Now.AddMinutes(-16),
+                BrokerOrderId = "fake-existing",
+                LastInspectedAt = time.Now,
+            };
+            store.State = store.State with { Live = store.State.Live with { Orders = [intent] } };
+            store.BeforeSave = candidate =>
+            {
+                if (candidate.Live.Orders.Single().CancellationState == "claimed")
+                {
+                    store.BeforeSave = null;
+                    time.Now = time.Now.AddDays(2);
+                }
+            };
+            store.AfterSave = candidate =>
+            {
+                if (candidate.Live.Orders.Single().CancellationState != "claimed")
+                {
+                    return;
+                }
+
+                store.AfterSave = null;
+                if (outcome == "receipt-failed")
+                {
+                    throw new IOException("Fake cancellation claim acknowledgement failure.");
+                }
+
+                if (outcome == "new-revision")
+                {
+                    store.State = candidate with { Revision = candidate.Revision + 1 };
+                }
+                else if (outcome == "changed-order")
+                {
+                    store.State = candidate with
+                    {
+                        Live = candidate.Live with
+                        {
+                            Orders = [candidate.Live.Orders.Single() with { LimitPrice = intent.LimitPrice + 1 }],
+                        },
+                    };
+                }
+            };
+            await Engine(store, markets, exchange, time, gate).Tick(CancellationToken.None);
+            var retained = store.State.Live.Orders.Single();
+            Check(
+                exchange.Cancellations == 0 && exchange.Submissions == 0,
+                outcome + ": expiry after a cancellation claim prevents any broker send."
+            );
+            Check(
+                retained.Id == intent.Id
+                    && retained.Status == "submitted"
+                    && retained.BrokerOrderId == intent.BrokerOrderId
+                    && retained.Remaining == intent.Remaining
+                    && retained.CancellationState == (outcome == "unchanged" ? null : "claimed")
+                    && retained.LimitPrice == (outcome == "changed-order" ? intent.LimitPrice + 1 : intent.LimitPrice)
+                    && store.State.Live.Fills.Count == 0,
+                outcome + ": only the same-call unchanged claim may be cleared; the live broker order remains retained."
+            );
+            markets.Books = [Book(time)];
+            await Engine(store, markets, exchange, time, gate).Tick(CancellationToken.None);
+            Check(
+                store.State.Mode == TradingMode.Stopped
+                    && exchange.Cancellations == 0
+                    && exchange.Submissions == 0
+                    && store.State.Live.Orders.Single().CancellationState
+                        == (outcome == "unchanged" ? null : "claimed"),
+                outcome + ": restart with expired authority never replays cancellation or resolves retained ambiguity."
+            );
+        }
+    }
+
     private static async Task Authority()
     {
         foreach (var emergency in new[] { false, true })
@@ -362,8 +505,9 @@ public static class TradingEngineChecks
         };
         await Engine(store, markets, exchange, time, gate).Tick(CancellationToken.None);
         Check(
-            exchange.Submissions == 0 && store.State.Live.Orders.Single().Status == "submitting",
-            "Expiry during durable claim must prevent POST; restart retains the claim without automatic retry."
+            exchange.Submissions == 0
+                && store.State.Live.Orders.Single() is { Status: "cancelled", BrokerOrderId: null },
+            "Expiry after a successful claim records a known-unsent cancellation before POST."
         );
         store.BeforeSave = null;
         await Engine(store, markets, exchange, time, gate).Tick(CancellationToken.None);

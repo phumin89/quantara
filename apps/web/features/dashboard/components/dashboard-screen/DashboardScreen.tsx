@@ -1,52 +1,44 @@
 'use client';
 
-import { Component, type ContextType, type ReactNode } from 'react';
+import { Component, type ContextType } from 'react';
 import NextLink from 'next/link';
 import {
   Alert,
-  AlertTitle,
   Box,
   Button,
   Chip,
-  Divider,
   LinearProgress,
-  Paper,
   Stack,
   Typography,
 } from '@mui/material';
 import RefreshOutlined from '@mui/icons-material/RefreshOutlined';
-import ArrowForwardOutlined from '@mui/icons-material/ArrowForwardOutlined';
-import PortfolioSummary from '../../../crypto/components/portfolio-summary/PortfolioSummary';
-import SummaryMetric from '../../../crypto/components/summary-metric/SummaryMetric';
+import { DashboardServiceContext } from '../../context/DashboardServiceContext';
+import { DashboardPresentation } from '../../presentation/DashboardPresentation';
+import { DashboardFinancials } from '../../presentation/DashboardFinancials';
 import { TeamActivitySnapshot } from '../../../team/presentation/TeamActivitySnapshot';
 import { OfficePresentation } from '../../../home/presentation/OfficePresentation';
-import { TeamRole } from '../../../team/contracts/TeamRole';
-import { TeamRunStatus } from '../../../team/contracts/TeamRunStatus';
-import { DashboardPresentation } from '../../presentation/DashboardPresentation';
+import { DateOnlyPicker } from '../../../../shared/components/date-only-picker/DateOnlyPicker';
+import SummaryMetric from '../../../crypto/components/summary-metric/SummaryMetric';
+import ProfitLossAppearance from '../../../crypto/presentation/ProfitLossAppearance';
+import DashboardChart from './DashboardChart';
 import type { DashboardScreenProps } from './DashboardScreenProps';
 import type { DashboardScreenState } from './DashboardScreenState';
-import { DateOnlyPicker } from '../../../../shared/components/date-only-picker/DateOnlyPicker';
-import { DashboardServiceContext } from '../../context/DashboardServiceContext';
-import ProfitLossAppearance from '../../../crypto/presentation/ProfitLossAppearance';
 
 export default class DashboardScreen extends Component<
   DashboardScreenProps,
   DashboardScreenState
 > {
-  public static override readonly contextType = DashboardServiceContext.value;
+  public static override contextType = DashboardServiceContext.value;
 
   declare public context: ContextType<typeof DashboardServiceContext.value>;
 
   public override state: DashboardScreenState = {
     date: '',
-    portfolio: null,
     trading: null,
-    brief: null,
+    risk: null,
     loading: true,
-    briefLoading: true,
-    portfolioError: null,
     tradingError: null,
-    briefError: null,
+    riskError: null,
     checkedAt: null,
   };
 
@@ -54,22 +46,14 @@ export default class DashboardScreen extends Component<
 
   private request: AbortController | null = null;
 
-  private briefRequest: AbortController | null = null;
-
   private timer: number | null = null;
 
   public override componentDidMount(): void {
     this.mounted = true;
-    const now = Date.now();
-    const queryDate =
-      new URLSearchParams(window.location.search).get('date') ?? '';
-    const date = DashboardPresentation.date(queryDate, now)
-      ? queryDate
-      : TeamActivitySnapshot.today(now);
-    this.setState({ date }, () => {
-      void this.load();
-      void this.loadBrief();
-    });
+    window.addEventListener('popstate', this.syncLocation);
+    window.addEventListener('quantara:route-change', this.syncLocation);
+    this.syncLocation();
+    void this.load();
     this.timer = window.setInterval(() => {
       if (!document.hidden && !this.request) {
         void this.load();
@@ -78,494 +62,449 @@ export default class DashboardScreen extends Component<
   }
 
   public override componentDidUpdate(previous: DashboardScreenProps): void {
-    if (previous.activity.scopeRevision !== this.props.activity.scopeRevision) {
+    if (
+      previous.activity.scopeRevision !== this.props.activity.scopeRevision ||
+      previous.activity.accountKey !== this.props.activity.accountKey
+    ) {
       this.request?.abort();
-      this.briefRequest?.abort();
       this.setState(
-        { portfolio: null, trading: null, brief: null, checkedAt: null },
-        () => {
-          void this.load();
-          void this.loadBrief();
-        },
+        { trading: null, risk: null, checkedAt: null },
+        () => void this.load(),
       );
     } else if (
       previous.activity.date !== this.props.activity.date &&
       this.state.date === previous.activity.date
     ) {
-      this.setState({ date: this.props.activity.date, brief: null }, () => {
-        void this.loadBrief();
-      });
-    } else if (
-      previous.activity.fetchedAt !== this.props.activity.fetchedAt &&
-      this.state.date === this.props.activity.date
-    ) {
-      void this.loadBrief();
+      this.selectDate(this.props.activity.date, true);
     }
   }
 
   public override componentWillUnmount(): void {
     this.mounted = false;
+    window.removeEventListener('popstate', this.syncLocation);
+    window.removeEventListener('quantara:route-change', this.syncLocation);
     this.request?.abort();
-    this.briefRequest?.abort();
     if (this.timer !== null) {
       window.clearInterval(this.timer);
     }
   }
 
-  public override render(): ReactNode {
-    const { date, portfolio, trading, loading, checkedAt } = this.state;
-    const issues = DashboardPresentation.issues(
-      portfolio,
-      trading,
-      this.props.activity,
+  public override render() {
+    const { date, trading, risk, loading, checkedAt } = this.state;
+    const now = this.props.activity.now || Date.now();
+    const day = DashboardPresentation.day(trading, date);
+    const equity = DashboardFinancials.capital(risk, trading, now);
+    const accountReturn = DashboardFinancials.accountReturn(risk, now);
+    const displayedAccountKey = trading?.accountKey ?? risk?.accountKey;
+    const sourceAt =
+      risk?.capital?.observedAt ?? trading?.objective?.observedAt;
+    const live = trading?.live;
+    const evaluation = trading?.autonomy?.evaluation;
+    const firstStudy = evaluation?.metrics.find(
+      (metric) => metric.segment === 'validation',
     );
+    const strategyPoints =
+      evaluation?.metrics
+        .filter(
+          (metric) =>
+            metric.segment === 'validation' &&
+            metric.symbol === firstStudy?.symbol &&
+            metric.timeframeSeconds === firstStudy.timeframeSeconds,
+        )
+        .map((metric) => ({ label: metric.strategy, value: metric.netThb })) ??
+      [];
 
     return (
       <Stack
-        spacing={3}
-        sx={{ width: '100%', maxWidth: 1280 }}
+        spacing="var(--section-gap)"
+        sx={{ width: '100%', maxWidth: 1440 }}
       >
         <Stack
           direction={{ xs: 'column', sm: 'row' }}
-          sx={{ justifyContent: 'space-between', gap: 2 }}
+          sx={{
+            justifyContent: 'space-between',
+            gap: 2,
+            p: 'var(--panel-padding)',
+            bgcolor: 'var(--surface-soft)',
+            border: '1.5px solid var(--border-panel)',
+            borderRadius: 'var(--radius-panel)',
+            boxShadow: 'var(--shadow-panel)',
+          }}
         >
           <Box>
             <Typography
               component="h1"
-              sx={{ fontSize: 32, fontWeight: 650, lineHeight: 1.15 }}
+              sx={{ fontSize: { xs: 32, sm: 36 }, fontWeight: 900 }}
             >
               Dashboard
-            </Typography>
-          </Box>
-          <Button
-            variant="outlined"
-            startIcon={<RefreshOutlined />}
-            disabled={loading}
-            onClick={this.refresh}
-            sx={{ alignSelf: 'flex-start', minHeight: 44 }}
-          >
-            {loading ? 'Checking records…' : 'Refresh summary'}
-          </Button>
-        </Stack>
-        {loading && <LinearProgress aria-label="Loading dashboard records" />}
-        <Box
-          component="section"
-          aria-labelledby="dashboard-wallet-heading"
-        >
-          <Stack
-            direction="row"
-            sx={{
-              justifyContent: 'space-between',
-              alignItems: 'center',
-              gap: 1,
-              mb: 1.5,
-            }}
-          >
-            <Typography
-              id="dashboard-wallet-heading"
-              component="h2"
-              sx={{ fontSize: 18, fontWeight: 650 }}
-            >
-              Current wallet
-            </Typography>
-            <Button
-              component={NextLink}
-              href="/crypto"
-              endIcon={<ArrowForwardOutlined />}
-              sx={{ minHeight: 44 }}
-            >
-              Open Crypto
-            </Button>
-          </Stack>
-          {this.state.portfolioError && (
-            <Alert
-              severity="error"
-              sx={{ mb: 1.5 }}
-            >
-              {this.state.portfolioError}{' '}
-              {portfolio
-                ? 'Showing the last loaded snapshot.'
-                : 'Wallet amounts are unavailable.'}
-            </Alert>
-          )}
-          {portfolio ? (
-            <PortfolioSummary data={portfolio} />
-          ) : (
-            <Paper
-              variant="outlined"
-              sx={{ p: 3 }}
-            >
-              <Typography color="text.secondary">
-                {loading
-                  ? 'Loading the saved wallet snapshot…'
-                  : 'No verified wallet summary is available. Retry or open Crypto.'}
-              </Typography>
-            </Paper>
-          )}
-          <Typography
-            variant="caption"
-            color="text.secondary"
-            sx={{ display: 'block', mt: 1 }}
-          >
-            Wallet as of {OfficePresentation.time(portfolio?.updatedAt)} ·
-            Prices as of {OfficePresentation.time(portfolio?.priceUpdatedAt)}.
-            Current balances do not change with the selected day.
-          </Typography>
-        </Box>
-        <Stack
-          direction={{ xs: 'column', sm: 'row' }}
-          sx={{
-            alignItems: { sm: 'center' },
-            justifyContent: 'space-between',
-            gap: 2,
-          }}
-        >
-          <Box>
-            <Typography
-              component="h2"
-              sx={{ fontSize: 20, fontWeight: 650 }}
-            >
-              Day summary
             </Typography>
             <Typography
               variant="body2"
               color="text.secondary"
-              sx={{ mt: 0.5 }}
             >
-              Bangkok time · 00:00–23:59 ICT
+              Capital and performance in Bangkok time
             </Typography>
           </Box>
-          <DateOnlyPicker
-            label="Summary date"
-            value={date}
-            onChange={(value) => {
-              this.changeDate(value);
+          <Box
+            sx={{
+              display: 'grid',
+              gridTemplateColumns: {
+                xs: 'minmax(0, 1fr) 44px',
+                sm: '210px 44px',
+              },
+              alignItems: 'center',
+              gap: 1,
+              minWidth: 0,
             }}
-            maxDate={TeamActivitySnapshot.today(
-              this.props.activity.now || Date.now(),
-            )}
-          />
+          >
+            <DateOnlyPicker
+              label="Performance date"
+              value={date}
+              maxDate={TeamActivitySnapshot.today(now)}
+              onChange={(value) => {
+                if (DashboardPresentation.date(value, now)) {
+                  this.selectDate(value);
+                }
+              }}
+            />
+            <Button
+              aria-label="Refresh dashboard"
+              variant="outlined"
+              disabled={loading}
+              onClick={() => void this.load()}
+              sx={{ minWidth: 44, minHeight: 44 }}
+            >
+              <RefreshOutlined />
+            </Button>
+          </Box>
         </Stack>
-        {this.state.tradingError && (
-          <Alert severity="error">
-            {this.state.tradingError}{' '}
-            {trading
-              ? 'Showing retained engine records.'
-              : 'Engine results are unavailable.'}
+        {loading && <LinearProgress aria-label="Loading dashboard records" />}
+        {(this.state.tradingError || this.state.riskError) && (
+          <Alert severity="warning">
+            Some data is unavailable. Retained values show their original
+            timestamps; missing metrics stay unavailable.
           </Alert>
         )}
-        {this.renderDay()}
-        {this.renderTeam()}
-        <Box
-          component="section"
-          aria-labelledby="dashboard-attention-heading"
-        >
-          <Typography
-            id="dashboard-attention-heading"
-            component="h2"
-            sx={{ fontSize: 18, fontWeight: 650, mb: 1.5 }}
-          >
-            Current attention
-          </Typography>
-          <Stack spacing={1}>
-            {issues.map((issue) => (
-              <Alert
-                key={issue.key}
-                severity={issue.severity}
-              >
-                <AlertTitle>{issue.title}</AlertTitle>
-                <Button
-                  component={NextLink}
-                  href={issue.href}
-                  size="small"
-                  sx={{ minHeight: 44, mt: 0.5 }}
-                >
-                  {issue.action}
-                </Button>
-              </Alert>
-            ))}
-            {issues.length === 0 && (
-              <Typography color="text.secondary">
-                No additional issues in the loaded records.
-              </Typography>
-            )}
-          </Stack>
-        </Box>
-        <Typography
-          variant="caption"
-          color="text.secondary"
-        >
-          Summary checked {OfficePresentation.time(checkedAt)}.
-        </Typography>
-      </Stack>
-    );
-  }
-
-  private renderDay(): ReactNode {
-    const result = DashboardPresentation.day(
-      this.state.trading,
-      this.state.date,
-    );
-
-    return (
-      <Paper
-        component="section"
-        aria-label="Confirmed engine day results"
-        variant="outlined"
-        sx={{ p: { xs: 2, sm: 3 } }}
-      >
         <Stack
-          direction={{ xs: 'column', sm: 'row' }}
-          sx={{
-            justifyContent: 'space-between',
-            alignItems: { sm: 'center' },
-            gap: 1,
-          }}
+          direction="row"
+          sx={{ gap: 1, alignItems: 'center', flexWrap: 'wrap' }}
         >
-          <Typography
-            component="h3"
-            sx={{ fontSize: 16, fontWeight: 650 }}
-          >
-            Confirmed engine fills
-          </Typography>
           <Chip
             size="small"
             variant="outlined"
-            label={`Current mode: ${DashboardPresentation.mode(this.state.trading)}`}
+            label={'Current mode: ' + DashboardPresentation.mode(trading)}
           />
-        </Stack>
-        <Typography
-          variant="body2"
-          color="text.secondary"
-          sx={{ mt: 1 }}
-        >
-          Real engine fills · net of fees · account-wide P/L unavailable.
-        </Typography>
-        <Box
-          component="details"
-          sx={{ mt: 0.5 }}
-        >
-          <Typography
-            component="summary"
-            variant="body2"
-            sx={{ cursor: 'pointer', minHeight: 44, alignContent: 'center' }}
-          >
-            Accounting scope
-          </Typography>
-          <Typography
-            variant="body2"
-            color="text.secondary"
-            sx={{ maxWidth: '75ch' }}
-          >
-            Paper simulation and manual trades are excluded. Realized P/L
-            includes entry and exit net fees. Daily counts require a
-            matching-day engine ledger; missing counts stay unavailable.
-          </Typography>
-        </Box>
-        <Stack
-          direction={{ xs: 'column', lg: 'row' }}
-          spacing={2}
-          divider={
-            <Divider
-              flexItem
-              sx={{
-                borderBottomWidth: { xs: 1, lg: 0 },
-                borderRightWidth: { xs: 0, lg: 1 },
-              }}
-            />
-          }
-          sx={{ my: 2.5 }}
-        >
-          <Box
-            sx={{
-              flex: 1,
-              minWidth: 0,
-              color: ProfitLossAppearance.color(result.realizedNet),
-            }}
-          >
-            <SummaryMetric
-              testId="dashboard-day-net"
-              label="Realized net P/L"
-              value={DashboardPresentation.money(result.realizedNet)}
-              caption="Confirmed exits after fees"
-            />
-          </Box>
-          <SummaryMetric
-            testId="dashboard-day-filled"
-            label="Orders with fills"
-            value={
-              result.filledOrders === null
-                ? 'Unavailable'
-                : String(result.filledOrders)
-            }
-            caption="Retained engine evidence"
-          />
-          <SummaryMetric
-            testId="dashboard-day-closed"
-            label="Completed sell orders"
-            value={
-              result.closedTrades === null
-                ? 'Unavailable'
-                : String(result.closedTrades)
-            }
-            caption="Confirmed engine closes"
-          />
-        </Stack>
-        <Typography
-          variant="body2"
-          color="text.secondary"
-        >
-          {result.source}
-        </Typography>
-        {result.recordedAt && (
           <Typography
             variant="caption"
             color="text.secondary"
           >
-            Recorded {OfficePresentation.time(result.recordedAt)}.
+            <Box
+              component="span"
+              sx={{ display: 'block' }}
+            >
+              Current account valuation {OfficePresentation.time(sourceAt)}.
+            </Box>
+            <Box
+              component="span"
+              sx={{ display: 'block' }}
+            >
+              Selected day affects performance charts.
+            </Box>
           </Typography>
-        )}
-      </Paper>
-    );
-  }
-
-  private renderTeam(): ReactNode {
-    const { brief, briefLoading, date } = this.state;
-    const briefError =
-      this.state.briefError ??
-      (date === this.props.activity.date
-        ? DashboardPresentation.researchError(this.props.activity)
-        : null);
-    const runs = brief?.runs ?? [];
-    const completed = runs.filter(
-      (run) => run.status === TeamRunStatus.Completed,
-    ).length;
-    const failed = runs.filter(
-      (run) => run.status === TeamRunStatus.Failed,
-    ).length;
-    const reviewed = runs
-      .filter((run) =>
-        run.steps.some(
-          (step) =>
-            step.role === TeamRole.Reviewer &&
-            step.status === TeamRunStatus.Completed &&
-            step.output,
-        ),
-      )
-      .sort(
-        (left, right) =>
-          Date.parse(right.updatedAt) - Date.parse(left.updatedAt),
-      )[0];
-    const output = reviewed?.steps.find(
-      (step) => step.role === TeamRole.Reviewer,
-    )?.output;
-    const href = DashboardPresentation.researchHref(date, reviewed?.id);
-    let countLabel = 'Report counts unavailable.';
-    if (briefLoading) {
-      countLabel = 'Loading selected-day reports…';
-    } else if (brief && !briefError) {
-      countLabel = `${String(runs.length)} retained report(s) · ${String(completed)} completed · ${String(failed)} failed`;
-    }
-
-    return (
-      <Paper
-        component="section"
-        aria-labelledby="dashboard-team-heading"
-        variant="outlined"
-        sx={{ p: { xs: 2, sm: 3 } }}
-      >
-        <Stack
-          direction="row"
-          sx={{ justifyContent: 'space-between', alignItems: 'center', gap: 1 }}
-        >
           <Typography
-            id="dashboard-team-heading"
-            component="h3"
-            sx={{ fontSize: 16, fontWeight: 650 }}
+            variant="caption"
+            color="text.secondary"
+            title={displayedAccountKey}
           >
-            Research summary
+            Financial source account:{' '}
+            {displayedAccountKey
+              ? `…${displayedAccountKey.slice(-8)}`
+              : 'Unavailable'}
           </Typography>
-          <Button
-            component={NextLink}
-            href={href}
-            endIcon={<ArrowForwardOutlined />}
-            sx={{ minHeight: 44 }}
-          >
-            Read reports
-          </Button>
         </Stack>
-        <Typography
-          variant="body2"
-          color="text.secondary"
-          sx={{ mt: 1 }}
+        <Box
+          component="section"
+          aria-label="Key performance indicators"
+          sx={{
+            display: 'grid',
+            gridTemplateColumns: {
+              xs: 'minmax(0, 1fr)',
+              sm: 'repeat(2, minmax(0, 1fr))',
+              xl: 'repeat(4, minmax(0, 1fr))',
+            },
+            bgcolor: 'var(--surface-raised)',
+            border: '1.5px solid var(--border-panel)',
+            borderRadius: 'var(--radius-panel)',
+            boxShadow: 'var(--shadow-panel)',
+            p: 'var(--panel-padding)',
+            gap: 2,
+          }}
         >
-          {OfficePresentation.company(this.props.activity.overview?.company)}
-        </Typography>
-        {briefError && (
-          <Alert
-            severity="warning"
-            sx={{ mt: 2 }}
+          <SummaryMetric
+            testId="dashboard-equity"
+            label="Account equity"
+            value={DashboardPresentation.money(equity)}
+            caption={DashboardFinancials.capitalCaption(risk, trading, now)}
+          />
+          <Box sx={{ color: ProfitLossAppearance.color(day.realizedNet) }}>
+            <SummaryMetric
+              testId="dashboard-day-net"
+              label="Live realized net P/L"
+              value={DashboardPresentation.money(day.realizedNet)}
+              caption={'Confirmed engine exits: ' + date}
+            />
+          </Box>
+          <SummaryMetric
+            testId="dashboard-return"
+            label="Account return"
+            value={
+              accountReturn === null
+                ? 'Unavailable'
+                : new Intl.NumberFormat('en-US', {
+                    style: 'percent',
+                    maximumFractionDigits: 2,
+                  }).format(accountReturn)
+            }
+            caption={DashboardFinancials.returnCaption(risk, now)}
+          />
+          <SummaryMetric
+            testId="dashboard-drawdown"
+            label="Account drawdown"
+            value="Unavailable"
+            caption="Account drawdown history is not available."
+          />
+        </Box>
+        <Box
+          sx={{
+            display: 'grid',
+            gridTemplateColumns:
+              'repeat(auto-fit, minmax(min(100%, 20rem), 1fr))',
+            gap: 3,
+          }}
+        >
+          <DashboardChart
+            title="Live engine equity"
+            kind="line"
+            points={DashboardFinancials.series(
+              trading,
+              date,
+              'endingEquityThb',
+              now,
+            )}
+            empty="No retained engine equity observations for this period."
+            source="7 days of actual retained engine daily marks, with gaps for missing records. This is allocated strategy capital, not account-wide equity history or return."
+          />
+          <DashboardChart
+            title="Live realized net P/L"
+            kind="bar"
+            points={DashboardFinancials.series(
+              trading,
+              date,
+              'realizedNetThb',
+              now,
+            )}
+            empty="No confirmed live engine outcomes for this period."
+            source="7 days of confirmed exits after entry and exit fees. Deposits, withdrawals, manual trades and Paper results are excluded."
+          />
+        </Box>
+        <Box
+          sx={{
+            display: 'grid',
+            gridTemplateColumns: {
+              xs: 'minmax(0, 1fr)',
+              lg: 'minmax(0, 1.4fr) minmax(0, 1fr)',
+            },
+            gap: 3,
+          }}
+        >
+          <Box
+            component="details"
+            sx={{ minWidth: 0 }}
           >
-            {briefError}
-          </Alert>
-        )}
-        <Typography sx={{ my: 2, fontVariantNumeric: 'tabular-nums' }}>
-          {countLabel}
-        </Typography>
-        {output ? (
-          <Box>
+            <Box
+              component="summary"
+              sx={{
+                minHeight: 44,
+                alignContent: 'center',
+                cursor: 'pointer',
+                fontSize: 18,
+                fontWeight: 800,
+              }}
+            >
+              Strategy research (hypothetical)
+            </Box>
+            <DashboardChart
+              title="Strategy research (hypothetical)"
+              kind="bar"
+              points={strategyPoints}
+              empty="No retained strategy validation study is available."
+              source={
+                firstStudy
+                  ? `${firstStudy.symbol}, ${String(firstStudy.timeframeSeconds / 60)}m validation. Independent scenarios; do not add them together. Small samples do not establish an edge. Study ${OfficePresentation.time(evaluation?.observedAt)}.`
+                  : 'Actual per-strategy profit attribution is not exposed by the current API. Simulation results never represent account profit.'
+              }
+            />
+          </Box>
+          <Box
+            component="details"
+            sx={{ minWidth: 0 }}
+          >
+            <Box
+              component="summary"
+              sx={{
+                minHeight: 44,
+                alignContent: 'center',
+                cursor: 'pointer',
+                fontSize: 18,
+                fontWeight: 800,
+              }}
+            >
+              Performance scope
+            </Box>
+            <Box
+              component="dl"
+              sx={{
+                m: 0,
+                mt: 2,
+                display: 'grid',
+                gridTemplateColumns: '1fr auto',
+                gap: 1.5,
+                fontVariantNumeric: 'tabular-nums',
+              }}
+            >
+              <Typography
+                component="dt"
+                variant="body2"
+              >
+                Live unrealized P/L
+              </Typography>
+              <Typography
+                component="dd"
+                variant="body2"
+                sx={{ m: 0 }}
+              >
+                {DashboardPresentation.money(
+                  DashboardFinancials.number(live?.unrealizedThb),
+                )}
+              </Typography>
+              <Typography
+                component="dt"
+                variant="body2"
+              >
+                Live execution fees
+              </Typography>
+              <Typography
+                component="dd"
+                variant="body2"
+                sx={{ m: 0 }}
+              >
+                {DashboardPresentation.money(
+                  DashboardFinancials.number(live?.feesThb),
+                )}
+              </Typography>
+              <Typography
+                component="dt"
+                variant="body2"
+              >
+                Paper realized net P/L
+              </Typography>
+              <Typography
+                component="dd"
+                variant="body2"
+                sx={{ m: 0 }}
+              >
+                {DashboardPresentation.money(
+                  DashboardFinancials.number(trading?.paper.realizedNetThb),
+                )}
+              </Typography>
+            </Box>
             <Typography
               variant="caption"
               color="text.secondary"
+              component="p"
+              sx={{ mt: 2 }}
             >
-              {briefError
-                ? 'Saved Reviewer excerpt'
-                : 'Latest completed Reviewer excerpt'}{' '}
-              · {OfficePresentation.time(reviewed.updatedAt)}
+              Retained engine totals. Heartbeat{' '}
+              {OfficePresentation.time(trading?.heartbeatAt)}. Live and Paper
+              stay separate.
             </Typography>
             <Typography
-              sx={{
-                mt: 1,
-                whiteSpace: 'pre-wrap',
-                overflowWrap: 'anywhere',
-                maxWidth: '75ch',
-              }}
+              variant="body2"
+              color="text.secondary"
+              sx={{ mt: 2 }}
             >
-              {output.slice(0, 360)}
-              {output.length > 360 ? '…' : ''}
+              Account equity history and deposit/withdrawal totals are not
+              exposed by these read APIs. Company income and account-wide net
+              profit remain unavailable.
             </Typography>
+            {risk?.performance && (
+              <Typography
+                variant="caption"
+                color="text.secondary"
+                component="p"
+              >
+                Account return interval:{' '}
+                {OfficePresentation.time(risk.performance.from)} –{' '}
+                {OfficePresentation.time(risk.performance.to)}.
+              </Typography>
+            )}
+            <Button
+              component={NextLink}
+              href="/crypto#trading"
+              sx={{ mt: 1, minHeight: 44 }}
+            >
+              View holdings and execution records
+            </Button>
           </Box>
-        ) : (
-          <Typography
-            variant="body2"
-            color="text.secondary"
+        </Box>
+        <Stack
+          direction="row"
+          sx={{ justifyContent: 'space-between', gap: 1, flexWrap: 'wrap' }}
+        >
+          <Button
+            component={NextLink}
+            href="/daily-brief"
+            sx={{ minHeight: 44 }}
           >
-            {briefError
-              ? 'The selected-day summary is unavailable.'
-              : 'No completed Reviewer summary is recorded for this day.'}
+            Read research reports
+          </Button>
+          <Typography
+            variant="caption"
+            color="text.secondary"
+            sx={{ alignSelf: 'center' }}
+          >
+            Checked {OfficePresentation.time(checkedAt)}. Source: {day.source}
           </Typography>
-        )}
-      </Paper>
+        </Stack>
+      </Stack>
     );
   }
 
-  private readonly refresh = (): void => {
-    void this.load();
-    void this.loadBrief();
-    void this.props.activity.refresh();
+  private readonly syncLocation = (): void => {
+    const date = new URLSearchParams(window.location.search).get('date') ?? '';
+    const now = Date.now();
+    const selectedDate = DashboardPresentation.date(date, now)
+      ? date
+      : TeamActivitySnapshot.today(now);
+    if (selectedDate !== this.state.date) {
+      this.setState({ date: selectedDate });
+    }
   };
 
-  private changeDate(date: string): void {
-    if (
-      !DashboardPresentation.date(date, this.props.activity.now || Date.now())
-    ) {
-      return;
+  private selectDate(date: string, replace: boolean = false): void {
+    const location = new URL(window.location.href);
+    if (location.searchParams.get('date') !== date) {
+      location.searchParams.set('date', date);
+      if (replace) {
+        window.history.replaceState(window.history.state, '', location.href);
+      } else {
+        window.history.pushState(window.history.state, '', location.href);
+      }
     }
 
-    this.briefRequest?.abort();
-    this.setState({ date, brief: null, briefError: null }, () => {
-      void this.loadBrief();
-    });
+    if (this.state.date !== date) {
+      this.setState({ date });
+    }
   }
 
   private async load(): Promise<void> {
@@ -575,9 +514,10 @@ export default class DashboardScreen extends Component<
     const signal = AbortSignal.any([request.signal, AbortSignal.timeout(8000)]);
     const scope = this.props.activity.scopeRevision;
     this.setState({ loading: true });
-    const [portfolio, trading] = await Promise.allSettled([
-      DashboardServiceContext.require(this.context).portfolio.get(signal),
-      DashboardServiceContext.require(this.context).trading.get(signal),
+    const services = DashboardServiceContext.require(this.context);
+    const [trading, risk] = await Promise.allSettled([
+      services.trading.get(signal),
+      services.risk.get(signal),
     ]);
     if (
       !this.mounted ||
@@ -587,104 +527,35 @@ export default class DashboardScreen extends Component<
       return;
     }
 
-    const key = this.props.activity.accountKey;
-    const mismatch =
-      trading.status === 'fulfilled' &&
-      key !== null &&
-      trading.value.accountKey !== key;
-    let tradingError =
-      trading.status === 'rejected'
-        ? 'Unable to read engine records. Retry or open Daily Brief.'
-        : null;
-    if (mismatch) {
-      tradingError =
-        'Trading and team account evidence do not match. Reload before using the summary.';
-    }
-
     this.setState((previous) => {
-      let nextPortfolio =
-        portfolio.status === 'fulfilled' ? portfolio.value : previous.portfolio;
       let nextTrading =
         trading.status === 'fulfilled' ? trading.value : previous.trading;
+      let nextRisk = risk.status === 'fulfilled' ? risk.value : previous.risk;
+      const mismatch =
+        nextTrading !== null &&
+        nextRisk !== null &&
+        nextTrading.accountKey !== nextRisk.accountKey;
+
+      let tradingError =
+        trading.status === 'rejected' ? 'Trading unavailable' : null;
+      let riskError =
+        risk.status === 'rejected' ? 'Capital evidence unavailable' : null;
       if (mismatch) {
-        nextPortfolio = null;
         nextTrading = null;
+        nextRisk = null;
+        tradingError = 'Account provenance mismatch';
+        riskError = 'Account provenance mismatch';
       }
 
       return {
-        portfolio: nextPortfolio,
         trading: nextTrading,
-        portfolioError:
-          portfolio.status === 'rejected'
-            ? 'Unable to read the saved wallet. Retry or open Crypto.'
-            : null,
+        risk: nextRisk,
         tradingError,
+        riskError,
         loading: false,
         checkedAt: Date.now(),
       };
     });
     this.request = null;
-  }
-
-  private async loadBrief(): Promise<void> {
-    this.briefRequest?.abort();
-    const request = new AbortController();
-    this.briefRequest = request;
-    const signal = AbortSignal.any([request.signal, AbortSignal.timeout(8000)]);
-    const { activity } = this.props;
-    const { date } = this.state;
-    const scope = activity.scopeRevision;
-    if (!date) {
-      return;
-    }
-
-    this.setState({ briefLoading: true });
-    try {
-      const reused = activity.brief?.date === date;
-      const brief = reused
-        ? activity.brief
-        : await activity.service.brief(date, signal);
-      if (
-        this.mounted &&
-        !request.signal.aborted &&
-        this.state.date === date &&
-        scope === this.props.activity.scopeRevision
-      ) {
-        const accountKey = this.props.activity.accountKey;
-        let briefError =
-          accountKey === null
-            ? 'Account provenance is unavailable; research records are not shown.'
-            : null;
-        if (reused && accountKey !== null) {
-          briefError = DashboardPresentation.researchError(this.props.activity);
-        }
-
-        this.setState({
-          brief: {
-            date,
-            runs:
-              accountKey === null
-                ? []
-                : brief.runs.filter((run) => run.accountKey === accountKey),
-          },
-          briefLoading: false,
-          briefError,
-        });
-      }
-    } catch {
-      if (
-        this.mounted &&
-        !request.signal.aborted &&
-        this.state.date === date &&
-        scope === this.props.activity.scopeRevision
-      ) {
-        this.setState({
-          brief: null,
-          briefLoading: false,
-          briefError:
-            'Unable to read reports for this day. Retry or open Daily Brief.',
-        });
-      }
-    }
   }
 }

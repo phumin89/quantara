@@ -20,9 +20,19 @@ public static class TradingJsonCompatibility
             var name = property.Name.ToLowerInvariant();
             if (
                 info.Type == typeof(TradingRuleSet) && name is "adaptive" or "exitpolicy"
-                || info.Type == typeof(TradingState) && name is "autonomy" or "evaluation"
+                || info.Type == typeof(TradingState)
+                    && name is "autonomy" or "evaluation" or "aipolicy" or "policyreview"
                 || info.Type == typeof(AutonomousTradingStatus) && name == "history"
-                || info.Type == typeof(TradingIntent) && name is "sizing" or "exitplan" or "exitstudyplan"
+                || info.Type == typeof(TradingIntent)
+                    && name
+                        is "sizing"
+                            or "exitplan"
+                            or "exitstudyplan"
+                            or "lastinspectionerror"
+                            or "lastexecutionmessage"
+                            or "lastexecutionat"
+                            or "originalamount"
+                            or "replacesintentid"
                 || info.Type == typeof(TradingHolding)
                     && name is "stopprice" or "targetprice" or "trailingdistance" or "exitplan"
                 || info.Type == typeof(TradingAlert) && name is "claimedat" or "messageid" or "sentat" or "retryat"
@@ -35,6 +45,14 @@ public static class TradingJsonCompatibility
             {
                 property.ShouldSerialize = (_, value) => value is int count && count > 0;
             }
+            else if (info.Type == typeof(TradingLedger) && name == "externalsales")
+            {
+                property.ShouldSerialize = (_, value) => value is IReadOnlyList<TradingExternalSale> { Count: > 0 };
+            }
+            else if (info.Type == typeof(TradingLedger) && name == "cashbaselines")
+            {
+                property.ShouldSerialize = (_, value) => value is IReadOnlyList<TradingCashBaseline> { Count: > 0 };
+            }
             else if (info.Type == typeof(TradingState) && name == "observedfundingflows")
             {
                 property.ShouldSerialize = (_, value) => value is string[] { Length: > 0 };
@@ -46,6 +64,10 @@ public static class TradingJsonCompatibility
             else if (info.Type == typeof(TradingState) && name == "exitstudies")
             {
                 property.ShouldSerialize = (_, value) => value is IReadOnlyList<TradingExitStudySample> { Count: > 0 };
+            }
+            else if (info.Type == typeof(TradingState) && name == "policychanges")
+            {
+                property.ShouldSerialize = (_, value) => value is IReadOnlyList<TradingPolicyChange> { Count: > 0 };
             }
             else if (info.Type == typeof(RiskMarketEvidence) && name == "resting")
             {

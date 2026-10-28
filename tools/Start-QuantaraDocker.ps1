@@ -165,6 +165,7 @@ try {
     $accountExists = Invoke-QuantaraSql -Database Quantara -SourcePipe $sourcePipe -Query (
         "SELECT COUNT_BIG(*) FROM dbo.CryptoPortfolioLedger WHERE AccountKey='$accountKey';")
     if ($accountExists.Trim() -ne '1') { throw 'The staged Bitkub account does not match the retained source ledger.' }
+    Invoke-QuantaraSql -Database Quantara -SourcePipe $sourcePipe -Query (Get-QuantaraTradingMaintenanceSql) | Out-Null
     if ($state.ContainsKey('SourceMasterFile') -and $state.SourceMasterFile -ne $binding.masterFile) {
         throw 'The source SQL identity changed during migration.'
     }
@@ -264,6 +265,7 @@ try {
         Save-State
     }
     if ($state.Phase -ne 'Restored') { throw 'Unrecognized migration phase; no runtime was activated.' }
+    Invoke-QuantaraSql -Database Quantara -Query (Get-QuantaraTradingMaintenanceSql) | Out-Null
     $runtimeValues = Read-EnvironmentFile $runtimeEnv
     foreach ($database in $plan.Databases) {
         $password = $runtimeValues['QUANTARA_' + $database.Key + '_PASSWORD']

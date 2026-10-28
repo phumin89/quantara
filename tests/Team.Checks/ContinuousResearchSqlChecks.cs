@@ -101,7 +101,15 @@ public static class ContinuousResearchSqlChecks
             Status = TeamRunStatus.Running,
             CreatedAt = now,
             UpdatedAt = now,
-            Task = new ResearchTask(TeamRole.News, digest, null, now, now.AddMinutes(20)),
+            Task = new ResearchTask(
+                TeamRole.News,
+                digest,
+                null,
+                now,
+                now.AddMinutes(20),
+                digest,
+                NewsRevisions: ["event@1"]
+            ),
             Steps =
             [
                 new TeamStep(
@@ -121,7 +129,7 @@ public static class ContinuousResearchSqlChecks
         var recovered = await restarted.Find(current.Id, CancellationToken.None);
         Check(
             recovered?.Status == TeamRunStatus.Failed
-                && recovered.Task == current.Task
+                && JsonSerializer.Serialize(recovered.Task) == JsonSerializer.Serialize(current.Task)
                 && recovered.Steps.Single().Usage == current.Steps.Single().Usage,
             "Recovery retains task lineage and charged usage without replaying an interrupted model task."
         );

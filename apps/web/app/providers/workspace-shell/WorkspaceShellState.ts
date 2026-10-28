@@ -1,3 +1,3 @@
 export interface WorkspaceShellState {
-  readonly chatOpen: boolean;
+  readonly chatExpanded: boolean;
 }

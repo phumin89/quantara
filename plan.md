@@ -34,7 +34,9 @@
 - [ ] R6 เก็บ prospective evidence ของรุ่นที่ตรึงไว้จนเพียงพอ ไม่ตีความ uptime เป็นกำไร
 - [ ] R7 เสนอ policy/hash และ live rollout แยก เฉพาะ candidate ที่ผ่าน; เจ้าของเปิด mandate ใหม่เอง
 
-งานเดิมด้านล่างเป็น retained workstreams เก็บสถานะตามหลักฐานเดิม เกณฑ์ H3/E3/E5 และ pilot ข่าวยังไม่ผ่านเพราะเขียนแผนใหม่ รายละเอียด dependencies และ acceptance อยู่ในแผนที่ลิงก์ข้างต้น
+งานเดิมด้านล่างเป็น retained workstreams เก็บสถานะตามหลักฐานเดิม การเขียนแผนใหม่ไม่ได้ทำให้เกณฑ์ H3/E3/E5 และ pilot ข่าวผ่าน รายละเอียด dependencies และ acceptance อยู่ในแผนที่ลิงก์ข้างต้น
+
+การทบทวนวันที่ 27 ตุลาคม 2026: เครื่องหมายเสร็จและผล SQL เดิมอ้างถึงรุ่นที่บันทึกไว้ ไม่ใช่ผลยืนยันโค้ดปัจจุบัน การแก้คิว `TradingJobDispatch` และชุดตรวจ backend ข่าวรอบล่าสุดยังไม่ได้รันกับ SQL หรือรัน behavioral suites ที่ Windows Application Control บล็อกอยู่ การ review ทั้งโปรเจกต์และการพิสูจน์ Auto trade ครบเส้นทางยังไม่เสร็จ ดู [ขอบเขตหลักฐานปัจจุบัน](docs/trading-verification.md#maintenance-boundary--2026-10-27)
 
 ## งานเดิม: Hangfire และ Adaptive Exit
 

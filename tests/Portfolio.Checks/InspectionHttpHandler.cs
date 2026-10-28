@@ -18,6 +18,20 @@ public sealed class InspectionHttpHandler : HttpMessageHandler
 
     public string? HistoryJson { get; set; }
 
+    public string OrderAmountJson { get; set; } = "\"100\"";
+
+    public string OrderRateJson { get; set; } = "100";
+
+    public string OrderFilledJson { get; set; } = "0";
+
+    public string OrderRemainingJson { get; set; } = "0";
+
+    public bool LinkedChild { get; set; }
+
+    public bool WrongChildIdentity { get; set; }
+
+    public int OrderInfoReads { get; private set; }
+
     public int Posts { get; private set; }
 
     protected override Task<HttpResponseMessage> SendAsync(
@@ -57,12 +71,26 @@ public sealed class InspectionHttpHandler : HttpMessageHandler
 
         var client = this.Match ? this.ClientId : "different-client";
         var history = this.HistoryJson is null ? "" : ",\"history\":" + this.HistoryJson;
+        var linkedChild = this.LinkedChild && path.Contains("&id=order-child&", StringComparison.Ordinal);
+        var orderId = linkedChild ? "order-child" : "order-1";
+        if (linkedChild && this.WrongChildIdentity)
+        {
+            orderId = "unrelated-order";
+        }
+
+        var amount = linkedChild ? "\"25\"" : this.OrderAmountJson;
+        var first = this.LinkedChild ? ",\"first\":\"order-1\"" : "";
+        if (path.StartsWith("/api/v3/market/order-info", StringComparison.Ordinal))
+        {
+            this.OrderInfoReads += 1;
+        }
+
         var body =
             path.StartsWith("/api/v3/market/order-info", StringComparison.Ordinal)
-                ? $"{{\"error\":0,\"result\":{{\"id\":\"order-1\",\"client_id\":\"{client}\",\"status\":\"{this.Status}\",\"partial_filled\":{this.Partial.ToString().ToLowerInvariant()}{history}}}}}"
+                ? $"{{\"error\":0,\"result\":{{\"id\":\"{orderId}\"{first},\"client_id\":\"{client}\",\"amount\":{amount},\"rate\":{this.OrderRateJson},\"filled\":{this.OrderFilledJson},\"remaining\":{this.OrderRemainingJson},\"status\":\"{this.Status}\",\"partial_filled\":{this.Partial.ToString().ToLowerInvariant()}{history}}}}}"
             : path.StartsWith("/api/v3/market/my-open-orders", StringComparison.Ordinal)
                 ? $"{{\"error\":0,\"result\":[{{\"id\":\"order-1\",\"side\":\"buy\",\"client_id\":\"{client}\"}}]}}"
-            : "{\"error\":0,\"result\":[]}";
+            : "{\"error\":0,\"result\":[],\"pagination\":{\"has_next\":false}}";
         return Task.FromResult(InspectionHttpHandler.Json(body));
     }
 

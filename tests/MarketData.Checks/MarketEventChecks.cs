@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Quantara.MarketData.Application;
 using Quantara.MarketData.Domain;
 using Quantara.MarketData.Infrastructure;
@@ -8,6 +9,7 @@ public static class MarketEventChecks
 {
     public static async Task Run()
     {
+        await MarketEventSubscriptionChecks.Run();
         var bus = new MarketEventBus();
         await bus.SetWatch(["ETH"], CancellationToken.None);
         await bus.SetWatched(["BTC", "ETH"], CancellationToken.None);
@@ -76,8 +78,39 @@ public static class MarketEventChecks
         }
 
         Check(invalid, "Watch identities are validated.");
+        var nullSymbols =
+            JsonSerializer.Deserialize<string[]>("[null]")
+            ?? throw new InvalidOperationException("The malformed watch fixture must deserialize.");
+        foreach (var required in new[] { true, false })
+        {
+            invalid = false;
+            try
+            {
+                if (required)
+                {
+                    await bus.SetWatch(nullSymbols, cancellation.Token);
+                }
+                else
+                {
+                    await bus.SetWatched(nullSymbols, cancellation.Token);
+                }
+            }
+            catch (ArgumentException)
+            {
+                invalid = true;
+            }
+
+            Check(invalid, "Null watch identities are rejected as invalid input.");
+            Check(
+                bus.RequiredSymbols.SequenceEqual(["ETH"]) && bus.WatchedSymbols.SequenceEqual(["BTC", "ETH"]),
+                "Rejected watch identities preserve the previous required and active symbols."
+            );
+        }
+
         PublicEventBookChecks.Run();
-        MarketWatchSelectionChecks.Run();
+        await MarketWatchSelectionChecks.Run();
+        await MarketSessionChecks.Run();
+        await MarketFeedIdentityChecks.Run();
         Console.WriteLine(
             "Market events: private auth, fanout, 10000-event coalescing, dirty overflow, candle dedupe, heartbeat and verified books passed."
         );

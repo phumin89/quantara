@@ -101,10 +101,11 @@ and environment bindings: `Prepare` alone does not apply them, and `Start` keeps
 3. Leave activation to the owner. Updating containers, preparing the token and running
    health checks never enables AutoLive.
 
-Only the owner reviews the account, rules hash, symbols, risk/capital caps and expiry
-in Daily Brief and presses **Enable Auto Trading** once. No such live activation is
-part of implementation verification; a reviewed Paper deployment may be applied after
-deterministic checks and current-data backups pass.
+In **Crypto → Trading**, only the owner opens **Review & enable** when available,
+reviews the account, rules hash, symbols, risk/capital caps and expiry, and presses
+**Enable Auto Trading** in the mandate dialog. Implementation verification never
+activates live trading. A reviewed Paper deployment may be applied after deterministic
+checks and current-data backups pass.
 
 ## Background delivery
 

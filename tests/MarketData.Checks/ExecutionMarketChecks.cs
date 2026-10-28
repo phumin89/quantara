@@ -46,7 +46,10 @@ public sealed class ExecutionMarketChecks : HttpMessageHandler
     {
         using var handler = new ExecutionMarketChecks();
         using var client = Client(handler);
-        var reader = new BitkubExecutionMarketReader(client);
+        var reader = new BitkubExecutionMarketReader(
+            client,
+            timeProvider: new FixedTimeProvider(new DateTimeOffset(2026, 10, 23, 4, 0, 0, TimeSpan.Zero))
+        );
         using var result = JsonDocument.Parse(await reader.Read(["NEAR", "BTC"], CancellationToken.None));
         var markets = result.RootElement.GetProperty("markets");
         var near = markets[0];

@@ -108,6 +108,11 @@ public static class PortfolioAccountingProjection
 
     private static TradingLedger? Replay(TradingLedger live, string symbol, DateTimeOffset now)
     {
+        if (live.ExternalSales.Any(sale => sale.OriginalPosition.Symbol == symbol))
+        {
+            return null;
+        }
+
         var fills = live.Fills.Where(fill => fill.Symbol == symbol).ToArray();
         if (
             fills.Length == 0

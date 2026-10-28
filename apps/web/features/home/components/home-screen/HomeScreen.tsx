@@ -1,6 +1,6 @@
 'use client';
 
-import { Component, type ContextType } from 'react';
+import { Component, createRef, type ContextType } from 'react';
 import NextLink from 'next/link';
 import {
   Alert,
@@ -35,6 +35,8 @@ export default class HomeScreen extends Component<
   };
 
   private initialRoleSelected = false;
+
+  private readonly office = createRef<OfficeCanvas>();
 
   public override componentDidMount(): void {
     this.selectInitialRole();
@@ -83,26 +85,66 @@ export default class HomeScreen extends Component<
             alignItems: 'center',
             justifyContent: 'space-between',
             gap: 2,
-            mb: 2,
+            mb: 'var(--section-gap)',
             flexWrap: 'wrap',
           }}
         >
-          <Typography
-            component="h1"
-            variant="h1"
-            sx={{ m: 0 }}
+          <Box sx={{ minWidth: 0, flex: { xs: '1 1 100%', sm: '1 1 auto' } }}>
+            <Typography
+              component="h1"
+              variant="h1"
+              sx={{
+                m: 0,
+                fontFamily: 'var(--font-display)',
+                fontSize: 32,
+                fontWeight: 900,
+              }}
+            >
+              Home
+            </Typography>
+            <Typography
+              variant="body1"
+              color="text.secondary"
+            >
+              Your research team at work
+            </Typography>
+          </Box>
+          <Stack
+            direction="row"
+            sx={{ gap: 1, flexWrap: 'wrap', alignItems: 'center' }}
           >
-            Home
-          </Typography>
-          <Button
-            variant="outlined"
-            startIcon={<RefreshOutlined />}
-            onClick={() => {
-              void activity.refresh();
-            }}
-          >
-            Refresh status
-          </Button>
+            <Link
+              component={NextLink}
+              href="/daily-brief"
+              underline="none"
+              sx={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                minHeight: 44,
+                px: 2,
+                color: 'text.primary',
+                bgcolor: 'var(--color-peach)',
+                border: '1px solid',
+                borderColor: 'var(--border-panel)',
+                borderRadius: 'var(--radius-control)',
+                fontSize: 14,
+                fontWeight: 800,
+                '&:hover': { bgcolor: 'var(--color-mint)' },
+              }}
+            >
+              Read research reports
+            </Link>
+            <Button
+              variant="outlined"
+              startIcon={<RefreshOutlined />}
+              onClick={() => {
+                void activity.refresh();
+              }}
+              sx={{ bgcolor: 'var(--surface-raised)' }}
+            >
+              Refresh status
+            </Button>
+          </Stack>
         </Stack>
         {error && (
           <Alert
@@ -120,7 +162,12 @@ export default class HomeScreen extends Component<
             gap: 1.5,
             alignItems: 'center',
             flexWrap: 'wrap',
-            mb: 2,
+            bgcolor: 'var(--surface-panel)',
+            border: '1px solid',
+            borderColor: 'var(--border-panel)',
+            borderRadius: 'var(--radius-panel)',
+            p: 'var(--panel-padding)',
+            mb: 'var(--section-gap)',
           }}
         >
           <Chip
@@ -128,6 +175,7 @@ export default class HomeScreen extends Component<
             variant="outlined"
             color={fresh ? 'success' : 'default'}
             label={connection}
+            sx={{ borderRadius: 'var(--radius-tag)', fontWeight: 800 }}
           />
           <Typography variant="body2">
             {OfficePresentation.company(company)}
@@ -135,36 +183,50 @@ export default class HomeScreen extends Component<
           <Typography
             variant="body2"
             color="text.secondary"
+            sx={{ ml: { md: 'auto' }, fontVariantNumeric: 'tabular-nums' }}
           >
             Checked {OfficePresentation.time(fetchedAt)}
           </Typography>
         </Box>
         <Box
           sx={{
-            border: '1px solid',
-            borderColor: 'divider',
-            borderRadius: '8px',
-            overflow: 'hidden',
+            display: 'grid',
+            gridTemplateColumns: {
+              xs: 'minmax(0, 1fr)',
+              lg: 'minmax(0, 1fr) 280px',
+            },
+            gap: 'var(--section-gap)',
+            alignItems: 'start',
           }}
         >
           <Box
             component="section"
             aria-labelledby="office-heading"
+            sx={{
+              minWidth: 0,
+              border: '1px solid',
+              borderColor: 'var(--border-panel)',
+              borderRadius: 'var(--radius-panel)',
+              bgcolor: 'var(--surface-panel)',
+              boxShadow: 'var(--shadow-panel)',
+              p: 'var(--panel-padding)',
+            }}
           >
             <Stack
               direction="row"
               sx={{
-                px: 2,
-                py: 1,
+                mb: 2,
+                minHeight: 44,
                 alignItems: 'center',
                 justifyContent: 'space-between',
                 gap: 1,
+                flexWrap: 'wrap',
               }}
             >
               <Typography
                 component="h2"
                 id="office-heading"
-                sx={{ fontSize: 18, fontWeight: 600 }}
+                sx={{ fontSize: 20, fontWeight: 900 }}
               >
                 Research office
               </Typography>
@@ -174,11 +236,19 @@ export default class HomeScreen extends Component<
                 onClick={() => {
                   this.setState({ paused: !paused });
                 }}
+                sx={{
+                  minHeight: 44,
+                  px: 1.5,
+                  bgcolor: 'var(--surface-soft)',
+                  borderRadius: 'var(--radius-control)',
+                  '&:hover': { bgcolor: 'var(--color-mint)' },
+                }}
               >
                 {paused ? 'Resume animation' : 'Pause animation'}
               </Button>
             </Stack>
             <OfficeCanvas
+              ref={this.office}
               agents={agents}
               selectedId={selected?.id ?? null}
               paused={paused}
@@ -197,119 +267,106 @@ export default class HomeScreen extends Component<
               display: 'grid',
               gridTemplateColumns: {
                 xs: 'repeat(2, minmax(0, 1fr))',
-                xl: 'repeat(4, minmax(0, 1fr))',
+                sm: 'repeat(auto-fit, minmax(140px, 1fr))',
+                lg: 'minmax(0, 1fr)',
               },
-              borderTop: '1px solid',
-              borderColor: 'divider',
+              gap: 0.75,
+              border: '1px solid',
+              borderColor: 'var(--border-panel)',
+              borderRadius: 'var(--radius-panel)',
+              bgcolor: 'var(--surface-panel)',
+              boxShadow: 'var(--shadow-panel)',
+              p: 'var(--panel-padding)',
             }}
           >
+            <Typography
+              component="h2"
+              sx={{
+                gridColumn: '1 / -1',
+                m: 0,
+                minHeight: 44,
+                alignContent: 'center',
+                fontSize: 20,
+                fontWeight: 900,
+              }}
+            >
+              Team
+            </Typography>
             {agents.map((agent) => (
               <Button
                 key={agent.role}
                 aria-pressed={agent.role === selectedRole}
-                aria-controls="role-evidence"
                 onClick={() => {
                   this.setState({ selectedRole: agent.role });
+                  this.office.current?.focusAgent(agent.id);
                 }}
                 sx={{
-                  justifyContent: 'space-between',
+                  justifyContent: 'center',
+                  flexDirection: 'column',
+                  alignItems: 'flex-start',
                   px: 2,
                   py: 1.5,
-                  borderRadius: 0,
+                  minHeight: 88,
+                  border: '1px solid',
+                  borderColor:
+                    agent.role === selectedRole
+                      ? 'text.primary'
+                      : 'var(--border-panel)',
+                  borderRadius: 'var(--radius-control)',
                   bgcolor:
                     agent.role === selectedRole
-                      ? 'action.selected'
-                      : 'transparent',
-                  gap: 1,
+                      ? 'var(--color-lilac)'
+                      : 'var(--surface-raised)',
+                  color: 'text.primary',
+                  gap: 0.5,
                   minWidth: 0,
-                  flexWrap: 'wrap',
-                  alignContent: 'center',
+                  textAlign: 'left',
+                  '&:hover': { bgcolor: 'var(--color-mint)' },
+                  '&.Mui-focusVisible': {
+                    outline: '2px solid',
+                    outlineColor: 'info.main',
+                    outlineOffset: 2,
+                  },
                 }}
               >
                 <Typography
                   component="span"
                   variant="body2"
-                  sx={{ fontWeight: 600 }}
+                  sx={{ fontWeight: 800 }}
                 >
                   {agent.label}
                 </Typography>
-                <Chip
+                <Typography
                   component="span"
-                  size="small"
-                  label={OfficePresentation.label(agent.status)}
-                  color={OfficePresentation.color(agent.status)}
-                  variant="outlined"
-                />
+                  variant="caption"
+                  color={
+                    agent.role === selectedRole
+                      ? 'text.primary'
+                      : 'text.secondary'
+                  }
+                  sx={{ fontWeight: agent.role === selectedRole ? 800 : 600 }}
+                >
+                  {OfficePresentation.label(agent.status)}
+                </Typography>
               </Button>
             ))}
           </Box>
         </Box>
-        <Box
-          component="section"
-          id="role-evidence"
-          aria-labelledby="evidence-heading"
-          sx={{ mt: 3 }}
-        >
-          <Stack
-            direction="row"
-            sx={{ gap: 1.5, alignItems: 'center', flexWrap: 'wrap' }}
-          >
-            <Typography
-              component="h2"
-              id="evidence-heading"
-              sx={{ fontSize: 22, fontWeight: 600 }}
-            >
-              {selected?.label ?? 'Role'} evidence
-            </Typography>
-            {selected && (
-              <Chip
-                size="small"
-                label={OfficePresentation.label(selected.status)}
-                color={OfficePresentation.color(selected.status)}
-                variant="outlined"
-              />
-            )}
-          </Stack>
-          <Typography
-            color="text.secondary"
-            variant="body2"
-            sx={{ mt: 1 }}
-          >
-            {OfficePresentation.time(selected?.updatedAt)}
-          </Typography>
-          <Typography
-            sx={{
-              mt: 1.5,
-              maxWidth: '75ch',
-              overflowWrap: 'anywhere',
-              whiteSpace: 'pre-wrap',
-            }}
-          >
-            {selected?.summary ??
-              (loading ? 'Loading…' : 'No recorded work today.')}
-          </Typography>
-          {company?.error && (
-            <Alert
-              severity="error"
-              sx={{ mt: 2 }}
-            >
-              {OfficeStateAdapter.clean(company.error)}
-            </Alert>
-          )}
-          {selected?.date && selected.runId && (
-            <Link
-              component={NextLink}
-              href={`/daily-brief?date=${selected.date}&view=team-chat#run-${selected.runId}`}
-              sx={{ display: 'inline-block', mt: 1, py: 1.5 }}
-            >
-              Open recorded report in Daily Brief
-            </Link>
-          )}
-        </Box>
         <Typography
+          component="div"
           variant="body2"
           color="text.secondary"
-          sx={{ mt: 4 }}
+          sx={{
+            display: 'flex',
+            flexWrap: 'wrap',
+            gap: 2,
+            mt: 3,
+            '& a': {
+              display: 'inline-flex',
+              alignItems: 'center',
+              minHeight: 44,
+            },
+          }}
         >
           <Link
             href="https://github.com/pixel-agents-hq/pixel-agents"
@@ -317,8 +374,8 @@ export default class HomeScreen extends Component<
             rel="noopener noreferrer"
           >
             Pixel Agents
-          </Link>{' '}
-          · <Link href="/vendor/pixel-agents/NOTICE.txt">Credits</Link>
+          </Link>
+          <Link href="/vendor/pixel-agents/NOTICE.txt">Credits</Link>
         </Typography>
       </Box>
     );

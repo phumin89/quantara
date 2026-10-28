@@ -1,6 +1,7 @@
 export class WorkerFailure {
   static codes = Object.freeze({
     INPUT_INVALID: 'worker_input_invalid',
+    MODEL_POLICY_INVALID: 'worker_model_policy_invalid',
     INPUT_TOO_LARGE: 'worker_input_too_large',
     AUTH_UNAVAILABLE: 'worker_auth_unavailable',
     AUTHENTICATION_FAILED: 'worker_authentication_failed',
@@ -18,6 +19,7 @@ export class WorkerFailure {
 
   static messages = Object.freeze({
     worker_input_invalid: 'The worker request is invalid.',
+    worker_model_policy_invalid: 'The configured role model policy is invalid.',
     worker_input_too_large: 'The worker request is too large.',
     worker_auth_unavailable: 'Worker authentication is not configured.',
     worker_authentication_failed: 'Worker authentication failed.',
@@ -39,8 +41,12 @@ export class WorkerFailure {
       error instanceof Error ? error.message : String(error ?? '');
     const name = error instanceof Error ? error.name : '';
     const lower = `${name} ${message}`.toLowerCase();
+    if (/invalid model policy/.test(lower))
+      return this.codes.MODEL_POLICY_INVALID;
     if (/input is too large|request is too large/.test(lower))
       return this.codes.INPUT_TOO_LARGE;
+    if (/\b(?:econnrefused|connection(?:\s+was)?[\s-]+refused)\b/.test(lower))
+      return this.codes.NETWORK_FAILED;
     if (/misalignment|refus/.test(lower)) return this.codes.RESPONSE_REJECTED;
     if (/invalid pending proposal/.test(lower))
       return this.codes.PROPOSAL_INVALID;
@@ -48,7 +54,7 @@ export class WorkerFailure {
     if (/invalid response research selection/.test(lower))
       return this.codes.SELECTION_INVALID;
     if (
-      /invalid (?:json )?(?:report|response|pending proposal|learning lesson)|schema/.test(
+      /invalid (?:json )?(?:report|response|pending proposal|learning lesson|usage metadata)|schema/.test(
         lower,
       )
     )
@@ -73,10 +79,14 @@ export class WorkerFailure {
       return this.codes.AUTHENTICATION_FAILED;
     if (/429|rate limit|rate_limit|quota|usage[_ ]limit/.test(lower))
       return this.codes.RATE_LIMITED;
-    if (/abort|timeout|timed out|deadline/.test(lower))
+    if (/abort|timeout|timed out|deadline|\betimedout\b/.test(lower))
       return this.codes.TIMED_OUT;
     if (/unsupported tool/.test(lower)) return this.codes.UNSUPPORTED_TOOL;
-    if (/network|fetch|econn|socket|connection|stream disconnected/.test(lower))
+    if (
+      /network|fetch|econn|socket|connection|stream disconnected|\benetunreach\b|\behostunreach\b/.test(
+        lower,
+      )
+    )
       return this.codes.NETWORK_FAILED;
     return this.codes.RUNTIME_FAILED;
   }

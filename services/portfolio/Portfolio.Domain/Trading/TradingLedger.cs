@@ -8,4 +8,9 @@ public sealed record TradingLedger(
     IReadOnlyList<TradingIntent> Orders,
     IReadOnlyList<TradingFill> Fills,
     IReadOnlyList<TradingEquityMark> Equity
-);
+)
+{
+    public IReadOnlyList<TradingExternalSale> ExternalSales { get; init; } = [];
+
+    public IReadOnlyList<TradingCashBaseline> CashBaselines { get; init; } = [];
+}

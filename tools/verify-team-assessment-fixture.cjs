@@ -220,4 +220,119 @@ assert.equal(
   }).success,
   false,
 );
-console.log('Assessment and news fallback fixtures passed.');
+const completedNews = {
+  ...newsFallback,
+  sourceStates: ['federal-reserve', 'bls'].map((id) => ({
+    id,
+    label: id,
+    url:
+      id === 'bls'
+        ? 'https://www.bls.gov/feed/bls_latest.rss'
+        : 'https://www.federalreserve.gov/feeds/press_all.xml',
+    status: 'NoNewEvents',
+    lastSuccessAt: '2026-10-18T11:45:00Z',
+    nextRetryAt: null,
+    reason: null,
+  })),
+  pilot: {
+    startedAt: '2026-10-15T12:00:00Z',
+    lastPollAt: '2026-10-18T11:50:00Z',
+    completed72Hours: true,
+    gapCount: 3,
+  },
+};
+assert.equal(newsSchema.safeParse(completedNews).success, true);
+assert.equal(
+  newsSchema.safeParse({
+    ...completedNews,
+    sourceStates: [
+      ...completedNews.sourceStates,
+      { ...newsFallback.sourceStates[0], id: 'bitkub' },
+    ],
+  }).success,
+  true,
+);
+const invalidPilots = [
+  { startedAt: null },
+  { startedAt: '2026-10-15T12:00:00.001Z' },
+  { startedAt: '2026-10-15T12:00:00.0000001Z' },
+  { startedAt: '2026-10-18T11:55:00Z' },
+  { lastPollAt: null },
+  { lastPollAt: '2026-10-18T11:49:59.999Z' },
+  { lastPollAt: '2026-10-18T12:00:05.001Z' },
+  { lastPollAt: '2026-10-18T12:00:05.0000001Z' },
+  { lastPollAt: '2026-10-15T11:59:59Z' },
+];
+for (const pilot of invalidPilots) {
+  assert.equal(
+    newsSchema.safeParse({
+      ...completedNews,
+      pilot: { ...completedNews.pilot, ...pilot },
+    }).success,
+    false,
+    `Unproved completed pilot accepted: ${JSON.stringify(pilot)}`,
+  );
+}
+for (const source of [
+  { status: 'Unavailable' },
+  { status: 'Stale' },
+  { lastSuccessAt: null },
+  { lastSuccessAt: '2026-10-18T11:44:59.999Z' },
+  { lastSuccessAt: '2026-10-18T12:00:05.001Z' },
+  { lastSuccessAt: '2026-10-18T12:00:05.0000001Z' },
+]) {
+  assert.equal(
+    newsSchema.safeParse({
+      ...completedNews,
+      sourceStates: [
+        { ...completedNews.sourceStates[0], ...source },
+        completedNews.sourceStates[1],
+      ],
+    }).success,
+    false,
+    `Unproved source accepted for completed pilot: ${JSON.stringify(source)}`,
+  );
+}
+for (const sourceStates of [
+  [],
+  completedNews.sourceStates.slice(0, 1),
+  [completedNews.sourceStates[0], completedNews.sourceStates[0]],
+  [
+    ...completedNews.sourceStates,
+    { ...newsFallback.sourceStates[0], status: 'Healthy' },
+  ],
+]) {
+  assert.equal(
+    newsSchema.safeParse({ ...completedNews, sourceStates }).success,
+    false,
+  );
+}
+assert.equal(
+  newsSchema.safeParse({
+    ...completedNews,
+    pilot: { ...completedNews.pilot, lastPollAt: '2026-10-18T12:00:05Z' },
+    sourceStates: completedNews.sourceStates.map((source) => ({
+      ...source,
+      status: 'Healthy',
+      lastSuccessAt: '2026-10-18T12:00:05Z',
+    })),
+  }).success,
+  true,
+);
+assert.equal(
+  newsSchema.safeParse({
+    ...completedNews,
+    observedAt: '2026-10-18T19:00:00.1234567+07:00',
+    pilot: {
+      ...completedNews.pilot,
+      startedAt: '2026-10-15T12:00:00.1234567Z',
+      lastPollAt: '2026-10-18T11:50:00.1234567Z',
+    },
+    sourceStates: completedNews.sourceStates.map((source) => ({
+      ...source,
+      lastSuccessAt: '2026-10-18T11:45:00.1234567Z',
+    })),
+  }).success,
+  true,
+);
+console.log('Assessment, news fallback and pilot evidence fixtures passed.');

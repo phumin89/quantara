@@ -1,5 +1,6 @@
 import { CodexTeamWorker } from './CodexTeamWorker.mjs';
 import { WorkerFailure } from './WorkerFailure.mjs';
+import { WorkerResponseDiagnostics } from './WorkerResponseDiagnostics.mjs';
 
 try {
   let input = '';
@@ -18,7 +19,7 @@ try {
   process.stdout.write(JSON.stringify(result));
 } catch (error) {
   process.stderr.write(
-    `${JSON.stringify({ error: WorkerFailure.from(error) })}\n`,
+    `${JSON.stringify({ error: WorkerFailure.from(error), ...(error?.modelAudit ? { modelAudit: error.modelAudit, usage: error.usage ?? null } : {}), ...(error?.responseDiagnostic ? { responseDiagnostic: WorkerResponseDiagnostics.create(error.responseDiagnostic.stage, error.responseDiagnostic.responseCharacters) } : {}) })}\n`,
   );
   process.exitCode = 1;
 }

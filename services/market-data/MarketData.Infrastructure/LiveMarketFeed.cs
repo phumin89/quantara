@@ -154,7 +154,7 @@ public sealed class LiveMarketFeed : BackgroundService, IIntradayMarketReader
                 var candles = CandleParser.Parse(root, from, to, 300, 1000);
                 await this.store.Save(symbol.Symbol, candles, cancellationToken);
                 var retained = await this.store.Read(symbol.Symbol, cancellationToken);
-                this.SetSeries(symbol.Symbol, retained, null);
+                this.SetSeries(symbol, retained, null);
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
             {
@@ -162,7 +162,7 @@ public sealed class LiveMarketFeed : BackgroundService, IIntradayMarketReader
             }
             catch (Exception)
             {
-                this.SetSeries(symbol.Symbol, [], "Intraday candle data is unavailable.");
+                this.SetSeries(symbol, [], "Intraday candle data is unavailable.");
             }
         }
 
@@ -192,9 +192,8 @@ public sealed class LiveMarketFeed : BackgroundService, IIntradayMarketReader
 
     private async Task RunSocket(CancellationToken cancellationToken)
     {
-        var sessions = new Dictionary<string, (CancellationTokenSource Cancellation, Task Running)>(
-            StringComparer.Ordinal
-        );
+        var sessions =
+            new Dictionary<(string Symbol, int PairingId), (CancellationTokenSource Cancellation, Task Running)>();
         try
         {
             using var timer = new PeriodicTimer(TimeSpan.FromSeconds(2));
@@ -204,35 +203,13 @@ public sealed class LiveMarketFeed : BackgroundService, IIntradayMarketReader
                 {
                     await this.RefreshWatch(cancellationToken);
                     var desired = this.watch.ToArray();
-                    foreach (
-                        var removed in sessions
-                            .Keys.Where(symbol => !desired.Any(item => item.Symbol == symbol))
-                            .ToArray()
-                    )
-                    {
-                        var previous = sessions[removed];
-                        await previous.Cancellation.CancelAsync();
-                        try
-                        {
-                            await previous.Running;
-                        }
-                        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested) { }
-
-                        previous.Cancellation.Dispose();
-                        sessions.Remove(removed);
-                    }
-
-                    foreach (var symbol in desired.Where(symbol => !sessions.ContainsKey(symbol.Symbol)))
-                    {
-                        var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-                        sessions[symbol.Symbol] = (
-                            linked,
-                            Task.WhenAll(
-                                this.ReceiveTicker(symbol, linked.Token),
-                                this.ReceiveBook(symbol, linked.Token)
-                            )
-                        );
-                    }
+                    await LiveMarketFeed.ReconcileSessions(
+                        desired,
+                        sessions,
+                        (symbol, token) =>
+                            Task.WhenAll(this.ReceiveTicker(symbol, token), this.ReceiveBook(symbol, token)),
+                        cancellationToken
+                    );
                 }
                 catch (Exception) when (!cancellationToken.IsCancellationRequested)
                 {
@@ -262,7 +239,41 @@ public sealed class LiveMarketFeed : BackgroundService, IIntradayMarketReader
         }
     }
 
-    private async Task Receive(ClientWebSocket socket, CancellationToken cancellationToken)
+    private static async Task ReconcileSessions(
+        IReadOnlyList<MarketWatchSymbol> desired,
+        Dictionary<(string Symbol, int PairingId), (CancellationTokenSource Cancellation, Task Running)> sessions,
+        Func<MarketWatchSymbol, CancellationToken, Task> start,
+        CancellationToken cancellationToken
+    )
+    {
+        foreach (
+            var removed in sessions
+                .Keys.Where(symbol =>
+                    !desired.Any(item => item.Symbol == symbol.Symbol && item.PairingId == symbol.PairingId)
+                )
+                .ToArray()
+        )
+        {
+            var previous = sessions[removed];
+            await previous.Cancellation.CancelAsync();
+            try
+            {
+                await previous.Running;
+            }
+            catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested) { }
+
+            previous.Cancellation.Dispose();
+            sessions.Remove(removed);
+        }
+
+        foreach (var symbol in desired.Where(symbol => !sessions.ContainsKey((symbol.Symbol, symbol.PairingId))))
+        {
+            var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            sessions[(symbol.Symbol, symbol.PairingId)] = (linked, start(symbol, linked.Token));
+        }
+    }
+
+    private async Task Receive(ClientWebSocket socket, MarketWatchSymbol source, CancellationToken cancellationToken)
     {
         var buffer = new byte[8192];
         while (socket.State == WebSocketState.Open)
@@ -284,7 +295,7 @@ public sealed class LiveMarketFeed : BackgroundService, IIntradayMarketReader
                 }
             } while (!result.EndOfMessage);
 
-            this.ParseMessage(Encoding.UTF8.GetString(message.ToArray()));
+            this.ParseMessage(source, Encoding.UTF8.GetString(message.ToArray()));
         }
     }
 
@@ -302,9 +313,9 @@ public sealed class LiveMarketFeed : BackgroundService, IIntradayMarketReader
                     ),
                     cancellationToken
                 );
-                this.SetTickerConnection(symbol.Symbol, true);
+                this.SetTickerConnection(symbol, true);
                 delay = TimeSpan.FromSeconds(1);
-                await this.Receive(socket, cancellationToken);
+                await this.Receive(socket, symbol, cancellationToken);
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
             {
@@ -316,7 +327,7 @@ public sealed class LiveMarketFeed : BackgroundService, IIntradayMarketReader
             }
             finally
             {
-                this.SetTickerConnection(symbol.Symbol, false);
+                this.SetTickerConnection(symbol, false);
             }
 
             await Task.Delay(delay, cancellationToken);
@@ -343,7 +354,7 @@ public sealed class LiveMarketFeed : BackgroundService, IIntradayMarketReader
             }
             finally
             {
-                this.SetDepth(symbol.Symbol, null);
+                this.SetDepth(symbol, null);
             }
 
             await Task.Delay(delay, cancellationToken);
@@ -381,7 +392,7 @@ public sealed class LiveMarketFeed : BackgroundService, IIntradayMarketReader
             var json = PublicBookParser.Parse(Encoding.UTF8.GetString(message.ToArray()), symbol.PairingId);
             if (json is not null)
             {
-                this.SetDepth(symbol.Symbol, json);
+                this.SetDepth(symbol, json);
             }
         }
     }
@@ -400,7 +411,12 @@ public sealed class LiveMarketFeed : BackgroundService, IIntradayMarketReader
         var ticker = this.tickers.Value;
         var required = this.eventStream?.RequiredSymbols ?? [];
         var selected = MarketWatchSelection.Select(symbols, ticker, required, now);
-        var rules = symbols.GetProperty("result").EnumerateArray().ToArray();
+        var rules = symbols
+            .GetProperty("result")
+            .EnumerateArray()
+            .Where(MarketUniverseScanner.IsEligibleRule)
+            .DistinctBy(rule => rule.GetRawText())
+            .ToArray();
         foreach (var missing in required.Where(symbol => !selected.Any(item => item.Symbol == symbol + "_THB")))
         {
             this.eventStream?.Publish(MarketEventKind.FeedUnavailable, missing, now);
@@ -408,14 +424,25 @@ public sealed class LiveMarketFeed : BackgroundService, IIntradayMarketReader
 
         lock (this.sync)
         {
+            // Retire ticker state while the previous watch still authorizes its cleanup.
+            foreach (
+                var retired in this.watch.Where(current =>
+                    !selected.Any(item => item.Symbol == current.Symbol && item.PairingId == current.PairingId)
+                )
+            )
+            {
+                this.SetTickerConnection(retired, false);
+            }
+
+            this.watch = selected;
             foreach (var symbol in selected)
             {
                 var rule = rules.Single(rule =>
-                    rule.GetProperty("base_asset").GetString() == symbol.Symbol.Split('_')[0]
-                    && rule.GetProperty("quote_asset").GetString() == "THB"
-                    && rule.GetProperty("market_segment").GetString() == "SPOT"
-                    && rule.GetProperty("source").GetString() == "exchange"
-                    && rule.GetProperty("status").GetString() == "active"
+                    string.Equals(
+                        MarketUniverseScanner.Text(rule, "base_asset"),
+                        symbol.Symbol.Split('_')[0],
+                        StringComparison.OrdinalIgnoreCase
+                    )
                 );
                 var signature = rule.GetRawText();
                 if (!this.ruleSignatures.TryGetValue(symbol.Symbol, out var previous) || signature != previous)
@@ -426,10 +453,13 @@ public sealed class LiveMarketFeed : BackgroundService, IIntradayMarketReader
                         rule
                     );
                     this.ruleSignatures[symbol.Symbol] = signature;
+                    if (previous is not null)
+                    {
+                        this.SetDepth(symbol, null);
+                    }
                 }
             }
 
-            this.watch = selected;
             var active = selected.Select(symbol => symbol.Symbol).ToHashSet(StringComparer.Ordinal);
             this.quotes = this.quotes.Where(quote => active.Contains(quote.Symbol)).ToArray();
             foreach (var removed in this.executableBooks.Keys.Where(symbol => !active.Contains(symbol)).ToArray())
@@ -455,17 +485,17 @@ public sealed class LiveMarketFeed : BackgroundService, IIntradayMarketReader
         }
     }
 
-    private void ParseMessage(string json)
+    private void ParseMessage(MarketWatchSymbol source, string json)
     {
         var quote = PublicTickerParser.Parse(json, this.timeProvider.GetUtcNow());
-        if (quote is null)
+        if (quote is null || quote.Symbol != source.Symbol)
         {
             return;
         }
 
         lock (this.sync)
         {
-            if (!this.watch.Any(item => item.Symbol == quote.Symbol))
+            if (!this.watch.Any(item => item.Symbol == source.Symbol && item.PairingId == source.PairingId))
             {
                 return;
             }
@@ -494,10 +524,16 @@ public sealed class LiveMarketFeed : BackgroundService, IIntradayMarketReader
         return document.RootElement.Clone();
     }
 
-    private void SetDepth(string symbol, string? json)
+    private void SetDepth(MarketWatchSymbol source, string? json)
     {
         lock (this.sync)
         {
+            if (!this.watch.Any(item => item.Symbol == source.Symbol && item.PairingId == source.PairingId))
+            {
+                return;
+            }
+
+            var symbol = source.Symbol;
             var observedAt = this.timeProvider.GetUtcNow();
             if (json is null)
             {
@@ -538,10 +574,16 @@ public sealed class LiveMarketFeed : BackgroundService, IIntradayMarketReader
         }
     }
 
-    private void SetTickerConnection(string symbol, bool connected)
+    private void SetTickerConnection(MarketWatchSymbol source, bool connected)
     {
         lock (this.sync)
         {
+            if (!this.watch.Any(item => item.Symbol == source.Symbol && item.PairingId == source.PairingId))
+            {
+                return;
+            }
+
+            var symbol = source.Symbol;
             if (connected)
             {
                 this.tickerConnections.Add(symbol);
@@ -568,10 +610,16 @@ public sealed class LiveMarketFeed : BackgroundService, IIntradayMarketReader
         }
     }
 
-    private void SetSeries(string symbol, IReadOnlyList<MarketCandle> candles, string? error)
+    private void SetSeries(MarketWatchSymbol source, IReadOnlyList<MarketCandle> candles, string? error)
     {
         lock (this.sync)
         {
+            if (!this.watch.Any(item => item.Symbol == source.Symbol && item.PairingId == source.PairingId))
+            {
+                return;
+            }
+
+            var symbol = source.Symbol;
             var series = this
                 .snapshot.Series.Where(x => x.Symbol != symbol)
                 .Append(new IntradaySeries(symbol, candles, this.timeProvider.GetUtcNow(), error))

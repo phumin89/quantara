@@ -20,7 +20,12 @@ export class HistoryService implements IHistoryService {
       signal,
     );
     const parsed = historyResponseSchema.safeParse(body);
-    if (!parsed.success) {
+    if (
+      !parsed.success ||
+      parsed.data.trades.some(
+        (trade) => trade.symbol.toUpperCase() !== symbol.toUpperCase(),
+      )
+    ) {
       throw new Error('History response is invalid.');
     }
 

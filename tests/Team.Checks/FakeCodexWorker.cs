@@ -1,4 +1,5 @@
 using Quantara.Team.Application;
+using Quantara.Team.Domain;
 
 namespace Team.Checks;
 
@@ -36,6 +37,10 @@ public sealed class FakeCodexWorker : ICodexWorker
     }
 
     public bool IsConfigured { get; }
+
+    public Func<string, ResearchModelAudit?>? SelectModel { get; init; }
+
+    public ResearchModelAudit? ModelSelection(string role) => this.SelectModel?.Invoke(role);
 
     public List<(
         string Role,

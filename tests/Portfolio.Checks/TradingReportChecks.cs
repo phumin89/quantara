@@ -9,6 +9,7 @@ public static class TradingReportChecks
 {
     public static Task Run()
     {
+        PrecisionPositions();
         var day = new DateTimeOffset(2026, 10, 16, 0, 0, 0, TimeSpan.FromHours(7));
         var intent = Guid.NewGuid();
         var fills = new[]
@@ -125,6 +126,108 @@ public static class TradingReportChecks
         );
         Console.WriteLine("Trading report checks passed.");
         return Task.CompletedTask;
+    }
+
+    private static void PrecisionPositions()
+    {
+        var day = new DateTimeOffset(2026, 10, 16, 0, 0, 0, TimeSpan.FromHours(7));
+        var rawQuantity = 1877.22m / 43.34m;
+        var credited = decimal.Round(rawQuantity, 8, MidpointRounding.ToZero);
+        var buy = new TradingFill(
+            Guid.NewGuid(),
+            Guid.NewGuid(),
+            "precision-buy",
+            "ETH",
+            TradeSide.Buy,
+            rawQuantity,
+            43.34m,
+            1877.22m,
+            4.7m,
+            day.AddHours(1)
+        )
+        {
+            QuantityScale = 8,
+        };
+        var sell = new TradingFill(
+            Guid.NewGuid(),
+            Guid.NewGuid(),
+            "precision-sell",
+            "ETH",
+            TradeSide.Sell,
+            credited,
+            44m,
+            credited * 44m,
+            4.77m,
+            day.AddHours(2)
+        )
+        {
+            QuantityScale = 8,
+        };
+        var opening = new TradingLedger(2000, 2000, day, [], [], [], [new(day, 2000, 2000)]);
+        foreach (var quantityScale in new int?[] { 8, null })
+        {
+            var bought = TradingLedgerAccounting.Apply(opening, buy with { QuantityScale = quantityScale });
+            var sold = TradingLedgerAccounting.Apply(bought, sell);
+            Check(
+                sold.Positions.All(position => position.Quantity == 0),
+                "Fixture sale closes verified credited units."
+            );
+            var report = TradingDailyReportBuilder.Build(
+                sold,
+                TradingMode.AutoLive,
+                "2026-10-16",
+                [],
+                null,
+                day.AddHours(3)
+            );
+            Check(
+                report.Text.Contains("ตำแหน่ง: 0 |", StringComparison.Ordinal),
+                "Daily positions close at verified broker precision, including legacy division residue."
+            );
+            var earlier = TradingDailyReportBuilder.Build(
+                sold,
+                TradingMode.AutoLive,
+                "2026-10-16",
+                [],
+                null,
+                day.AddHours(1).AddMinutes(30)
+            );
+            Check(
+                earlier.Text.Contains("ตำแหน่ง: 1 |", StringComparison.Ordinal),
+                "Later sales and current holdings cannot change the earlier report cutoff."
+            );
+        }
+
+        var partial = TradingLedgerAccounting.Apply(
+            TradingLedgerAccounting.Apply(opening, buy),
+            sell with
+            {
+                Quantity = credited / 2,
+                GrossThb = credited / 2 * 44m,
+                QuantityScale = null,
+            }
+        );
+        Check(
+            TradingDailyReportBuilder
+                .Build(partial, TradingMode.Paper, "2026-10-16", [], null, day.AddHours(3))
+                .Text.Contains("ตำแหน่ง: 1 |", StringComparison.Ordinal),
+            "A partial sale retains the open position."
+        );
+
+        var unverified = TradingLedgerAccounting.Apply(
+            TradingLedgerAccounting.Apply(opening, buy with { QuantityScale = null }),
+            sell with
+            {
+                QuantityScale = null,
+            }
+        );
+        Check(
+            TradingDailyReportBuilder
+                .Build(unverified, TradingMode.Paper, "2026-10-16", [], null, day.AddHours(3))
+                .Text.Contains("ตำแหน่ง: 1 |", StringComparison.Ordinal),
+            "Missing precision cannot justify discarding a retained quantity."
+        );
+        Check(unverified.Fills[0].Quantity == rawQuantity, "Reports preserve raw execution quantity evidence.");
     }
 
     private static void Check(bool condition, string message)

@@ -5,6 +5,38 @@ account-partitioned SQL state and broker credentials. MarketData supplies public
 market evidence over HTTP. Team and Codex produce research; they cannot enable
 AutoLive, select its orders or submit broker transactions.
 
+## Unconfirmed order status
+
+Crypto shows active orders before ledger details. **Review orders** opens this
+section; it does not enable trading, send an order or repeat a cancellation.
+Amounts and remaining amounts use THB for buys and the base coin for sells.
+
+| Evidence                                        | Display and meaning                                                                                          |
+| ----------------------------------------------- | ------------------------------------------------------------------------------------------------------------ |
+| Submission or cancellation outcome is uncertain | AutoLive displays **Enabled · Blocked** while its mandate remains enabled.                                   |
+| A recorded inspection attempt                   | Its own timestamp and latest safe failure message appear beside the order. The engine heartbeat is separate. |
+| No recorded inspection timestamp                | **No check time recorded**; this does not prove that the order was never checked or sent.                    |
+| Original strategy decision                      | Retained under **Order details**, separate from inspection failures and broker identity.                     |
+
+The optional `LastInspectionError` field is omitted from retained JSON when null.
+Records with supported states remain readable. Verified broker results clear an earlier inspection
+error; failed checks retain the unknown outcome and never authorize a resend.
+
+### Stored state validation
+
+The SQL state boundary accepts only the exact intent states `pending`, `submitting`,
+`submitted`, `partial`, `unknown`, `filled`, `cancelled`, `rejected` and `expired`.
+Cancellation is either absent or exactly `claimed`, `unknown`, `acknowledged` or
+`confirmed`. Both Paper and Live books use this validation, including the runtime
+read in the manual-sale journal transaction. Supported values and retained
+uncertainty are preserved; case variants are never normalized into broker outcomes.
+
+An unsupported stored value makes trading state unavailable. Engine decisions and
+control requests, including Disable/Emergency stop, then fail before recording a
+change. This does not revoke a saved mandate or cancel existing broker orders.
+Retain the exact data for investigation; never guess a supported value to clear the
+failure. No malformed retained account record has been established by this review.
+
 ## Modes and owner activation
 
 | Mode             | Behavior and authority                                                                                 |
@@ -16,6 +48,74 @@ AutoLive, select its orders or submit broker transactions.
 
 Implementation and verification leave live activation to the owner and send no real
 broker orders.
+
+Manual proposal amount, limit, target and invalidation inputs must be exactly
+representable as decimals. Team validates its four fields; Portfolio independently
+validates new pending-order amounts and limits before reading the broker or saving
+a proposal. Values requiring rounding are rejected with a precision error. Equivalent
+leading or trailing zeros remain accepted, and separate market step/scale limits
+still apply. This validation never approves or submits an order.
+
+Read-only order reconciliation also binds the broker's reported original amount
+and order rate to the saved proposal or intent. This check follows a linked
+order's `first` reference before accepting its terms; the AutoLive adapter checks
+its separate follow-up response independently. A mismatch, including extra
+precision that would round to the saved value, cannot clear an unresolved order.
+The first response must identify the requested child before its `first` reference
+can be followed; an unrelated response cannot supply trusted order lineage.
+Numeric/string forms, scientific notation and equivalent zero padding are
+supported. Actual fill prices may improve on the limit, and a known broker ID may
+retain an empty legacy client reference. This does not identify the cause of an
+existing account's balance-review or enablement failure.
+
+AutoLive fill transaction IDs accept nonblank strings and the existing JSON-number
+form, retaining their exact text and 150-character limit. Objects, arrays, Booleans,
+null and whitespace-only IDs cannot become verified fills or notification keys.
+This validation never places or resends an order.
+
+Native broker numbers must be exactly representable as decimals before use in
+wallet balances/imports, manual-sale proofs, risk evidence, market limits and
+order/fill inspection. The shared reader checks the original coefficient and
+exponent, rejecting [implicit rounding](https://learn.microsoft.com/en-us/dotnet/api/system.decimal.parse),
+nonzero values rounding to zero and NUL text.
+Exact signed values and zero remain supported where the caller already permits
+them. Each path keeps its prior numeric grammar; AutoLive inspection still accepts
+decimal-point forms only. Original order amount/rate matching stays positive-only.
+This check validates incoming evidence and never rewrites retained records.
+
+When no broker ID was retained, recovery checks matching client references in
+open orders and complete history pages, then verifies each candidate's canonical
+original order. Repeated execution rows and linked children may identify one
+original; independent originals never resolve by choosing the first match.
+Every response must match the requested ID and any nonempty client reference
+before its `first` link is trusted. Conflicting links or unverified candidates
+retain uncertainty. Known broker IDs use the direct read path.
+
+Discovery is limited to three history pages and eight distinct order-info reads,
+with responses cached per inspection. Continuation after the third page, missing
+pagination, broken cursors or exhausted candidate/detail budgets leave the result
+Unknown even when an initial match exists. Including server-time reads, one
+inspection issues at most 24 GET requests through the adapter and no submission.
+Busy account histories may exceed this bounded search; no undocumented time filter
+or ordering shortcut is used to claim complete evidence.
+
+The three Portfolio Bitkub HTTP clients cap each buffered response at 32 MiB,
+including wallet/history reads, order inspection, server time and submission or
+cancellation acknowledgements. This uses the native HTTP buffer limit before
+JSON parsing; decoded strings and JSON objects consume additional memory. The
+existing timeouts and disabled redirects remain in place. An oversized response
+after a durable submission/cancellation claim leaves the outcome uncertain and
+never authorizes a retry. The ceiling is configured behavior, not a measured
+maximum for the owner's history. Future streaming reads must enforce their own
+body limit because this buffer setting does not cover `ResponseHeadersRead`.
+
+Unexpected API failures keep HTTP 503 and use fixed guidance rather than guessing
+that SQL failed. GET/HEAD failures ask the user to refresh data; other actions say
+the change may have completed and require checking status before another action.
+The web proxy and services preserve that uncertainty for lost responses, unreadable
+JSON and invalid write-response contracts. Explicit server rejection messages and
+caller cancellation remain intact. These messages do not authorize a retry or
+change the existing exact-proof recovery for saved accounting confirmations.
 
 The adaptive path scans the versioned `bitkub-thb-spot-v1` THB universe and sizes from
 verified account capital, including future deposits. It does not require symbols,
@@ -84,7 +184,7 @@ To activate after the deployment and verification have been reviewed:
 
 | Setup path       | Open and review                                                                                                                                                                                                      |
 | ---------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Legacy rules     | **Daily Brief → Trading status → Trading settings**                                                                                                                                                                  |
+| Legacy rules     | **Crypto → Trading → Trading settings**                                                                                                                                                                              |
 | Adaptive trading | **Set up and review autonomous trading** prepares the initial policy and opens review without activating it. Saved v1 uses **Prepare v2 upgrade and review**; existing v2/v3 opens its exact saved rules for review. |
 
 Legacy settings retain these values; strategy and execution values are in
@@ -104,7 +204,8 @@ Legacy settings retain these values; strategy and execution values are in
 ## Risk, recovery and accounting
 
 Trading is THB spot LIMIT only, with no leverage, transfers or withdrawals.
-Legacy uses `ema20-50-breakout-v1`; adaptive uses `adaptive-intraday-v1`.
+Legacy uses `ema20-50-breakout-v1`; adaptive policies retain their saved version
+and rules hash under the [setup and activation rules](#modes-and-owner-activation).
 Research alerts are not trading instructions. Rule settings are constraints,
 not a proven return or guaranteed exit price.
 
@@ -173,6 +274,10 @@ Execution-history constraints:
   recent suffix.
 - An unusable retained snapshot falls back to fresh public history; unresolved gaps
   never produce synthetic candles.
+- Adaptive 5/15/60-minute responses enter the cache only after the completed window
+  is usable. A late or repaired candle can be fetched again within the same slot.
+- Historical responses must align every candle to the requested native timeframe.
+  Invalid provider timestamps are unavailable evidence, not valid history.
 - Per-market history failures reach the scan status, and later quote/maintenance
   events preserve newer decision reasons instead of restoring old placeholders.
 
@@ -189,7 +294,16 @@ Portfolio ledger. Team and MarketData retain their own databases.
 
 - Execution claims persist before broker requests. Duplicate events, browser retries
   and restarts never authorize another submission of an uncertain intent.
+- If final checks fail after a successful claim but before `Send`, that same call
+  records an unchanged claim as **cancelled / not submitted**. Changed revisions,
+  failed claim acknowledgements and recovered claims retain uncertainty. This does
+  not resolve any historical unknown order or authorize a retry.
 - Unknown broker outcomes remain blocked until exact read-only reconciliation.
+- Cumulative fill reconciliation retains an installed exit plan's effective stop.
+  Receiving the same buy fill again cannot replace it with the older entry stop,
+  even when a later market read fails. Fill/cash accounting remains idempotent.
+- Verified fills must respect the submitted Limit price: buys at or below it,
+  sells at or above it. Both ManualReview and AutoLive reject inconsistent rates.
 - Manual and autonomous submission claims share the account lock.
 - AutoLive refuses activation with uncertain manual submissions or outstanding
   adaptive proposals; manual approval requires AutoLive to be disabled first.
@@ -198,6 +312,12 @@ Portfolio ledger. Team and MarketData retain their own databases.
   alert and exact claim time. Restart recovery repairs recorded outcomes without
   repeating sends; legacy claims without acknowledgement remain unknown. See
   [accounting and delivery](crypto-accounting.md).
+- Receipt recovery verifies the stored account, destination and alert with exact
+  ordinal identity. SQL text aliases are not acknowledgements; conflicting native
+  key matches retain the original row and fail visibly. Claim timestamps keep
+  instant equality across offsets and return their stored precision/offset. This
+  changes no receipt schema and does not make legacy case-insensitive keys able to
+  store two case variants. Unsupported collisions remain uncertain without resending.
 
 Faults and recovery:
 
@@ -211,7 +331,7 @@ Faults and recovery:
 
 | Surface                         | Evidence                                                                                                           |
 | ------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
-| Daily Brief status              | Mode, current position cost exposure, open orders, cash, equity and last heartbeat.                                |
+| Crypto trading status           | Mode, current position cost exposure, open orders, cash, equity and last heartbeat.                                |
 | Realized gross/net P&L and fees | Actual fills and known cost basis; incomplete values remain **Unknown**.                                           |
 | Daily summary                   | Concise Thai summary retained at **23:59 Asia/Bangkok**, with report revisions for late evidence.                  |
 | Adaptive Telegram fill notes    | Concise Thai notes with coin, quantity, and actual cash paid/received including fees.                              |
@@ -219,7 +339,7 @@ Faults and recovery:
 
 - Submission alone never announces a purchase; duplicate broker fills never create
   another note.
-- Daily summaries stay in the app; select the Bangkok date in Daily Brief to read one.
+- Daily summaries stay in **Crypto → Trading → Daily reports**; select the Bangkok date there.
   Legacy report delivery is retained for compatibility.
 
 | Measure                          | Meaning                                                                                                                                                                     |
@@ -278,6 +398,19 @@ owner and preserves existing SQL credentials and the token on repeated runs.
 - Preparation and normal startup preserve existing containers; apply updates only
   through reviewed maintenance with current canonical-data backups.
 
+Web JSON controls and dashboard statistics forms accept at most 8,192 bytes. The
+request deadline covers reading that body as well as the upstream request:
+
+| Web request                  | Deadline                                                       |
+| ---------------------------- | -------------------------------------------------------------- |
+| Guarded Portfolio requests   | 30 seconds by default                                          |
+| Risk refresh                 | 90 seconds                                                     |
+| Job dashboard and statistics | 15 seconds; dashboard responses are limited to 2,000,000 bytes |
+
+Cancellation or timeout while reading an incoming body returns 408 without
+forwarding it. Failure after forwarding can still have an unknown outcome; use
+the existing confirmation/order recovery flow rather than automatically retrying.
+
 A powered-off or sleeping PC, lost network, stopped Docker or stopped/unhealthy
 service cannot trade. Compose restart policies and health checks do not provide
 uninterrupted availability or guarantee execution during an outage.
@@ -292,17 +425,24 @@ candles. Portfolio subscribes to a private authenticated SSE stream of typed
 - Public order books retain actual bid/ask quantities and the older side's timestamp.
   Incomplete, crossed or disconnected books never become executable prices.
 - Candle history is not synthesized.
+- Portfolio's HTTP reads bound the universe to 1,048,576 raw bytes and market
+  evidence to 4,000,000 raw bytes plus its existing 1,000,000-character limit.
+  The configured request timeout covers headers and body. Caller cancellation
+  also stops SSE frames that were already buffered.
 
 ### Watch coverage and account evidence
 
 | Watch group         | Coverage                                                                                                                                    |
 | ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
 | Required watches    | Holdings and active orders in both retained books, including buy-frozen markets that still permit selling.                                  |
-| Adaptive candidates | Up to eight positive-scored candidates within the saved signal-age limit.                                                                   |
+| Exit research       | Up to sixteen distinct active or triggered study symbols after required holdings and orders.                                                |
+| Adaptive candidates | Up to eight additional positive-scored candidates within the saved signal-age limit.                                                        |
 | Discovery           | Keeps eight liquid markets and rotates up to eight others every five minutes, giving the one-minute candle reader time to collect evidence. |
 | Total               | Capped at 64 watches, with owned symbols taking priority.                                                                                   |
 
 - Stale and future observations are excluded from the displayed adaptive shortlist.
+- Candidate slots exclude symbols already pinned by holdings, orders or exit research
+  before applying the eight-symbol quota. The ranked shortlist still stops at sixteen.
 - Zero-volume markets do not consume discovery slots.
 - Required watches refresh every two seconds and retain their socket sessions across rotation.
 - This is bounded real-time coverage, not simultaneous coverage of every listing.
@@ -375,7 +515,7 @@ Decision guards:
 - Thai confirmed-fill notes and critical alerts retain their existing delivery claims.
 - The 23:59 Bangkok daily report stays in the app for adaptive mode.
 
-Daily Brief shows private-stream connectivity and watched count. Collapsed diagnostics expose:
+**Crypto → Trading → System details** shows private-stream connectivity and watched count. Collapsed diagnostics expose:
 
 - Watched/dirty symbols and coalesced/dropped triggers.
 - Rolling received-to-local-decision p50/p95 (512 samples).
@@ -445,7 +585,7 @@ Timeframe identity and upgrades:
 | Study property | Bound or behavior                                                                                                      |
 | -------------- | ---------------------------------------------------------------------------------------------------------------------- |
 | Candidates     | At most four observed candidates under v2 rules.                                                                       |
-| Cadence        | Once per Bangkok day/rules hash, with hourly availability checks.                                                      |
+| Cadence        | Once per Bangkok day/rules hash/replay protocol, with hourly availability checks.                                      |
 | History        | Seven days of native bars through MarketData, in chunks of at most 999 intervals.                                      |
 | Persistence    | Account-owned trading state; no database schema is replaced.                                                           |
 | Results        | Source-window warnings and frozen rules hash, visible in Daily Brief and supplied to the AI team's read-only snapshot. |
@@ -454,21 +594,33 @@ The independent worker never acquires broker credentials or calls the exchange.
 
 ### Historical scenario assumptions
 
-| `ohlc-scenario-v1` assumption | Value or treatment                                                                                                |
-| ----------------------------- | ----------------------------------------------------------------------------------------------------------------- |
-| Split                         | Bars split chronologically 70/30 into training/validation; positions reset at the boundary.                       |
-| Evaluation                    | Breakout/pullback/range separately on 5/15/60 minutes. Rows are independent scenarios, not an additive portfolio. |
-| Reference budget              | THB 1,000.                                                                                                        |
-| Costs                         | Both-side fees, saved maximum spread and exit slippage; historical quote/queue evidence is unavailable.           |
-| Fill model                    | Only a later bar that strictly trades through a limit can model a fill; a touch does not.                         |
-| Drawdown                      | Close-marked equity after estimated exit fees.                                                                    |
-| Minimum evidence              | Fewer than 30 evaluated bars or 20 closed trades is insufficient.                                                 |
-| Cash return                   | Zero in this scenario.                                                                                            |
+| Scenario assumption | Value or treatment                                                                                                |
+| ------------------- | ----------------------------------------------------------------------------------------------------------------- |
+| Split               | Bars split chronologically 70/30 into training/validation; positions reset at the boundary.                       |
+| Evaluation          | Breakout/pullback/range separately on 5/15/60 minutes. Rows are independent scenarios, not an additive portfolio. |
+| Reference budget    | THB 1,000.                                                                                                        |
+| Costs               | Both-side fees, saved maximum spread and exit slippage; historical quote/queue evidence is unavailable.           |
+| Fill model          | Only a later bar that strictly trades through a limit can model a fill; a touch does not.                         |
+| Drawdown            | Close-marked equity after estimated exit fees.                                                                    |
+| Minimum evidence    | Fewer than 30 evaluated bars or 20 closed trades is insufficient.                                                 |
+| Cash return         | Zero in this scenario.                                                                                            |
 
 - Gaps, partial-window expiries, ambiguous same-bar exits and unfinished positions yield
   Unknown net/drawdown.
 - These assumptions cannot verify actual fills, prove profitability or promote rules
   automatically.
+
+| Replay protocol    | Precision behavior                                                                                                                                             |
+| ------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `ohlc-scenario-v1` | Retained legacy results remain readable.                                                                                                                       |
+| `ohlc-scenario-v2` | Uses current exchange tick and base/quote scales as historical assumptions; retained results remain readable.                                                  |
+| `ohlc-scenario-v3` | Keeps v2 assumptions and rounds sell limits up to the next tick, preserving the minimum price allowed by slippage. Buy limits and quantities still round down. |
+
+The replay protocol identifies a hypothetical calculation, independent of the strategy
+version or mandate. A changed protocol refreshes the daily study once; it does not
+change trading authority. The engine uses the same directional limit rounding: a
+sell quote at one tick remains positive, and rounding cannot lower the permitted sell
+price. A tighter sell limit may remain unfilled.
 
 ### Daily funnel
 

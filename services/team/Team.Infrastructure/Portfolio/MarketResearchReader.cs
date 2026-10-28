@@ -17,11 +17,18 @@ public sealed class MarketResearchReader(HttpClient http) : IMarketResearchReade
     )
     {
         var query = symbols.Count == 0 ? "" : "?symbols=" + Uri.EscapeDataString(string.Join(',', symbols));
+        using var requestTimeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        requestTimeout.CancelAfter(http.Timeout);
         using var request = new HttpRequestMessage(HttpMethod.Get, "api/market/research" + query);
         request.Headers.Add("X-Account-Key", accountKey);
-        using var response = await http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
+        using var response = await http.SendAsync(
+            request,
+            HttpCompletionOption.ResponseHeadersRead,
+            requestTimeout.Token
+        );
         response.EnsureSuccessStatusCode();
-        var body = await response.Content.ReadAsStringAsync(cancellationToken);
+        await response.Content.LoadIntoBufferAsync(160_000, requestTimeout.Token);
+        var body = await response.Content.ReadAsStringAsync(requestTimeout.Token);
         if (body.Length > 40000)
         {
             throw new InvalidOperationException("Market research snapshot is too large.");
@@ -47,13 +54,18 @@ public sealed class MarketResearchReader(HttpClient http) : IMarketResearchReade
         object native;
         try
         {
+            using var nativeTimeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            nativeTimeout.CancelAfter(http.Timeout);
             using var nativeResponse = await http.GetAsync(
                 "api/market/trading?adaptiveTimeframes=true&symbols=" + Uri.EscapeDataString(string.Join(',', symbols)),
-                cancellationToken
+                HttpCompletionOption.ResponseHeadersRead,
+                nativeTimeout.Token
             );
             nativeResponse.EnsureSuccessStatusCode();
-            await nativeResponse.Content.LoadIntoBufferAsync(1_000_000, cancellationToken);
-            using var document = JsonDocument.Parse(await nativeResponse.Content.ReadAsStringAsync(cancellationToken));
+            await nativeResponse.Content.LoadIntoBufferAsync(1_000_000, nativeTimeout.Token);
+            using var document = JsonDocument.Parse(
+                await nativeResponse.Content.ReadAsStringAsync(nativeTimeout.Token)
+            );
             native = NativeMarketResearch.Project(document.RootElement, symbols, DateTimeOffset.UtcNow);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)

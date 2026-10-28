@@ -6,7 +6,7 @@ namespace Quantara.MarketData.Checks;
 
 public static class MarketWatchSelectionChecks
 {
-    public static void Run()
+    public static async Task Run()
     {
         var rules = Enumerable
             .Range(1, 42)
@@ -102,11 +102,116 @@ public static class MarketWatchSelectionChecks
             throw new InvalidOperationException("Missing required holdings must not be fabricated.");
         }
 
+        using var duplicateSymbols = JsonDocument.Parse(
+            JsonSerializer.Serialize(new { result = rules.Concat([rules[41]]).ToArray() })
+        );
+        using var duplicateTickers = JsonDocument.Parse(
+            JsonSerializer.Serialize(quotes.Concat([quotes.ElementAt(41)]).ToArray())
+        );
+        var duplicateSelection = MarketWatchSelection.Select(
+            duplicateSymbols.RootElement,
+            duplicateTickers.RootElement,
+            ["C42"],
+            DateTimeOffset.UnixEpoch
+        );
+        if (duplicateSelection.Count(item => item.Symbol == "C42_THB") != 1)
+        {
+            throw new InvalidOperationException(
+                "Exact duplicate market rules must not drop a required zero-volume holding."
+            );
+        }
+
+        using var malformedSymbols = JsonDocument.Parse(
+            JsonSerializer.Serialize(
+                new
+                {
+                    result = rules
+                        .Cast<object?>()
+                        .Concat([
+                            null,
+                            42,
+                            new
+                            {
+                                base_asset = 42,
+                                quote_asset = "THB",
+                                status = "active",
+                                market_segment = "SPOT",
+                                source = "exchange",
+                                pairing_id = "999",
+                            },
+                        ])
+                        .ToArray(),
+                }
+            )
+        );
+        var preserved = MarketWatchSelection.Select(
+            malformedSymbols.RootElement,
+            tickers.RootElement,
+            ["C42"],
+            DateTimeOffset.UnixEpoch
+        );
+        if (preserved.Count(item => item.Symbol == "C42_THB") != 1 || preserved.Any(item => item.Symbol == "42_THB"))
+        {
+            throw new InvalidOperationException("Malformed rule rows must not remove a verified required holding.");
+        }
+
+        var conflict = rules[41] with { base_asset = "c42", pairing_id = "999" };
+        using var conflictingSymbols = JsonDocument.Parse(
+            JsonSerializer.Serialize(new { result = rules.Append(conflict).ToArray() })
+        );
+        if (
+            MarketWatchSelection
+                .Select(conflictingSymbols.RootElement, tickers.RootElement, ["C42"], DateTimeOffset.UnixEpoch)
+                .Any(item => item.Symbol == "C42_THB")
+        )
+        {
+            throw new InvalidOperationException(
+                "Conflicting market identities must not be resolved by choosing a rule."
+            );
+        }
+
+        await CheckFeed(duplicateSymbols.RootElement, tickers.RootElement);
+        await CheckFeed(malformedSymbols.RootElement, tickers.RootElement);
+
         try
         {
             MarketWatchSelection.Select(symbols.RootElement, tickers.RootElement, ["c1"], DateTimeOffset.UtcNow);
             throw new InvalidOperationException("Lowercase required symbols must be rejected.");
         }
         catch (ArgumentException) { }
+    }
+
+    private static async Task CheckFeed(JsonElement symbols, JsonElement tickers)
+    {
+        using var handler = new UniverseHttpHandler
+        {
+            SymbolsResponse = symbols.GetRawText(),
+            TickerResponse = tickers.GetRawText(),
+        };
+        using var client = new HttpClient(handler) { BaseAddress = new Uri("https://test.invalid") };
+        var bus = new MarketEventBus();
+        await bus.SetWatch(["C42"], CancellationToken.None);
+        using var feed = new LiveMarketFeed(
+            client,
+            new UnusedIntradayCandleStore(),
+            new FixedTimeProvider(DateTimeOffset.UnixEpoch),
+            bus
+        );
+        // Exercise the real refresh without starting its public WebSocket background loops.
+        var refresh =
+            typeof(LiveMarketFeed).GetMethod(
+                "RefreshWatch",
+                System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic
+            ) ?? throw new InvalidOperationException("Watch refresh entry point was not found.");
+        var pending =
+            refresh.Invoke(feed, [CancellationToken.None]) as Task
+            ?? throw new InvalidOperationException("Watch refresh did not return a task.");
+        await pending;
+        if (handler.RequestCount != 2 || !bus.WatchedSymbols.Contains("C42", StringComparer.Ordinal))
+        {
+            throw new InvalidOperationException(
+                "The actual feed must retain a verified required holding after refresh."
+            );
+        }
     }
 }

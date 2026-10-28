@@ -113,7 +113,24 @@ public sealed class TradingReportDelivery(
             .MaxBy(report => report.Revision);
         if (previous?.Status is "sending" or "editing")
         {
-            return;
+            if (previous.ClaimedAt is { } claim && now - claim <= TradingAlertDelivery.SendTimeout)
+            {
+                return;
+            }
+
+            var recovered = previous with { Status = "unknown" };
+            var updated = state with
+            {
+                Revision = state.Revision + 1,
+                Reports = state.Reports.Select(report => report == previous ? recovered : report).ToArray(),
+            };
+            if (!await this.Save(updated, state.Revision, cancellationToken))
+            {
+                return;
+            }
+
+            state = updated;
+            previous = recovered;
         }
 
         var ledger = mode == TradingMode.Paper ? state.Paper : state.Live;
@@ -220,17 +237,19 @@ public sealed class TradingReportDelivery(
         var messageId = report.MessageId;
         try
         {
+            using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            timeout.CancelAfter(TradingAlertDelivery.SendTimeout);
             var text =
                 report.Revision > 1
                     ? report.Text + "\nแก้ไขครั้งที่: " + (report.Revision - 1).ToString(CultureInfo.InvariantCulture)
                     : report.Text;
             if (messageId is > 0)
             {
-                await notifier.Edit(messageId.Value, text, cancellationToken);
+                await notifier.Edit(messageId.Value, text, timeout.Token);
             }
             else
             {
-                messageId = await notifier.Send(text, cancellationToken);
+                messageId = await notifier.Send(text, timeout.Token);
                 if (messageId <= 0)
                 {
                     throw new InvalidOperationException("Trading report delivery was not acknowledged.");
@@ -248,9 +267,10 @@ public sealed class TradingReportDelivery(
 
     private async Task FinishReport(TradingDailyReport report, string status, long? messageId)
     {
+        using var completion = new CancellationTokenSource(TimeSpan.FromSeconds(15), time);
         for (var attempt = 0; attempt < 3; attempt++)
         {
-            var state = await store.Read(CancellationToken.None);
+            var state = await store.Read(completion.Token);
             if (
                 await this.Save(
                     state with
@@ -272,7 +292,7 @@ public sealed class TradingReportDelivery(
                             .ToArray(),
                     },
                     state.Revision,
-                    CancellationToken.None
+                    completion.Token
                 )
             )
             {

@@ -4,7 +4,6 @@ import { Component, createRef } from 'react';
 import { Box, Typography } from '@mui/material';
 import type { OfficeCanvasProps } from './OfficeCanvasProps';
 import type { OfficeCanvasState } from './OfficeCanvasState';
-import { OfficeAgentStatus } from '../../contracts/OfficeAgentStatus';
 
 export class OfficeCanvas extends Component<
   OfficeCanvasProps,
@@ -21,6 +20,17 @@ export class OfficeCanvas extends Component<
   private timeout: ReturnType<typeof setTimeout> | null = null;
 
   private visible = true;
+
+  public focusAgent(id: number): void {
+    if (!this.props.agents.some((agent) => agent.id === id)) {
+      return;
+    }
+
+    this.frame.current?.contentWindow?.postMessage(
+      { source: 'quantara-home', type: 'select', id },
+      location.origin,
+    );
+  }
 
   public override componentDidMount(): void {
     window.addEventListener('message', this.onMessage);
@@ -111,10 +121,7 @@ export class OfficeCanvas extends Component<
           this.props.paused ||
           !this.visible ||
           document.hidden ||
-          this.media?.matches === true ||
-          !this.props.agents.some(
-            (agent) => agent.status === OfficeAgentStatus.Active,
-          ),
+          this.media?.matches === true,
       },
       location.origin,
     );
@@ -122,7 +129,13 @@ export class OfficeCanvas extends Component<
 
   public override render() {
     return (
-      <Box sx={{ position: 'relative', minWidth: 0, bgcolor: '#1e1e2e' }}>
+      <Box
+        sx={{
+          position: 'relative',
+          minWidth: 0,
+          bgcolor: 'var(--surface-soft)',
+        }}
+      >
         <Box
           component="iframe"
           ref={this.frame}
@@ -141,7 +154,17 @@ export class OfficeCanvas extends Component<
         {(!this.state.ready || this.state.error) && (
           <Typography
             role="status"
-            sx={{ p: 2, color: '#fff' }}
+            sx={{
+              m: 0,
+              mt: 1,
+              p: 2,
+              color: 'text.primary',
+              bgcolor: 'var(--surface-raised)',
+              border: '1px solid',
+              borderColor: 'var(--border-panel)',
+              borderRadius: 'var(--radius-control)',
+              boxShadow: 'var(--shadow-panel)',
+            }}
           >
             {this.state.error
               ? 'Office unavailable. Team status is available below.'

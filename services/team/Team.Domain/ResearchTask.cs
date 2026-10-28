@@ -7,5 +7,6 @@ public sealed record ResearchTask(
     DateTimeOffset EvidenceAt,
     DateTimeOffset ExpiresAt,
     string? NewsDigest = null,
-    string? StudyDigest = null
+    string? StudyDigest = null,
+    IReadOnlyList<string>? NewsRevisions = null
 );

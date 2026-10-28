@@ -24,5 +24,5 @@ public interface IOrderStore : IReadOnlyOrderStore
         string? brokerOrderId,
         string? message,
         CancellationToken cancellationToken
-    ) => this.Finish(id, state, brokerOrderId, message, cancellationToken);
+    );
 }

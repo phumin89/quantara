@@ -133,7 +133,7 @@ public sealed class SqlTradingStore : ITradingStore
         await connection.OpenAsync(cancellationToken);
         await using var transaction = (SqlTransaction)
             await connection.BeginTransactionAsync(IsolationLevel.Serializable, cancellationToken);
-        if (state.Mode == TradingMode.AutoLive)
+        if (state.Mode == TradingMode.AutoLive || state.Live.CashBaselines.Count > 0)
         {
             await using var accountLock = new SqlCommand(
                 "DECLARE @result int; EXEC @result=sp_getapplock @Resource=@account,@LockMode='Exclusive',@LockOwner='Transaction',@LockTimeout=5000; IF @result<0 THROW 50000,'Trading account is busy.',1;",
@@ -178,6 +178,19 @@ public sealed class SqlTradingStore : ITradingStore
         }
 
         this.Validate(previous);
+        TradingPolicyPersistence.Validate(previous, state);
+        if (state.PolicyChanges.Count > previous.PolicyChanges.Count)
+        {
+            await using var policyExposure = new SqlCommand(
+                "IF EXISTS(SELECT 1 FROM dbo.OrderProposals WITH(UPDLOCK,HOLDLOCK) WHERE AccountKey=@account AND (State IN ('Submitting','Unknown','Submitted','PartiallyFilled') OR JSON_VALUE(Payload,'$.Sizing.PolicyHash') IS NOT NULL AND State='Pending' AND ExpiresAt>@now)) THROW 50000,'Resolve manual exposure before applying AI settings.',1;",
+                connection,
+                transaction
+            );
+            this.Account(policyExposure);
+            policyExposure.Parameters.Add("@now", SqlDbType.DateTimeOffset).Value = this.time.GetUtcNow();
+            await policyExposure.ExecuteNonQueryAsync(cancellationToken);
+        }
+
         if (
             state.Mode == TradingMode.AutoLive
             && state.Live.Orders.Any(order =>
@@ -207,25 +220,118 @@ public sealed class SqlTradingStore : ITradingStore
             await pending.ExecuteNonQueryAsync(cancellationToken);
         }
 
+        await this.Persist(connection, transaction, state, previous, cancellationToken);
+        await transaction.CommitAsync(cancellationToken);
+        return true;
+    }
+
+    internal async Task Persist(
+        SqlConnection connection,
+        SqlTransaction transaction,
+        TradingState state,
+        TradingState previous,
+        CancellationToken cancellationToken
+    )
+    {
+        this.Validate(previous);
+        this.Validate(state);
+        if (previous.Revision == long.MaxValue || state.Revision != previous.Revision + 1)
+        {
+            throw new InvalidDataException("Trading state must advance exactly one revision.");
+        }
+
+        if (state.Live.CashBaselines.Count > previous.Live.CashBaselines.Count)
+        {
+            if (state.Live.CashBaselines.Count != previous.Live.CashBaselines.Count + 1)
+            {
+                throw new InvalidDataException("Adopt exactly one reviewed cash baseline per transaction.");
+            }
+
+            var baseline = state.Live.CashBaselines[^1];
+            await using var pending = new SqlCommand(
+                "IF EXISTS(SELECT 1 FROM dbo.OrderProposals WITH(UPDLOCK,HOLDLOCK) WHERE AccountKey=@account AND (State IN ('Submitting','Unknown','Submitted','PartiallyFilled') OR State='Pending' AND ExpiresAt>@now)) THROW 50000,'Resolve manual orders before adopting current cash.',1;",
+                connection,
+                transaction
+            );
+            this.Account(pending);
+            pending.Parameters.Add("@now", SqlDbType.DateTimeOffset).Value = this.time.GetUtcNow();
+            await pending.ExecuteNonQueryAsync(cancellationToken);
+            // Lock waits must not turn expired broker evidence into an accepted balance.
+            var expected = TradingCashBaselineAccounting.Adopt(
+                previous,
+                baseline,
+                this.accountKey,
+                this.time.GetUtcNow()
+            );
+            if (
+                JsonSerializer.Serialize(expected, SqlTradingStore.jsonOptions)
+                != JsonSerializer.Serialize(state, SqlTradingStore.jsonOptions)
+            )
+            {
+                throw new InvalidDataException(
+                    "Cash adoption must preserve authority, funding, fills, history and risk limits."
+                );
+            }
+        }
+
         await this.SaveMirrors(connection, transaction, state, previous, cancellationToken);
+        if (state.Live.CashBaselines.Count > previous.Live.CashBaselines.Count)
+        {
+            // Mirror locks may also wait. Throwing here rolls their writes back with the runtime transaction.
+            _ = TradingCashBaselineAccounting.Adopt(
+                previous,
+                state.Live.CashBaselines[^1],
+                this.accountKey,
+                this.time.GetUtcNow()
+            );
+        }
+
         await using var update = new SqlCommand(
-            "UPDATE dbo.TradingRuntime SET Revision=@revision,Payload=@payload WHERE AccountKey=@account;",
+            "UPDATE dbo.TradingRuntime SET Revision=@revision,Payload=@payload WHERE AccountKey=@account AND Revision=@expected;",
             connection,
             transaction
         );
         this.Account(update);
+        update.Parameters.Add("@expected", SqlDbType.BigInt).Value = previous.Revision;
         SqlTradingStore.Runtime(update, state);
         if (await update.ExecuteNonQueryAsync(cancellationToken) != 1)
         {
             throw new InvalidDataException("Trading runtime disappeared during the transaction.");
         }
-
-        await transaction.CommitAsync(cancellationToken);
-        return true;
     }
 
-    private void Validate(TradingState state)
+    internal void Validate(TradingState state)
     {
+        foreach (var intent in state.Paper.Orders.Concat(state.Live.Orders))
+        {
+            if (
+                intent.Status
+                is not (
+                    "pending"
+                    or "submitting"
+                    or "submitted"
+                    or "partial"
+                    or "unknown"
+                    or "filled"
+                    or "cancelled"
+                    or "rejected"
+                    or "expired"
+                )
+            )
+            {
+                throw new InvalidDataException("Trading intent has an unsupported status.");
+            }
+
+            if (intent.CancellationState is not (null or "claimed" or "unknown" or "acknowledged" or "confirmed"))
+            {
+                throw new InvalidDataException("Trading intent has an unsupported cancellation state.");
+            }
+        }
+
+        TradingManualSaleInventory.Validate(state.Live, this.accountKey);
+        TradingManualSaleInventory.Validate(state.Paper, this.accountKey);
+        TradingCashBaselineAccounting.Validate(state.Live, this.accountKey);
+        TradingCashBaselineAccounting.Validate(state.Paper, this.accountKey);
         state.Rules.Validate();
         if (!StringComparer.Ordinal.Equals(state.RulesHash, TradingRuleHash.Compute(state.Rules)))
         {
@@ -235,6 +341,20 @@ public sealed class SqlTradingStore : ITradingStore
         if (state.Mandate is not null && !StringComparer.Ordinal.Equals(state.Mandate.AccountKey, this.accountKey))
         {
             throw new InvalidDataException("Trading mandate belongs to another account.");
+        }
+
+        if (
+            state.AiPolicy is { } authority
+            && (
+                authority.AccountKey != this.accountKey
+                || authority.CapitalCeilingFraction != 1m
+                || state.Mode == TradingMode.AutoLive
+                    && state.Mandate is { RevokedAt: null }
+                    && !TradingPolicyAuthority.Matches(state)
+            )
+        )
+        {
+            throw new InvalidDataException("AI policy authority or retained lineage is invalid.");
         }
     }
 
@@ -383,23 +503,9 @@ public sealed class SqlTradingStore : ITradingStore
         var priorIntents = (previous?.Orders ?? []).ToDictionary(intent => intent.Id);
         foreach (var intent in ledger.Orders)
         {
-            if (
-                priorIntents.TryGetValue(intent.Id, out var old)
-                && (
-                    intent.Symbol != old.Symbol
-                    || intent.Side != old.Side
-                    || intent.Amount != old.Amount
-                    || intent.LimitPrice != old.LimitPrice
-                    || intent.CreatedAt != old.CreatedAt
-                    || intent.Candle != old.Candle
-                    || intent.RulesHash != old.RulesHash
-                    || intent.Reason != old.Reason
-                    || JsonSerializer.Serialize(intent.Sizing, SqlTradingStore.jsonOptions)
-                        != JsonSerializer.Serialize(old.Sizing, SqlTradingStore.jsonOptions)
-                )
-            )
+            if (priorIntents.TryGetValue(intent.Id, out var old))
             {
-                throw new InvalidDataException("The immutable trading intent was changed.");
+                TradingIntentPersistence.Validate(old, intent);
             }
         }
 
@@ -438,10 +544,60 @@ public sealed class SqlTradingStore : ITradingStore
             );
         }
 
+        var retiredPositions = (previous?.Positions ?? [])
+            .Where(position =>
+                !ledger.Positions.Any(current => current.Symbol == position.Symbol)
+                && ledger.ExternalSales.Any(sale => sale.OriginalPosition == position)
+            )
+            .ToArray();
+        foreach (var position in retiredPositions)
+        {
+            var retirement = ledger.ExternalSales.Single(sale => sale.OriginalPosition == position);
+            await this.Store(
+                connection,
+                transaction,
+                "TradingPositions",
+                $"{mode}:{position.Symbol}",
+                new
+                {
+                    Mode = mode,
+                    Position = position with
+                    {
+                        Quantity = 0m,
+                        CostThb = 0m,
+                        EntryFeesThb = 0m,
+                    },
+                    Retirement = retirement,
+                },
+                false,
+                cancellationToken
+            );
+        }
+
+        foreach (
+            var sale in SqlTradingStore.Changed(
+                ledger.ExternalSales,
+                previous?.ExternalSales ?? [],
+                sale => sale.ReviewReference,
+                true
+            )
+        )
+        {
+            await this.Store(
+                connection,
+                transaction,
+                "TradingPositions",
+                $"{mode}:external:{sale.ReviewReference}",
+                sale,
+                true,
+                cancellationToken
+            );
+        }
+
         foreach (
             var position in SqlTradingStore.Changed(
                 ledger.Positions,
-                previous?.Positions ?? [],
+                (previous?.Positions ?? []).Except(retiredPositions).ToArray(),
                 position => position.Symbol,
                 false
             )
@@ -454,6 +610,26 @@ public sealed class SqlTradingStore : ITradingStore
                 $"{mode}:{position.Symbol}",
                 new { Mode = mode, Position = position },
                 false,
+                cancellationToken
+            );
+        }
+
+        foreach (
+            var baseline in SqlTradingStore.Changed(
+                ledger.CashBaselines,
+                previous?.CashBaselines ?? [],
+                item => item.ReviewReference,
+                true
+            )
+        )
+        {
+            await this.Store(
+                connection,
+                transaction,
+                "TradingRiskCounters",
+                $"{mode}:cash-baseline:{baseline.ReviewReference}",
+                baseline,
+                true,
                 cancellationToken
             );
         }

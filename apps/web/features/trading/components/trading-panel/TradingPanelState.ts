@@ -7,7 +7,10 @@ export interface TradingPanelState {
   readonly validationError: string | null;
   readonly open: boolean;
   readonly busy: boolean;
+  readonly refreshing: boolean;
   readonly dirty: boolean;
   readonly reviewOpen: boolean;
+  readonly balanceReviewOpen: boolean;
   readonly expiresAt: string;
+  readonly aiManaged: boolean;
 }

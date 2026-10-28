@@ -13,45 +13,53 @@ public static class IntradaySignalEvaluator
             return null;
         }
 
-        var candles = series.Candles;
-        var latest = candles[^1];
-        var prior = candles.Skip(candles.Count - 21).Take(20).ToArray();
-        var priorHigh = prior.Max(candle => candle.High);
-        var priorLow = prior.Min(candle => candle.Low);
-        var medianVolume = Median(prior.Select(candle => candle.Volume).ToArray());
-        if (medianVolume <= 0m || latest.Volume < medianVolume * 1.5m)
+        try
         {
+            var candles = series.Candles;
+            var latest = candles[^1];
+            var prior = candles.Skip(candles.Count - 21).Take(20).ToArray();
+            var priorHigh = prior.Max(candle => candle.High);
+            var priorLow = prior.Min(candle => candle.Low);
+            var medianVolume = Median(prior.Select(candle => candle.Volume).ToArray());
+            if (medianVolume <= 0m || latest.Volume < medianVolume * 1.5m)
+            {
+                return null;
+            }
+
+            var direction =
+                latest.Close > priorHigh ? SignalDirection.Breakout
+                : latest.Close < priorLow ? SignalDirection.Breakdown
+                : (SignalDirection?)null;
+            if (direction is null)
+            {
+                return null;
+            }
+
+            var mid = quote.Bid / 2m + quote.Ask / 2m;
+            var spreadPercent = (quote.Ask - quote.Bid) / mid * 100m;
+            var volumeRatio = latest.Volume / medianVolume;
+            var signalDirection = direction.Value;
+            var signalId = FormattableString.Invariant(
+                $"{ruleVersion}|{series.Symbol}|{latest.Timestamp}|{signalDirection}"
+            );
+            return new MarketSignal(
+                signalId,
+                series.Symbol,
+                signalDirection,
+                latest.Timestamp,
+                now,
+                latest.Close,
+                signalDirection == SignalDirection.Breakout ? priorHigh : priorLow,
+                volumeRatio,
+                spreadPercent,
+                ruleVersion
+            );
+        }
+        catch (OverflowException)
+        {
+            // Unrepresentable source arithmetic invalidates this signal, not the whole feed.
             return null;
         }
-
-        var direction =
-            latest.Close > priorHigh ? SignalDirection.Breakout
-            : latest.Close < priorLow ? SignalDirection.Breakdown
-            : (SignalDirection?)null;
-        if (direction is null)
-        {
-            return null;
-        }
-
-        var mid = quote.Bid / 2m + quote.Ask / 2m;
-        var spreadPercent = (quote.Ask - quote.Bid) / mid * 100m;
-        var volumeRatio = latest.Volume / medianVolume;
-        var signalDirection = direction.Value;
-        var signalId = FormattableString.Invariant(
-            $"{ruleVersion}|{series.Symbol}|{latest.Timestamp}|{signalDirection}"
-        );
-        return new MarketSignal(
-            signalId,
-            series.Symbol,
-            signalDirection,
-            latest.Timestamp,
-            now,
-            latest.Close,
-            signalDirection == SignalDirection.Breakout ? priorHigh : priorLow,
-            volumeRatio,
-            spreadPercent,
-            ruleVersion
-        );
     }
 
     private static bool IsQuoteUsable(LiveMarketQuote quote, DateTimeOffset now)
@@ -95,6 +103,7 @@ public static class IntradaySignalEvaluator
             var candle = series.Candles[index];
             if (
                 candle.Timestamp <= 0
+                || candle.Timestamp % barSeconds != 0
                 || candle.Open <= 0m
                 || candle.High <= 0m
                 || candle.Low <= 0m

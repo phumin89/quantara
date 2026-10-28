@@ -1,3 +1,4 @@
+using System.Data.SqlTypes;
 using Quantara.Team.Application;
 using Quantara.Team.Domain;
 
@@ -15,7 +16,11 @@ public sealed class FakeTeamRunStore : ITeamRunStore
     {
         lock (this.gate)
         {
-            return Task.FromResult(this.runs.Values.OrderByDescending(run => run.CreatedAt).FirstOrDefault());
+            return Task.FromResult(
+                this.runs.Values.OrderByDescending(run => run.CreatedAt)
+                    .ThenByDescending(run => new SqlGuid(run.Id))
+                    .FirstOrDefault()
+            );
         }
     }
 
@@ -34,7 +39,7 @@ public sealed class FakeTeamRunStore : ITeamRunStore
             return Task.FromResult(
                 this.runs.Values.Where(run => run.AccountKey == accountKey)
                     .OrderByDescending(run => run.CreatedAt)
-                    .ThenByDescending(run => run.Id)
+                    .ThenByDescending(run => new SqlGuid(run.Id))
                     .FirstOrDefault()
             );
         }
@@ -50,11 +55,11 @@ public sealed class FakeTeamRunStore : ITeamRunStore
                         run.Steps.Any(step =>
                             step.Role == TeamRole.Reviewer
                             && step.Status == TeamRunStatus.Completed
-                            && !string.IsNullOrEmpty(step.Output)
+                            && !string.IsNullOrEmpty(step.Output?.Trim(' '))
                         )
                     )
                     .OrderByDescending(run => run.CreatedAt)
-                    .ThenByDescending(run => run.Id)
+                    .ThenByDescending(run => new SqlGuid(run.Id))
                     .FirstOrDefault()
             );
         }
@@ -80,7 +85,7 @@ public sealed class FakeTeamRunStore : ITeamRunStore
                         && run.Learning is not null
                     )
                     .OrderByDescending(run => run.CreatedAt)
-                    .ThenByDescending(run => run.Id)
+                    .ThenByDescending(run => new SqlGuid(run.Id))
                     .ToArray()
             );
         }
@@ -92,14 +97,18 @@ public sealed class FakeTeamRunStore : ITeamRunStore
         CancellationToken cancellationToken
     )
     {
+        ValidateAccountKey(accountKey);
         lock (this.gate)
         {
             return Task.FromResult<IReadOnlyList<TeamRun>>(
                 this.runs.Values.Where(run =>
-                        run.AccountKey == accountKey && run.CreatedAt <= before && run.CreatedAt >= before.AddDays(-2)
+                        run.AccountKey == accountKey
+                        && run.CreatedAt <= before
+                        && run.CreatedAt >= before.AddDays(-7).AddMinutes(-1)
                     )
                     .OrderByDescending(run => run.CreatedAt)
-                    .Take(192)
+                    .ThenByDescending(run => new SqlGuid(run.Id))
+                    .Take(512)
                     .ToArray()
             );
         }
@@ -114,7 +123,7 @@ public sealed class FakeTeamRunStore : ITeamRunStore
             return Task.FromResult<IReadOnlyList<TeamRun>>(
                 this.runs.Values.Where(run => run.CreatedAt >= start && run.CreatedAt < end)
                     .OrderBy(run => run.CreatedAt)
-                    .ThenBy(run => run.Id)
+                    .ThenBy(run => new SqlGuid(run.Id))
                     .ToArray()
             );
         }

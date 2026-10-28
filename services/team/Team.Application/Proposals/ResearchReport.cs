@@ -8,5 +8,7 @@ public sealed record ResearchReport(
     LearningLesson? Lesson = null,
     IReadOnlyList<string>? ResearchSymbols = null,
     ResearchAssessment? Assessment = null,
-    ResearchUsage? Usage = null
+    ResearchUsage? Usage = null,
+    ResearchModelAudit? ModelAudit = null,
+    PolicyCandidate? PolicyCandidate = null
 );

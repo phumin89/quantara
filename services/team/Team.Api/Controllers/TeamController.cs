@@ -73,6 +73,10 @@ public sealed class TeamController : ControllerBase
         return this.Content(packet, "application/json");
     }
 
+    [HttpGet("policy-candidate")]
+    public async Task<IActionResult> PolicyCandidate(CancellationToken cancellationToken) =>
+        this.Ok(await this.mediator.Send(new GetPolicyCandidateQuery(), cancellationToken));
+
     [HttpPost("runs")]
     public async Task<IActionResult> Start(TeamObjective body, CancellationToken cancellationToken)
     {

@@ -64,8 +64,9 @@ public static class TradingWatchSelection
             .Concat(
                 Candidates(state, now)
                     .Where(item => item.Score > 0)
-                    .Take(Math.Min(8, capacity))
                     .Select(item => item.Symbol)
+                    .Except(owned.Concat(research), StringComparer.Ordinal)
+                    .Take(Math.Min(8, capacity))
             )
             .Distinct(StringComparer.Ordinal)
             .Order(StringComparer.Ordinal)

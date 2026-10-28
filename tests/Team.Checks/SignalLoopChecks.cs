@@ -11,6 +11,7 @@ public static class SignalLoopChecks
     {
         await DeadlineAlignment();
         await ReviewSchedulingChecks();
+        await SignalExpiryRecoveryChecks();
         var time = new ManualTimeProvider();
         var schedule = new FakeCompanyScheduleStore(time.GetUtcNow());
         var runs = new FakeTeamRunStore();
@@ -22,13 +23,15 @@ public static class SignalLoopChecks
         await loop.Tick(CancellationToken.None);
         Check(coordinator.Objectives.Count == 1, "normal hourly round");
         Check(
-            coordinator.Objectives[0].Contains("THB 10000")
-                && coordinator.Objectives[0].Contains("including deposits", StringComparison.Ordinal)
-                && coordinator.Objectives[0].Contains("2026-11-01", StringComparison.Ordinal)
+            coordinator.Objectives[0].Contains("supplied account-checked portfolio evidence", StringComparison.Ordinal)
+                && coordinator.Objectives[0].Contains("Target unavailable", StringComparison.Ordinal)
+                && !coordinator.Objectives[0].Contains("Current portfolio goal: reach THB", StringComparison.Ordinal)
                 && coordinator.Objectives[0].Length <= 2000,
-            "month-end total portfolio objective is bounded and includes deposits"
+            "research uses the supplied account goal without a numeric target or deadline fallback"
         );
-        Check((await loop.Read(CancellationToken.None)).DailyNetProfitTargetThb == 500m, "visible daily target");
+        var overview = await loop.Read(CancellationToken.None);
+        Check(overview.CurrentGoal is null, "overview without current account evidence does not invent a goal");
+        Check(overview.DailyNetProfitTargetThb == 500m, "visible legacy daily target");
         var first =
             await runs.Latest(CancellationToken.None) ?? throw new InvalidOperationException("first run missing");
         await runs.Save(first with { Status = TeamRunStatus.Completed }, CancellationToken.None);
@@ -101,6 +104,75 @@ public static class SignalLoopChecks
 
         await ReadSignalReaderChecks(time);
         Console.WriteLine("Signal loop checks passed.");
+    }
+
+    private static async Task SignalExpiryRecoveryChecks()
+    {
+        var time = new ManualTimeProvider();
+        var schedule = new FakeCompanyScheduleStore(time.GetUtcNow());
+        await schedule.Save(
+            schedule.Schedule with
+            {
+                NextRunAt = time.GetUtcNow().AddMinutes(30),
+            },
+            CancellationToken.None
+        );
+        var runs = new FakeTeamRunStore();
+        var coordinator = new LoopCoordinator(runs, time);
+        var portfolio = new LoopSnapshotReader { Available = false };
+        var signal = new FakeMarketSignalReader { Notice = Notice("expiring", time.GetUtcNow()) };
+        using var loop = new CompanyLoop(schedule, runs, coordinator, portfolio, time, signal);
+
+        await loop.Tick(CancellationToken.None);
+        var waiting = await loop.Read(CancellationToken.None);
+        Check(
+            waiting.Status == CompanyLoopStatus.WaitingForPortfolio && waiting.Error is not null,
+            "initial signal wait records portfolio error"
+        );
+        var deadline = schedule.Schedule.NextRunAt;
+        signal.Notice = null;
+        portfolio.Available = true;
+        time.Advance(TimeSpan.FromMinutes(1));
+        await loop.Tick(CancellationToken.None);
+        var recovered = await loop.Read(CancellationToken.None);
+        Check(
+            recovered.Status == CompanyLoopStatus.Waiting && recovered.Error is null,
+            "expired signal clears transient portfolio error"
+        );
+        Check(
+            schedule.Schedule.NextRunAt == deadline && schedule.Schedule.LastSignalKey is null,
+            "recovery preserves deadline and leaves signal unconsumed"
+        );
+        Check(coordinator.Objectives.Count == 0, "expired signal does not start work");
+        signal.Notice = Notice("fresh", time.GetUtcNow());
+        time.Advance(TimeSpan.FromMinutes(1));
+        await loop.Tick(CancellationToken.None);
+        Check(coordinator.Objectives.Count == 1, "fresh signal starts after recovery");
+        await loop.Tick(CancellationToken.None);
+        Check(coordinator.Objectives.Count == 1, "fresh signal starts exactly once");
+
+        var failureTime = new ManualTimeProvider();
+        var failureSchedule = new FakeCompanyScheduleStore(failureTime.GetUtcNow());
+        var failureRuns = new FakeTeamRunStore();
+        var failingCoordinator = new LoopCoordinator(failureRuns, failureTime) { FailStart = true };
+        var failureSignal = new FakeMarketSignalReader { Notice = Notice("uncertain", failureTime.GetUtcNow()) };
+        using var failureLoop = new CompanyLoop(
+            failureSchedule,
+            failureRuns,
+            failingCoordinator,
+            new LoopSnapshotReader(),
+            failureTime,
+            failureSignal
+        );
+        await failureLoop.Tick(CancellationToken.None);
+        failureSignal.Notice = null;
+        failureTime.Advance(TimeSpan.FromMinutes(1));
+        await failureLoop.Tick(CancellationToken.None);
+        var failure = await failureLoop.Read(CancellationToken.None);
+        Check(
+            failure.Status == CompanyLoopStatus.Error && failure.Error is not null,
+            "uncertain start failure remains visible without work"
+        );
     }
 
     private static async Task ReviewSchedulingChecks()

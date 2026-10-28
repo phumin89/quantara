@@ -7,4 +7,7 @@ public sealed record CapitalReadResult(
     CapitalSnapshot Snapshot,
     RiskAccountEvidence Evidence,
     IReadOnlyList<TradingBook> Markets
-);
+)
+{
+    public RiskEvidenceOrigin? Origin { get; init; }
+}

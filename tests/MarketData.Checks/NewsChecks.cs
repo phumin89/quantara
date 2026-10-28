@@ -49,6 +49,21 @@ public static class NewsChecks
         var atom =
             "<feed><entry><id>fed-1</id><title>Atom release</title><link href=\"https://www.federalreserve.gov/press/atom.xml\"/><updated>2026-10-18T10:00:00Z</updated></entry></feed>";
         Assert(NewsRssParser.Parse(source, atom, DateTimeOffset.UtcNow).Count == 1, "Atom href was not parsed");
+        var rejectedDate = false;
+        try
+        {
+            NewsRssParser.Parse(
+                source,
+                atom.Replace("2026-10-18T10:00:00Z", "9999-12-31T10:00:00Z"),
+                DateTimeOffset.UtcNow
+            );
+        }
+        catch (InvalidDataException)
+        {
+            rejectedDate = true;
+        }
+
+        Assert(rejectedDate, "Unrepresentable news expiry must be a handled source validation failure.");
         try
         {
             NewsRssParser.Parse(

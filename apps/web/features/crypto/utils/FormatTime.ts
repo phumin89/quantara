@@ -4,6 +4,8 @@ export default class FormatTime {
       ? new Date(value).toLocaleString('en-US', {
           dateStyle: 'medium',
           timeStyle: 'short',
+          timeZone: 'Asia/Bangkok',
+          hour12: false,
         })
       : '—';
   }

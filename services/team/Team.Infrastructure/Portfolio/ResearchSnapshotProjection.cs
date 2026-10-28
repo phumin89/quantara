@@ -87,12 +87,12 @@ internal static class ResearchSnapshotProjection
     internal static object ReadEvaluation(JsonElement value) =>
         value.TryGetProperty("evaluation", out var source)
         && source.ValueKind == JsonValueKind.Object
-        && ReadText(source, "protocol") == "ohlc-scenario-v1"
+        && ReadText(source, "protocol") is "ohlc-scenario-v1" or "ohlc-scenario-v2" or "ohlc-scenario-v3"
         && source.TryGetProperty("verifiedProfit", out var verified)
         && verified.ValueKind == JsonValueKind.False
             ? new
             {
-                protocol = (string?)"ohlc-scenario-v1",
+                protocol = ReadText(source, "protocol"),
                 verifiedProfit = false,
                 observedAt = ReadText(source, "observedAt"),
                 rulesHash = ReadText(source, "rulesHash"),

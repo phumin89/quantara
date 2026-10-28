@@ -119,6 +119,12 @@ public static class NewsSqlChecks
     private static async Task PollerLifecycle(string connection, NewsSource source)
     {
         var store = new SqlNewsStore(connection, false);
+        var bls = new NewsSource(
+            "bls",
+            "U.S. Bureau of Labor Statistics",
+            new Uri("https://www.bls.gov/feed/bls_latest.rss")
+        );
+        await store.Save(bls, [], HealthyState(bls, DateTimeOffset.UtcNow), null, null, CancellationToken.None);
         await store.Save(
             source,
             [],

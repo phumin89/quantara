@@ -101,6 +101,8 @@ public static class TradingEventSourceChecks
             throw new InvalidOperationException("Heartbeats must not be deduplicated.");
         }
 
+        await BufferedCancellation(heartbeat);
+
         var stalledSource = new TradingEventSource(
             new HttpClient(new TradingEventSourceStallingHandler()) { BaseAddress = new Uri("http://localhost/") },
             "secret",
@@ -114,8 +116,33 @@ public static class TradingEventSourceChecks
         catch (OperationCanceledException) { }
 
         Console.WriteLine(
-            "Private SSE: exact watch/auth, validated books, stale/future rejection, bounded frames, dedupe/reconnect and heartbeat timeout passed."
+            "Private SSE: exact watch/auth, validated books, stale/future rejection, bounded frames, buffered cancellation, dedupe/reconnect and heartbeat timeout passed."
         );
+    }
+
+    private static async Task BufferedCancellation(string body)
+    {
+        using var handler = new TradingEventSourceFakeHandler(body);
+        using var http = new HttpClient(handler) { BaseAddress = new Uri("http://localhost/") };
+        using var cancellation = new CancellationTokenSource();
+        var source = new TradingEventSource(http, "secret");
+        await using var events = source.Read(["BTC"], cancellation.Token).GetAsyncEnumerator();
+        if (!await events.MoveNextAsync())
+        {
+            throw new InvalidOperationException("Buffered cancellation requires an initial event.");
+        }
+
+        cancellation.Cancel();
+        try
+        {
+            await events.MoveNextAsync();
+        }
+        catch (OperationCanceledException) when (cancellation.IsCancellationRequested)
+        {
+            return;
+        }
+
+        throw new InvalidOperationException("Cancellation must stop events already buffered after the first frame.");
     }
 
     private static async Task<List<TradingMarketEvent>> ReadAll(

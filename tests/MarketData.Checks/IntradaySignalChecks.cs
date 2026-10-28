@@ -68,6 +68,28 @@ public static class IntradaySignalChecks
                 is null,
             "malformed candle alerted"
         );
+        var shifted = breakout with
+        {
+            Candles = breakout.Candles.Select(candle => candle with { Timestamp = candle.Timestamp + 1 }).ToArray(),
+        };
+        Assert(IntradaySignalEvaluator.Evaluate(quote, shifted, now) is null, "shifted history alerted");
+        Assert(
+            SafeEvaluate(quote, CreateVolumeSeries(now, decimal.MaxValue, decimal.MaxValue)) is null,
+            "median overflow alerted"
+        );
+        Assert(
+            SafeEvaluate(quote, CreateVolumeSeries(now, decimal.MaxValue / 4m, decimal.MaxValue / 2m))?.Direction
+                == SignalDirection.Breakout,
+            "large volume valid breakout failed"
+        );
+        Assert(
+            SafeEvaluate(quote, CreateVolumeSeries(now, 0.0000000000000000000000000001m, decimal.MaxValue)) is null,
+            "volume ratio overflow alerted"
+        );
+        Assert(
+            SafeEvaluate(quote, CreateSeries(now, 1_000m, 1_200m, 1_000m))?.Direction == SignalDirection.Breakout,
+            "ordinary breakout after invalid cases failed"
+        );
         Console.WriteLine("Intraday signal checks passed.");
     }
 
@@ -76,7 +98,7 @@ public static class IntradaySignalChecks
         var candles = Enumerable
             .Range(0, 21)
             .Select(index => new MarketCandle(
-                now.ToUnixTimeSeconds() - (21 - index) * 300,
+                (now.ToUnixTimeSeconds() / 300) * 300 - (21 - index) * 300,
                 baseline,
                 baseline,
                 baseline,
@@ -93,6 +115,31 @@ public static class IntradaySignalChecks
             Volume = volume,
         };
         return new IntradaySeries("BTC", candles, now.AddSeconds(-1), null);
+    }
+
+    private static IntradaySeries CreateVolumeSeries(DateTimeOffset now, decimal priorVolume, decimal latestVolume)
+    {
+        var series = CreateSeries(now, 1_000m, 1_200m, latestVolume);
+        return series with
+        {
+            Candles = series
+                .Candles.Select(
+                    (candle, index) => index == series.Candles.Count - 1 ? candle : candle with { Volume = priorVolume }
+                )
+                .ToArray(),
+        };
+    }
+
+    private static MarketSignal? SafeEvaluate(LiveMarketQuote quote, IntradaySeries series)
+    {
+        try
+        {
+            return IntradaySignalEvaluator.Evaluate(quote, series, series.FetchedAt.AddSeconds(1));
+        }
+        catch (Exception error)
+        {
+            throw new InvalidOperationException("Intraday evaluation threw for invalid arithmetic input.", error);
+        }
     }
 
     private static IntradaySeries WithCandle(IntradaySeries series, int index, long timestamp, decimal? high = null)

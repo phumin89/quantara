@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { BoundedBodyReader } from '../../../shared/api/BoundedBodyReader';
 import { LocalRequestPolicy } from '../../../shared/api/LocalRequestPolicy';
 
 export class OrdersController {
@@ -132,15 +133,7 @@ export class OrdersController {
   private static async body(
     request: NextRequest,
   ): Promise<Record<string, unknown> | null> {
-    if (Number(request.headers.get('content-length') ?? 0) > 2000) {
-      return null;
-    }
-
-    const text = await request.text();
-    if (text.length > 2000) {
-      return null;
-    }
-
+    const text = await BoundedBodyReader.readText(request, 2000, 30000);
     const value: unknown = JSON.parse(text);
 
     return value && typeof value === 'object' && !Array.isArray(value)

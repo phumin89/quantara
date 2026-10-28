@@ -2,12 +2,26 @@ namespace Quantara.Portfolio.Domain.Trading;
 
 public static class TradingReplayEvaluator
 {
+    public const string Protocol = "ohlc-scenario-v3";
+
+    public static bool HasPrecision(TradingBook? book) =>
+        book
+            is {
+                PriceStep: > 0,
+                MinimumNotional: > 0,
+                PriceScale: >= 0 and <= 18,
+                BaseScale: >= 0 and <= 18,
+                QuoteScale: >= 0 and <= 18
+            }
+        && decimal.Round(book.PriceStep, book.PriceScale, MidpointRounding.ToZero) == book.PriceStep;
+
     public static IReadOnlyList<TradingEvaluationMetric> Evaluate(
         TradingRuleSet rules,
         string symbol,
         IReadOnlyList<TradingBar> source,
         int interval,
-        decimal budget
+        decimal budget,
+        TradingBook? market
     )
     {
         rules.Validate();
@@ -32,9 +46,19 @@ public static class TradingReplayEvaluator
         var result = new List<TradingEvaluationMetric>();
         foreach (var strategy in new[] { "breakout", "pullback", "range" })
         {
-            result.Add(Replay(rules, symbol, bars, interval, budget, strategy, "training", 50, split));
+            if (!HasPrecision(market) || market is null || market.Symbol != symbol)
+            {
+                foreach (var segment in new[] { "training", "validation" })
+                {
+                    result.Add(new(symbol, interval, segment, strategy, 0, 0, 0, null, 0m, null, 0m, true));
+                }
+
+                continue;
+            }
+
+            result.Add(Replay(rules, market, bars, interval, budget, strategy, "training", 50, split));
             result.Add(
-                Replay(rules, symbol, bars, interval, budget, strategy, "validation", Math.Max(50, split), bars.Length)
+                Replay(rules, market, bars, interval, budget, strategy, "validation", Math.Max(50, split), bars.Length)
             );
         }
 
@@ -43,7 +67,7 @@ public static class TradingReplayEvaluator
 
     private static TradingEvaluationMetric Replay(
         TradingRuleSet rules,
-        string symbol,
+        TradingBook market,
         TradingBar[] bars,
         int interval,
         decimal budget,
@@ -108,15 +132,17 @@ public static class TradingReplayEvaluator
                         continue;
                     }
 
-                    var fee = decimal.Ceiling(budget * feeRate * 100) / 100;
-                    var quantity = decimal.Floor((budget - fee) / sample.LimitPrice * 100000000m) / 100000000m;
-                    if (quantity <= 0)
+                    var reservedFee = decimal.Ceiling(budget * feeRate * 100) / 100;
+                    var amount = decimal.Round(budget - reservedFee, market.QuoteScale, MidpointRounding.ToZero);
+                    var quantity = decimal.Round(amount / sample.LimitPrice, market.BaseScale, MidpointRounding.ToZero);
+                    if (quantity <= 0 || quantity * sample.LimitPrice < market.MinimumNotional)
                     {
                         unknown++;
                         sample = null;
                         continue;
                     }
 
+                    var fee = decimal.Ceiling(quantity * sample.LimitPrice * feeRate * 100) / 100;
                     sample = sample with
                     {
                         State = TradingShadowState.Open,
@@ -189,7 +215,20 @@ public static class TradingReplayEvaluator
 
                 if (exit)
                 {
-                    sellLimit = decimal.Floor(bar.Close * (1 - rules.SlippageBps / 10000m) * 100) / 100;
+                    sellLimit = decimal.Round(
+                        decimal.Ceiling(bar.Close * (1 - rules.SlippageBps / 10000m) / market.PriceStep)
+                            * market.PriceStep,
+                        market.PriceScale,
+                        MidpointRounding.ToZero
+                    );
+                    if (sellLimit <= 0m)
+                    {
+                        unknown++;
+                        sample = null;
+                        sellLimit = null;
+                        continue;
+                    }
+
                     sellExpiry = closed.AddMinutes(rules.OrderLifetimeMinutes);
                 }
                 else
@@ -207,13 +246,18 @@ public static class TradingReplayEvaluator
             }
 
             var book = new TradingBook(
-                symbol,
+                market.Symbol,
                 closed,
                 bar.Close,
                 bar.Close * (1 + rules.MaxSpreadBps / 10000m),
                 bar.Volume,
                 bar.Volume,
                 bars[first..(index + 1)],
+                MinimumNotional: market.MinimumNotional,
+                PriceStep: market.PriceStep,
+                PriceScale: market.PriceScale,
+                BaseScale: market.BaseScale,
+                QuoteScale: market.QuoteScale,
                 TimeframeSeconds: interval
             );
             var signal = AdaptiveTradingStrategy.Evaluate(rules, book, null, closed);
@@ -236,7 +280,7 @@ public static class TradingReplayEvaluator
 
         var complete = samples > 0 && unknown == 0 && !missingData;
         return new(
-            symbol,
+            market.Symbol,
             interval,
             segment,
             strategy,

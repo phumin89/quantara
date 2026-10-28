@@ -15,6 +15,12 @@ public static class PortfolioGoalAccounting
             : evidence.Evidence.ObservedAt != snapshot.ObservedAt
             || observedAt > now
             || now - snapshot.ObservedAt > TimeSpan.FromSeconds(PortfolioObjective.MaximumAgeSeconds)
+            || evidence.Markets.Any(book =>
+                now - book.ObservedAt > TimeSpan.FromSeconds(PortfolioObjective.MaximumAgeSeconds)
+                && snapshot.Assets.Any(asset =>
+                    asset.Symbol != "THB" && asset.Symbol == book.Symbol && asset.Quantity > 0
+                )
+            )
                 ? "Account valuation is stale or from the future."
             : snapshot.HasUncertainOrders ? "Order outcomes must be reconciled for a coherent account valuation."
             : snapshot.Blocker;
@@ -39,8 +45,9 @@ public static class PortfolioGoalAccounting
             value = null;
         }
 
-        var deposits = evidence
-            .Evidence.CashFlows.Where(flow =>
+        var deposits = CapitalFlowEvidence
+            .Unique(evidence.Evidence.CashFlows, snapshot.ObservedAt)
+            .Where(flow =>
                 flow.Kind == CashFlowKind.Deposit
                 && flow.At >= PortfolioObjective.StartsAt
                 && flow.At <= snapshot.ObservedAt

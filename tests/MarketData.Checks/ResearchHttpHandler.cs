@@ -6,6 +6,8 @@ public sealed class ResearchHttpHandler : HttpMessageHandler
 {
     public List<Uri> Requests { get; } = [];
 
+    public Action<Uri, CancellationToken>? BeforeResponse { get; init; }
+
     public string? SymbolsResponse { get; init; }
 
     public string? TickerResponse { get; init; }
@@ -25,6 +27,7 @@ public sealed class ResearchHttpHandler : HttpMessageHandler
     {
         var uri = request.RequestUri ?? throw new InvalidOperationException("Missing fixture request URI.");
         this.Requests.Add(uri);
+        this.BeforeResponse?.Invoke(uri, cancellationToken);
         var path = uri.AbsolutePath;
         var query = uri.Query;
         var body =

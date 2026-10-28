@@ -18,6 +18,14 @@ public sealed class FakeTradingExchange : ITradingExchange
 
     public decimal AvailableBase { get; set; } = 20m;
 
+    public decimal? TotalBase { get; set; }
+
+    public int SellAmountScale { get; set; } = 8;
+
+    public Action? BeforeBalances { get; set; }
+
+    public Action? BeforePrepare { get; set; }
+
     public Func<TradingIntent, TradingOrderObservation>? Observation { get; set; }
 
     public Action<TradingIntent, bool>? BeforeSend { get; set; }
@@ -27,18 +35,26 @@ public sealed class FakeTradingExchange : ITradingExchange
     public Task<OrderMarket> Market(string symbol, TradeSide side, CancellationToken cancellationToken)
     {
         this.BeforeMarket?.Invoke();
-        return Task.FromResult(new OrderMarket(110, 10, .01m, 2, side == TradeSide.Buy ? 2 : 8, true));
+        return Task.FromResult(
+            new OrderMarket(110, 10, .01m, 2, side == TradeSide.Buy ? 2 : this.SellAmountScale, true)
+        );
     }
 
-    public Task<Balance[]> Balances(CancellationToken cancellationToken) =>
-        Task.FromResult<Balance[]>([
+    public Task<Balance[]> Balances(CancellationToken cancellationToken)
+    {
+        this.BeforeBalances?.Invoke();
+        return Task.FromResult<Balance[]>([
             new("THB", this.AvailableCash, this.AvailableCash),
-            new("BTC", this.AvailableBase, this.AvailableBase),
-            new("ETH", this.AvailableBase, this.AvailableBase),
+            new("BTC", this.TotalBase ?? this.AvailableBase, this.AvailableBase),
+            new("ETH", this.TotalBase ?? this.AvailableBase, this.AvailableBase),
         ]);
+    }
 
-    public Task<IPreparedOrderSubmission> Prepare(TradingIntent intent, CancellationToken cancellationToken) =>
-        Task.FromResult<IPreparedOrderSubmission>(new FakePreparedTradingSubmission(this, intent, false));
+    public Task<IPreparedOrderSubmission> Prepare(TradingIntent intent, CancellationToken cancellationToken)
+    {
+        this.BeforePrepare?.Invoke();
+        return Task.FromResult<IPreparedOrderSubmission>(new FakePreparedTradingSubmission(this, intent, false));
+    }
 
     public Task<IPreparedOrderSubmission> PrepareCancellation(
         TradingIntent intent,

@@ -35,7 +35,7 @@ public sealed class HttpNewsTransport : INewsTransport
         var addresses = await Dns.GetHostAddressesAsync(context.DnsEndPoint.Host, cancellationToken);
         if (addresses.Length == 0 || addresses.Any(address => !NewsNetworkPolicy.IsPublic(address)))
         {
-            throw new HttpRequestException("News endpoint resolved to a private address.");
+            throw new HttpRequestException("News endpoint did not resolve entirely to permitted public addresses.");
         }
 
         var selected =
@@ -69,6 +69,9 @@ public sealed class HttpNewsTransport : INewsTransport
             throw new InvalidDataException("News source must use HTTPS.");
         }
 
+        // ResponseHeadersRead ends HttpClient's timeout before the body is consumed.
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        timeout.CancelAfter(this.client.Timeout);
         using var request = new HttpRequestMessage(HttpMethod.Get, uri);
         if (!string.IsNullOrWhiteSpace(etag))
         {
@@ -83,13 +86,13 @@ public sealed class HttpNewsTransport : INewsTransport
         using var response = await this.client.SendAsync(
             request,
             HttpCompletionOption.ResponseHeadersRead,
-            cancellationToken
+            timeout.Token
         );
-        await response.Content.LoadIntoBufferAsync(512_000, cancellationToken);
+        await response.Content.LoadIntoBufferAsync(512_000, timeout.Token);
         var body =
             response.StatusCode == System.Net.HttpStatusCode.NotModified
                 ? null
-                : await response.Content.ReadAsStringAsync(cancellationToken);
+                : await response.Content.ReadAsStringAsync(timeout.Token);
         return new NewsTransportResponse(
             (int)response.StatusCode,
             body,

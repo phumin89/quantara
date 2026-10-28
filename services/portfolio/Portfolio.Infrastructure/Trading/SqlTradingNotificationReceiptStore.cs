@@ -43,7 +43,7 @@ public sealed class SqlTradingNotificationReceiptStore : ITradingNotificationRec
         await using var connection = new SqlConnection(this.connectionString);
         await connection.OpenAsync(cancellationToken);
         await using var command = new SqlCommand(
-            "SET XACT_ABORT ON; BEGIN TRANSACTION; IF EXISTS(SELECT 1 FROM dbo.TradingNotificationReceipts WITH(UPDLOCK,HOLDLOCK) WHERE AccountKey=@account AND DestinationKey=@destination AND AlertKey=@alert AND ClaimedAt=@claim) BEGIN IF NOT EXISTS(SELECT 1 FROM dbo.TradingNotificationReceipts WHERE AccountKey=@account AND DestinationKey=@destination AND AlertKey=@alert AND ClaimedAt=@claim AND MessageId=@message AND SentAt=@sent) THROW 51000,'Notification receipt conflicts with its retained acknowledgement.',1; END ELSE INSERT INTO dbo.TradingNotificationReceipts(AccountKey,DestinationKey,AlertKey,ClaimedAt,MessageId,SentAt) VALUES(@account,@destination,@alert,@claim,@message,@sent); COMMIT;",
+            "SET XACT_ABORT ON; BEGIN TRANSACTION; IF EXISTS(SELECT 1 FROM dbo.TradingNotificationReceipts WITH(UPDLOCK,HOLDLOCK) WHERE AccountKey=@account AND DestinationKey=@destination AND AlertKey=@alert AND ClaimedAt=@claim) BEGIN IF NOT EXISTS(SELECT 1 FROM dbo.TradingNotificationReceipts WHERE AccountKey=@account AND DestinationKey=@destination AND AlertKey=@alert AND ClaimedAt=@claim AND DATALENGTH(AccountKey)=DATALENGTH(@account) AND CONVERT(varbinary(max),AccountKey)=CONVERT(varbinary(max),@account) AND DATALENGTH(DestinationKey)=DATALENGTH(@destination) AND CONVERT(varbinary(max),DestinationKey)=CONVERT(varbinary(max),@destination) AND DATALENGTH(AlertKey)=DATALENGTH(@alert) AND CONVERT(varbinary(max),AlertKey)=CONVERT(varbinary(max),@alert) AND MessageId=@message AND SentAt=@sent) THROW 51000,'Notification receipt conflicts with its retained acknowledgement.',1; END ELSE INSERT INTO dbo.TradingNotificationReceipts(AccountKey,DestinationKey,AlertKey,ClaimedAt,MessageId,SentAt) VALUES(@account,@destination,@alert,@claim,@message,@sent); COMMIT;",
             connection
         );
         this.Identity(command, receipt.Key, receipt.ClaimedAt);
@@ -61,14 +61,23 @@ public sealed class SqlTradingNotificationReceiptStore : ITradingNotificationRec
         await using var connection = new SqlConnection(this.connectionString);
         await connection.OpenAsync(cancellationToken);
         await using var command = new SqlCommand(
-            "SELECT MessageId,SentAt FROM dbo.TradingNotificationReceipts WHERE AccountKey=@account AND DestinationKey=@destination AND AlertKey=@alert AND ClaimedAt=@claim;",
+            "SELECT AccountKey,DestinationKey,AlertKey,ClaimedAt,MessageId,SentAt FROM dbo.TradingNotificationReceipts WHERE AccountKey=@account AND DestinationKey=@destination AND AlertKey=@alert AND ClaimedAt=@claim;",
             connection
         );
         this.Identity(command, key, claimedAt);
         await using var reader = await command.ExecuteReaderAsync(cancellationToken);
-        return await reader.ReadAsync(cancellationToken)
-            ? new(key, claimedAt, reader.GetInt64(0), reader.GetDateTimeOffset(1))
-            : null;
+        if (
+            !await reader.ReadAsync(cancellationToken)
+            || !StringComparer.Ordinal.Equals(reader.GetString(0), this.accountKey)
+            || !StringComparer.Ordinal.Equals(reader.GetString(1), this.destinationKey)
+            || !StringComparer.Ordinal.Equals(reader.GetString(2), key)
+            || reader.GetDateTimeOffset(3) != claimedAt
+        )
+        {
+            return null;
+        }
+
+        return new(reader.GetString(2), reader.GetDateTimeOffset(3), reader.GetInt64(4), reader.GetDateTimeOffset(5));
     }
 
     private void Identity(SqlCommand command, string key, DateTimeOffset claimedAt)

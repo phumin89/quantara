@@ -14,7 +14,10 @@ public static class RiskPerformanceCalculator
             throw new InvalidDataException("Performance snapshots have different accounts or invalid chronology.");
         }
 
-        var periodFlows = flows.Where(flow => flow.At > previous.ObservedAt && flow.At <= current.ObservedAt).ToArray();
+        var periodFlows = CapitalFlowEvidence
+            .Unique(flows, current.ObservedAt)
+            .Where(flow => flow.At > previous.ObservedAt)
+            .ToArray();
         if (
             previous.EquityThb is null
             || current.EquityThb is null

@@ -1,3 +1,18 @@
+/* Hallmark · shape: app screen · genre: modern-minimal · theme: Dusk (by request) · redesign: full
+ * nav: four-destination workspace · signature: native pixel research office and exact ledger
+ * states: loading, empty, error, full · axes: slate/system sans/periwinkle-apricot
+ * dusk: fog/periwinkle-apricot/glass · signature: exact ledger on real fog-valley glass · v2.0.0 */
+/* Hallmark · pre-emit critique: keep the landscape visible through working panels; verify direct-canvas labels against the brightest sky. */
+@import './tokens.css';
+
+@font-face {
+  font-family: 'Nunito';
+  font-style: normal;
+  font-weight: 200 1000;
+  font-display: swap;
+  src: url('/fonts/nunito-variable.ttf') format('truetype');
+}
+
 * {
   box-sizing: border-box;
 }
@@ -5,31 +20,71 @@ html,
 body {
   margin: 0;
   min-height: 100%;
-  background: #fff;
+  background: var(--color-canvas);
 }
 body {
-  color: #141414;
-  font-family:
-    Saans,
-    -apple-system,
-    'Helvetica Neue',
-    Arial,
-    sans-serif;
+  overflow-x: clip;
+  isolation: isolate;
+  font-family: var(--font-body);
+  color: var(--color-ink);
+  color-scheme: dark;
+  -webkit-font-smoothing: antialiased;
+}
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background-image: var(--landscape-scrim), var(--landscape-image);
+  background-size: cover;
+  background-position: center;
+}
+h1,
+h2,
+h3 {
+  font-family: var(--font-display);
+  font-weight: 600;
+  min-width: 0;
+  overflow-wrap: break-word;
+  text-wrap: balance;
+}
+summary {
+  min-height: 44px;
+  align-content: center;
+  cursor: pointer;
+}
+a {
+  text-underline-offset: 3px;
+}
+a:active {
+  text-decoration-thickness: 2px;
+}
+button:disabled {
+  cursor: not-allowed;
 }
 button,
 a {
   -webkit-tap-highlight-color: transparent;
 }
 ::selection {
-  background: #141414;
-  color: #fff;
+  background: var(--color-accent);
+  color: var(--color-accent-ink);
 }
 :focus-visible {
-  outline: 2px solid #141414;
+  outline: 2px solid var(--color-focus);
   outline-offset: 3px;
 }
 html {
-  scrollbar-color: #707070 #f3f3f3;
+  scrollbar-color: var(--mui-palette-text-secondary, auto) var(--color-canvas);
+  scroll-padding-top: 80px;
+}
+@supports not (backdrop-filter: blur(1px)) {
+  :root {
+    --surface-panel: var(--color-paper-3);
+    --surface-header: var(--color-paper-3);
+    --surface-raised: var(--color-paper-3);
+  }
 }
 @media (prefers-reduced-motion: reduce) {
   *,

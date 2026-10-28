@@ -15,15 +15,29 @@ public sealed class PortfolioSnapshotReader : IPortfolioSnapshotReader
 
     private readonly IMarketResearchReader? marketResearchReader;
 
-    public PortfolioSnapshotReader(HttpClient http, IMarketResearchReader? marketResearchReader = null)
+    private readonly TimeProvider time;
+
+    public PortfolioSnapshotReader(
+        HttpClient http,
+        IMarketResearchReader? marketResearchReader = null,
+        TimeProvider? time = null
+    )
     {
         this.http = http;
         this.marketResearchReader = marketResearchReader;
+        this.time = time ?? TimeProvider.System;
     }
 
     public Task<string> Read(CancellationToken cancellationToken) => this.ReadForMarkets([], cancellationToken);
 
     public async Task<string> ReadForMarkets(IReadOnlyList<string> symbols, CancellationToken cancellationToken)
+    {
+        using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(45), this.time);
+        using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, deadline.Token);
+        return await this.Collect(symbols, linked.Token);
+    }
+
+    private async Task<string> Collect(IReadOnlyList<string> symbols, CancellationToken cancellationToken)
     {
         var accountKey = await new CurrentAccountReader(this.http).Read(cancellationToken);
         var wallet = await this.ReadWalletEvidence(accountKey, cancellationToken);
@@ -93,6 +107,13 @@ public sealed class PortfolioSnapshotReader : IPortfolioSnapshotReader
                 && policyOverview.TryGetProperty("rulesHash", out var policyHash)
                     ? policyHash.GetString()
                     : null,
+                rules = tradingOverview is { } rulesOverview && rulesOverview.TryGetProperty("rules", out var rules)
+                    ? rules.Clone()
+                    : (JsonElement?)null,
+                aiPolicy = tradingOverview is { } aiPolicyOverview
+                && aiPolicyOverview.TryGetProperty("aiPolicy", out var aiPolicy)
+                    ? aiPolicy.Clone()
+                    : (JsonElement?)null,
                 objective = tradingOverview is { } goalOverview
                 && goalOverview.TryGetProperty("objective", out var goal)
                     ? goal.Clone()
@@ -134,7 +155,18 @@ public sealed class PortfolioSnapshotReader : IPortfolioSnapshotReader
             throw new InvalidOperationException("Portfolio snapshot is too large.");
         }
 
+        cancellationToken.ThrowIfCancellationRequested();
+        this.ValidateWalletTime(wallet.Evidence.GetProperty("observedAt").GetDateTimeOffset());
         return json;
+    }
+
+    private void ValidateWalletTime(DateTimeOffset observedAt)
+    {
+        var age = this.time.GetUtcNow() - observedAt;
+        if (age > TimeSpan.FromSeconds(60) || age < TimeSpan.FromSeconds(-5))
+        {
+            throw new InvalidOperationException("Wallet evidence is stale or from the future.");
+        }
     }
 
     private async Task<(JsonElement Evidence, decimal? AvailableThb)> ReadWalletEvidence(
@@ -153,11 +185,7 @@ public sealed class PortfolioSnapshotReader : IPortfolioSnapshotReader
         }
 
         var observedAt = root.GetProperty("observedAt").GetDateTimeOffset();
-        var age = DateTimeOffset.UtcNow - observedAt;
-        if (age > TimeSpan.FromSeconds(60) || age < TimeSpan.FromSeconds(-5))
-        {
-            throw new InvalidOperationException("Wallet evidence is stale or from the future.");
-        }
+        this.ValidateWalletTime(observedAt);
 
         var symbols = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var relevantBalances = new List<JsonElement>();
@@ -298,7 +326,7 @@ public sealed class PortfolioSnapshotReader : IPortfolioSnapshotReader
             return new
             {
                 available = true,
-                observedAt = DateTimeOffset.UtcNow,
+                observedAt = this.time.GetUtcNow(),
                 returnedOrderCount = Math.Min(orders.Length, 10),
                 truncated = orders.Length > 10 || document.RootElement.GetProperty("proposals").GetArrayLength() >= 50,
                 coverage = "At most 50 recent/prioritized account proposals were queried; at most 10 active proposals are included. Pending review is not a submitted broker order.",

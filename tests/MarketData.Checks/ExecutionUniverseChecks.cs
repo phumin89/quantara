@@ -88,5 +88,121 @@ public static class ExecutionUniverseChecks
         {
             throw new InvalidOperationException("HTTP failure must return an empty universe.");
         }
+
+        var extremeRules = new[]
+        {
+            new
+            {
+                base_asset = "EXTREME",
+                quote_asset = "THB",
+                status = "active",
+                market_segment = "SPOT",
+                source = "exchange",
+                pairing_id = "900",
+                freeze_buy = false,
+                freeze_sell = false,
+            },
+            new
+            {
+                base_asset = "HEALTHY",
+                quote_asset = "THB",
+                status = "active",
+                market_segment = "SPOT",
+                source = "exchange",
+                pairing_id = "901",
+                freeze_buy = false,
+                freeze_sell = false,
+            },
+        };
+        var extremeHandler = new UniverseHttpHandler
+        {
+            SymbolsResponse = JsonSerializer.Serialize(new { result = extremeRules }),
+            TickerResponse = JsonSerializer.Serialize(
+                new[]
+                {
+                    new
+                    {
+                        symbol = "EXTREME_THB",
+                        last = 0.0001m,
+                        highest_bid = 0.00009m,
+                        lowest_ask = 0.00011m,
+                        quote_volume = 1m,
+                        high_24_hr = decimal.MaxValue,
+                        low_24_hr = 0.00001m,
+                        percent_change = 1m,
+                    },
+                    new
+                    {
+                        symbol = "HEALTHY_THB",
+                        last = 100m,
+                        highest_bid = 99m,
+                        lowest_ask = 101m,
+                        quote_volume = 100m,
+                        high_24_hr = 101m,
+                        low_24_hr = 99m,
+                        percent_change = 1m,
+                    },
+                }
+            ),
+        };
+        using var extremeClient = new HttpClient(extremeHandler) { BaseAddress = new Uri("https://test.invalid") };
+        using var extreme = JsonDocument.Parse(
+            await new BitkubExecutionMarketReader(extremeClient, timeProvider: time).ReadUniverse(
+                CancellationToken.None
+            )
+        );
+        if (
+            extreme.RootElement.GetProperty("symbols").EnumerateArray().Any(item => item.GetString() == "EXTREME")
+            || !extreme.RootElement.GetProperty("symbols").EnumerateArray().Any(item => item.GetString() == "HEALTHY")
+        )
+        {
+            throw new InvalidOperationException(
+                "Extreme derived metrics must be unusable without dropping healthy markets."
+            );
+        }
+
+        using var extremeSymbols = JsonDocument.Parse(extremeHandler.SymbolsResponse);
+        using var extremeQuotes = JsonDocument.Parse(extremeHandler.TickerResponse);
+        var extremeEntry = MarketUniverseScanner
+            .Scan(extremeSymbols.RootElement, extremeQuotes.RootElement)
+            .Entries.Single(entry => entry.Symbol == "EXTREME_THB");
+        if (extremeEntry.Usable || extremeEntry.Range24h is not null || extremeEntry.SpreadPercent is not null)
+        {
+            throw new InvalidOperationException("Unrepresentable quote metrics must remain unknown, not zero.");
+        }
+
+        var malformedHandler = new UniverseHttpHandler
+        {
+            SymbolsResponse =
+                "{\"result\":[null,42,{\"base_asset\":\"HEALTHY\",\"quote_asset\":\"THB\",\"status\":\"active\",\"market_segment\":\"SPOT\",\"source\":\"exchange\",\"pairing_id\":\"1\",\"freeze_buy\":false,\"freeze_sell\":false}]}",
+            TickerResponse = JsonSerializer.Serialize(
+                new object?[]
+                {
+                    null,
+                    42,
+                    new
+                    {
+                        symbol = "HEALTHY_THB",
+                        last = 100m,
+                        highest_bid = 99m,
+                        lowest_ask = 101m,
+                        quote_volume = 100m,
+                        high_24_hr = 101m,
+                        low_24_hr = 99m,
+                        percent_change = 1m,
+                    },
+                }
+            ),
+        };
+        using var malformedClient = new HttpClient(malformedHandler) { BaseAddress = new Uri("https://test.invalid") };
+        using var malformed = JsonDocument.Parse(
+            await new BitkubExecutionMarketReader(malformedClient, timeProvider: time).ReadUniverse(
+                CancellationToken.None
+            )
+        );
+        if (!malformed.RootElement.GetProperty("symbols").EnumerateArray().Any(item => item.GetString() == "HEALTHY"))
+        {
+            throw new InvalidOperationException("Malformed per-row metadata must not discard healthy markets.");
+        }
     }
 }

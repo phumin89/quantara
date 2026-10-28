@@ -18,11 +18,12 @@ export default class TradingAutonomyView extends Component<TradingAutonomyViewPr
 
     const capital = autonomy.capital;
     const objective = overview.objective;
-    const target = TradingFormatting.moneyNumber(objective?.targetThb ?? 10000);
-    const progress = `Month-end target ${target}`;
+    const progress = objective
+      ? `Portfolio target ${TradingFormatting.moneyNumber(objective.targetThb)}`
+      : 'Target unavailable';
 
     return (
-      <Box>
+      <Box sx={{ minWidth: 0, overflowWrap: 'anywhere' }}>
         <Stack spacing={1}>
           <Stack
             direction="row"
@@ -44,7 +45,9 @@ export default class TradingAutonomyView extends Component<TradingAutonomyViewPr
             variant="caption"
             color="text.secondary"
           >
-            By 31 Oct 2026 · Bangkok time · Includes deposits
+            {objective
+              ? `Before ${TradingFormatting.time(objective.deadlineExclusive)} · Includes deposits`
+              : 'This snapshot does not include an account target.'}
             {objective?.observedAt
               ? ` · Valued ${TradingFormatting.time(objective.observedAt)}`
               : ''}
@@ -74,8 +77,8 @@ export default class TradingAutonomyView extends Component<TradingAutonomyViewPr
                 },
                 gap: 1.5,
                 p: 1.5,
-                bgcolor: '#f3f3f3',
-                borderRadius: '6px',
+                bgcolor: 'var(--surface-soft)',
+                borderRadius: 'var(--radius-control)',
               }}
             >
               {[
@@ -266,13 +269,22 @@ export default class TradingAutonomyView extends Component<TradingAutonomyViewPr
                 ))}
             </Box>
           )}
-          {capital && (
+          {overview.mode === 'paper' ? (
             <Typography variant="body2">
-              Equity {TradingFormatting.money(capital.equityThb)} · Reserved{' '}
-              {TradingFormatting.money(capital.reservedThb)}
+              Simulated equity{' '}
+              {TradingFormatting.money(overview.paper.equityThb)}
             </Typography>
+          ) : (
+            capital && (
+              <Typography variant="body2">
+                Equity {TradingFormatting.money(capital.equityThb)} · Reserved{' '}
+                {TradingFormatting.money(capital.reservedThb)}
+              </Typography>
+            )
           )}
-          {capital?.blocker && <Alert severity="info">{capital.blocker}</Alert>}
+          {overview.mode !== 'paper' && capital?.blocker && (
+            <Alert severity="info">{capital.blocker}</Alert>
+          )}
           {autonomy.opportunityReview && (
             <Box component="details">
               <Box

@@ -26,7 +26,11 @@ export class TradingController {
           (date) => Date.parse(date) > Date.now(),
           'Mandate expiry must be in the future.',
         ),
-      acknowledgement: z.literal('enable-auto-trading'),
+      acknowledgement: z.union([
+        z.literal('enable-auto-trading'),
+        z.literal('enable-ai-managed-trading'),
+      ]),
+      aiManaged: z.boolean().optional(),
     }),
     disable: z.strictObject({}),
     'emergency-stop': z.strictObject({}),

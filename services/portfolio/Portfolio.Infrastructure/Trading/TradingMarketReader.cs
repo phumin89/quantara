@@ -9,11 +9,17 @@ public sealed class TradingMarketReader(HttpClient http) : ITradingMarketReader
 {
     public async Task<TradingUniverse> ReadUniverse(CancellationToken cancellationToken)
     {
-        using var response = await http.GetAsync("api/market/trading/universe", cancellationToken);
+        using var requestTimeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        requestTimeout.CancelAfter(http.Timeout);
+        using var response = await http.GetAsync(
+            "api/market/trading/universe",
+            HttpCompletionOption.ResponseHeadersRead,
+            requestTimeout.Token
+        );
         response.EnsureSuccessStatusCode();
-        await response.Content.LoadIntoBufferAsync(1_048_576, cancellationToken);
+        await response.Content.LoadIntoBufferAsync(1_048_576, requestTimeout.Token);
         var universe =
-            await response.Content.ReadFromJsonAsync<TradingUniverse>(TradingJson.Options, cancellationToken)
+            await response.Content.ReadFromJsonAsync<TradingUniverse>(TradingJson.Options, requestTimeout.Token)
             ?? throw new InvalidDataException("Market universe is unavailable.");
         if (
             universe.Symbols.Length > 1000
@@ -30,6 +36,7 @@ public sealed class TradingMarketReader(HttpClient http) : ITradingMarketReader
             throw new InvalidDataException("Invalid market universe identities or coverage.");
         }
 
+        requestTimeout.Token.ThrowIfCancellationRequested();
         return universe;
     }
 
@@ -56,15 +63,19 @@ public sealed class TradingMarketReader(HttpClient http) : ITradingMarketReader
         bool adaptiveTimeframes = false
     )
     {
+        using var requestTimeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        requestTimeout.CancelAfter(http.Timeout);
         using var response = await http.GetAsync(
             "api/market/trading?symbols="
                 + Uri.EscapeDataString(string.Join(',', symbols))
                 + (history ? "" : "&includeHistory=false")
                 + (adaptiveTimeframes && history ? "&adaptiveTimeframes=true" : ""),
-            cancellationToken
+            HttpCompletionOption.ResponseHeadersRead,
+            requestTimeout.Token
         );
         response.EnsureSuccessStatusCode();
-        var text = await response.Content.ReadAsStringAsync(cancellationToken);
+        await response.Content.LoadIntoBufferAsync(4_000_000, requestTimeout.Token);
+        var text = await response.Content.ReadAsStringAsync(requestTimeout.Token);
         if (text.Length > 1000000)
         {
             throw new InvalidDataException("Trading evidence exceeds its budget.");
@@ -165,6 +176,7 @@ public sealed class TradingMarketReader(HttpClient http) : ITradingMarketReader
             throw new InvalidDataException("Native execution history is missing its readiness evidence.");
         }
 
+        requestTimeout.Token.ThrowIfCancellationRequested();
         return new(books, errors, evidence);
     }
 }

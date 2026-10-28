@@ -226,6 +226,13 @@ public sealed class BitkubExecutionMarketReader : IExecutionMarketReader
         );
         var missing = raw.TryGetProperty("s", out var historyStatus) && historyStatus.GetString() == "no_data";
         var candles = missing ? [] : CandleParser.Parse(raw, from, until, timeframeSeconds, 1000);
+        if (!missing && candles.Any(candle => candle.Timestamp % timeframeSeconds != 0))
+        {
+            throw new InvalidDataException(
+                "Historical candle timestamp is not aligned to the native timeframe boundary."
+            );
+        }
+
         return JsonSerializer.Serialize(
             new
             {
@@ -580,6 +587,11 @@ public sealed class BitkubExecutionMarketReader : IExecutionMarketReader
         }
 
         var candles = CandleParser.Parse(raw, from, to, interval, 121).TakeLast(120).ToArray();
+        if (CompletedWindow(candles, from, to, interval).Length < 51)
+        {
+            return candles;
+        }
+
         if (this.history.Count >= 256)
         {
             this.history.Clear();

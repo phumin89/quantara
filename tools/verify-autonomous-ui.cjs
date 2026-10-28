@@ -7,6 +7,7 @@ require.extensions['.ts'] = (module, filename) => {
     compilerOptions: {
       module: ts.ModuleKind.CommonJS,
       target: ts.ScriptTarget.ES2022,
+      esModuleInterop: true,
     },
   });
   module._compile(output.outputText, filename);
@@ -329,10 +330,19 @@ async function verifyComponent() {
     assert(instance.state.validationError);
     preparationError = new Error('Fixture preparation failed');
     instance.setState({ reviewOpen: false, open: true });
+    const readsBeforeFailure = reads;
+    const writesBeforeFailure = writes.length;
     await instance.prepareAdaptiveSetup(instance.state.overview);
     assert.equal(instance.state.reviewOpen, false);
     assert.equal(instance.state.open, true, 'failed setup stays recoverable');
-    assert.match(instance.state.error, /Fixture preparation failed/);
+    assert.match(instance.state.actionError, /Fixture preparation failed/);
+    assert.equal(instance.state.error, null, 'fresh status remains available');
+    assert.equal(reads, readsBeforeFailure + 1, 'failed setup rechecks status');
+    assert.equal(
+      writes.length,
+      writesBeforeFailure + 1,
+      'setup is not retried',
+    );
     console.log(
       'Actual class component: read-only mount/poll, setup/review, expiry and duplicate confirmation checks pass.',
     );

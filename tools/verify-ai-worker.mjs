@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict';
 import { access } from 'node:fs/promises';
+import { CodexModelPolicy } from '../services/ai-worker/CodexModelPolicy.mjs';
 import { CodexTeamWorker } from '../services/ai-worker/CodexTeamWorker.mjs';
+import { WorkerFailure } from '../services/ai-worker/WorkerFailure.mjs';
 
 const input = {
   role: 'ceo',
@@ -107,6 +109,7 @@ const factory = (value) => {
             type: 'string',
             minLength: 1,
             maxLength: 16000,
+            pattern: '\\S',
           });
           assert.deepEqual(turn.outputSchema.properties.proposal, {
             type: 'null',
@@ -136,6 +139,7 @@ assert.deepEqual(await CodexTeamWorker.run(input, factory, source), {
   proposal: null,
   lesson: null,
   usage: null,
+  modelAudit: CodexModelPolicy.select('ceo', {}),
 });
 const proposal = {
   symbol: 'BTC',
@@ -183,14 +187,30 @@ assert.deepEqual(
       nextTest: 'Recheck in one hour',
     },
     usage: null,
+    modelAudit: CodexModelPolicy.select('reviewer', {}),
   },
 );
 assert.deepEqual(reviewerTurnOptions.outputSchema.properties.lesson, {
   type: 'object',
   properties: {
-    lesson: { type: 'string', minLength: 1, maxLength: 500 },
-    evidence: { type: 'string', minLength: 1, maxLength: 500 },
-    nextTest: { type: 'string', minLength: 1, maxLength: 500 },
+    lesson: {
+      type: 'string',
+      minLength: 1,
+      maxLength: 500,
+      pattern: '^(?:\\S|\\S[\\s\\S]*\\S)$',
+    },
+    evidence: {
+      type: 'string',
+      minLength: 1,
+      maxLength: 500,
+      pattern: '^(?:\\S|\\S[\\s\\S]*\\S)$',
+    },
+    nextTest: {
+      type: 'string',
+      minLength: 1,
+      maxLength: 500,
+      pattern: '^(?:\\S|\\S[\\s\\S]*\\S)$',
+    },
   },
   required: ['lesson', 'evidence', 'nextTest'],
   additionalProperties: false,
@@ -257,6 +277,7 @@ assert.deepEqual(await CodexTeamWorker.run(input, factory, chatSource), {
   proposal: null,
   lesson: null,
   usage: null,
+  modelAudit: CodexModelPolicy.select('ceo', {}),
 });
 assert.equal(
   options.apiKey,
@@ -369,7 +390,14 @@ const assessment = {
 };
 const assessmentInput = {
   ...reviewerInput,
-  portfolio: JSON.stringify({ assessmentContext: assessment }),
+  portfolio: JSON.stringify({
+    assessmentContext: {
+      ...assessment,
+      requiredPositionSymbols: [],
+      allowedOpportunitySymbols: ['NEAR'],
+      earliestReviewAt: '2026-10-19T01:15:00Z',
+    },
+  }),
 };
 const assessmentFactory = (value) => () => ({
   startThread: () => ({
@@ -380,6 +408,33 @@ const assessmentFactory = (value) => () => ({
         ),
       );
       assert(options.outputSchema.required.includes('assessment'));
+      const assessmentSchema =
+        options.outputSchema.properties.assessment.anyOf.find(
+          (item) => item.type === 'object',
+        );
+      assert.equal(assessmentSchema.properties.positions.minItems, 0);
+      assert.equal(assessmentSchema.properties.positions.maxItems, 0);
+      assert.deepEqual(
+        assessmentSchema.properties.opportunities.items.properties.symbol.enum,
+        ['NEAR'],
+      );
+      assert.equal(assessmentSchema.properties.opportunities.maxItems, 1);
+      assert.equal(
+        assessmentSchema.properties.expiresAt.const,
+        assessment.expiresAt,
+      );
+      assert.equal(
+        assessmentSchema.properties.opportunities.items.properties.reviewAfter
+          .const,
+        '2026-10-19T01:15:00Z',
+      );
+      for (const field of ['accountKey', 'runId', 'policyHash', 'asOf']) {
+        assert.deepEqual(
+          assessmentSchema.properties[field].const,
+          assessment[field],
+          'SDK schema binds the server-owned ' + field,
+        );
+      }
       return {
         items: [],
         finalResponse: JSON.stringify({
@@ -411,6 +466,7 @@ await assert.rejects(
 console.log(
   'Structured reviewer assessment survives transport; missing required assessment is rejected.',
 );
+await import('./verify-assessment-contract.mjs');
 
 assert.deepEqual(
   CodexTeamWorker.validate({
@@ -437,7 +493,7 @@ assert.throws(
     }),
   /Invalid role handoff/,
 );
-const usageFactory = () => ({
+const usageFactory = (usage) => () => ({
   startThread: () => ({
     run: async () => ({
       items: [],
@@ -447,14 +503,18 @@ const usageFactory = () => ({
         lesson: null,
         researchSymbols: ['BTC'],
       }),
-      usage: { input_tokens: 11, output_tokens: 7, cached_input_tokens: 3 },
+      usage,
     }),
   }),
 });
 assert.deepEqual(
   await CodexTeamWorker.run(
     { ...input, role: 'intraday' },
-    usageFactory,
+    usageFactory({
+      input_tokens: 11,
+      output_tokens: 7,
+      cached_input_tokens: 3,
+    }),
     source,
   ),
   {
@@ -462,7 +522,45 @@ assert.deepEqual(
     proposal: null,
     lesson: null,
     usage: { inputTokens: 11, outputTokens: 7, cachedInputTokens: 3 },
+    modelAudit: CodexModelPolicy.select('intraday', {}),
     researchSymbols: ['BTC'],
   },
 );
+for (const invalidUsage of [
+  { input_tokens: -1, output_tokens: 7, cached_input_tokens: 0 },
+  { input_tokens: 11, output_tokens: 1.5, cached_input_tokens: 3 },
+  { input_tokens: 11, output_tokens: 7, cached_input_tokens: 12 },
+  {
+    input_tokens: Number.MAX_SAFE_INTEGER + 1,
+    output_tokens: 7,
+    cached_input_tokens: 3,
+  },
+  { input_tokens: 11, cached_input_tokens: 3 },
+  { input_tokens: 11, output_tokens: 'do-not-leak', cached_input_tokens: 3 },
+]) {
+  await assert.rejects(
+    CodexTeamWorker.run(
+      { ...input, role: 'intraday' },
+      usageFactory(invalidUsage),
+      source,
+    ),
+    (error) => {
+      assert.deepEqual(WorkerFailure.from(error), {
+        code: 'worker_response_invalid',
+        message: 'The worker returned an invalid response.',
+      });
+      assert.equal(
+        error.message,
+        'The worker returned invalid usage metadata.',
+      );
+      assert.equal(error.usage, null);
+      assert.deepEqual(
+        error.modelAudit,
+        CodexModelPolicy.select('intraday', {}),
+      );
+      assert(!JSON.stringify(error).includes('do-not-leak'));
+      return true;
+    },
+  );
+}
 console.log('Specialist handoffs, permissions and SDK usage metadata passed.');

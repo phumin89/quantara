@@ -16,11 +16,18 @@ async function verify() {
     viewport: { width: 1440, height: 1000 },
   });
   await page.addInitScript(() => {
-    const draw = CanvasRenderingContext2D.prototype.drawImage;
-    CanvasRenderingContext2D.prototype.drawImage = function (...args) {
+    window.addEventListener('message', (event) => {
+      if (
+        event.data?.source === 'quantara-home' &&
+        event.data.type === 'snapshot'
+      )
+        window.officeSnapshot = event.data;
+    });
+    const clear = CanvasRenderingContext2D.prototype.clearRect;
+    CanvasRenderingContext2D.prototype.clearRect = function (...args) {
       if (this.canvas.dataset.testid === 'office-canvas')
-        window.officeDraws = (window.officeDraws || 0) + 1;
-      return Reflect.apply(draw, this, args);
+        window.officeFrames = (window.officeFrames || 0) + 1;
+      return Reflect.apply(clear, this, args);
     };
   });
   const errors = [],
@@ -114,6 +121,9 @@ async function verify() {
   };
   try {
     await page.goto(url);
+    await page
+      .getByRole('button', { name: 'Collapse team chat', exact: true })
+      .click();
     await page.locator('iframe[data-ready="true"]').waitFor();
     const iframe = page.frameLocator(
       'iframe[title="Pixel Agents research office"]',
@@ -135,21 +145,40 @@ async function verify() {
       .getByRole('button', { name: 'Intraday Working', exact: true })
       .focus();
     await page.keyboard.press('Enter');
-    await page
-      .locator('#role-evidence')
-      .getByText(run.steps[0].output, { exact: true })
-      .waitFor();
+    assert.equal(await page.locator('#role-evidence').count(), 0);
+    assert.equal(
+      await team
+        .getByRole('button', { name: 'Intraday Working', exact: true })
+        .getAttribute('aria-pressed'),
+      'true',
+    );
     assert.equal(await page.evaluate(() => window.unsafe), undefined);
     const stable = async () => {
       await page.waitForTimeout(180);
-      const before = await canvas.evaluate(() => window.officeDraws);
+      const before = await canvas.evaluate(() => window.officeFrames);
       await page.waitForTimeout(220);
       assert.equal(
-        await canvas.evaluate(() => window.officeDraws),
+        await canvas.evaluate(() => window.officeFrames),
         before,
         'Paused office must not keep rendering.',
       );
     };
+    const moving = async (state) => {
+      const before = await canvas.evaluate(() => window.officeFrames);
+      assert(
+        Number.isFinite(before),
+        'The fixture must observe actual canvas rendering.',
+      );
+      await page.waitForTimeout(450);
+      assert(
+        await canvas.evaluate(
+          (_element, count) => window.officeFrames > count + 2,
+          before,
+        ),
+        `${state}: the upstream office loop must continue.`,
+      );
+    };
+    await moving('Active');
     await page
       .getByRole('button', { name: 'Pause animation', exact: true })
       .click();
@@ -157,6 +186,133 @@ async function verify() {
     await page
       .getByRole('button', { name: 'Resume animation', exact: true })
       .click();
+    await page.emulateMedia({ reducedMotion: 'reduce' });
+    await stable();
+    await page.emulateMedia({ reducedMotion: 'no-preference' });
+    const waiting = {
+      ...run,
+      id: '418d734e-0446-492d-8b62-ffbd106d044e',
+      status: 'completed',
+      steps: run.steps.map((step) => ({
+        ...step,
+        status: 'completed',
+        output: null,
+      })),
+    };
+    overview = {
+      configured: true,
+      latestRun: waiting,
+      company: { ...company, status: 'waiting', activeRole: null },
+    };
+    runs = [retained, waiting];
+    await refresh();
+    await team
+      .getByRole('button', { name: 'Intraday Completed', exact: true })
+      .waitFor();
+    await moving('Waiting with no active role');
+    assert(
+      await canvas.evaluate(() =>
+        window.officeSnapshot.agents.every(
+          (agent) => agent.status !== 'active',
+        ),
+      ),
+      'Ambient movement never invents an active role.',
+    );
+    overview = { ...overview, latestRun: null };
+    await refresh();
+    await team
+      .getByRole('button', { name: 'Intraday Idle', exact: true })
+      .waitFor();
+    await moving('Idle');
+    assert(
+      await canvas.evaluate(() =>
+        window.officeSnapshot.agents.every((agent) => agent.status === 'idle'),
+      ),
+    );
+    await page.emulateMedia({ reducedMotion: 'reduce' });
+    await stable();
+    const selectRoleAndCapture = async (label) => {
+      const role = team.getByRole('button', {
+        name: `${label} Idle`,
+        exact: true,
+      });
+      await role.click();
+      await role.waitFor({ state: 'visible' });
+      assert.equal(await role.getAttribute('aria-pressed'), 'true');
+      await page.waitForTimeout(200);
+      return canvas.evaluate((element) => element.toDataURL());
+    };
+    const ceoRoom = await selectRoleAndCapture('CEO');
+    const newsRoom = await selectRoleAndCapture('News');
+    assert(
+      ceoRoom !== newsRoom,
+      'Selecting distinct parent roles must move the paused native camera.',
+    );
+    const officeContainer = canvas.locator('..');
+    const originalWidth = await officeContainer.getAttribute('style');
+    await officeContainer.evaluate((element) => {
+      element.style.width = '90%';
+    });
+    await page.waitForTimeout(400);
+    const hasRoom = () =>
+      canvas.evaluate((element) => {
+        const pixels = element
+          .getContext('2d')
+          .getImageData(0, 0, element.width, element.height).data;
+        let furniture = 0;
+        for (let index = 0; index < pixels.length; index += 4)
+          if (
+            pixels[index] > 60 &&
+            pixels[index + 1] > 40 &&
+            pixels[index] > pixels[index + 2] * 1.2
+          )
+            furniture++;
+        return furniture > 100;
+      });
+    assert(await hasRoom(), 'A paused resized office must repaint its room.');
+    await stable();
+    await officeContainer.evaluate((element, style) => {
+      element.setAttribute('style', style ?? '');
+    }, originalWidth);
+    await page.waitForTimeout(400);
+    assert(await hasRoom(), 'The office must restore after a paused resize.');
+    await page.emulateMedia({ reducedMotion: 'no-preference' });
+    await page.evaluate(() => {
+      Object.defineProperty(document, 'hidden', {
+        configurable: true,
+        value: true,
+      });
+      document.dispatchEvent(new Event('visibilitychange'));
+    });
+    await stable();
+    assert.equal(
+      await canvas.evaluate(() => window.officeSnapshot.paused),
+      true,
+    );
+    await page.evaluate(() => {
+      delete document.hidden;
+      document.dispatchEvent(new Event('visibilitychange'));
+    });
+    await moving('Visible idle');
+    await page.evaluate(() => {
+      const spacer = document.createElement('div');
+      spacer.id = 'fixture-offscreen-spacer';
+      spacer.style.height = '2000px';
+      document.body.append(spacer);
+      window.scrollTo(0, document.body.scrollHeight);
+    });
+    await page.waitForTimeout(150);
+    await stable();
+    assert.equal(
+      await canvas.evaluate(() => window.officeSnapshot.paused),
+      true,
+      'Offscreen office pauses.',
+    );
+    await page.evaluate(() => {
+      document.getElementById('fixture-offscreen-spacer').remove();
+      window.scrollTo(0, 0);
+    });
+    await moving('Onscreen idle');
     await page.emulateMedia({ reducedMotion: 'reduce' });
     await stable();
     // One bounded visual round covers all supported sizes.
@@ -167,6 +323,19 @@ async function verify() {
       ['mobile', 390, 844],
     ]) {
       await page.setViewportSize({ width, height });
+      const chatToggle = await page
+        .getByRole('button', { name: 'Expand team chat', exact: true })
+        .boundingBox();
+      const refreshButton = await page
+        .getByRole('button', { name: 'Refresh status', exact: true })
+        .boundingBox();
+      assert(chatToggle && refreshButton);
+      assert(
+        refreshButton.x + refreshButton.width <= chatToggle.x ||
+          refreshButton.y >= chatToggle.y + chatToggle.height ||
+          refreshButton.y + refreshButton.height <= chatToggle.y,
+        `${name}: the collapsed chat toggle must not cover Refresh status.`,
+      );
       assert(
         await canvas.evaluate(async (element) => {
           for (let attempt = 0; attempt < 30; attempt++) {
@@ -206,12 +375,19 @@ async function verify() {
       );
       if (process.env.CAPTURE_HOME !== '0')
         await page.screenshot({
-          path: `.impeccable/review/home-${name}.png`,
+          path: `.impeccable/review/home-idle-${name}.png`,
           fullPage: true,
           animations: 'disabled',
         });
     }
     await page.setViewportSize({ width: 1440, height: 1000 });
+    await page.emulateMedia({ reducedMotion: 'no-preference' });
+    overview = { configured: true, latestRun: run, company };
+    runs = [retained, run];
+    await refresh();
+    await team
+      .getByRole('button', { name: 'Intraday Working', exact: true })
+      .waitFor();
     failure = true;
     await refresh();
     await team
@@ -252,10 +428,14 @@ async function verify() {
       0,
       'Account switch clears old evidence.',
     );
-    await page
-      .locator('#role-evidence')
-      .getByText('Fixture B evidence.', { exact: true })
-      .waitFor();
+    assert.equal(
+      await page
+        .getByRole('main')
+        .getByText('Fixture B evidence.', { exact: true })
+        .count(),
+      0,
+      'Home keeps full evidence in the archive.',
+    );
     overview = { ...overview, latestRun: null };
     await refresh();
     await team
@@ -266,11 +446,13 @@ async function verify() {
     await refresh();
     await page
       .getByRole('link', {
-        name: 'Open recorded report in Daily Brief',
+        name: 'Read research reports',
         exact: true,
       })
       .click();
-    await page.getByRole('tab', { name: 'Team chat', exact: true }).waitFor();
+    await page
+      .getByRole('region', { name: 'Research reports', exact: true })
+      .waitFor();
     await page.locator(`#run-${other.id}`).waitFor();
     const day = new Intl.DateTimeFormat('en-CA', {
       timeZone: 'Asia/Bangkok',
@@ -302,7 +484,7 @@ async function verify() {
     );
     assert.deepEqual(errors, []);
     console.log(
-      'Home: original App/assets/layout, eight real states, GET-only, keyboard, pause/reduced motion, responsive, failure/account isolation, deep link, shared poll and renderer fallback passed.',
+      'Home: original App/assets/layout, active-to-waiting/idle motion without invented work, explicit/hidden/offscreen/reduced-motion pause and resume, eight real states, GET-only, keyboard, responsive, failure/account isolation, deep link, shared poll and renderer fallback passed.',
     );
   } catch (error) {
     console.log({

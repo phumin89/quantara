@@ -12,7 +12,8 @@ public sealed class ActivateTradingHandler(ITradingControl control, TradingOverv
                 command.RulesHash,
                 command.ExpiresAt,
                 command.Acknowledgement,
-                cancellationToken
+                cancellationToken,
+                command.AiManaged
             )
         );
 }

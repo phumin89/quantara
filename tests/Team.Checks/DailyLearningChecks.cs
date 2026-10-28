@@ -8,7 +8,7 @@ public static class DailyLearningChecks
 {
     public static async Task Run()
     {
-        var now = DateTimeOffset.UtcNow;
+        var now = new DateTimeOffset(2026, 10, 28, 12, 0, 0, TimeSpan.Zero);
         var account = new string('a', 64);
         var observed = now.AddHours(-2);
         var first = new TeamRun(

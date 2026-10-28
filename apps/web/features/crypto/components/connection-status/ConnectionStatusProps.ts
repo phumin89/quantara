@@ -4,4 +4,5 @@ export interface ConnectionStatusProps {
   data: PortfolioResponse | null;
   error: string | null;
   refreshing: boolean;
+  readonly now: number;
 }

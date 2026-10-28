@@ -4,5 +4,6 @@ public sealed record ActivateTradingRequest(
     string AccountKey,
     string RulesHash,
     DateTimeOffset ExpiresAt,
-    string Acknowledgement
+    string Acknowledgement,
+    bool AiManaged = false
 );

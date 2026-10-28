@@ -276,7 +276,7 @@ R0 ต้องระบุ primary benchmark, minimum economically useful edge,
 
 ## 11. ลำดับ implement และหลักฐานจบงาน
 
-R4 ส่วนซอฟต์แวร์และการทดสอบ focused scheduling implement แล้วตาม [บันทึกปัจจุบัน](continuous-research.md) ส่วน deployment/runtime pilot และ measured-token admission ยังรอหลักฐาน งาน R0–R3/R5–R7 คง Pending ตามเกณฑ์เดิม; การทำงานต่อเนื่องไม่ยืนยันประสิทธิภาพหรือกำไรของกลยุทธ์
+R4 ซอฟต์แวร์และ focused scheduling implement แล้ว และติดตั้ง Team/Web หลังปิด AutoLive พร้อม canonical backups และ isolated restore ตาม [สถานะหลัก](../plan.md) ส่วน runtime pilot และ measured-token admission ยังรอหลักฐาน ดู [รายละเอียดปัจจุบัน](continuous-research.md) งาน R0–R3/R5–R7 คง Pending ตามเกณฑ์เดิม; การทำงานต่อเนื่องไม่ยืนยันประสิทธิภาพหรือกำไรของกลยุทธ์
 
 | Phase                       | Owner                         | งาน                                                                                                                   | Acceptance / หลักฐาน                                                                                                        |
 | --------------------------- | ----------------------------- | --------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------- |

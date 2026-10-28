@@ -1,7 +1,7 @@
-import type { IPortfolioService } from '../../crypto/services/IPortfolioService';
 import type { ITradingService } from '../../trading/services/ITradingService';
+import type { IRiskService } from '../../crypto/services/IRiskService';
 
 export interface IDashboardServices {
-  readonly portfolio: IPortfolioService;
   readonly trading: ITradingService;
+  readonly risk: IRiskService;
 }

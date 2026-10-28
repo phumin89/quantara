@@ -61,7 +61,8 @@ public sealed class TradingController(IMediator mediator) : ControllerBase
                     request.AccountKey,
                     request.RulesHash,
                     request.ExpiresAt,
-                    request.Acknowledgement
+                    request.Acknowledgement,
+                    request.AiManaged
                 ),
                 cancellationToken
             ),

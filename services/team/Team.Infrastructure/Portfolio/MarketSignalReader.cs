@@ -10,9 +10,16 @@ public sealed class MarketSignalReader(HttpClient http, TimeProvider time) : IMa
 {
     public async Task<MarketSignalNotice?> Read(CancellationToken cancellationToken)
     {
-        using var response = await http.GetAsync("api/market/signals", cancellationToken);
+        using var requestTimeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        requestTimeout.CancelAfter(http.Timeout);
+        using var response = await http.GetAsync(
+            "api/market/signals",
+            HttpCompletionOption.ResponseHeadersRead,
+            requestTimeout.Token
+        );
         response.EnsureSuccessStatusCode();
-        var body = await response.Content.ReadAsStringAsync(cancellationToken);
+        await response.Content.LoadIntoBufferAsync(4_000_000, requestTimeout.Token);
+        var body = await response.Content.ReadAsStringAsync(requestTimeout.Token);
         if (body.Length > 1000000)
         {
             throw new InvalidDataException("Market signal response is too large.");

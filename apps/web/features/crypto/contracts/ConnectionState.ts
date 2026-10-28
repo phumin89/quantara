@@ -1,6 +1,8 @@
 export enum ConnectionState {
   Checking = 'Checking',
   Syncing = 'Syncing',
-  Connected = 'Connected',
+  Connected = 'Current',
   Error = 'Error',
+  Stale = 'Stale',
+  Unavailable = 'Unavailable',
 }

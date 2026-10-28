@@ -4,11 +4,13 @@
   "originalApp": "webview-ui/src/App.tsx",
   "originalLayout": "webview-ui/public/assets/default-layout-1.json",
   "adaptations": [
-    "parent selection: native camera",
+    "paused camera: immediate focus and resize repaint",
+    "mobile touch selection: parent role synchronization",
     "native card status: recorded research semantics",
-    "paused camera: immediate focus without animation",
-    "gameLoop: pause and reduced motion",
-    "native cards: role labels and keyboard access, no close authority"
+    "mobile card selection: parent role synchronization",
+    "parent selection: native camera",
+    "native cards: role labels and keyboard access, no close authority",
+    "gameLoop: pause and reduced motion"
   ],
   "readOnly": true,
   "network": "connect-src none"

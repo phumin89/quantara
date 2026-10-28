@@ -9,7 +9,7 @@ public sealed class AutonomousFixture : IDisposable
 {
     public OrderCheckTime Time { get; } = new();
 
-    public AccountContext Account { get; } = new("test-account");
+    public AccountContext Account { get; }
 
     public TradingRuleSet Rules { get; } =
         new()
@@ -40,8 +40,9 @@ public sealed class AutonomousFixture : IDisposable
 
     public SemaphoreSlim Gate { get; } = new(1, 1);
 
-    public AutonomousFixture()
+    public AutonomousFixture(string accountKey = "test-account")
     {
+        this.Account = new(accountKey);
         this.Store = new(
             TradingStateFactory.Create(this.Time.Now) with
             {

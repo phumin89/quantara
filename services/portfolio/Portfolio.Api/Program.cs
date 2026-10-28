@@ -13,6 +13,7 @@ var builder = WebApplication.CreateBuilder(args);
 builder.WebHost.UseUrls(builder.Configuration["Hosting:ListenUrl"] ?? "http://127.0.0.1:5050");
 builder.WebHost.ConfigureKestrel(options => options.Limits.MaxRequestBodySize = 8192);
 builder.Logging.AddFilter("System.Net.Http.HttpClient", LogLevel.Warning);
+const long bitkubMaximumResponseBytes = 32 * 1024 * 1024;
 var taskDirectory = new DirectoryInfo(builder.Environment.ContentRootPath);
 while (taskDirectory is not null && !File.Exists(Path.Combine(taskDirectory.FullName, "Quantara.sln")))
 {
@@ -79,6 +80,9 @@ var tradingStore = new SqlTradingStore(connectionString, accountKey, TimeProvide
 await tradingStore.Initialize(CancellationToken.None);
 builder.Services.AddSingleton<ITradingStore>(tradingStore);
 builder.Services.AddSingleton<IReadOnlyTradingStore>(tradingStore);
+var manualSaleAllocations = new SqlManualSaleAllocationStore(connectionString, accountKey);
+await manualSaleAllocations.Initialize(CancellationToken.None);
+builder.Services.AddSingleton<IManualSaleAllocationStore>(manualSaleAllocations);
 var goalStore = new SqlPortfolioGoalStore(connectionString, accountKey);
 await goalStore.Initialize(CancellationToken.None);
 builder.Services.AddSingleton<IPortfolioGoalStore>(goalStore);
@@ -91,6 +95,18 @@ var tradingOptions = new TradingControlOptions(
         !string.IsNullOrWhiteSpace(credentials.Key) && !string.IsNullOrWhiteSpace(credentials.Secret),
 };
 builder.Services.AddSingleton(tradingOptions);
+builder.Services.AddSingleton<ManualSaleReviewProof>();
+builder.Services.AddScoped<ManualSaleReconciliation>(services => new ManualSaleReconciliation(
+    accountKey,
+    services.GetRequiredService<IReadOnlyTradingStore>(),
+    services.GetRequiredService<IReadOnlyPortfolioRepository>(),
+    services.GetRequiredService<IManualSaleAllocationStore>(),
+    services.GetRequiredService<TimeProvider>()
+));
+builder.Services.AddScoped<IManualSaleReview, ManualSaleReviewService>();
+builder.Services.AddScoped<IReadOnlyManualSaleReview>(services => services.GetRequiredService<IManualSaleReview>());
+builder.Services.AddScoped<ICashBaselineReview, CashBaselineReviewService>();
+builder.Services.AddScoped<IReadOnlyCashBaselineReview>(services => services.GetRequiredService<ICashBaselineReview>());
 builder.Services.AddSingleton<TradingOverviewProjection>();
 builder.Services.AddSingleton<TradingEventDispatcher>();
 builder.Services.AddSingleton(new SemaphoreSlim(1, 1));
@@ -101,6 +117,16 @@ builder.Services.AddSingleton<TradingReportDelivery>();
 builder.Services.AddHostedService<TradingWorker>();
 builder.Services.AddSingleton<TradingEvaluationService>();
 builder.Services.AddHostedService<TradingEvaluationWorker>();
+builder.Services.AddSingleton<ITradingPolicyEvaluator, TradingPolicyEvaluator>();
+builder.Services.AddSingleton<TradingPolicyService>();
+builder.Services.AddHostedService<TradingPolicyWorker>();
+builder
+    .Services.AddHttpClient<ITradingPolicyCandidateReader, TeamPolicyCandidateReader>(http =>
+    {
+        http.BaseAddress = new Uri(builder.Configuration["Services:TeamUrl"] ?? "http://localhost:5052");
+        http.Timeout = TimeSpan.FromSeconds(15);
+    })
+    .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler { AllowAutoRedirect = false });
 builder
     .Services.AddHttpClient<ITradingNotifier>(
         (services, http) =>
@@ -226,16 +252,19 @@ builder
     {
         http.BaseAddress = new Uri("https://api.bitkub.com");
         http.Timeout = TimeSpan.FromSeconds(20);
+        http.MaxResponseContentBufferSize = bitkubMaximumResponseBytes;
         http.DefaultRequestHeaders.Accept.ParseAdd("application/json");
     })
     .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler { AllowAutoRedirect = false });
 builder.Services.AddTransient<IAccountEvidenceReader>(services => services.GetRequiredService<BitkubAccountReader>());
+builder.Services.AddTransient<IManualSaleEvidenceReader, BitkubManualSaleEvidenceReader>();
 builder.Services.AddTransient<IRiskEvidenceReader, BitkubRiskEvidenceReader>();
 builder
     .Services.AddHttpClient<IOrderBroker, BitkubOrderBroker>(http =>
     {
         http.BaseAddress = new Uri("https://api.bitkub.com");
         http.Timeout = TimeSpan.FromSeconds(20);
+        http.MaxResponseContentBufferSize = bitkubMaximumResponseBytes;
     })
     .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler { AllowAutoRedirect = false });
 var marketDataUrl = new Uri(builder.Configuration["Services:MarketDataUrl"] ?? "http://127.0.0.1:5051");
@@ -287,6 +316,7 @@ builder
     {
         http.BaseAddress = new Uri("https://api.bitkub.com");
         http.Timeout = TimeSpan.FromSeconds(20);
+        http.MaxResponseContentBufferSize = bitkubMaximumResponseBytes;
     })
     .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler { AllowAutoRedirect = false });
 builder.Services.AddSingleton<PortfolioSync>();
@@ -411,10 +441,7 @@ app.Use(
         }
         catch (Exception)
         {
-            context.Response.StatusCode = 503;
-            await context.Response.WriteAsJsonAsync(
-                new { error = "Portfolio storage is unavailable. Check the service and SQL Server connection." }
-            );
+            await PortfolioFailureResponse.Write(context);
         }
     }
 );

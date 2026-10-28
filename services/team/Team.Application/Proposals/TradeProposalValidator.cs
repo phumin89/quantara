@@ -123,13 +123,31 @@ public static class TradeProposalValidator
     private static decimal Number(string value)
     {
         if (
-            value.Length > 40
+            value is null
+            || value.Length > 40
             || !decimal.TryParse(value, NumberStyles.AllowDecimalPoint, CultureInfo.InvariantCulture, out var number)
             || number <= 0
             || number > 1000000000000m
         )
         {
             throw new InvalidOperationException("Trade proposal amount or price is invalid.");
+        }
+
+        // Keep the research draft exact before its decimal values cross into Portfolio.
+        var parts = value.Split('.');
+        var whole = parts[0].TrimStart('0');
+        var fraction = parts.Length == 2 ? parts[1].TrimEnd('0') : "";
+        var canonical = (whole.Length == 0 ? "0" : whole) + (fraction.Length == 0 ? "" : "." + fraction);
+        if (
+            !StringComparer.Ordinal.Equals(
+                canonical,
+                number.ToString("0.############################", CultureInfo.InvariantCulture)
+            )
+        )
+        {
+            throw new InvalidOperationException(
+                "Trade proposal amount or price must fit supported decimal precision without rounding."
+            );
         }
 
         return number;

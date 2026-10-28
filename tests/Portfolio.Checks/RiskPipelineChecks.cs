@@ -11,6 +11,7 @@ public static class RiskPipelineChecks
 {
     public static async Task Run()
     {
+        await FreshnessAfterCollection();
         var time = new OrderCheckTime();
         var account = new AccountContext(new string('a', 64));
         var orders = new FakeOrderStore();
@@ -230,6 +231,57 @@ public static class RiskPipelineChecks
         );
         Console.WriteLine(
             "Risk pipeline: adaptive capacity, reservations, immutable approval, uncertainty, fills, cash flows and compatibility passed; fake brokers only."
+        );
+    }
+
+    private static async Task FreshnessAfterCollection()
+    {
+        var time = new OrderCheckTime();
+        var started = time.Now;
+        var policy = new RiskPolicy { Profile = RiskProfile.Aggressive };
+        var evidence = new FakeRiskEvidenceReader(
+            new(started, [new("THB", 1000, 1000), new("ETH", 1, 1)], [], [], started.AddDays(-90))
+        );
+        var market = new TradingBook("ETH", started.AddSeconds(6), 100, 101, 10, 10, []);
+        var markets = new FakeTradingMarketReader([market]) { BeforeRead = () => time.Now = time.Now.AddSeconds(6) };
+        var reader = new RiskCapitalReader(
+            evidence,
+            new FakeOrderStore(),
+            new FakeTradingStore(TradingStateFactory.Create(started)),
+            markets,
+            new AccountContext(new string('a', 64)),
+            time
+        );
+        var fresh = (await reader.Read(null, null, policy, CancellationToken.None)).Snapshot;
+        Check(
+            fresh.Blocker is null && fresh.EquityThb == 1100,
+            "A fresh quote collected after a slow read is not future-dated relative to collection completion."
+        );
+
+        time.Now = started;
+        evidence.Evidence = evidence.Evidence with { ObservedAt = started.AddSeconds(-85) };
+        markets.Books = [market with { ObservedAt = started }];
+        var staleAccount = (await reader.Read(null, null, policy, CancellationToken.None)).Snapshot;
+        Check(
+            staleAccount.Blocker == "Account evidence became stale during collection.",
+            "Account evidence that expires while awaiting quotes must be blocked at completion."
+        );
+
+        time.Now = started;
+        evidence.Evidence = evidence.Evidence with { ObservedAt = started };
+        markets.Books = [market with { ObservedAt = started.AddSeconds(-85) }];
+        var staleQuote = (await reader.Read(null, null, policy, CancellationToken.None)).Snapshot;
+        Check(
+            staleQuote.EquityThb is null && staleQuote.Blocker is not null,
+            "A quote that expires during collection keeps total equity unknown."
+        );
+
+        time.Now = started;
+        markets.Books = [market with { ObservedAt = started.AddSeconds(30) }];
+        var futureQuote = (await reader.Read(null, null, policy, CancellationToken.None)).Snapshot;
+        Check(
+            futureQuote.EquityThb is null && futureQuote.Blocker is not null,
+            "Genuinely future-dated quotes remain rejected after delayed collection."
         );
     }
 

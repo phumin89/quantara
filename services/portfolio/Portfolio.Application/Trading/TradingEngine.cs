@@ -1,3 +1,4 @@
+using Microsoft.Extensions.Logging;
 using Quantara.Portfolio.Domain;
 using Quantara.Portfolio.Domain.Trading;
 
@@ -13,9 +14,19 @@ public sealed class TradingEngine(
     IReadOnlyOrderStore? legacyOrders = null,
     AutonomousMarketMonitor? autonomous = null,
     AutonomousRiskService? adaptiveRisk = null,
-    TradingEventDispatcher? events = null
+    TradingEventDispatcher? events = null,
+    ILogger<TradingEngine>? logger = null
 )
 {
+    private const string dependencyFailure = "Trading dependency or reconciliation failure — new entries paused";
+
+    private static readonly Action<ILogger, string, string, string, long, int?, Exception?> failed =
+        LoggerMessage.Define<string, string, string, long, int?>(
+            LogLevel.Warning,
+            new EventId(3, "TradingCycleFailure"),
+            "Trading cycle failed at {Stage}; type {ExceptionType}; event {EventKind}; revision {Revision}; HTTP status {HttpStatus}. Exception payload omitted."
+        );
+
     private readonly TradingStateWriter writer = new(store);
 
     private readonly TradingOrderReconciler reconciler = new(store, exchange, time, adaptiveRisk);
@@ -41,6 +52,7 @@ public sealed class TradingEngine(
         {
             var state = await store.Read(cancellationToken);
             var now = time.GetUtcNow();
+            var stage = TradingFailureStage.Reconciliation;
             state.Rules.Validate();
             if (state.RulesHash != TradingRuleHash.Compute(state.Rules))
             {
@@ -87,7 +99,15 @@ public sealed class TradingEngine(
                             {
                                 Orders = state
                                     .Live.Orders.Select(order =>
-                                        order.Status == "pending" ? order with { Status = "cancelled" } : order
+                                        order.Status == "pending"
+                                            ? order with
+                                            {
+                                                Status =
+                                                    order.BrokerOrderId is null && order.CancellationState is null
+                                                        ? "cancelled"
+                                                        : "unknown",
+                                            }
+                                            : order
                                     )
                                     .ToArray(),
                             },
@@ -96,7 +116,6 @@ public sealed class TradingEngine(
                     );
                 }
 
-                var entries = trigger is null || trigger.Kind == TradingEventKind.CandleClosed;
                 if (trigger is null || trigger.Kind == TradingEventKind.Reconcile)
                 {
                     state = await this.reconciler.Reconcile(state, now, trigger is not null, cancellationToken);
@@ -116,6 +135,7 @@ public sealed class TradingEngine(
                         .ToArray();
                 }
 
+                stage = TradingFailureStage.MarketScan;
                 var scan = adaptive is not null
                     ? await (
                         autonomous ?? throw new InvalidOperationException("Autonomous market monitor is unavailable.")
@@ -134,6 +154,7 @@ public sealed class TradingEngine(
                     state = await this.writer.Save(state, funded with { Autonomy = scan.Status }, cancellationToken);
                 }
 
+                stage = TradingFailureStage.MarketRead;
                 var books =
                     scan?.Books
                     ?? (trigger is null ? await markets.Read(state.Rules.Symbols, cancellationToken) : observed ?? []);
@@ -156,6 +177,7 @@ public sealed class TradingEngine(
                     && (await legacyOrders.List(cancellationToken)).Any(order =>
                         order.State is OrderState.Submitting or OrderState.Unknown
                     );
+                stage = TradingFailureStage.Valuation;
                 var next = state with
                 {
                     HeartbeatAt = now,
@@ -189,7 +211,9 @@ public sealed class TradingEngine(
                 }
 
                 state = await this.writer.Save(state, next, cancellationToken);
+                stage = TradingFailureStage.PaperFill;
                 state = await this.paperExecution.Fill(state, books, now, cancellationToken);
+                stage = TradingFailureStage.ExitStudy;
                 var studyBooks = books
                     .Concat(
                         (scan?.ExitStudyBooks ?? []).Select(history =>
@@ -245,6 +269,7 @@ public sealed class TradingEngine(
                     return;
                 }
 
+                stage = TradingFailureStage.SignalEvaluation;
                 var evaluated = await this.signals.Process(state, books, scan, trigger, stale, now, cancellationToken);
                 state = evaluated.State;
                 var exitEvaluated = evaluated.ExitEvaluated;
@@ -267,13 +292,15 @@ public sealed class TradingEngine(
 
                 if (live)
                 {
-                    state = await this.liveExecution.Execute(state, books, now, entries, cancellationToken);
+                    stage = TradingFailureStage.LiveExecution;
+                    state = await this.liveExecution.Execute(state, books, now, cancellationToken);
                 }
                 else
                 {
                     state = await this.paperExecution.Fill(state, books, now, cancellationToken);
                 }
 
+                stage = TradingFailureStage.AutonomySnapshot;
                 if (state.Autonomy is { } finalStatus)
                 {
                     var ledger = live ? state.Live : state.Paper;
@@ -315,18 +342,28 @@ public sealed class TradingEngine(
             catch (Exception error)
                 when (error is not OperationCanceledException || !cancellationToken.IsCancellationRequested)
             {
+                if (logger is not null)
+                {
+                    TradingEngine.failed(
+                        logger,
+                        (
+                            error.Data[typeof(TradingFailureStage)] is TradingFailureStage failedStage
+                                ? failedStage
+                                : stage
+                        ).ToString(),
+                        error.GetType().Name,
+                        trigger?.Kind.ToString() ?? "Tick",
+                        state.Revision,
+                        error is HttpRequestException { StatusCode: { } status } ? (int)status : null,
+                        null
+                    );
+                }
+
                 // Re-read after any failed persistence: a claim may already be durable.
                 var latest = await store.Read(cancellationToken);
                 await this.writer.Save(
                     latest,
-                    TradingAuthority.Fault(
-                        latest with
-                        {
-                            HeartbeatAt = now,
-                        },
-                        "Trading dependency or reconciliation failure — new entries paused",
-                        now
-                    ),
+                    TradingAuthority.Fault(latest with { HeartbeatAt = now }, TradingEngine.dependencyFailure, now),
                     cancellationToken
                 );
             }

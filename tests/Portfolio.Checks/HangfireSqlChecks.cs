@@ -196,18 +196,23 @@ public static class HangfireSqlChecks
             var replay = jobs.Enqueue<TradingNotificationJob>(job =>
                 job.Deliver(account, destination, alert.Key, CancellationToken.None)
             );
+            var replaySucceeded = false;
             for (var attempt = 0; attempt < 100; attempt++)
             {
                 using var connection = host.Services.GetRequiredService<JobStorage>().GetConnection();
                 if (connection.GetJobData(replay)?.State == "Succeeded")
                 {
+                    replaySucceeded = true;
                     break;
                 }
 
                 await Task.Delay(100);
             }
 
-            Check(notifier.Sends == 1, "A repeated SQL job cannot repeat a claimed Telegram side effect.");
+            Check(
+                replaySucceeded && notifier.Sends == 1,
+                "A completed repeated SQL job cannot repeat a claimed Telegram side effect."
+            );
         }
         finally
         {

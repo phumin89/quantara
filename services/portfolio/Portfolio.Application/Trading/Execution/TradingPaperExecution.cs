@@ -4,9 +4,11 @@ using Quantara.Portfolio.Domain.Trading;
 
 namespace Quantara.Portfolio.Application;
 
-internal sealed class TradingPaperExecution(ITradingStore store)
+internal sealed class TradingPaperExecution(ITradingStore store, Func<Guid>? createFillId = null)
 {
     private readonly TradingStateWriter writer = new(store);
+
+    private readonly Func<Guid> createFillId = createFillId ?? Guid.NewGuid;
 
     internal async Task<TradingState> Fill(
         TradingState state,
@@ -75,7 +77,7 @@ internal sealed class TradingPaperExecution(ITradingStore store)
             }
 
             var fill = new TradingFill(
-                Guid.NewGuid(),
+                this.createFillId(),
                 order.Id,
                 "paper-"
                     + order.Id.ToString("N")

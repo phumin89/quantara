@@ -10,79 +10,24 @@ namespace Quantara.Portfolio.Infrastructure;
 
 public sealed class BitkubOrderInspector(HttpClient http, BitkubCredentials credentials, TimeProvider? time = null)
 {
+    private const int maximumHistoryPages = 3;
+
+    private const int maximumOrderInfoReads = 8;
+
+    private const string incompleteSearch =
+        "Broker search was incomplete. Outcome remains unknown; no order was resent.";
+
     public async Task<OrderInspection> Inspect(OrderProposal proposal, CancellationToken cancellationToken)
     {
-        var pair = Uri.EscapeDataString(proposal.Symbol.ToLowerInvariant() + "_thb");
-        var side = proposal.Side == TradeSide.Buy ? "buy" : "sell";
-        var id = proposal.BrokerOrderId;
-        if (id is null)
+        var (evidence, failure) = await this.FindOrder(proposal, cancellationToken);
+        if (evidence is not { } order)
         {
-            var open = await this.Read($"/api/v3/market/my-open-orders?sym={pair}", cancellationToken);
-            id = BitkubOrderInspector.Find(open.GetProperty("result"), proposal, "id", side);
-            string? cursor = null;
-            for (var page = 1; id is null && page <= 3; page++)
-            {
-                var cursorQuery = cursor is null ? string.Empty : "&cursor=" + Uri.EscapeDataString(cursor);
-                var history = await this.Read(
-                    $"/api/v3/market/my-order-history?sym={pair}&pagination_type=keyset&lmt=100{cursorQuery}",
-                    cancellationToken
-                );
-                var rows = history.GetProperty("result");
-                id = BitkubOrderInspector.Find(rows, proposal, "order_id", side);
-                if (
-                    !history.TryGetProperty("pagination", out var pagination)
-                    || !pagination.GetProperty("has_next").GetBoolean()
-                )
-                {
-                    break;
-                }
-
-                var next = pagination.GetProperty("cursor").GetString();
-                if (string.IsNullOrWhiteSpace(next) || next == cursor)
-                {
-                    break;
-                }
-
-                cursor = next;
-            }
-        }
-
-        if (id is null)
-        {
-            return new(
-                OrderState.Unknown,
-                null,
-                "No exact broker match found. Outcome remains unknown; no order was resent."
-            );
-        }
-
-        var data = await this.Read(
-            $"/api/v3/market/order-info?sym={pair}&id={Uri.EscapeDataString(id)}&sd={side}",
-            cancellationToken
-        );
-        var order = data.GetProperty("result");
-        if (
-            order.TryGetProperty("first", out var first)
-            && !string.IsNullOrWhiteSpace(first.ToString())
-            && first.ToString() != "0"
-            && first.ToString() != id
-        )
-        {
-            id = first.ToString();
-            data = await this.Read(
-                $"/api/v3/market/order-info?sym={pair}&id={Uri.EscapeDataString(id)}&sd={side}",
-                cancellationToken
-            );
-            order = data.GetProperty("result");
+            return new(OrderState.Unknown, null, failure);
         }
 
         if (
-            order.GetProperty("id").ToString() != id
-            || (
-                order.TryGetProperty("client_id", out var client)
-                && client.ToString().Length > 0
-                && client.ToString() != proposal.Id.ToString("N")
-            )
+            !DecimalPrecision.MatchesPositive(order, "amount", proposal.Amount)
+            || !DecimalPrecision.MatchesPositive(order, "rate", proposal.LimitPrice)
         )
         {
             throw new InvalidDataException("Broker order identity did not match the proposal.");
@@ -96,7 +41,11 @@ public sealed class BitkubOrderInspector(HttpClient http, BitkubCredentials cred
             "unfilled" => OrderState.Submitted,
             _ => throw new InvalidDataException("Unknown broker order status."),
         };
-        return new(state, id, $"Verified with Bitkub: {state}. This check never places or resends an order.")
+        return new(
+            state,
+            order.GetProperty("id").ToString(),
+            $"Verified with Bitkub: {state}. This check never places or resends an order."
+        )
         {
             Fills = ReadFills(order, proposal, state, (time ?? TimeProvider.System).GetUtcNow()),
         };
@@ -139,6 +88,8 @@ public sealed class BitkubOrderInspector(HttpClient http, BitkubCredentials cred
                 || transactionId.Length > 128
                 || amount <= 0
                 || price <= 0
+                || proposal.Side == TradeSide.Buy && price > proposal.LimitPrice
+                || proposal.Side == TradeSide.Sell && price < proposal.LimitPrice
                 || fee < 0
                 || credit < 0
                 || credit > fee
@@ -170,8 +121,26 @@ public sealed class BitkubOrderInspector(HttpClient http, BitkubCredentials cred
             filledAmount += amount;
         }
 
+        var remaining = Number(order, "remaining");
+        var reportedFilled = Number(order, "filled");
+        var spent =
+            proposal.Side == TradeSide.Buy
+                ? filledAmount + fills.Values.Sum(fill => fill.FeeThb - fill.FeeCreditThb)
+                : filledAmount;
         if (
-            filledAmount > proposal.Amount
+            reportedFilled < 0
+            || decimal.Abs(reportedFilled - filledAmount) > 0.00000001m
+                && decimal.Abs(reportedFilled - spent) > 0.00000001m
+        )
+        {
+            throw new InvalidDataException("Broker fill history does not cover the reported filled amount.");
+        }
+
+        if (
+            remaining < 0
+            || remaining > proposal.Amount
+            || filledAmount > proposal.Amount
+            || state == OrderState.Filled && remaining != 0
             || state is OrderState.Filled or OrderState.PartiallyFilled && fills.Count == 0
         )
         {
@@ -182,18 +151,215 @@ public sealed class BitkubOrderInspector(HttpClient http, BitkubCredentials cred
     }
 
     private static decimal Number(JsonElement row, string field) =>
-        decimal.Parse(row.GetProperty(field).ToString(), NumberStyles.Float, CultureInfo.InvariantCulture);
+        DecimalPrecision.Read(row.GetProperty(field), NumberStyles.Float);
 
-    private static string? Find(JsonElement rows, OrderProposal proposal, string idField, string side) =>
-        rows.EnumerateArray()
-            .Where(row =>
-                row.TryGetProperty("client_id", out var client)
-                && client.ToString() == proposal.Id.ToString("N")
-                && row.GetProperty("side").GetString() == side
+    private async Task<(JsonElement? Order, string? Failure)> FindOrder(
+        OrderProposal proposal,
+        CancellationToken cancellationToken
+    )
+    {
+        var cache = new Dictionary<string, JsonElement>(StringComparer.Ordinal);
+        if (proposal.BrokerOrderId is { } knownId)
+        {
+            var known = await this.ResolveOrder(proposal, knownId, cache, cancellationToken);
+            return (known, known is null ? incompleteSearch : null);
+        }
+
+        var pair = Uri.EscapeDataString(proposal.Symbol.ToLowerInvariant() + "_thb");
+        var side = proposal.Side == TradeSide.Buy ? "buy" : "sell";
+        var candidates = new HashSet<string>(StringComparer.Ordinal);
+        var open = await this.Read($"/api/v3/market/my-open-orders?sym={pair}", cancellationToken);
+        if (!Collect(open.GetProperty("result"), proposal, "id", side, candidates))
+        {
+            return (null, incompleteSearch);
+        }
+
+        var cursors = new HashSet<string>(StringComparer.Ordinal);
+        string? cursor = null;
+        var complete = false;
+        for (var page = 0; page < maximumHistoryPages; page++)
+        {
+            var cursorQuery = cursor is null ? "" : "&cursor=" + Uri.EscapeDataString(cursor);
+            var history = await this.Read(
+                $"/api/v3/market/my-order-history?sym={pair}&pagination_type=keyset&lmt=100{cursorQuery}",
+                cancellationToken
+            );
+            if (
+                !Collect(history.GetProperty("result"), proposal, "order_id", side, candidates)
+                || !history.TryGetProperty("pagination", out var pagination)
+                || !pagination.TryGetProperty("has_next", out var hasNext)
+                || hasNext.ValueKind is not (JsonValueKind.True or JsonValueKind.False)
             )
-            .Select(row => row.GetProperty(idField).ToString())
-            .Where(id => !string.IsNullOrWhiteSpace(id))
-            .FirstOrDefault();
+            {
+                return (null, incompleteSearch);
+            }
+
+            if (!hasNext.GetBoolean())
+            {
+                complete = true;
+                break;
+            }
+
+            if (!pagination.TryGetProperty("cursor", out var nextValue) || nextValue.ValueKind != JsonValueKind.String)
+            {
+                return (null, incompleteSearch);
+            }
+
+            var next = nextValue.GetString();
+            if (string.IsNullOrWhiteSpace(next) || !cursors.Add(next))
+            {
+                return (null, incompleteSearch);
+            }
+
+            cursor = next;
+        }
+
+        if (!complete)
+        {
+            return (null, incompleteSearch);
+        }
+
+        JsonElement? match = null;
+        foreach (var candidate in candidates.Order(StringComparer.Ordinal))
+        {
+            if (await this.ResolveOrder(proposal, candidate, cache, cancellationToken) is not { } order)
+            {
+                return (null, incompleteSearch);
+            }
+
+            if (match is { } previous && previous.GetProperty("id").ToString() != order.GetProperty("id").ToString())
+            {
+                return (
+                    null,
+                    "Several broker orders match this proposal. Outcome remains unknown; no order was resent."
+                );
+            }
+
+            match = order;
+        }
+
+        return (
+            match,
+            match is null ? "No exact broker match found. Outcome remains unknown; no order was resent." : null
+        );
+    }
+
+    private async Task<JsonElement?> ResolveOrder(
+        OrderProposal proposal,
+        string id,
+        Dictionary<string, JsonElement> cache,
+        CancellationToken cancellationToken
+    )
+    {
+        if (await this.ReadOrder(proposal, id, cache, cancellationToken) is not { } order)
+        {
+            return null;
+        }
+
+        if (
+            order.TryGetProperty("first", out var first)
+            && !string.IsNullOrWhiteSpace(first.ToString())
+            && first.ToString() != "0"
+            && first.ToString() != id
+        )
+        {
+            id = first.ToString();
+            if (await this.ReadOrder(proposal, id, cache, cancellationToken) is not { } original)
+            {
+                return null;
+            }
+
+            order = original;
+            if (
+                order.TryGetProperty("first", out var root)
+                && !string.IsNullOrWhiteSpace(root.ToString())
+                && root.ToString() != "0"
+                && root.ToString() != id
+            )
+            {
+                throw new InvalidDataException("Broker order lineage did not resolve to an original order.");
+            }
+        }
+
+        return order;
+    }
+
+    private async Task<JsonElement?> ReadOrder(
+        OrderProposal proposal,
+        string id,
+        Dictionary<string, JsonElement> cache,
+        CancellationToken cancellationToken
+    )
+    {
+        if (string.IsNullOrWhiteSpace(id))
+        {
+            throw new InvalidDataException("Broker order identity did not match the proposal.");
+        }
+
+        if (cache.TryGetValue(id, out var cached))
+        {
+            return cached;
+        }
+
+        if (cache.Count >= maximumOrderInfoReads)
+        {
+            return null;
+        }
+
+        var pair = Uri.EscapeDataString(proposal.Symbol.ToLowerInvariant() + "_thb");
+        var side = proposal.Side == TradeSide.Buy ? "buy" : "sell";
+        var data = await this.Read(
+            $"/api/v3/market/order-info?sym={pair}&id={Uri.EscapeDataString(id)}&sd={side}",
+            cancellationToken
+        );
+        var order = data.GetProperty("result");
+        // Verify every requested response before trusting its reference to an original order.
+        if (
+            order.GetProperty("id").ToString() != id
+            || order.TryGetProperty("client_id", out var client)
+                && client.ToString().Length > 0
+                && client.ToString() != proposal.Id.ToString("N")
+        )
+        {
+            throw new InvalidDataException("Broker order identity did not match the proposal.");
+        }
+
+        cache.Add(id, order);
+        return order;
+    }
+
+    private static bool Collect(
+        JsonElement rows,
+        OrderProposal proposal,
+        string idField,
+        string side,
+        HashSet<string> candidates
+    )
+    {
+        foreach (
+            var row in rows.EnumerateArray()
+                .Where(row =>
+                    row.TryGetProperty("client_id", out var client)
+                    && client.ToString() == proposal.Id.ToString("N")
+                    && row.GetProperty("side").GetString() == side
+                )
+        )
+        {
+            var id = row.GetProperty(idField).ToString();
+            if (string.IsNullOrWhiteSpace(id))
+            {
+                throw new InvalidDataException("Broker candidate identity is invalid.");
+            }
+
+            candidates.Add(id);
+            if (candidates.Count > maximumOrderInfoReads)
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
 
     private async Task<JsonElement> Read(string path, CancellationToken cancellationToken)
     {

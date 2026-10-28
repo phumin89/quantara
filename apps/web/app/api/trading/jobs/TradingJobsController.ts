@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { BoundedBodyReader } from '../../../../shared/api/BoundedBodyReader';
 import { LocalRequestPolicy } from '../../../../shared/api/LocalRequestPolicy';
 
 export class TradingJobsController {
@@ -44,6 +45,10 @@ export class TradingJobsController {
       );
     }
 
+    const signal = AbortSignal.any([
+      request.signal,
+      AbortSignal.timeout(15000),
+    ]);
     let statisticsForm: string | undefined;
     if (statsRead) {
       if (
@@ -57,8 +62,22 @@ export class TradingJobsController {
       }
 
       try {
-        statisticsForm = await TradingJobsController.statisticsBody(request);
+        statisticsForm = await TradingJobsController.statisticsBody(
+          request,
+          signal,
+        );
       } catch (error) {
+        if (signal.aborted) {
+          return NextResponse.json(
+            {
+              error: request.signal.aborted
+                ? 'Statistics request was cancelled.'
+                : 'Statistics request timed out.',
+            },
+            { status: 408 },
+          );
+        }
+
         return NextResponse.json(
           { error: 'Invalid statistics form.' },
           { status: error instanceof RangeError ? 413 : 400 },
@@ -94,7 +113,7 @@ export class TradingJobsController {
               : {}),
           },
           ...(statisticsForm === undefined ? {} : { body: statisticsForm }),
-          signal: AbortSignal.any([request.signal, AbortSignal.timeout(15000)]),
+          signal,
         },
       );
       const location = response.headers.get('location');
@@ -109,36 +128,9 @@ export class TradingJobsController {
         });
       }
 
-      const reader = response.body?.getReader();
-      const chunks: Uint8Array[] = [];
-      let length = 0;
-      try {
-        if (reader) {
-          for (;;) {
-            const chunk = await reader.read();
-            if (chunk.done) {
-              break;
-            }
-
-            length += chunk.value.byteLength;
-            if (length > 2_000_000) {
-              void reader.cancel();
-              throw new Error('Job dashboard response exceeds its limit.');
-            }
-
-            chunks.push(chunk.value);
-          }
-        }
-      } finally {
-        reader?.releaseLock();
-      }
-
-      const body = new Uint8Array(length);
-      let offset = 0;
-      for (const chunk of chunks) {
-        body.set(chunk, offset);
-        offset += chunk.byteLength;
-      }
+      const body = response.body
+        ? await BoundedBodyReader.read(response.body, signal, 2_000_000)
+        : new Uint8Array(0);
 
       return new NextResponse(
         [204, 205, 304].includes(response.status) ? null : body,
@@ -162,41 +154,22 @@ export class TradingJobsController {
     }
   }
 
-  private static async statisticsBody(request: NextRequest): Promise<string> {
+  private static async statisticsBody(
+    request: NextRequest,
+    signal: AbortSignal,
+  ): Promise<string> {
     const length = request.headers.get('content-length');
     if (length !== null && (!/^\d+$/.test(length) || Number(length) > 8192)) {
       throw new RangeError('Statistics form too large.');
     }
 
-    const reader = request.body?.getReader();
-    if (!reader) {
+    const stream = request.body;
+    if (!stream) {
       throw new Error('A statistics form is required.');
     }
 
-    let size = 0;
-    let text = '';
-    const decoder = new TextDecoder('utf-8', { fatal: true });
-    try {
-      for (;;) {
-        const chunk = await reader.read();
-        if (chunk.done) {
-          break;
-        }
-
-        size += chunk.value.byteLength;
-        if (size > 8192) {
-          void reader.cancel();
-          throw new RangeError('Statistics form too large.');
-        }
-
-        text += decoder.decode(chunk.value, { stream: true });
-      }
-
-      text += decoder.decode();
-    } finally {
-      reader.releaseLock();
-    }
-
+    const bytes = await BoundedBodyReader.read(stream, signal, 8192);
+    const text = new TextDecoder('utf-8', { fatal: true }).decode(bytes);
     const form = new URLSearchParams(text);
     const entries = [...form.entries()];
     if (

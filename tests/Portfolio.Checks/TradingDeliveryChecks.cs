@@ -1,4 +1,5 @@
 using Quantara.Portfolio.Application;
+using Quantara.Portfolio.Application.Trading;
 using Quantara.Portfolio.Domain;
 using Quantara.Portfolio.Domain.Trading;
 
@@ -102,6 +103,7 @@ public static class TradingDeliveryChecks
 
         await TradingDeliveryChecks.UnknownSend(state, clock, day);
         await TradingDeliveryChecks.UnknownEdit(state, clock, day);
+        await TradingDeliveryChecks.RecoverReports(state, clock, day);
         await TradingDeliveryChecks.LostClaim(state, clock, day);
         await TradingDeliveryChecks.Alerts(state, clock, day);
         Console.WriteLine(
@@ -170,6 +172,105 @@ public static class TradingDeliveryChecks
                 && notifier.Edits == 1
                 && store.State.Reports.MaxBy(report => report.Revision)?.Status == "unknown",
             "An uncertain correction is not retried when its fingerprint is unchanged."
+        );
+    }
+
+    private static async Task RecoverReports(TradingState state, OrderCheckTime clock, DateTimeOffset day)
+    {
+        clock.Now = day.AddDays(1).AddHours(1);
+        var original = TradingDailyReportBuilder.Build(
+            state.Paper,
+            TradingMode.Paper,
+            "2026-10-16",
+            [],
+            null,
+            clock.Now
+        );
+        foreach (var editing in new[] { false, true })
+        {
+            foreach (var age in new int?[] { null, -1, 0, 120, 121 })
+            {
+                var claim = original with
+                {
+                    Status = editing ? "editing" : "sending",
+                    ClaimedAt = age.HasValue ? clock.Now.AddSeconds(-age.Value) : null,
+                    MessageId = editing ? 42L : null,
+                };
+                var store = new FakeTradingDeliveryStore(state with { Reports = [claim] });
+                var notifier = new FakeTradingNotifier();
+                await new TradingReportDelivery(store, notifier, clock).Tick(CancellationToken.None);
+                var recovered = store.State.Reports.Single();
+                var stale = age is null or > 120;
+                Check(
+                    recovered == claim with { Status = stale ? "unknown" : claim.Status },
+                    "Only expired or missing report claims recover, retaining the exact claim and message identity."
+                );
+                Check(
+                    notifier.Sends == 0 && notifier.Edits == 0,
+                    "Recovery never repeats an uncertain send or unchanged correction."
+                );
+                if (!stale)
+                {
+                    continue;
+                }
+
+                store.State = store.State with
+                {
+                    Paper = store.State.Paper with
+                    {
+                        Fills =
+                        [
+                            new TradingFill(
+                                Guid.NewGuid(),
+                                Guid.NewGuid(),
+                                "late-recovery",
+                                "BTC",
+                                TradeSide.Buy,
+                                0.1m,
+                                1000m,
+                                100m,
+                                0.25m,
+                                day.AddHours(12)
+                            ),
+                        ],
+                    },
+                };
+                await new TradingReportDelivery(store, notifier, clock).Tick(CancellationToken.None);
+                await new TradingReportDelivery(store, notifier, clock).Tick(CancellationToken.None);
+                var correction = store.State.Reports.MaxBy(report => report.Revision);
+                Check(
+                    store.State.Reports.Count == 2
+                        && correction?.Revision == 2
+                        && correction.Fingerprint != original.Fingerprint
+                        && correction.Text.Contains("เงินสด: 899.75", StringComparison.Ordinal),
+                    "Late evidence creates a retained correction after recovery."
+                );
+                Check(
+                    notifier.Sends == 0
+                        && notifier.Edits == (editing ? 1 : 0)
+                        && correction?.Status == (editing ? "sent" : "unknown")
+                        && correction.MessageId == claim.MessageId,
+                    "A changed correction may edit only the known message; an uncertain send never resends."
+                );
+            }
+        }
+
+        var pending = original with { Status = "sending", ClaimedAt = clock.Now.AddMinutes(-3) };
+        var rejected = new FakeTradingDeliveryStore(state with { Reports = [pending] })
+        {
+            RejectSave = candidate => candidate.Reports.Any(report => report.Status == "unknown"),
+        };
+        var rejectedNotifier = new FakeTradingNotifier();
+        await new TradingReportDelivery(rejected, rejectedNotifier, clock).Tick(CancellationToken.None);
+        Check(
+            rejected.State.Reports.Single() == pending && rejectedNotifier.Sends == 0,
+            "Losing recovery persistence preserves the original claim without sending."
+        );
+        rejected.RejectSave = null;
+        await new TradingReportDelivery(rejected, rejectedNotifier, clock).Tick(CancellationToken.None);
+        Check(
+            rejected.State.Reports.Single().Status == "unknown" && rejectedNotifier.Sends == 0,
+            "Recovery can be retried after storage returns without retrying delivery."
         );
     }
 

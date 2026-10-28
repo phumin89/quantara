@@ -26,8 +26,22 @@ public sealed class GetPortfolioHandler(
             var accounting = PortfolioAccountingProjection.Build(ledger, state.Live, now);
             positions = accounting.Positions;
             performance = accounting.Performance;
-            var latestBuy = state
-                .Live.Fills.Where(fill => fill.Side == TradeSide.Buy && fill.Quantity > 0 && fill.GrossThb > 0)
+            var fillGroups = state.Live.Fills.GroupBy(fill => fill.BrokerFillId, StringComparer.Ordinal).ToArray();
+            var conflictingSymbols = fillGroups
+                .Where(group =>
+                    string.IsNullOrWhiteSpace(group.Key)
+                    || group.Any(fill => !TradingLedgerAccounting.SameExecution(group.First(), fill))
+                )
+                .SelectMany(group => group.Select(fill => fill.Symbol))
+                .ToHashSet(StringComparer.Ordinal);
+            var latestBuy = fillGroups
+                .Select(group => group.First())
+                .Where(fill =>
+                    fill.Side == TradeSide.Buy
+                    && fill.Quantity > 0
+                    && fill.GrossThb > 0
+                    && !conflictingSymbols.Contains(fill.Symbol)
+                )
                 .GroupBy(fill => new { fill.Symbol, fill.IntentId })
                 .Select(group => group.OrderByDescending(fill => fill.OccurredAt).ToArray())
                 .OrderByDescending(group => group.Max(fill => fill.OccurredAt))

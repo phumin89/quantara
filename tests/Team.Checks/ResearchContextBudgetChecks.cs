@@ -19,6 +19,8 @@ public static class ResearchContextBudgetChecks
         await RefreshedEvidence(48000, true);
         await RefreshedEvidence(36000, false);
         await RefreshedEvidence(60000, false, false);
+        ReviewerIntradayScopeFallback();
+        await ResearchGoalContextChecks.Run();
         Console.WriteLine(
             "Research context: refreshed evidence and exact role handoffs fit context and wire limits without losing account facts."
         );
@@ -146,6 +148,135 @@ public static class ResearchContextBudgetChecks
         finally
         {
             await coordinator.StopAsync(CancellationToken.None);
+        }
+    }
+
+    private static void ReviewerIntradayScopeFallback()
+    {
+        var now = DateTimeOffset.UtcNow;
+        var task = new ResearchTask(TeamRole.Intraday, new string('d', 64), "policy", now, now.AddMinutes(20));
+        var current = new TeamRun(
+            Guid.NewGuid(),
+            "focused reviewer",
+            TeamRunStatus.Running,
+            now,
+            now,
+            [],
+            null,
+            new string('a', 64),
+            Task: task
+        );
+        var evidenceNode = new JsonObject
+        {
+            ["walletEvidence"] = new JsonObject
+            {
+                ["balances"] = new JsonArray(
+                    new JsonObject
+                    {
+                        ["symbol"] = "THB",
+                        ["quantity"] = 1000,
+                        ["available"] = 1000,
+                    },
+                    new JsonObject
+                    {
+                        ["symbol"] = "WLD",
+                        ["quantity"] = 1,
+                        ["available"] = 1,
+                    }
+                ),
+            },
+            ["positions"] = new JsonArray(new JsonObject { ["symbol"] = "WLD", ["quantity"] = 1 }),
+            ["marketResearch"] = new JsonObject
+            {
+                ["available"] = true,
+                ["scan"] = new JsonObject
+                {
+                    ["symbols"] = new JsonArray(JsonValue.Create("WLD_THB")),
+                    ["last"] = new JsonArray(JsonValue.Create(1)),
+                    ["usable"] = new JsonArray(JsonValue.Create(true)),
+                },
+                ["intraday"] = new JsonObject { ["close"] = 1 },
+                ["nativeExecution"] = new JsonObject
+                {
+                    ["available"] = true,
+                    ["executionAuthority"] = false,
+                    ["source"] = "bitkub-tradingview",
+                },
+                ["historicalCandles"] = new string('h', 22000),
+            },
+            ["history"] = new string('r', 22000),
+            ["tradeHistory"] = new string('t', 12000),
+            ["historyCoverage"] = new string('c', 6000),
+        };
+        var paddingReduction = evidenceNode.ToJsonString(jsonOptions).Length - 59500;
+        evidenceNode["history"] = new string('r', 22000 - paddingReduction);
+        var originalEvidence = evidenceNode.ToJsonString(jsonOptions);
+        Check(originalEvidence.Length == 59500, "Refreshed evidence fits the existing reader budget before wrapping.");
+        IReadOnlyList<(string Role, string Output)> handoff = [("intraday", "ข้อมูลต้นฉบับ \"retained exactly\"")];
+        using var scoped = JsonDocument.Parse(TeamResearchScope.Project(TeamRole.Intraday, originalEvidence));
+        using var result = JsonDocument.Parse(
+            TeamResearchContext.Build("reviewer", "fixture", handoff, originalEvidence, current, [], null)
+        );
+        var root = result.RootElement;
+        var wire = CodexWorker.SerializeRequest("reviewer", "fixture", handoff, root.GetRawText());
+        Check(root.GetRawText().Length <= 60000 && wire.Length <= 100000, "Scoped review retains both hard budgets.");
+        using var wireDocument = JsonDocument.Parse(wire);
+        Check(
+            wireDocument.RootElement.GetProperty("previous")[0].GetProperty("output").GetString() == handoff[0].Output,
+            "Exact specialist handoff survives scoped review."
+        );
+        Check(
+            root.GetProperty("evidenceScope")
+                .GetString()
+                ?.StartsWith("intraday reviewer fallback", StringComparison.Ordinal) == true,
+            "Reviewer fallback explicitly discloses the projected Intraday evidence scope."
+        );
+        Check(
+            JsonNode.DeepEquals(
+                JsonNode.Parse(root.GetProperty("evidence").GetRawText()),
+                JsonNode.Parse(scoped.RootElement.GetRawText())
+            ),
+            "Reviewer fallback evidence exactly matches the Intraday projection."
+        );
+        Check(
+            root.GetProperty("evidence").GetProperty("walletEvidence").GetProperty("balances").GetArrayLength() == 2,
+            "Wallet evidence is retained."
+        );
+        Check(
+            root.GetProperty("evidence").GetProperty("positions")[0].GetProperty("symbol").GetString() == "WLD",
+            "Positions are retained."
+        );
+        Check(
+            root.GetProperty("evidence")
+                .GetProperty("marketResearch")
+                .GetProperty("scan")
+                .GetProperty("symbols")[0]
+                .GetString() == "WLD_THB",
+            "Market scan is retained."
+        );
+        Check(
+            root.GetProperty("evidence")
+                .GetProperty("marketResearch")
+                .GetProperty("intraday")
+                .GetProperty("close")
+                .GetInt32() == 1,
+            "Intraday candles are retained."
+        );
+        Check(
+            !originalEvidence.Contains("evidenceScope", StringComparison.Ordinal),
+            "Original evidence remains unchanged."
+        );
+
+        var legacy = current with { Task = null };
+        try
+        {
+            TeamResearchContext.Build("reviewer", "fixture", [], originalEvidence, legacy, [], null);
+            throw new InvalidOperationException("Legacy reviewer unexpectedly accepted oversized evidence.");
+        }
+        catch (CodexWorkerException error)
+            when (error.Message.Contains("worker_input_too_large", StringComparison.Ordinal))
+        {
+            // Expected: fallback is limited to the focused Intraday Reviewer path.
         }
     }
 

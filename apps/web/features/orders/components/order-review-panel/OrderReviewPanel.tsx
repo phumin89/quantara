@@ -29,6 +29,8 @@ export default class OrderReviewPanel extends Component<
 
   private actionInFlight = false;
 
+  private readInFlight = false;
+
   public override state: OrderReviewPanelState = {
     proposals: [],
     loading: true,
@@ -55,12 +57,22 @@ export default class OrderReviewPanel extends Component<
     return (
       <Paper
         variant="outlined"
-        sx={{ p: { xs: 1.5, sm: 2 }, borderRadius: '8px' }}
+        sx={{
+          p: 'var(--panel-padding)',
+          borderRadius: 'var(--radius-panel)',
+          bgcolor: 'var(--surface-panel)',
+          borderColor: 'var(--border-panel)',
+          boxShadow: 'var(--shadow-panel)',
+        }}
       >
         <Stack spacing={1.25}>
           <Typography
             component="h2"
-            sx={{ fontSize: 16, fontWeight: 700 }}
+            sx={{
+              fontFamily: 'var(--font-display)',
+              fontSize: 20,
+              fontWeight: 850,
+            }}
           >
             Trade proposals
           </Typography>
@@ -83,6 +95,10 @@ export default class OrderReviewPanel extends Component<
   }
 
   private renderProposals(): ReactNode {
+    if (this.state.error && this.state.proposals.length === 0) {
+      return null;
+    }
+
     if (!this.state.proposals.length) {
       return (
         <Typography
@@ -151,7 +167,7 @@ export default class OrderReviewPanel extends Component<
     return (
       <Box
         key={proposal.id}
-        sx={{ borderBottom: '1px solid #e0e0e0', pb: 1.25 }}
+        sx={{ borderBottom: '1px solid var(--border-panel)', pb: 1.25 }}
       >
         <Stack spacing={0.75}>
           <Typography sx={{ fontWeight: 700 }}>
@@ -164,9 +180,26 @@ export default class OrderReviewPanel extends Component<
             variant="caption"
             color="text.secondary"
           >
-            {proposal.side === OrderSide.Sell &&
-              `Approx. proceeds ${this.decimal(proposal.notionalThb)} THB · `}
-            Estimated fee {proposal.estimatedFeeThb} THB · {proposal.reason}
+            {proposal.side === OrderSide.Sell && (
+              <Box
+                component="span"
+                sx={{ display: 'block' }}
+              >
+                Approx. proceeds {this.decimal(proposal.notionalThb)} THB
+              </Box>
+            )}
+            <Box
+              component="span"
+              sx={{ display: 'block' }}
+            >
+              Estimated fee {proposal.estimatedFeeThb} THB
+            </Box>
+            <Box
+              component="span"
+              sx={{ display: 'block' }}
+            >
+              {proposal.reason}
+            </Box>
           </Typography>
           <Typography
             variant="caption"
@@ -186,9 +219,9 @@ export default class OrderReviewPanel extends Component<
                   alignContent: 'center',
                 }}
               >
-                Why this size ·{' '}
+                Why this size:{' '}
                 {(Number(proposal.sizing.allocationFraction) * 100).toFixed(2)}%
-                allocated · estimated downside{' '}
+                allocated, estimated downside{' '}
                 {proposal.sizing.estimatedDownsideThb} THB
               </Typography>
               <Typography
@@ -264,6 +297,11 @@ export default class OrderReviewPanel extends Component<
   }
 
   private async load(): Promise<void> {
+    if (this.readInFlight) {
+      return;
+    }
+
+    this.readInFlight = true;
     const generation = ++this.generation;
     try {
       const response = await this.service().list(this.request.signal);
@@ -286,6 +324,8 @@ export default class OrderReviewPanel extends Component<
           error: 'Unable to load order proposals.',
         });
       }
+    } finally {
+      this.readInFlight = false;
     }
   }
 
@@ -338,6 +378,8 @@ export default class OrderReviewPanel extends Component<
 
     this.actionInFlight = true;
     this.generation += 1;
+    this.request.abort();
+    this.request = new AbortController();
     this.setState({ busyId: id, error: null });
     try {
       let result: OrderView;

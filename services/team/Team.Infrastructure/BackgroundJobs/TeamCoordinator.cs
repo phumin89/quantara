@@ -120,7 +120,9 @@ public sealed class TeamCoordinator : BackgroundService, ITeamCoordinator
                 if (automatic)
                 {
                     var news = await this.ReadNews(cancellationToken);
+                    now = this.time.GetUtcNow();
                     var history = await this.store.RecentResearch(accountKey, now, cancellationToken);
+                    now = this.time.GetUtcNow();
                     var candidates = TeamResearchRouter.Candidates(
                         scope.RootElement,
                         news,
@@ -443,16 +445,27 @@ public sealed class TeamCoordinator : BackgroundService, ITeamCoordinator
                 TeamRunStatus.Running,
                 null,
                 cancellationToken,
-                inputDigest: digest
+                inputDigest: digest,
+                modelAudit: this.worker.ModelSelection(role.ToString().ToLowerInvariant())
             );
-            var report = await this.worker.Report(
-                role.ToString().ToLowerInvariant(),
-                run.Objective,
-                previous,
-                snapshot,
-                cancellationToken
-            );
-            await this.RecordUsage(id, role, report.Usage);
+            ResearchReport report;
+            try
+            {
+                report = await this.worker.Report(
+                    role.ToString().ToLowerInvariant(),
+                    run.Objective,
+                    previous,
+                    snapshot,
+                    cancellationToken
+                );
+            }
+            catch (CodexWorkerException error)
+            {
+                await this.RecordAudit(id, role, error.Usage, error.ModelAudit);
+                throw;
+            }
+
+            await this.RecordAudit(id, role, report.Usage, report.ModelAudit);
             cancellationToken.ThrowIfCancellationRequested();
             if (run.Task is not null)
             {
@@ -474,6 +487,8 @@ public sealed class TeamCoordinator : BackgroundService, ITeamCoordinator
             {
                 ResearchAssessmentValidator.Validate(report.Assessment, run, accountKey, snapshot);
             }
+
+            report = PolicyCandidateValidation.Validate(report, role, run, accountKey, snapshot, this.time.GetUtcNow());
 
             await this.UpdateStep(id, role, TeamRunStatus.Completed, report.Output, cancellationToken, report);
             previous.Add((role.ToString().ToLowerInvariant(), report.Output));
@@ -504,12 +519,30 @@ public sealed class TeamCoordinator : BackgroundService, ITeamCoordinator
                 );
                 if (refreshed.RootElement.GetProperty("accountKey").GetString() != accountKey)
                 {
-                    throw new InvalidOperationException("Account changed while collecting requested market evidence.");
+                    if (run.Task is null)
+                    {
+                        throw new InvalidOperationException(
+                            "Account changed while collecting requested market evidence."
+                        );
+                    }
+
+                    throw new CodexWorkerException("worker_evidence_changed");
                 }
 
-                if (run.Task is not null && ResearchEvidence.PolicyHash(refreshed.RootElement) != run.Task.PolicyHash)
+                if (run.Task is not null)
                 {
-                    throw new CodexWorkerException("worker_evidence_changed");
+                    using var originalEvidence = JsonDocument.Parse(rawEvidence);
+                    if (
+                        this.time.GetUtcNow() >= run.Task.ExpiresAt
+                        || ResearchEvidence.PolicyHash(refreshed.RootElement) != run.Task.PolicyHash
+                        || ResearchEvidence.HoldingsDigest(refreshed.RootElement)
+                            != ResearchEvidence.HoldingsDigest(originalEvidence.RootElement)
+                        || ResearchEvidence.Mode(refreshed.RootElement)
+                            != ResearchEvidence.Mode(originalEvidence.RootElement)
+                    )
+                    {
+                        throw new CodexWorkerException("worker_evidence_changed");
+                    }
                 }
 
                 manualReview =
@@ -547,7 +580,8 @@ public sealed class TeamCoordinator : BackgroundService, ITeamCoordinator
         string? output,
         CancellationToken cancellationToken,
         ResearchReport? report = null,
-        string? inputDigest = null
+        string? inputDigest = null,
+        ResearchModelAudit? modelAudit = null
     )
     {
         await this.gate.WaitAsync(cancellationToken);
@@ -566,6 +600,8 @@ public sealed class TeamCoordinator : BackgroundService, ITeamCoordinator
                 UpdatedAt = this.time.GetUtcNow(),
                 Lesson = role == TeamRole.Reviewer && report is not null ? report.Lesson : current.Lesson,
                 Assessment = role == TeamRole.Reviewer && report is not null ? report.Assessment : current.Assessment,
+                PolicyCandidate =
+                    role == TeamRole.Reviewer && report is not null ? report.PolicyCandidate : current.PolicyCandidate,
                 Decision =
                     role == TeamRole.Reviewer && report is not null
                         ? report.Proposal?.Side switch
@@ -587,6 +623,7 @@ public sealed class TeamCoordinator : BackgroundService, ITeamCoordinator
                                     status == TeamRunStatus.Completed ? this.time.GetUtcNow() : step.CompletedAt,
                                 InputDigest = inputDigest ?? step.InputDigest,
                                 Usage = report?.Usage ?? step.Usage,
+                                ModelAudit = modelAudit ?? step.ModelAudit ?? report?.ModelAudit,
                             }
                             : step
                     )
@@ -601,6 +638,88 @@ public sealed class TeamCoordinator : BackgroundService, ITeamCoordinator
         {
             this.gate.Release();
         }
+    }
+
+    private ResearchReport ValidatePolicyCandidate(
+        ResearchReport report,
+        TeamRole role,
+        TeamRun run,
+        string accountKey,
+        string snapshot
+    )
+    {
+        var candidate = report.PolicyCandidate;
+        if (candidate is null)
+        {
+            return report;
+        }
+
+        using var snapshotDocument = JsonDocument.Parse(snapshot);
+        var evidenceRoot = snapshotDocument.RootElement.TryGetProperty("evidence", out var evidence)
+            ? evidence
+            : snapshotDocument.RootElement;
+        var currentPolicyHash = evidenceRoot.TryGetProperty("policyHash", out var hash) ? hash.GetString() : null;
+        var aiPolicyEnabled =
+            evidenceRoot.TryGetProperty("aiPolicy", out var aiPolicy)
+            && aiPolicy.ValueKind == JsonValueKind.Object
+            && aiPolicy.TryGetProperty("enabled", out var enabled)
+            && enabled.ValueKind == JsonValueKind.True
+            && aiPolicy.TryGetProperty("effectiveRulesHash", out var effectiveHash)
+            && effectiveHash.GetString() == currentPolicyHash;
+        var assessment = report.Assessment;
+        var assessmentEvidence = assessment?.EvidenceIds ?? [];
+        var valid =
+            role == TeamRole.Reviewer
+            && aiPolicyEnabled
+            && assessment is not null
+            && assessment.SchemaVersion == "research-assessment-v1"
+            && assessment.AccountKey == accountKey
+            && assessment.RunId == run.Id
+            && assessment.PolicyHash == currentPolicyHash
+            && candidate.RunId == run.Id
+            && candidate.AccountKey == accountKey
+            && currentPolicyHash is not null
+            && candidate.BaselineRulesHash == currentPolicyHash
+            && candidate.ExpiresAt > candidate.AsOf
+            && candidate.AsOf <= this.time.GetUtcNow()
+            && candidate.ExpiresAt > this.time.GetUtcNow()
+            && candidate.AsOf >= run.CreatedAt
+            && candidate.ExpiresAt <= candidate.AsOf.AddMinutes(30)
+            && candidate.EvidenceIds.Count is >= 1 and <= 16
+            && candidate.EvidenceIds.Distinct(StringComparer.Ordinal).Count() == candidate.EvidenceIds.Count
+            && candidate.EvidenceIds.All(id =>
+                id.Length is > 0 and <= 256 && assessmentEvidence.Contains(id, StringComparer.Ordinal)
+            )
+            && candidate.Parameters.MaxPositions is >= 1 and <= 16
+            && candidate.Parameters.MaxSpreadBps is >= 0 and <= 1000
+            && candidate.Parameters.SlippageBps is >= 0 and <= 1000
+            && candidate.Parameters.TakeProfitBps is > 0 and <= 10000
+            && candidate.Parameters.StopLossBps is > 0 and <= 10000
+            && candidate.Parameters.TrailingStopBps is > 0 and <= 10000
+            && candidate.Parameters.VolumeRatio is >= 1 and <= 10
+            && candidate.Parameters.TimeExitMinutes is >= 1 and <= 1440
+            && candidate.Parameters.CooldownMinutes is >= 0 and <= 1440
+            && candidate.Parameters.OrderLifetimeMinutes is >= 1 and <= 1440
+            && candidate.Parameters.MaximumExposureFraction is > 0 and <= 1
+            && candidate.Parameters.MaximumConcentrationFraction is > 0 and <= 1
+            && candidate.Parameters.RiskToStopFraction is > 0 and <= 1
+            && candidate.Parameters.DailyLossFraction is > 0 and <= 1
+            && candidate.Parameters.AtrMultiplier is >= 1 and <= 10
+            && !string.IsNullOrWhiteSpace(candidate.Reason)
+            && candidate.Reason.Length <= 800;
+
+        if (valid)
+        {
+            return report;
+        }
+
+        return report with
+        {
+            PolicyCandidate = null,
+            Output =
+                report.Output
+                + "\n\nPolicy candidate was rejected: account, evidence, expiry or parameter validation failed.",
+        };
     }
 
     private async Task<string?> ReadNews(CancellationToken cancellationToken)
@@ -625,9 +744,9 @@ public sealed class TeamCoordinator : BackgroundService, ITeamCoordinator
         }
     }
 
-    private async Task RecordUsage(Guid id, TeamRole role, ResearchUsage? usage)
+    private async Task RecordAudit(Guid id, TeamRole role, ResearchUsage? usage, ResearchModelAudit? modelAudit)
     {
-        if (usage is null)
+        if (usage is null && modelAudit is null)
         {
             return;
         }
@@ -642,7 +761,17 @@ public sealed class TeamCoordinator : BackgroundService, ITeamCoordinator
 
             var run = current with
             {
-                Steps = current.Steps.Select(step => step.Role == role ? step with { Usage = usage } : step).ToArray(),
+                Steps = current
+                    .Steps.Select(step =>
+                        step.Role == role
+                            ? step with
+                            {
+                                Usage = usage ?? step.Usage,
+                                ModelAudit = step.ModelAudit ?? modelAudit,
+                            }
+                            : step
+                    )
+                    .ToArray(),
             };
             await this.store.Save(run, CancellationToken.None);
             this.activeRun = run;

@@ -19,18 +19,30 @@ public static class ResearchAssessmentValidator
             || assessment.RunId != current.Id
             || assessment.PolicyHash != ResearchEvidence.PolicyHash(evidence)
             || assessment.AsOf != expected.GetProperty("asOf").GetDateTimeOffset()
-            || assessment.AsOf < current.CreatedAt.AddMinutes(-10)
+        )
+        {
+            throw new CodexWorkerException("worker_response_invalid", WorkerResponseFailure.AssessmentLineage);
+        }
+
+        if (
+            assessment.AsOf < current.CreatedAt.AddMinutes(-10)
             || assessment.AsOf > now.AddSeconds(5)
             || assessment.ExpiresAt <= now
             || assessment.ExpiresAt > current.CreatedAt.AddHours(2)
             || assessment.ExpiresAt > expected.GetProperty("expiresAt").GetDateTimeOffset()
             || assessment.ExpiresAt <= assessment.AsOf
-            || assessment.EvidenceIds.Count is < 1 or > 16
+        )
+        {
+            throw new CodexWorkerException("worker_response_invalid", WorkerResponseFailure.AssessmentLifetime);
+        }
+
+        if (
+            assessment.EvidenceIds.Count is < 1 or > 16
             || assessment.Positions.Count > 64
             || assessment.Opportunities.Count > 16
         )
         {
-            throw new CodexWorkerException("worker_response_invalid");
+            throw new CodexWorkerException("worker_response_invalid", WorkerResponseFailure.AssessmentBounds);
         }
 
         var allowed = ResearchEvidence
@@ -41,35 +53,24 @@ public static class ResearchAssessmentValidator
             || assessment.EvidenceIds.Any(reference => !allowed.Contains(reference))
         )
         {
-            throw new CodexWorkerException("worker_response_invalid");
+            throw new CodexWorkerException("worker_response_invalid", WorkerResponseFailure.EvidenceReferences);
         }
 
         var held = ResearchEvidence.HeldSymbols(evidence).ToHashSet(StringComparer.Ordinal);
 
-        var scanned = new HashSet<string>(StringComparer.Ordinal);
-        if (
-            evidence.TryGetProperty("marketResearch", out var market)
-            && market.TryGetProperty("scan", out var scan)
-            && scan.TryGetProperty("symbols", out var symbols)
-        )
-        {
-            foreach (var symbol in symbols.EnumerateArray())
-            {
-                var name = symbol.GetString();
-                if (name is not null && name.EndsWith("_THB", StringComparison.Ordinal))
-                {
-                    scanned.Add(name[..^4]);
-                }
-            }
-        }
+        var scanned = ResearchEvidence.ScannedSymbols(evidence).ToHashSet(StringComparer.Ordinal);
 
         if (
             !held.SetEquals(assessment.Positions.Select(position => position.Symbol))
             || assessment.Positions.Select(position => position.Symbol).Distinct(StringComparer.Ordinal).Count()
                 != assessment.Positions.Count
-            || assessment.Opportunities.Select(item => item.Symbol).Distinct(StringComparer.Ordinal).Count()
-                != assessment.Opportunities.Count
-            || assessment.Positions.Any(position =>
+        )
+        {
+            throw new CodexWorkerException("worker_response_invalid", WorkerResponseFailure.PositionCoverage);
+        }
+
+        if (
+            assessment.Positions.Any(position =>
                 position.Action is not ("Keep" or "Reduce" or "Exit" or "Review")
                 || !Text(position.Thesis, 800)
                 || !Text(position.Reason, 800)
@@ -79,16 +80,32 @@ public static class ResearchAssessmentValidator
                 || position.MissingFields.Count > 12
                 || position.MissingFields.Any(field => !Text(field, 80))
             )
-            || assessment.Opportunities.Any(item =>
-                !scanned.Contains(item.Symbol)
-                || !Text(item.Reason, 800)
-                || !Text(item.ReconsiderWhen, 800)
-                || item.ReviewAfter <= now
-                || item.ReviewAfter >= assessment.ExpiresAt
-            )
         )
         {
-            throw new CodexWorkerException("worker_response_invalid");
+            throw new CodexWorkerException("worker_response_invalid", WorkerResponseFailure.PositionContent);
+        }
+
+        if (
+            assessment.Opportunities.Select(item => item.Symbol).Distinct(StringComparer.Ordinal).Count()
+            != assessment.Opportunities.Count
+        )
+        {
+            throw new CodexWorkerException("worker_response_invalid", WorkerResponseFailure.OpportunityDuplicate);
+        }
+
+        if (assessment.Opportunities.Any(item => !scanned.Contains(item.Symbol)))
+        {
+            throw new CodexWorkerException("worker_response_invalid", WorkerResponseFailure.OpportunitySymbol);
+        }
+
+        if (assessment.Opportunities.Any(item => !Text(item.Reason, 800) || !Text(item.ReconsiderWhen, 800)))
+        {
+            throw new CodexWorkerException("worker_response_invalid", WorkerResponseFailure.OpportunityText);
+        }
+
+        if (assessment.Opportunities.Any(item => item.ReviewAfter <= now || item.ReviewAfter >= assessment.ExpiresAt))
+        {
+            throw new CodexWorkerException("worker_response_invalid", WorkerResponseFailure.OpportunityReviewTime);
         }
     }
 

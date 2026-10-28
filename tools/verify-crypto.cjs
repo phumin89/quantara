@@ -3,12 +3,24 @@ const fs = require('node:fs/promises');
 const { chromium } = require('playwright');
 
 async function verifyCrypto() {
-  const url = process.env.TEST_URL || 'http://127.0.0.1:3000';
+  const url = process.env.TEST_URL;
+  assert.equal(
+    url,
+    'http://127.0.0.1:3108',
+    'Only the isolated frontend fixture server is allowed.',
+  );
+  assert(
+    process.argv.includes('--fixtures'),
+    'All API requests must use fixtures.',
+  );
   const browser = await chromium.launch({
     headless: true,
     channel: process.env.PLAYWRIGHT_CHANNEL,
   });
   const page = await browser.newPage();
+  const portfolioRetry = page
+    .locator('main button:not(#trading button)')
+    .filter({ hasText: /^Retry$/ });
   const errors = [];
   page.on('pageerror', (error) => errors.push(error.message));
   await fs.mkdir('.impeccable/review', { recursive: true });
@@ -92,9 +104,17 @@ async function verifyCrypto() {
   const readSnapshot = async () =>
     fixture ?? (await page.request.get(`${url}/api/crypto/portfolio`)).json();
   if (fixture) {
-    await page.route('**/api/**', (route) =>
-      route.fulfill({ status: 404, json: { error: 'Unmocked fixture API' } }),
-    );
+    await page.route('**/api/**', (route) => {
+      assert.equal(
+        route.request().method(),
+        'GET',
+        'The browser fixture must never send a command.',
+      );
+      return route.fulfill({
+        status: 404,
+        json: { error: 'Unmocked fixture API' },
+      });
+    });
     await page.route('**/api/crypto/portfolio', fulfillFixture);
     await page.route('**/api/crypto/risk', (route) =>
       route.fulfill({
@@ -148,7 +168,7 @@ async function verifyCrypto() {
       await page
         .getByRole('columnheader', { name: 'Coin', exact: true })
         .waitFor();
-      if (width < 1040) {
+      if (width < 600) {
         const region = page.getByRole('region', {
           name: 'Crypto holdings and trading history',
         });
@@ -172,97 +192,60 @@ async function verifyCrypto() {
       );
       const snapshot = await readSnapshot();
       if (fixture) {
-        await page
-          .getByRole('columnheader', { name: 'Last buy', exact: true })
-          .waitFor();
-        await page
-          .locator('[title="Latest confirmed engine buy; excludes fees"]')
-          .filter({ hasText: '฿90.00' })
-          .waitFor();
-        await page.getByText('19 Oct, 11:20', { exact: true }).waitFor();
+        assert.equal(await page.getByRole('columnheader').count(), 5);
         const verifiedRow = page.getByRole('row').filter({
           has: page.getByRole('button', {
             name: 'View TEST history',
             exact: true,
           }),
         });
-        assert.equal(
+        assert.match(
           await verifiedRow.getByRole('cell').nth(4).textContent(),
-          '฿90.25',
+          /200\.00/,
         );
         assert.equal(
-          await verifiedRow.getByRole('cell').nth(7).textContent(),
-          '+฿19.50',
+          await verifiedRow.getByText('Unknown cost', { exact: true }).count(),
+          0,
         );
-        assert.equal(
-          await verifiedRow.getByRole('cell').nth(8).textContent(),
-          '+฿8.25',
-        );
-        assert.equal(await verifiedRow.getByText('Unknown cost').count(), 0);
-        const legacyRow = page.getByRole('row').filter({
-          has: page.getByRole('button', {
-            name: 'View LEGACY history',
-            exact: true,
-          }),
+        await page
+          .getByRole('button', { name: 'View TEST history', exact: true })
+          .click();
+        const verified = page.getByRole('region', {
+          name: 'TEST engine cost and performance',
+          exact: true,
         });
+        await verified.getByText('19 Oct, 11:20', { exact: true }).waitFor();
+        await verified.getByText(/90\.25/).waitFor();
         assert.equal(
-          await legacyRow.getByText('Unknown cost', { exact: true }).count(),
-          1,
-        );
-        for (const index of [7, 8]) {
-          assert.equal(
-            await legacyRow.getByRole('cell').nth(index).textContent(),
-            '—',
-          );
-        }
-        const lossRow = page.getByRole('row').filter({
-          has: page.getByRole('button', {
-            name: 'View LOSS history',
-            exact: true,
-          }),
-        });
-        assert.equal(
-          await lossRow.getByRole('cell').nth(8).textContent(),
-          '-฿12.34',
-        );
-        assert.equal(
-          await page.getByTestId('engine-realized-pnl').textContent(),
-          '-฿4.09',
-        );
-        assert.equal(
-          await page.getByTestId('engine-unrealized-pnl').textContent(),
-          '—',
-        );
-        assert.equal(
-          await page.getByTestId('engine-total-pnl').textContent(),
-          '—',
-        );
-        assert.equal(
-          await page.getByTestId('engine-fees').textContent(),
-          '฿0.75',
-        );
-        assert.equal(
-          await page.getByText(/Account-wide profit unavailable/).count(),
-          1,
-        );
-        assert.equal(
-          await page
-            .getByText('Isolated test fixture', { exact: true })
-            .count(),
-          1,
-        );
-        assert.equal(await page.getByText(/Cost & P\/L unverified/).count(), 0);
-        assert.equal(
-          await verifiedRow
-            .getByRole('cell')
-            .nth(7)
+          await verified
+            .getByText(/19\.50/)
             .evaluate((element) => getComputedStyle(element).color),
           'rgb(22, 101, 52)',
         );
+        await page
+          .getByRole('button', { name: 'View LEGACY history', exact: true })
+          .click();
+        const legacy = page.getByRole('region', {
+          name: 'LEGACY engine cost and performance',
+          exact: true,
+        });
+        await legacy.getByText('Unknown cost', { exact: true }).waitFor();
+        assert.doesNotMatch(
+          await legacy.innerText(),
+          /0\.00/,
+          'Unknown amounts must not be rendered as zero.',
+        );
+        await page.getByRole('button', { name: 'Closed', exact: true }).click();
+        await page
+          .getByRole('button', { name: 'View LOSS history', exact: true })
+          .click();
+        const loss = page.getByRole('region', {
+          name: 'LOSS engine cost and performance',
+          exact: true,
+        });
         assert.equal(
-          await lossRow
-            .getByRole('cell')
-            .nth(8)
+          await loss
+            .getByText(/12\.34/)
             .evaluate((element) => getComputedStyle(element).color),
           'rgb(153, 27, 27)',
         );
@@ -306,16 +289,18 @@ async function verifyCrypto() {
           .getByRole('button', { name: `View ${symbol} history`, exact: true })
           .click();
         await page
+          .getByRole('region', { name: `${symbol} trade history`, exact: true })
           .getByRole('columnheader', { name: 'Date', exact: true })
           .waitFor();
-        await page.locator('.MuiCollapse-entered').waitFor();
       }
       await page.mouse.move(0, 0);
       await page.evaluate(() => window.scrollTo(0, 0));
-      await page.screenshot({
-        path: `.impeccable/review/crypto-${name}.png`,
-        fullPage: true,
-      });
+      if (process.env.CAPTURE === '1') {
+        await page.screenshot({
+          path: `.impeccable/review/crypto-${name}.png`,
+          fullPage: true,
+        });
+      }
       console.log(
         `${name}: ${fixture ? 'isolated fixtures' : 'real data'}, filters, history and overflow passed`,
       );
@@ -328,10 +313,17 @@ async function verifyCrypto() {
       );
       await page.reload();
       await page
-        .getByText(
-          'Engine performance unavailable. Unknown amounts are not zero.',
-          { exact: true },
-        )
+        .getByRole('columnheader', { name: 'Coin', exact: true })
+        .waitFor();
+      await page
+        .getByRole('button', { name: 'View LEGACY history', exact: true })
+        .click();
+      await page
+        .getByRole('region', {
+          name: 'LEGACY engine cost and performance',
+          exact: true,
+        })
+        .getByText('Unknown cost', { exact: true })
         .waitFor();
       assert.equal(await page.getByTestId('engine-total-pnl').count(), 0);
       await page.unroute('**/api/crypto/portfolio');
@@ -349,7 +341,7 @@ async function verifyCrypto() {
       }),
     );
     await page.reload();
-    await page.getByRole('button', { name: 'Retry', exact: true }).waitFor();
+    await portfolioRetry.waitFor();
     assert.equal(
       await page.getByText('Test: backend unavailable').isVisible(),
       true,
@@ -358,7 +350,7 @@ async function verifyCrypto() {
     if (fixture) {
       await page.route('**/api/crypto/portfolio', fulfillFixture);
     }
-    await page.getByRole('button', { name: 'Retry', exact: true }).click();
+    await portfolioRetry.click();
     await page
       .getByRole('columnheader', { name: 'Coin', exact: true })
       .waitFor();
@@ -369,12 +361,12 @@ async function verifyCrypto() {
     );
     await page.reload();
     const connected = page.getByRole('button', {
-      name: 'Bitkub status: Connected',
+      name: 'Snapshot status: Stale',
       exact: true,
     });
     await connected.click();
     await page.getByRole('tooltip').waitFor();
-    assert.match(await page.getByRole('tooltip').textContent(), /Wallet/);
+    assert.match(await page.getByRole('tooltip').textContent(), /Snapshot/);
     assert.match(await page.getByRole('tooltip').textContent(), /Prices/);
     assert.match(await page.getByRole('tooltip').textContent(), /History/);
     await page.keyboard.press('Escape');
@@ -382,7 +374,7 @@ async function verifyCrypto() {
     badgeSnapshot = { ...saved, syncing: true, error: null };
     await page.reload();
     await page
-      .getByRole('button', { name: 'Bitkub status: Syncing', exact: true })
+      .getByRole('button', { name: 'Snapshot status: Syncing', exact: true })
       .waitFor();
     badgeSnapshot = {
       ...saved,
@@ -391,22 +383,19 @@ async function verifyCrypto() {
     };
     await page.reload();
     await page
-      .getByRole('button', { name: 'Bitkub status: Error', exact: true })
+      .getByRole('button', { name: 'Snapshot status: Error', exact: true })
       .waitFor();
-    await page.getByRole('button', { name: 'Retry', exact: true }).waitFor();
+    await portfolioRetry.waitFor();
     assert.equal(
       await page
         .getByRole('region', { name: 'Portfolio summary', exact: true })
         .isVisible(),
       true,
     );
-    await page.route('**/api/crypto/sync', (route) => {
-      badgeSnapshot = { ...saved, syncing: false, error: null };
-      return route.fulfill({ json: {} });
-    });
-    await page.getByRole('button', { name: 'Retry', exact: true }).click();
+    badgeSnapshot = { ...saved, syncing: false, error: null };
+    await portfolioRetry.click();
     await page
-      .getByRole('button', { name: 'Bitkub status: Connected', exact: true })
+      .getByRole('button', { name: 'Snapshot status: Stale', exact: true })
       .waitFor();
     assert.deepEqual(errors, []);
     if (fixture) {
@@ -450,7 +439,7 @@ async function verifyCrypto() {
       await pollingPage.clock.install();
       await pollingPage.goto(`${url}/crypto`);
       await pollingPage
-        .getByRole('button', { name: 'Bitkub status: Connected', exact: true })
+        .getByRole('button', { name: 'Snapshot status: Stale', exact: true })
         .waitFor();
       assert.equal(portfolioReads, 1);
       holdPoll = true;
@@ -462,7 +451,7 @@ async function verifyCrypto() {
         2,
         'Settled portfolios keep refreshing through GET',
       );
-      await pollingPage.clock.fastForward(45_000);
+      await pollingPage.clock.fastForward(6000);
       assert.equal(
         portfolioReads,
         2,

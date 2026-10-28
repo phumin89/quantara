@@ -96,6 +96,7 @@ public sealed class TradingControl(
                     Mode = mode,
                     EmergencyStopped = false,
                     Mandate = state.Mandate is null ? null : state.Mandate with { RevokedAt = time.GetUtcNow() },
+                    AiPolicy = TradingPolicyAuthority.Revoke(state, time.GetUtcNow()),
                 },
                 cancellationToken
             );
@@ -111,7 +112,8 @@ public sealed class TradingControl(
         string rulesHash,
         DateTimeOffset expiresAt,
         string acknowledgement,
-        CancellationToken cancellationToken
+        CancellationToken cancellationToken,
+        bool aiManaged = false
     )
     {
         await gate.WaitAsync(cancellationToken);
@@ -121,7 +123,7 @@ public sealed class TradingControl(
             var now = time.GetUtcNow();
             if (
                 string.IsNullOrWhiteSpace(options.OwnerToken)
-                || acknowledgement != "enable-auto-trading"
+                || acknowledgement != (aiManaged ? "enable-ai-managed-trading" : "enable-auto-trading")
                 || accountKey != account.AccountKey
                 || rulesHash != state.RulesHash
                 || rulesHash != TradingRuleHash.Compute(state.Rules)
@@ -135,9 +137,14 @@ public sealed class TradingControl(
                 throw new ArgumentException("Choose an expiry within the next 30 days.");
             }
 
+            if (aiManaged && state.Rules.Version != "adaptive-intraday-v2")
+            {
+                throw new ArgumentException("AI-managed strategy requires adaptive-intraday-v2.");
+            }
+
             if (TradingAuthority.Valid(state, accountKey, now))
             {
-                if (state.Mandate?.ExpiresAt == expiresAt)
+                if (state.Mandate?.ExpiresAt == expiresAt && aiManaged == (state.AiPolicy is not null))
                 {
                     return state;
                 }
@@ -146,6 +153,13 @@ public sealed class TradingControl(
             }
 
             state.Rules.Validate();
+            if (TradingCashBaselineAccounting.CashUnknown(state.Live))
+            {
+                throw new ArgumentException(
+                    "Review current broker cash or verified sale settlement after retiring external inventory. Capital was not reset."
+                );
+            }
+
             if (state.Rules.ExitPolicy is not null && !options.AdaptiveExitLiveAvailable)
             {
                 throw new ArgumentException(
@@ -172,7 +186,7 @@ public sealed class TradingControl(
 
             if (state.Rules.Adaptive is not null)
             {
-                return await this.ActivateAdaptive(state, expiresAt, cancellationToken);
+                return await this.ActivateAdaptive(state, expiresAt, aiManaged, cancellationToken);
             }
 
             var books = await markets.Read(state.Rules.Symbols, cancellationToken);
@@ -260,6 +274,7 @@ public sealed class TradingControl(
                     Fault = null,
                     Live = live,
                     Mandate = new TradingMandate(Guid.NewGuid(), accountKey, rulesHash, now, expiresAt, null),
+                    AiPolicy = null,
                 },
                 cancellationToken
             );
@@ -273,6 +288,7 @@ public sealed class TradingControl(
     private async Task<TradingState> ActivateAdaptive(
         TradingState state,
         DateTimeOffset expiresAt,
+        bool aiManaged,
         CancellationToken cancellationToken
     )
     {
@@ -319,6 +335,13 @@ public sealed class TradingControl(
         }
 
         var cash = capital.Evidence.Balances.Single(balance => balance.Symbol == "THB").Quantity;
+        if ((state.Live.FundingThb != 0m || state.Live.CashBaselines.Count != 0) && cash != state.Live.CashThb)
+        {
+            throw new ArgumentException(
+                "Current broker cash differs from the retained ledger. Review cash reconciliation before activation; funding was not reset."
+            );
+        }
+
         var difference = cash - state.Live.CashThb;
         var live = state.Live with
         {
@@ -327,6 +350,7 @@ public sealed class TradingControl(
             OpenedAt = state.Live.FundingThb == 0 ? now : state.Live.OpenedAt,
         };
         var eligible = universe.Symbols.Except(policy.ExcludedSymbols, StringComparer.Ordinal).Count();
+        var mandate = new TradingMandate(Guid.NewGuid(), account.AccountKey, state.RulesHash, now, expiresAt, null);
         return await this.Save(
             state,
             state with
@@ -335,8 +359,21 @@ public sealed class TradingControl(
                 EmergencyStopped = false,
                 Fault = null,
                 Live = live,
-                Mandate = new TradingMandate(Guid.NewGuid(), account.AccountKey, state.RulesHash, now, expiresAt, null),
-                ObservedFundingFlows = capital.Evidence.CashFlows.Select(flow => flow.Id).ToArray(),
+                Mandate = mandate,
+                AiPolicy = aiManaged
+                    ? new TradingPolicyAuthorization(
+                        mandate.Id,
+                        account.AccountKey,
+                        state.RulesHash,
+                        state.RulesHash,
+                        now,
+                        expiresAt
+                    )
+                    : null,
+                ObservedFundingFlows =
+                    state.Live.CashBaselines.Count == 0
+                        ? capital.Evidence.CashFlows.Select(flow => flow.Id).ToArray()
+                        : state.ObservedFundingFlows,
                 Autonomy = new(
                     now,
                     universe.ObservedAt,
@@ -364,6 +401,7 @@ public sealed class TradingControl(
                 Mode = TradingMode.Stopped,
                 EmergencyStopped = emergency,
                 Mandate = state.Mandate is null ? null : state.Mandate with { RevokedAt = now },
+                AiPolicy = TradingPolicyAuthority.Revoke(state, now),
             };
             if (emergency)
             {
@@ -445,6 +483,7 @@ public sealed class TradingControl(
                         ? Resize(state.Live, rules.AllocatedThb, now)
                         : state.Live,
                 Autonomy = null,
+                AiPolicy = TradingPolicyAuthority.Revoke(state, now),
             },
             cancellationToken
         );

@@ -7,6 +7,12 @@ permissions:
 jobs:
   checks:
     runs-on: windows-latest
+    env:
+      TEST_URL: http://127.0.0.1:3108
+      WALLET_CAPTURE_DIR: .impeccable/review/wallet-source
+      SIDEBAR_CAPTURE_DIR: .impeccable/review/team-sidebar
+      READABLE_CAPTURE_DIR: .impeccable/review/readable-team
+      RECONCILIATION_CAPTURE_DIR: .impeccable/review/reconciliation
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
@@ -34,7 +40,21 @@ jobs:
       - run: node tools/verify-editor-rules.cjs
       - run: npm run test:docs
       - run: npm run test:jobs
+      - run: npm run test:control-body
+      - run: node tools/verify-crypto-proxy.cjs
       - run: npm run test:team-fixtures
+      - run: node tools/verify-worker-response-diagnostics.mjs
+      - run: node tools/verify-model-policy.mjs
+      - run: node tools/verify-assessment-contract.mjs
+      - run: node tools/verify-reconciliation-web.cjs
+      - run: node tools/verify-wallet-source-separation.cjs
+      - run: node tools/verify-report-structure.cjs
+      - run: node tools/verify-date-only.cjs
+      - run: npm run test:brief-selection
+      - run: npm run test:brief-context
+      - run: node tools/verify-company-recovery.cjs
+      - run: npm run test:dashboard
+      - run: npm run test:dashboard-provenance
       - run: dotnet run --no-build --project tests/Portfolio.Checks/Portfolio.Checks.csproj
       - run: dotnet run --no-build --project tests/Portfolio.Api.Checks/Portfolio.Api.Checks.csproj
       - run: node tools/verify-trading-ui.cjs
@@ -43,21 +63,54 @@ jobs:
       - run: dotnet run --no-build --project tests/Team.Checks/Team.Checks.csproj
       - run: npm audit --audit-level=high
       - run: npx playwright install chromium
+      - run: npm run test:first-paint
+      - run: npm run test:playful-design
+      - run: npm run test:crypto-history
+      - run: npm run test:trading-money
+      - run: npm run test:trading-forms
+        env:
+          TRADING_FORM_CAPTURE_DIR: .impeccable/review/trading-forms
+      - run: npm run test:trading-entry
+        env:
+          TRADING_ENTRY_CAPTURE_DIR: .impeccable/review/trading-entry
+      - run: npm run test:brief-usability
+      - run: npm run test:dashboard-usability
       - name: Start isolated frontend
         shell: pwsh
         run: |
-          Start-Process -FilePath "node" -ArgumentList @("../../node_modules/next/dist/bin/next", "start", "--hostname", "127.0.0.1") -WorkingDirectory apps/web -WindowStyle Hidden
+          Start-Process -FilePath "node" -ArgumentList @("tools/fixtures/browser-server.mjs", "3108") -WorkingDirectory $pwd -WindowStyle Hidden
           $taskReady = $false
           for ($taskAttempt = 0; $taskAttempt -lt 30; $taskAttempt++) {
             try {
-              Invoke-WebRequest http://127.0.0.1:3000/ -ErrorAction Stop | Out-Null
+              Invoke-WebRequest http://127.0.0.1:3108/__fixture_health -ErrorAction Stop | Out-Null
               $taskReady = $true
               break
             } catch { Start-Sleep -Seconds 1 }
           }
           if (!$taskReady) { throw "Frontend did not start." }
+      - run: node tools/verify-fixture-server.mjs
+      - run: npm run test:office-bridge
+      - run: npm run test:home
+      - run: npm run test:office-camera
+        env:
+          OFFICE_CAPTURE_DIR: .impeccable/review/office-camera
       - run: npm run test:ui
       - run: npm run test:crypto -- --fixtures
+      - run: node tools/verify-crypto-refresh.cjs
+      - run: node tools/verify-snapshot-tooltip.cjs
+      - run: node tools/verify-portfolio-recovery.cjs
+      - run: node tools/verify-company-recovery-ui.cjs
+      - run: node tools/verify-workspace.cjs
+      - run: node tools/verify-dashboard-live-ledger.cjs
+      - run: node tools/verify-report-reader.cjs
+      - run: node tools/verify-team-sidebar.cjs
+      - run: node tools/verify-readable-team-ui.cjs
+      - run: node tools/verify-wallet-source-ui.cjs
+      - run: node tools/verify-reconciliation-ui.cjs
+      - run: node tools/verify-balance-recovery-ui.cjs
+      - run: node tools/verify-reconciliation-recovery.cjs
+        env:
+          RECONCILIATION_CAPTURE_DIR: .impeccable/review/reconciliation-recovery
       - run: npm run test:contracts
       - run: npm run test:lifecycle
       - run: npm run test:team-ui

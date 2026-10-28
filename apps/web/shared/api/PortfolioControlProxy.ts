@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
+import { BoundedBodyReader } from './BoundedBodyReader';
 import { LocalRequestPolicy } from './LocalRequestPolicy';
+import { JsonResponse } from './JsonResponse';
 
 export class PortfolioControlProxy {
   public static async forward(
@@ -16,10 +18,14 @@ export class PortfolioControlProxy {
       );
     }
 
+    const signal = AbortSignal.any([
+      request.signal,
+      AbortSignal.timeout(timeoutMs),
+    ]);
     const init: RequestInit = {
       method: schema ? 'POST' : 'GET',
       cache: 'no-store',
-      signal: AbortSignal.any([request.signal, AbortSignal.timeout(timeoutMs)]),
+      signal,
     };
     if (schema) {
       const token = process.env.QUANTARA_TRADING_CONTROL_TOKEN;
@@ -48,43 +54,16 @@ export class PortfolioControlProxy {
       }
 
       // Bound streamed bodies as well as the optional Content-Length header.
-      const reader = request.body?.getReader();
-      if (!reader) {
+      const stream = request.body;
+      if (!stream) {
         return NextResponse.json(
           { error: 'A JSON body is required.' },
           { status: 400 },
         );
       }
 
-      const chunks: Uint8Array[] = [];
-      let size = 0;
       try {
-        for (;;) {
-          const chunk = await reader.read();
-          if (chunk.done) {
-            break;
-          }
-
-          size += chunk.value.byteLength;
-          if (size > 8192) {
-            void reader.cancel();
-
-            return NextResponse.json(
-              { error: 'Request too large.' },
-              { status: 413 },
-            );
-          }
-
-          chunks.push(chunk.value);
-        }
-
-        const bytes = new Uint8Array(size);
-        let offset = 0;
-        for (const chunk of chunks) {
-          bytes.set(chunk, offset);
-          offset += chunk.byteLength;
-        }
-
+        const bytes = await BoundedBodyReader.read(stream, signal, 8192);
         const body: unknown = JSON.parse(
           new TextDecoder('utf-8', { fatal: true }).decode(bytes),
         );
@@ -101,13 +80,29 @@ export class PortfolioControlProxy {
           'X-Quantara-Trading-Control': token,
         };
         init.body = JSON.stringify(parsed.data);
-      } catch {
+      } catch (error) {
+        if (error instanceof RangeError) {
+          return NextResponse.json(
+            { error: 'Request too large.' },
+            { status: 413 },
+          );
+        }
+
+        if (signal.aborted) {
+          return NextResponse.json(
+            {
+              error: request.signal.aborted
+                ? 'Trading control request was cancelled.'
+                : 'Trading control request timed out.',
+            },
+            { status: 408 },
+          );
+        }
+
         return NextResponse.json(
           { error: 'Invalid JSON trading control request.' },
           { status: 400 },
         );
-      } finally {
-        reader.releaseLock();
       }
     }
 
@@ -126,7 +121,11 @@ export class PortfolioControlProxy {
       });
     } catch {
       return NextResponse.json(
-        { error: 'Trading service is unavailable.' },
+        {
+          error: schema
+            ? JsonResponse.uncertainWrite
+            : 'Trading service is unavailable. Refresh to try again.',
+        },
         { status: 503 },
       );
     }

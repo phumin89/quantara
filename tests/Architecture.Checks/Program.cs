@@ -22,6 +22,7 @@ var writePorts = new HashSet<string>(StringComparer.Ordinal)
     "ITeamRunStore",
     "ICompanyScheduleStore",
     "ICompanyLoop",
+    "ICompanyCapitalEvidenceStore",
     "IIntradayCandleStore",
     "IMarketEventBus",
     "IPortfolioSync",

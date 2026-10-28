@@ -1,5 +1,7 @@
+using System.Globalization;
 using System.Text.Json;
 using Quantara.Portfolio.Application;
+using Quantara.Portfolio.Domain;
 using Quantara.Portfolio.Domain.Trading;
 using Quantara.Portfolio.Infrastructure;
 
@@ -73,8 +75,13 @@ public sealed class TradingProjectionChecks(TradingState state) : IReadOnlyTradi
                         0,
                         current.RulesHash,
                         "fixture",
-                        "submitted"
-                    ),
+                        "submitted",
+                        CancellationState: "unknown",
+                        LastInspectedAt: now
+                    )
+                    {
+                        LastInspectionError = "Broker inspection unavailable; no order was resent.",
+                    },
                 ],
             },
             Autonomy = new(
@@ -89,6 +96,73 @@ public sealed class TradingProjectionChecks(TradingState state) : IReadOnlyTradi
             ),
         };
         using var managedView = JsonDocument.Parse(projection.Serialize(managed));
+        var midnight = new DateTimeOffset(now.ToOffset(TimeSpan.FromHours(7)).Date, TimeSpan.FromHours(7));
+        var retired = new TradingHolding("ETH", 10, 1000, now.AddDays(-2), 112);
+        var lot = new ManualSaleLot(
+            account.AccountKey,
+            "ETH:" + retired.OpenedAt.UtcTicks.ToString(CultureInfo.InvariantCulture),
+            "ETH",
+            retired.OpenedAt,
+            10,
+            1000
+        );
+        foreach (var soldAt in new[] { midnight.AddTicks(-1), midnight, now })
+        {
+            var execution = new ManualSaleExecution(
+                account.AccountKey,
+                "external-fill",
+                "external-order",
+                "ETH",
+                TradeSide.Sell,
+                10,
+                soldAt,
+                now,
+                "verified external fixture"
+            );
+            using var sold = JsonDocument.Parse(
+                projection.Serialize(
+                    managed with
+                    {
+                        Live = managed.Live with
+                        {
+                            Positions = [],
+                            Orders = [],
+                            ExternalSales =
+                            [
+                                new(
+                                    retired,
+                                    new(lot, execution, 10),
+                                    new("ETH", 0, 0),
+                                    now,
+                                    now,
+                                    new string('a', 64),
+                                    null
+                                ),
+                            ],
+                        },
+                    }
+                )
+            );
+            var autonomy = sold.RootElement.GetProperty("autonomy");
+            var todayNet = autonomy.GetProperty("realizedNetTodayThb");
+            var funnelNet = autonomy.GetProperty("funnel").GetProperty("netThb");
+            Check(
+                soldAt >= midnight
+                    ? todayNet.ValueKind == JsonValueKind.Null && funnelNet.ValueKind == JsonValueKind.Null
+                    : todayNet.GetString() == "0" && funnelNet.GetString() == "0",
+                "Both daily net views preserve current Bangkok-day external-sale uncertainty and release it only the next day."
+            );
+        }
+
+        var managedOrder = managedView.RootElement.GetProperty("live").GetProperty("orders")[0];
+        Check(
+            managedOrder.GetProperty("cancellationState").GetString() == "unknown"
+                && managedOrder.GetProperty("lastInspectedAt").GetDateTimeOffset() == now
+                && managedOrder.GetProperty("lastInspectionError").GetString()
+                    == "Broker inspection unavailable; no order was resent."
+                && managedOrder.GetProperty("reason").GetString() == "fixture",
+            "Overview exposes the actual inspection timestamp and cancellation uncertainty independently of the decision reason."
+        );
         var managedPosition = managedView.RootElement.GetProperty("live").GetProperty("positions")[0];
         Check(
             managedPosition.GetProperty("stopPrice").GetString() == "95"

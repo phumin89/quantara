@@ -2,10 +2,14 @@ import { ConnectionState } from '../contracts/ConnectionState';
 import type { ConnectionStateAppearance } from './ConnectionStateAppearance';
 
 export class ConnectionStatusPresenter {
+  public static readonly maximumSourceAgeMs = 120000;
+
   public constructor(
     private readonly error: string | null,
     private readonly syncing: boolean,
     private readonly updatedAt: string | null,
+    private readonly now: number = Date.now(),
+    private readonly loaded: boolean = false,
   ) {}
 
   public get state(): ConnectionState {
@@ -17,11 +21,20 @@ export class ConnectionStatusPresenter {
       return ConnectionState.Syncing;
     }
 
-    if (this.updatedAt) {
-      return ConnectionState.Connected;
+    if (this.updatedAt === null) {
+      return this.loaded
+        ? ConnectionState.Unavailable
+        : ConnectionState.Checking;
     }
 
-    return ConnectionState.Checking;
+    const at = Date.parse(this.updatedAt);
+    if (!Number.isFinite(at) || at - this.now > 30000) {
+      return ConnectionState.Unavailable;
+    }
+
+    return this.now - at > ConnectionStatusPresenter.maximumSourceAgeMs
+      ? ConnectionState.Stale
+      : ConnectionState.Connected;
   }
 
   public get appearance(): ConnectionStateAppearance {
@@ -29,13 +42,36 @@ export class ConnectionStatusPresenter {
 
     switch (label) {
       case ConnectionState.Error:
-        return { label, color: '#dc2626', background: '#fef2f2' };
+        return {
+          label,
+          color: 'var(--color-error)',
+          background: 'var(--surface-error)',
+        };
       case ConnectionState.Syncing:
-        return { label, color: '#b45309', background: '#fffbeb' };
+        return {
+          label,
+          color: 'var(--color-warning)',
+          background: 'var(--surface-warning)',
+        };
       case ConnectionState.Connected:
-        return { label, color: '#15803d', background: '#f0fdf4' };
+        return {
+          label,
+          color: 'var(--color-success)',
+          background: 'var(--surface-success)',
+        };
       case ConnectionState.Checking:
-        return { label, color: '#525252', background: '#f3f3f3' };
+        return {
+          label,
+          color: 'var(--color-muted)',
+          background: 'var(--surface-soft)',
+        };
+      case ConnectionState.Stale:
+      case ConnectionState.Unavailable:
+        return {
+          label,
+          color: 'var(--color-warning)',
+          background: 'var(--surface-warning)',
+        };
     }
   }
 }

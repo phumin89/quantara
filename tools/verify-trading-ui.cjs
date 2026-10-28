@@ -1,16 +1,22 @@
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const ts = require('typescript');
+const React = require('react');
+const { renderToStaticMarkup } = require('react-dom/server');
 
-require.extensions['.ts'] = (module, filename) => {
+const transpileTypeScript = (module, filename) => {
   const output = ts.transpileModule(fs.readFileSync(filename, 'utf8'), {
     compilerOptions: {
       module: ts.ModuleKind.CommonJS,
       target: ts.ScriptTarget.ES2022,
+      jsx: ts.JsxEmit.ReactJSX,
+      esModuleInterop: true,
     },
   });
   module._compile(output.outputText, filename);
 };
+require.extensions['.ts'] = transpileTypeScript;
+require.extensions['.tsx'] = transpileTypeScript;
 const { NextRequest } = require('next/server');
 const {
   TradingController,
@@ -33,6 +39,264 @@ const {
 const {
   riskPolicySchema,
 } = require('../apps/web/features/crypto/contracts/RiskPolicy.ts');
+const {
+  default: TradingPanel,
+} = require('../apps/web/features/trading/components/trading-panel/TradingPanel.tsx');
+const {
+  default: TradingControls,
+} = require('../apps/web/features/trading/components/trading-controls/TradingControls.tsx');
+const {
+  default: TradingAutonomyView,
+} = require('../apps/web/features/trading/components/trading-autonomy-view/TradingAutonomyView.tsx');
+const {
+  default: TradingBookView,
+} = require('../apps/web/features/trading/components/trading-book-view/TradingBookView.tsx');
+
+function verifyObjectivePresentation() {
+  const autonomy = {
+    activity: 'Fixture monitoring',
+    eligibleMarkets: 1,
+    totalMarkets: 1,
+    capital: null,
+    evaluation: null,
+    readiness: null,
+    funnel: null,
+    opportunityReview: null,
+    candidates: [],
+  };
+  const withoutObjective = renderToStaticMarkup(
+    React.createElement(TradingAutonomyView, {
+      overview: { ...overview, autonomy, objective: undefined },
+    }),
+  );
+  assert.match(withoutObjective, /Target unavailable/);
+  assert.match(
+    withoutObjective,
+    /This snapshot does not include an account target/,
+  );
+  assert.doesNotMatch(withoutObjective, /10,000|31 Oct 2026/);
+
+  const withObjective = renderToStaticMarkup(
+    React.createElement(TradingAutonomyView, {
+      overview: {
+        ...overview,
+        autonomy,
+        objective: {
+          id: 'fixture-objective',
+          targetThb: 23456,
+          deadlineExclusive: '2026-12-11T05:30:00Z',
+          includesDeposits: true,
+          timeZone: 'Asia/Bangkok',
+          observedAt: '2026-10-25T05:00:00Z',
+          portfolioValueThb: null,
+          remainingThb: null,
+          depositsThb: null,
+          tradingPnlThb: null,
+          valuationStatus: 'unknown',
+          reason: 'Fixture valuation unavailable.',
+        },
+      },
+    }),
+  );
+  assert.match(withObjective, /Portfolio target ฿23,456/);
+  assert.match(withObjective, /Before 11\/12\/2026, 12:30:00 Bangkok/);
+  assert.match(withObjective, /Includes deposits/);
+  assert.match(withObjective, /Unknown/);
+  assert.match(withObjective, /Fixture valuation unavailable/);
+  assert.match(withObjective, /Valued 25\/10\/2026, 12:00:00 Bangkok/);
+}
+
+function verifyTradingBookPresentation() {
+  const adaptiveRules = {
+    ...rules,
+    version: 'adaptive-intraday-v2',
+    adaptive: {
+      excludedSymbols: [],
+      risk: {
+        maximumExposureFraction: 0.5,
+        maximumConcentrationFraction: 0.5,
+        riskToStopFraction: 0.01,
+      },
+      dailyLossFraction: 0.05,
+    },
+  };
+  const paperBook = {
+    cashThb: '700',
+    equityThb: '800',
+    realizedGrossThb: null,
+    realizedNetThb: null,
+    feesThb: '0',
+    unrealizedThb: null,
+    positions: [
+      {
+        symbol: 'DOGE',
+        quantity: '50',
+        costThb: '100',
+        openedAt: '2026-10-16T03:00:00Z',
+        exitPlan: null,
+      },
+    ],
+    orders: [],
+  };
+  const base = {
+    ...overview,
+    mode: 'paper',
+    rules: adaptiveRules,
+    paper: paperBook,
+    live: paperBook,
+    autonomy: {
+      capital: {
+        availableThb: '9000',
+        equityThb: '9100',
+        exposureThb: '100',
+      },
+      realizedNetTodayThb: '12.5',
+    },
+  };
+  const paperMarkup = renderToStaticMarkup(
+    React.createElement(TradingBookView, { overview: base }),
+  );
+  assert.match(paperMarkup, /Simulated cash/);
+  assert.match(paperMarkup, /฿700/);
+  assert.match(paperMarkup, /Simulated cost/);
+  assert.match(paperMarkup, /Simulated net today/);
+  assert.match(paperMarkup, /Equity ฿800/);
+  assert.doesNotMatch(paperMarkup, /฿9,000|฿9,100/);
+  assert.match(paperMarkup, /Ledger details[^]*?1 lot</);
+  const fixedExact = renderToStaticMarkup(
+    React.createElement(TradingBookView, {
+      overview: {
+        ...base,
+        mode: 'stopped',
+        rules,
+        live: {
+          ...paperBook,
+          cashThb: '1.0049999999999999999999999999',
+          positions: [
+            { ...paperBook.positions[0], costThb: '9007199254740993' },
+            { ...paperBook.positions[0], symbol: 'BTC', costThb: '0.005' },
+          ],
+        },
+      },
+    }),
+  ).replace(/<style[^>]*>[^]*?<\/style>/g, '');
+  assert.match(fixedExact, /Ledger cash<\/dt><dd[^>]*>฿1<\/dd>/);
+  assert.match(
+    fixedExact,
+    /Ledger cost<\/dt><dd[^>]*>฿9,007,199,254,740,993\.01<\/dd>/,
+  );
+  assert.match(fixedExact, /Ledger details[^]*?2 lots</);
+  const emptyBook = renderToStaticMarkup(
+    React.createElement(TradingBookView, {
+      overview: { ...base, paper: { ...paperBook, positions: [] } },
+    }),
+  );
+  assert.match(emptyBook, /Ledger details[^]*?0 lots</);
+  const unknownPaper = renderToStaticMarkup(
+    React.createElement(TradingBookView, {
+      overview: {
+        ...base,
+        paper: { ...paperBook, equityThb: null },
+        autonomy: { ...base.autonomy, realizedNetTodayThb: null },
+      },
+    }),
+  );
+  assert.match(unknownPaper, /Equity Unknown/);
+  assert.doesNotMatch(unknownPaper, /฿9,100|฿12.5/);
+  const paperSystem = renderToStaticMarkup(
+    React.createElement(TradingAutonomyView, {
+      overview: {
+        ...base,
+        autonomy: { ...base.autonomy, candidates: [], nextCheckAt: null },
+      },
+    }),
+  );
+  assert.match(paperSystem, /Simulated equity ฿800/);
+  assert.doesNotMatch(paperSystem, /฿9,100/);
+
+  for (const status of [
+    'submitted',
+    'partial',
+    'filled',
+    'cancelled',
+    'rejected',
+    'expired',
+  ]) {
+    for (const cancellationState of ['unknown', 'claimed']) {
+      const order = {
+        id: `terminal-${status}-${cancellationState}`,
+        symbol: 'DOGE',
+        side: 'buy',
+        amount: '100',
+        limitPrice: '2',
+        remaining: '0',
+        status,
+        createdAt: '2026-10-16T03:00:00Z',
+        brokerOrderId: 'broker-terminal',
+        reason: 'Fixture terminal order',
+        cancellationState,
+        lastInspectedAt: '2026-10-16T03:59:30Z',
+        lastInspectionError: null,
+      };
+      const markup = renderToStaticMarkup(
+        React.createElement(TradingBookView, {
+          overview: {
+            ...base,
+            mode: 'stopped',
+            live: { ...paperBook, orders: [order] },
+          },
+        }),
+      );
+      assert.match(markup, /Active orders \(1\)/);
+      assert.match(markup, /Cancellation unconfirmed/);
+
+      const paperMarkupWithLiveOrder = renderToStaticMarkup(
+        React.createElement(TradingBookView, {
+          overview: {
+            ...base,
+            mode: 'paper',
+            live: { ...paperBook, orders: [order] },
+          },
+        }),
+      );
+      assert.match(
+        paperMarkupWithLiveOrder,
+        /Live orders needing review \(1\)/,
+      );
+      assert.match(paperMarkupWithLiveOrder, /Cancellation unconfirmed/);
+    }
+  }
+
+  const confirmed = renderToStaticMarkup(
+    React.createElement(TradingBookView, {
+      overview: {
+        ...base,
+        mode: 'stopped',
+        live: {
+          ...paperBook,
+          orders: [
+            {
+              id: 'confirmed-terminal',
+              symbol: 'DOGE',
+              side: 'buy',
+              amount: '100',
+              limitPrice: '2',
+              remaining: '0',
+              status: 'filled',
+              createdAt: '2026-10-16T03:00:00Z',
+              brokerOrderId: 'broker-terminal',
+              reason: 'Fixture terminal order',
+              cancellationState: null,
+              lastInspectedAt: '2026-10-16T03:59:30Z',
+              lastInspectionError: null,
+            },
+          ],
+        },
+      },
+    }),
+  );
+  assert.match(confirmed, /Active orders \(0\)/);
+}
 
 const rules = {
   version: 'ema20-50-breakout-v1',
@@ -128,7 +392,296 @@ const overview = {
   ],
 };
 
+async function verifyActionRecovery() {
+  const savedWindow = global.window;
+  global.window = {
+    setTimeout: () => 1,
+    clearTimeout: () => undefined,
+  };
+  const panel = new TradingPanel({ date: '2026-10-23' });
+  panel.mounted = true;
+  panel.setState = (next) => {
+    const update = typeof next === 'function' ? next(panel.state) : next;
+    panel.state = { ...panel.state, ...update };
+  };
+  panel.state = {
+    ...panel.state,
+    overview: { ...overview, mode: 'autoLive' },
+  };
+  let commandCalls = 0;
+  let statusCalls = 0;
+  let releaseStatus;
+  const statusPending = new Promise((resolve) => {
+    releaseStatus = resolve;
+  });
+  const service = {
+    get: async () => {
+      statusCalls += 1;
+      return await statusPending;
+    },
+  };
+  panel.context = service;
+  const run = panel.run.bind(panel);
+  const receive = panel.receive.bind(panel);
+  const rejected = run(async () => {
+    commandCalls += 1;
+    throw new Error('Fixture activation refused.');
+  });
+  await Promise.resolve();
+  assert.equal(commandCalls, 1);
+  assert.equal(statusCalls, 1);
+  assert.equal(
+    await run(async () => {
+      commandCalls += 1;
+    }),
+    null,
+  );
+  assert.equal(commandCalls, 1);
+  assert.equal(panel.state.error, 'Trading status is being revalidated.');
+  assert.equal(panel.state.overview.mode, 'autoLive');
+  releaseStatus({ ...overview, mode: 'stopped' });
+  await rejected;
+  assert.equal(commandCalls, 1);
+  assert.equal(panel.state.overview.mode, 'stopped');
+  assert.equal(panel.state.actionError, 'Fixture activation refused.');
+  assert.equal(panel.state.error, null);
+  assert.equal(panel.state.busy, false);
+  service.get = async () => {
+    statusCalls += 1;
+    throw new Error('Fixture status unavailable.');
+  };
+  await run(async () => {
+    commandCalls += 1;
+    throw new Error('Uncertain fixture request.');
+  });
+  assert.equal(statusCalls, 2);
+  assert.equal(commandCalls, 2);
+  assert.equal(panel.state.error, 'Fixture status unavailable.');
+  assert.equal(panel.state.actionError, 'Uncertain fixture request.');
+  receive({ ...overview, accountKey: 'other-fixture-account' });
+  assert.equal(panel.state.actionError, null);
+  panel.setState({ actionError: 'Old policy failure.' });
+  receive({ ...panel.state.overview, rulesHash: 'other-rules' });
+  assert.equal(panel.state.actionError, null);
+  panel.mounted = false;
+  panel.actionInFlight = false;
+  await run(async () => {
+    commandCalls += 1;
+    throw new Error('Unmounted command failure.');
+  });
+  assert.equal(statusCalls, 2);
+  global.window = savedWindow;
+}
+
+async function verifyEmergencyStopRecovery() {
+  const flatten = (node) =>
+    Array.isArray(node)
+      ? node.flatMap(flatten)
+      : node && typeof node === 'object'
+        ? [node, ...flatten(node.props?.children)]
+        : [];
+  const stopped = { ...overview, mode: 'stopped', emergencyStopped: true };
+  const panel = new TradingPanel({ date: '2026-10-23' });
+  panel.state = { ...panel.state, overview: stopped };
+  let disableCalls = 0;
+  let unexpectedCalls = 0;
+  panel.context = {
+    disable: async () => {
+      disableCalls += 1;
+      return { ...stopped, emergencyStopped: false };
+    },
+    activate: async () => {
+      unexpectedCalls += 1;
+    },
+    emergencyStop: async () => {
+      unexpectedCalls += 1;
+    },
+  };
+  let pending;
+  panel.run = (action) => {
+    pending = action(new AbortController().signal);
+    return pending;
+  };
+  const controlsProps = flatten(panel.render()).find(
+    (node) => node.type === TradingControls,
+  ).props;
+  const controls = new TradingControls(controlsProps);
+  const clear = flatten(controls.render()).find(
+    (node) => node.props?.children === 'Clear emergency stop',
+  );
+  assert(
+    clear,
+    'Emergency stop must have a visible path back to stopped setup.',
+  );
+  assert.equal(disableCalls, 0, 'Rendering never clears an emergency stop.');
+  clear.props.onClick();
+  const result = await pending;
+  assert.equal(disableCalls, 1);
+  assert.equal(result.mode, 'stopped');
+  assert.equal(result.emergencyStopped, false);
+  assert.equal(result.mandate, stopped.mandate);
+  assert.equal(unexpectedCalls, 0, 'Clearing a stop never activates trading.');
+  for (const state of [{ busy: true }, { error: 'Status unavailable' }]) {
+    const blocked = new TradingControls({ ...controlsProps, ...state });
+    assert.equal(
+      flatten(blocked.render()).find(
+        (node) => node.props?.children === 'Clear emergency stop',
+      ).props.disabled,
+      true,
+    );
+  }
+  const liveMandate = {
+    id: 'fixture-mandate',
+    accountKey: overview.accountKey,
+    rulesHash: 'fixture-rules-hash',
+    createdAt: '2026-10-16T03:00:00Z',
+    expiresAt: '2099-01-01T00:00:00Z',
+    revokedAt: null,
+  };
+  const order = {
+    id: 'fixture-order',
+    symbol: 'BTC',
+    side: 'buy',
+    amount: '100',
+    limitPrice: '100',
+    status: 'unknown',
+    createdAt: '2026-10-16T03:00:00Z',
+    brokerOrderId: null,
+    reason: 'fixture',
+    remaining: '100',
+  };
+  const renderLiveState = (changes = {}) => {
+    const panel = new TradingPanel({ date: '2026-10-23' });
+    panel.state = {
+      ...panel.state,
+      overview: {
+        ...overview,
+        mode: 'autoLive',
+        heartbeatAt: new Date().toISOString(),
+        mandate: liveMandate,
+        live: { ...overview.live, orders: [] },
+        ...changes,
+      },
+    };
+    const nodes = flatten(panel.render());
+    const chip = nodes.find((node) => node.props?.label);
+    const controls = nodes.find((node) => node.type === TradingControls);
+    return { chip, controls };
+  };
+  const healthy = renderLiveState();
+  assert.equal(healthy.chip.props.label, 'Auto trading on');
+  assert.equal(healthy.chip.props.color, 'success');
+  assert.equal(healthy.controls.props.liveOn, true);
+  for (const changes of [
+    { fault: 'Uncertain broker order — reconciliation required' },
+    { live: { ...overview.live, orders: [{ ...order, status: 'unknown' }] } },
+    {
+      live: { ...overview.live, orders: [{ ...order, status: 'submitting' }] },
+    },
+    ...['claimed', 'unknown'].map((cancellationState) => ({
+      live: {
+        ...overview.live,
+        orders: [{ ...order, status: 'submitted', cancellationState }],
+      },
+    })),
+  ]) {
+    const blocked = renderLiveState(changes);
+    assert.equal(blocked.chip.props.label, 'Enabled · Blocked');
+    assert.equal(blocked.chip.props.color, 'warning');
+    assert.equal(blocked.controls.props.liveOn, true);
+  }
+  const stale = renderLiveState({
+    heartbeatAt: '2026-10-16T03:00:00Z',
+    fault: 'feed paused',
+  });
+  assert.equal(stale.chip.props.label, 'Status unavailable');
+  assert.equal(stale.chip.props.color, 'warning');
+  const emergency = renderLiveState({
+    emergencyStopped: true,
+    fault: 'feed paused',
+  });
+  assert.equal(emergency.chip.props.label, 'Emergency stopped');
+  assert.equal(emergency.chip.props.color, 'error');
+
+  const review = renderLiveState({
+    mode: 'stopped',
+    live: { ...book, orders: [order] },
+  });
+  assert.equal(review.controls.props.orderReviewNeeded, true);
+  const reviewControl = flatten(
+    new TradingControls(review.controls.props).render(),
+  ).find((node) => node.props?.children === 'Review orders');
+  assert.equal(
+    reviewControl.props.disabled,
+    false,
+    'Blocked trading keeps a read-only review action available.',
+  );
+
+  const inspectedOrder = {
+    ...order,
+    cancellationState: 'unknown',
+    lastInspectedAt: '2026-10-16T04:00:00Z',
+    lastInspectionError: 'No exact broker match found.',
+  };
+  const parsed = tradingOverviewSchema.parse({
+    ...overview,
+    live: { ...book, orders: [inspectedOrder] },
+  });
+  assert.deepEqual(
+    parsed.live.orders[0],
+    inspectedOrder,
+    'Order diagnostics survive transport validation.',
+  );
+  for (const changes of [
+    { lastInspectedAt: 'yesterday' },
+    { lastInspectionError: 'x'.repeat(501) },
+    { cancellationState: 'invented' },
+  ]) {
+    assert.equal(
+      tradingOverviewSchema.safeParse({
+        ...overview,
+        live: { ...book, orders: [{ ...order, ...changes }] },
+      }).success,
+      false,
+    );
+  }
+  assert.equal(
+    tradingOverviewSchema.safeParse({
+      ...overview,
+      live: { ...book, orders: [order] },
+    }).success,
+    true,
+    'Legacy responses without diagnostic fields remain readable.',
+  );
+}
+
 async function verifyTransport() {
+  const evaluationSchema = tradingOverviewSchema.shape.autonomy
+    .unwrap()
+    .unwrap()
+    .shape.evaluation.unwrap()
+    .unwrap();
+  for (const protocol of [
+    'ohlc-scenario-v1',
+    'ohlc-scenario-v2',
+    'ohlc-scenario-v3',
+  ]) {
+    const evaluation = {
+      protocol,
+      verifiedProfit: false,
+      observedAt: '2026-10-23T04:00:00Z',
+      rulesHash: 'a'.repeat(64),
+      warnings: ['Hypothetical current precision assumption.'],
+      metrics: [],
+    };
+    assert.equal(evaluationSchema.parse(evaluation).protocol, protocol);
+    assert.throws(() =>
+      evaluationSchema.parse({ ...evaluation, verifiedProfit: true }),
+    );
+    assert.throws(() =>
+      evaluationSchema.parse({ ...evaluation, protocol: 'unknown' }),
+    );
+  }
   const originalFetch = global.fetch;
   const savedEnvironment = {
     token: process.env.QUANTARA_TRADING_CONTROL_TOKEN,
@@ -299,6 +852,75 @@ async function verifyTransport() {
     const requests = new RequestService('/api', global.fetch);
     const service = new TradingService(requests);
     assert.deepEqual(await service.get(), overview);
+    const intent = {
+      id: 'status-fixture',
+      symbol: 'BTC',
+      side: 'buy',
+      amount: '100',
+      limitPrice: '10',
+      remaining: '100',
+      createdAt: overview.heartbeatAt,
+      brokerOrderId: null,
+      reason: 'Synthetic retained order',
+    };
+    for (const status of [
+      'pending',
+      'submitting',
+      'submitted',
+      'partial',
+      'unknown',
+      'filled',
+      'cancelled',
+      'rejected',
+      'expired',
+    ]) {
+      for (const ledger of ['paper', 'live']) {
+        result = {
+          ...overview,
+          [ledger]: { ...overview[ledger], orders: [{ ...intent, status }] },
+        };
+        assert.deepEqual(
+          await service.get(),
+          result,
+          `Supported ${ledger} status preserved: ${status}`,
+        );
+      }
+    }
+    for (const status of [
+      '',
+      'UNKNOWN',
+      'Filled',
+      'partiallyFilled',
+      'new-provider-state',
+      null,
+    ]) {
+      for (const ledger of ['paper', 'live']) {
+        result = {
+          ...overview,
+          [ledger]: { ...overview[ledger], orders: [{ ...intent, status }] },
+        };
+        await assert.rejects(
+          service.get(),
+          /Trading status could not be verified/,
+          `Unsupported ${ledger} status was accepted: ${String(status)}`,
+        );
+      }
+    }
+    result = {
+      ...overview,
+      live: { ...overview.live, orders: [{ ...intent, status: 'UNKNOWN' }] },
+    };
+    const beforeUnverifiedUpdate = calls.length;
+    await assert.rejects(
+      service.configure(rules),
+      /The action may have completed/,
+    );
+    assert.equal(
+      calls.length,
+      beforeUnverifiedUpdate + 1,
+      'Unverified acknowledgement never repeats a control command.',
+    );
+    result = overview;
     const signal = new AbortController().signal;
     assert.deepEqual(
       await service.prepare(
@@ -329,7 +951,10 @@ async function verifyTransport() {
       { ...overview, rules: { ...rules, symbols: ['BTC', 'BTC'] } },
     ]) {
       result = invalid;
-      await assert.rejects(service.get(), /Trading status response is invalid/);
+      await assert.rejects(
+        service.get(),
+        /Trading status could not be verified/,
+      );
     }
     assert.equal(tradingOverviewSchema.safeParse(overview).success, true);
     const adaptive = {
@@ -738,12 +1363,12 @@ async function verifyBrowser() {
                   ],
                 },
                 evaluation: {
-                  protocol: 'ohlc-scenario-v1',
+                  protocol: 'ohlc-scenario-v3',
                   verifiedProfit: false,
                   observedAt: '2026-10-16T04:00:00Z',
                   rulesHash: 'a'.repeat(64),
                   warnings: [
-                    'Hypothetical OHLC scenarios; fees, spread and slippage included. Data gaps and uncertain fills remain Unknown.',
+                    'Hypothetical OHLC scenarios; buy limits round down and sell limits round up to the tick. Data gaps and uncertain fills remain Unknown.',
                   ],
                   metrics: [
                     {
@@ -783,6 +1408,11 @@ async function verifyBrowser() {
         current = {
           ...current,
           mode: 'autoLive',
+          live: {
+            ...current.live,
+            cashThb:
+              current.autonomy?.capital?.availableThb ?? current.live.cashThb,
+          },
           mandate: {
             id: 'fake-mandate',
             accountKey: body.accountKey,
@@ -793,7 +1423,13 @@ async function verifyBrowser() {
           },
         };
       } else if (path.endsWith('/disable'))
-        current = { ...current, mode: 'stopped' };
+        current = {
+          ...current,
+          mode: 'stopped',
+          mandate: current.mandate
+            ? { ...current.mandate, revokedAt: '2026-10-16T04:00:00Z' }
+            : null,
+        };
       else if (path.endsWith('/emergency-stop'))
         current = { ...current, mode: 'stopped', emergencyStopped: true };
       else if (path.endsWith('/mode'))
@@ -807,10 +1443,35 @@ async function verifyBrowser() {
   });
   try {
     await page.clock.install({ time: new Date('2026-10-16T04:00:00Z') });
+    const collapseTeamChat = async () => {
+      await page
+        .getByRole('button', {
+          name:
+            page.viewportSize().width >= 1024
+              ? 'Collapse team chat'
+              : 'Expand team chat',
+          exact: true,
+        })
+        .waitFor();
+      const collapse = page.getByRole('button', {
+        name: 'Collapse team chat',
+        exact: true,
+      });
+      if (await collapse.isVisible()) {
+        await collapse.click();
+        await page.clock.runFor(300);
+      }
+    };
     await page.goto(
-      (process.env.TEST_URL || 'http://127.0.0.1:3000') + '/daily-brief',
+      (process.env.TEST_URL || 'http://127.0.0.1:3000') + '/crypto',
     );
+    await collapseTeamChat();
     await page.getByText('Paper trading', { exact: true }).waitFor();
+    await page
+      .locator('summary')
+      .filter({ hasText: 'Orders & positions' })
+      .click();
+    await page.locator('summary').filter({ hasText: 'System details' }).click();
     await page.getByText('Connected · 1 watched', { exact: true }).waitFor();
     await page
       .getByText('Notifications: 0 pending · Job history', { exact: true })
@@ -864,7 +1525,7 @@ async function verifyBrowser() {
     );
     const summary = page
       .locator('summary')
-      .filter({ hasText: 'Daily report ·' });
+      .filter({ hasText: 'Daily reports' });
     await summary.click();
     await page.getByText('รายงานทดสอบ: ผลกำไรยังไม่ทราบ').waitFor();
     await page
@@ -964,8 +1625,12 @@ async function verifyBrowser() {
     assert.equal(await enable.isDisabled(), false);
     await enable.click();
     await page.getByText('Fixture activation refused.').first().waitFor();
-    await page.clock.runFor(10_001);
-    await page.getByText('AutoLive OFF.', { exact: false }).waitFor();
+    await page.getByText('Auto trading off', { exact: true }).waitFor();
+    assert.equal(
+      await page.getByText('Status unavailable', { exact: true }).count(),
+      0,
+      'rejected command revalidates status without waiting for the ten-second poll',
+    );
     assert.equal(
       await page.getByText('Fixture activation refused.').first().isVisible(),
       true,
@@ -977,18 +1642,18 @@ async function verifyBrowser() {
       'status polling never retries a refused activation',
     );
     assert.equal(
-      await page.getByText('AutoLive OFF.', { exact: false }).count(),
+      await page.getByText('Auto trading off', { exact: true }).count(),
       1,
       'refused activation leaves auto trading stopped',
     );
     await page
-      .getByRole('button', { name: 'Review live mandate', exact: true })
+      .getByRole('button', { name: 'Review & enable', exact: true })
       .click();
     await page.getByRole('button', { name: '7 days', exact: true }).click();
     await page
       .getByRole('button', { name: 'Enable Auto Trading', exact: true })
       .click();
-    await page.getByText('AutoLive ON.', { exact: false }).waitFor();
+    await page.getByText('Auto trading on', { exact: true }).waitFor();
     assert.equal(
       writes.filter((write) => write.path.endsWith('/activate')).length,
       2,
@@ -1006,6 +1671,7 @@ async function verifyBrowser() {
     current = { ...current, heartbeatAt: '2026-10-16T03:00:00Z' };
     await page.reload();
     await page.getByText('Live status is unknown.', { exact: false }).waitFor();
+    await collapseTeamChat();
     assert.equal(
       writes.length,
       4,
@@ -1013,15 +1679,71 @@ async function verifyBrowser() {
     );
     current = { ...current, heartbeatAt: '2026-10-16T04:00:00Z' };
     await page.getByRole('button', { name: 'Disable', exact: true }).click();
-    await page.getByText('AutoLive OFF.', { exact: false }).waitFor();
+    await page.getByText('Auto trading off', { exact: true }).waitFor();
     assert.equal(writes.at(-1).path, '/api/trading/disable');
+    fs.mkdirSync('.impeccable/review', { recursive: true });
+    for (const [device, width, height] of [
+      ['desktop', 1440, 1000],
+      ['tablet', 820, 1180],
+      ['phone', 390, 844],
+    ]) {
+      await page.setViewportSize({ width, height });
+      const panel = page.locator('#trading > .MuiPaper-root').first();
+      const settingsButton = panel.getByRole('button', {
+        name: 'Trading settings',
+        exact: true,
+      });
+      assert.equal(await settingsButton.innerText(), 'Settings');
+      for (const name of [
+        'Orders & positions',
+        'System details',
+        'Daily reports',
+      ]) {
+        assert.equal(
+          await panel
+            .locator('summary')
+            .filter({ hasText: name })
+            .evaluate((element) => element.parentElement.open),
+          false,
+        );
+      }
+      for (const name of [
+        'Review & enable',
+        'Trading settings',
+        'Emergency stop',
+      ]) {
+        const button = panel.getByRole('button', { name, exact: true });
+        assert.equal(await button.isVisible(), true);
+        const bounds = await button.boundingBox();
+        assert(
+          bounds &&
+            bounds.height >= 44 &&
+            bounds.x >= 0 &&
+            bounds.x + bounds.width <= width,
+          device + ': visible, reachable control',
+        );
+      }
+      await panel.screenshot({
+        path: '.impeccable/review/trading-simple-' + device + '.png',
+        animations: 'disabled',
+      });
+    }
+    await page.setViewportSize({ width: 1440, height: 1000 });
     await summary.click();
-    await page.getByLabel('Date', { exact: true }).fill('2026-10-15');
+    const chooseReportDay = async (day) => {
+      await page.getByRole('button', { name: /choose date/i }).click();
+      await page.clock.runFor(300);
+      await page.getByRole('gridcell', { name: day, exact: true }).click();
+      const ok = page.getByRole('button', { name: 'OK', exact: true });
+      if (await ok.isVisible()) await ok.click();
+    };
+    await chooseReportDay('15');
     await page.getByText('No trading report for this date.').waitFor();
-    await page.getByLabel('Date', { exact: true }).fill('2026-10-16');
+    await chooseReportDay('16');
     await page.getByText('รายงานทดสอบ: ผลกำไรยังไม่ทราบ').waitFor();
     await summary.click();
     fs.mkdirSync('.impeccable/review', { recursive: true });
+    await page.locator('summary').filter({ hasText: 'System details' }).click();
     await page
       .getByText('Last scan: 62 ready · 2 unavailable', { exact: true })
       .waitFor();
@@ -1044,9 +1766,10 @@ async function verifyBrowser() {
         ),
         name + ' has no horizontal overflow',
       );
-      const bounds = await page
-        .getByRole('button', { name: 'Review live mandate' })
-        .boundingBox();
+      const primaryAction = page
+        .locator('#trading')
+        .getByRole('button', { name: 'Review & enable', exact: true });
+      const bounds = await primaryAction.boundingBox();
       assert(
         bounds && bounds.y + bounds.height <= height,
         name + ' primary action is in the first viewport',
@@ -1124,7 +1847,7 @@ async function verifyBrowser() {
       animations: 'disabled',
     });
     await page.getByRole('button', { name: 'Close trading settings' }).click();
-    await page.getByRole('button', { name: 'Review live mandate' }).click();
+    await page.getByRole('button', { name: 'Review & enable' }).click();
     await page.getByRole('button', { name: '7 days', exact: true }).click();
     await page.screenshot({
       path: '.impeccable/review/trading-review-phone.png',
@@ -1137,6 +1860,14 @@ async function verifyBrowser() {
       .filter({ hasText: 'Historical study' });
     await historical.click();
     await page.getByText('Insufficient samples', { exact: false }).waitFor();
+    assert(
+      await page
+        .getByText('buy limits round down and sell limits round up', {
+          exact: false,
+        })
+        .isVisible(),
+      'The deployed reader displays v3 study assumptions.',
+    );
     assert(
       (await page.getByText('Drawdown Unknown', { exact: false }).count()) > 0,
     );
@@ -1153,7 +1884,13 @@ async function verifyBrowser() {
     await historical.click();
     unavailable = true;
     await page.reload();
-    await page.getByText('Fixture trading unavailable.').waitFor();
+    await page
+      .locator('.MuiPaper-root')
+      .filter({
+        has: page.getByRole('heading', { name: 'Trading', exact: true }),
+      })
+      .getByText('Fixture trading unavailable.', { exact: true })
+      .waitFor();
     assert.equal(
       await page
         .getByRole('button', { name: 'Enable Auto Trading', exact: true })
@@ -1171,7 +1908,10 @@ async function verifyBrowser() {
       mode: 'paper',
       fault: 'Fixture stale feed: entries paused.',
     };
-    await page.getByRole('button', { name: 'Retry', exact: true }).click();
+    await page
+      .locator('#trading')
+      .getByRole('button', { name: 'Refresh status', exact: true })
+      .click();
     await page.getByText('Fixture stale feed: entries paused.').waitFor();
     current = {
       ...current,
@@ -1209,9 +1949,14 @@ async function verifyBrowser() {
     ]) {
       await page.setViewportSize({ width, height });
       await page.reload();
+      await collapseTeamChat();
       await page
         .locator('summary')
-        .filter({ hasText: 'Positions & orders' })
+        .filter({ hasText: 'Orders & positions' })
+        .click();
+      await page
+        .locator('summary')
+        .filter({ hasText: 'Ledger details' })
         .click();
       await page
         .getByText('Setup intact; position retained after review', {
@@ -1239,6 +1984,316 @@ async function verifyBrowser() {
       5,
       'Position-plan inspection never changes authority.',
     );
+    const unresolvedOrder = {
+      id: 'fixture-unconfirmed-order',
+      symbol: 'DOGE',
+      side: 'buy',
+      amount: '100.125',
+      limitPrice: '2.75',
+      remaining: '100.125',
+      status: 'unknown',
+      createdAt: '2026-10-16T03:00:00Z',
+      brokerOrderId: null,
+      reason: 'Fixture strategy signal',
+      cancellationState: null,
+      lastInspectedAt: '2026-10-16T03:59:30Z',
+      lastInspectionError:
+        'No exact broker match found. Outcome remains unknown; no order was resent.',
+    };
+    for (const [name, width, height] of [
+      ['desktop', 1440, 900],
+      ['tablet', 768, 1024],
+      ['phone', 390, 844],
+    ]) {
+      current = {
+        ...current,
+        mode: 'stopped',
+        fault: 'Uncertain broker order — reconciliation required',
+        live: { ...book, orders: [unresolvedOrder] },
+        mandate: null,
+      };
+      await page.setViewportSize({ width, height });
+      await page.reload();
+      await collapseTeamChat();
+      await page
+        .getByRole('heading', { name: 'Active orders (1)', exact: true })
+        .waitFor();
+      assert(
+        await page
+          .getByText('BUY DOGE · Outcome unknown', { exact: true })
+          .isVisible(),
+      );
+      assert(
+        await page
+          .getByText(
+            'Amount 100.125 THB · Remaining 100.125 THB · Limit 2.75 THB',
+            { exact: true },
+          )
+          .isVisible(),
+      );
+      assert(
+        await page
+          .getByText('No exact broker match found.', { exact: false })
+          .isVisible(),
+      );
+      assert.equal(
+        await page
+          .getByText('Uncertain broker order — reconciliation required', {
+            exact: true,
+          })
+          .count(),
+        0,
+        'One contextual warning replaces the generic duplicate.',
+      );
+      assert.equal(
+        await page
+          .getByRole('button', { name: 'Review & enable', exact: true })
+          .count(),
+        0,
+      );
+      await page
+        .getByRole('button', { name: 'Review orders', exact: true })
+        .click();
+      assert.equal(
+        await page.evaluate(() => document.activeElement?.textContent),
+        'Orders & positions',
+      );
+      assert.equal(
+        await page
+          .getByText('Request ID fixture-unconfirmed-order', { exact: false })
+          .isVisible(),
+        false,
+      );
+      await page
+        .locator('summary')
+        .filter({ hasText: /^Order details$/ })
+        .press('Enter');
+      assert(
+        await page
+          .getByText(
+            'Request ID fixture-unconfirmed-order · Broker ID Unavailable',
+            { exact: true },
+          )
+          .isVisible(),
+      );
+      assert(
+        await page
+          .getByText('Strategy reason: Fixture strategy signal', {
+            exact: true,
+          })
+          .isVisible(),
+      );
+      assert(
+        await page.evaluate(
+          () => document.documentElement.scrollWidth <= window.innerWidth + 1,
+        ),
+      );
+      await page.screenshot({
+        path: `.impeccable/review/trading-order-review-${name}.png`,
+        fullPage: true,
+        animations: 'disabled',
+      });
+    }
+    current = {
+      ...current,
+      mode: 'autoLive',
+      fault: null,
+      heartbeatAt: '2026-10-16T04:00:00Z',
+      mandate: {
+        id: 'fixture-live',
+        accountKey: current.accountKey,
+        rulesHash: current.rulesHash,
+        createdAt: '2026-10-16T03:00:00Z',
+        expiresAt: '2099-01-01T00:00:00Z',
+        revokedAt: null,
+      },
+      live: {
+        ...book,
+        orders: [
+          {
+            ...unresolvedOrder,
+            status: 'submitted',
+            cancellationState: 'unknown',
+            lastInspectionError: null,
+          },
+        ],
+      },
+    };
+    await page.reload();
+    await collapseTeamChat();
+    await page.getByText('Enabled · Blocked', { exact: true }).waitFor();
+    assert(
+      await page
+        .getByText('BUY DOGE · Cancellation unconfirmed', { exact: true })
+        .isVisible(),
+    );
+    assert(
+      await page
+        .getByRole('button', { name: 'Disable', exact: true })
+        .isEnabled(),
+    );
+    current = {
+      ...current,
+      mode: 'paper',
+      live: {
+        ...book,
+        orders: [
+          {
+            ...unresolvedOrder,
+            side: 'sell',
+            amount: '0.00000123',
+            remaining: '0.00000123',
+            lastInspectedAt: undefined,
+            lastInspectionError: undefined,
+          },
+        ],
+      },
+    };
+    await page.reload();
+    await collapseTeamChat();
+    await page
+      .getByRole('heading', {
+        name: 'Live orders needing review (1)',
+        exact: true,
+      })
+      .waitFor();
+    assert(
+      await page
+        .getByText(
+          'Amount 0.00000123 DOGE · Remaining 0.00000123 DOGE · Limit 2.75 THB',
+          { exact: true },
+        )
+        .isVisible(),
+    );
+    assert(
+      await page
+        .getByText('No check time recorded', { exact: true })
+        .isVisible(),
+    );
+    assert.equal(
+      writes.length,
+      5,
+      'Unknown-order inspection and refresh never change authority or resubmit an order.',
+    );
+    const objective = {
+      id: 'fixture-objective',
+      targetThb: 23456,
+      deadlineExclusive: '2026-12-11T05:30:00Z',
+      includesDeposits: true,
+      timeZone: 'Asia/Bangkok',
+      observedAt: null,
+      portfolioValueThb: null,
+      remainingThb: null,
+      depositsThb: null,
+      tradingPnlThb: null,
+      valuationStatus: 'unknown',
+      reason: 'Fixture valuation unavailable.',
+    };
+    for (const [name, width, height] of [
+      ['desktop', 1440, 900],
+      ['tablet', 768, 1024],
+      ['phone', 390, 844],
+    ]) {
+      current = {
+        ...current,
+        objective,
+        paper: { ...book, cashThb: '700', equityThb: '800' },
+        live: {
+          ...book,
+          orders: [
+            {
+              ...unresolvedOrder,
+              status: 'filled',
+              cancellationState: 'unknown',
+            },
+          ],
+        },
+        autonomy: {
+          ...current.autonomy,
+          capital: {
+            ...current.autonomy.capital,
+            availableThb: '9000',
+            equityThb: '9100',
+          },
+        },
+      };
+      await page.setViewportSize({ width, height });
+      await page.reload();
+      await collapseTeamChat();
+      await page
+        .getByRole('heading', {
+          name: 'Live orders needing review (1)',
+          exact: true,
+        })
+        .waitFor();
+      assert(
+        await page
+          .getByText('BUY DOGE · Cancellation unconfirmed', { exact: true })
+          .isVisible(),
+      );
+      const balances = page.getByRole('definition').filter({ hasText: '฿700' });
+      assert(
+        await page.getByText('Simulated cash', { exact: true }).isVisible(),
+      );
+      assert.equal(await balances.count(), 1);
+      await page
+        .locator('summary')
+        .filter({ hasText: /^System details$/ })
+        .click();
+      assert(
+        await page
+          .getByText('Portfolio target ฿23,456', { exact: true })
+          .isVisible(),
+      );
+      assert(
+        await page
+          .getByText('Before 11/12/2026, 12:30:00 Bangkok', { exact: false })
+          .isVisible(),
+      );
+      assert(
+        await page
+          .getByText('Simulated equity ฿800', { exact: true })
+          .isVisible(),
+      );
+      assert.equal(await page.getByText('฿9,100', { exact: false }).count(), 0);
+      assert(
+        await page.evaluate(
+          () => document.documentElement.scrollWidth <= window.innerWidth + 1,
+        ),
+      );
+      await page.screenshot({
+        path: `.impeccable/review/trading-paper-objective-${name}.png`,
+        fullPage: true,
+        animations: 'disabled',
+      });
+      current = { ...current, objective: undefined };
+      await page.reload();
+      await collapseTeamChat();
+      await page
+        .locator('summary')
+        .filter({ hasText: /^System details$/ })
+        .click();
+      assert(
+        await page.getByText('Target unavailable', { exact: true }).isVisible(),
+      );
+      assert(
+        await page
+          .getByText('This snapshot does not include an account target.', {
+            exact: true,
+          })
+          .isVisible(),
+      );
+      await page.screenshot({
+        path: `.impeccable/review/trading-objective-unavailable-${name}.png`,
+        fullPage: true,
+        animations: 'disabled',
+      });
+    }
+    assert.equal(
+      writes.length,
+      5,
+      'Presentation checks never submit commands.',
+    );
     assert.deepEqual(errors, []);
     console.log(
       'Trading browser: compact status, advanced settings, exact mandate/expiry validation, one fake activation, selected-date report, failure recovery and desktop/tablet/phone passed; every API call intercepted.',
@@ -1248,7 +2303,12 @@ async function verifyBrowser() {
   }
 }
 
-verifyTransport()
+Promise.resolve()
+  .then(() => verifyObjectivePresentation())
+  .then(() => verifyTradingBookPresentation())
+  .then(() => verifyActionRecovery())
+  .then(() => verifyEmergencyStopRecovery())
+  .then(() => verifyTransport())
   .then(async () => {
     if (process.argv.includes('--browser')) await verifyBrowser();
   })

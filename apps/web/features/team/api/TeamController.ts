@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { BoundedBodyReader } from '../../../shared/api/BoundedBodyReader';
 import { LocalRequestPolicy } from '../../../shared/api/LocalRequestPolicy';
 
 export class TeamController {
@@ -72,15 +73,8 @@ export class TeamController {
     }
 
     try {
-      if (Number(request.headers.get('content-length') ?? 0) > 1000) {
-        return NextResponse.json(
-          { error: 'Invalid company request.' },
-          { status: 400 },
-        );
-      }
-
-      const text = await request.text();
-      const body: unknown = text.length <= 1000 ? JSON.parse(text) : null;
+      const text = await BoundedBodyReader.readText(request, 1000, 10000);
+      const body: unknown = JSON.parse(text);
       if (
         !body ||
         typeof body !== 'object' ||
@@ -113,21 +107,7 @@ export class TeamController {
     }
 
     try {
-      if (Number(request.headers.get('content-length') ?? 0) > 12000) {
-        return NextResponse.json(
-          { error: 'Objective is too large.' },
-          { status: 400 },
-        );
-      }
-
-      const text = await request.text();
-      if (text.length > 12000) {
-        return NextResponse.json(
-          { error: 'Objective is too large.' },
-          { status: 400 },
-        );
-      }
-
+      const text = await BoundedBodyReader.readText(request, 12000, 10000);
       const body: unknown = JSON.parse(text);
       if (
         !body ||

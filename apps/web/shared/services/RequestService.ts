@@ -14,7 +14,7 @@ export class RequestService implements IRequestService {
   ): Promise<unknown> {
     const response = await this.request(path, 'GET', fallback, signal);
 
-    return JsonResponse.read(response);
+    return this.readBody(response, 'GET', fallback, signal);
   }
 
   public async post(
@@ -33,7 +33,7 @@ export class RequestService implements IRequestService {
   ): Promise<unknown> {
     const response = await this.request(path, 'POST', fallback, signal, body);
 
-    return JsonResponse.read(response);
+    return this.readBody(response, 'POST', fallback, signal);
   }
 
   private async request(
@@ -44,7 +44,7 @@ export class RequestService implements IRequestService {
     body?: unknown,
   ): Promise<Response> {
     const target = `${this.baseUrl.replace(/\/+$/, '')}/${path.replace(/^\/+/, '')}`;
-    const response = await this.transport.call(globalThis, target, {
+    const options: RequestInit = {
       method,
       cache: 'no-store',
       ...(body !== undefined
@@ -54,13 +54,58 @@ export class RequestService implements IRequestService {
           }
         : {}),
       ...(signal ? { signal } : {}),
-    });
+    };
+    let response: Response;
+    try {
+      response = await this.transport.call(globalThis, target, options);
+    } catch (error) {
+      if (method === 'POST') {
+        RequestService.writeFailure(error, signal);
+      }
+
+      throw error;
+    }
+
     if (!response.ok) {
       throw new Error(
-        JsonResponse.error(await JsonResponse.read(response), fallback),
+        JsonResponse.error(
+          await this.readBody(response, method, fallback, signal),
+          method === 'POST' ? JsonResponse.uncertainWrite : fallback,
+        ),
       );
     }
 
     return response;
+  }
+
+  private async readBody(
+    response: Response,
+    method: 'GET' | 'POST',
+    fallback: string,
+    signal?: AbortSignal,
+  ): Promise<unknown> {
+    try {
+      return await JsonResponse.read(
+        response,
+        method === 'POST' ? JsonResponse.uncertainWrite : fallback,
+      );
+    } catch (error) {
+      if (method === 'POST') {
+        RequestService.writeFailure(error, signal);
+      }
+
+      throw error;
+    }
+  }
+
+  private static writeFailure(error: unknown, signal?: AbortSignal): never {
+    if (
+      signal?.aborted ||
+      (error instanceof Error && error.name === 'AbortError')
+    ) {
+      throw error;
+    }
+
+    throw new Error(JsonResponse.uncertainWrite);
   }
 }

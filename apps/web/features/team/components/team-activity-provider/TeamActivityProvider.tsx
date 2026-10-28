@@ -75,8 +75,10 @@ export class TeamActivityProvider extends Component<
     }
   };
 
-  private readonly refresh = (): Promise<void> => {
-    if (this.pending) {
+  private readonly refresh = (force = false): Promise<void> => {
+    if (force) {
+      this.cancel();
+    } else if (this.pending) {
       return this.pending;
     }
 
@@ -137,15 +139,13 @@ export class TeamActivityProvider extends Component<
         accountKey !== this.state.accountKey ||
         Boolean(this.state.overview?.latestRun && !overview.latestRun);
       const scopeRevision = this.state.scopeRevision + (changed ? 1 : 0);
-      if (changed) {
-        this.setState({
-          overview,
-          brief: null,
-          accountKey,
-          scopeRevision,
-          fetchedAt: null,
-        });
-      }
+      this.setState((current) => ({
+        overview,
+        brief: changed ? null : current.brief,
+        fetchedAt: changed ? null : current.fetchedAt,
+        accountKey,
+        scopeRevision,
+      }));
 
       if (controller.signal.aborted) {
         throw new Error('Research status request timed out.');

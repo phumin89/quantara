@@ -27,7 +27,9 @@ export class CryptoProxy {
       return NextResponse.json(
         {
           error:
-            'The portfolio service is unavailable. Start the C# backend and retry.',
+            method === 'POST'
+              ? 'The import request may have started. Refresh status before trying again.'
+              : 'The portfolio service is unavailable. Refresh to try again.',
         },
         { status: 503 },
       );

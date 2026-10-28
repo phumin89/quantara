@@ -1,26 +1,32 @@
 'use client';
 
+import TradingPanel from '../../../trading/components/trading-panel/TradingPanel';
+import OrderReviewPanel from '../../../orders/components/order-review-panel/OrderReviewPanel';
+import { TeamActivitySnapshot } from '../../../team/presentation/TeamActivitySnapshot';
+
 import { Component, type ReactNode } from 'react';
 import {
   Box,
+  Alert,
+  AlertTitle,
   Button,
-  CircularProgress,
-  Paper,
+  Skeleton,
   Stack,
   Typography,
 } from '@mui/material';
 import RefreshOutlinedIcon from '@mui/icons-material/RefreshOutlined';
+import AccountBalanceWalletOutlinedIcon from '@mui/icons-material/AccountBalanceWalletOutlined';
 import { CryptoServiceContext } from '../../context/CryptoServiceContext';
 import type { ICryptoServices } from '../../context/ICryptoServices';
 import PositionFilter from '../../utils/PositionFilter';
 import { PortfolioFilter } from '../../contracts/PortfolioFilter';
 import ConnectionStatus from '../connection-status/ConnectionStatus';
 import PortfolioSummary from '../portfolio-summary/PortfolioSummary';
-import EnginePerformanceSummary from '../engine-performance-summary/EnginePerformanceSummary';
 import PortfolioFilters from '../portfolio-filters/PortfolioFilters';
 import PortfolioTable from '../portfolio-table/PortfolioTable';
 import type { CryptoPageState } from './CryptoPageState';
-import RiskPanel from '../risk-panel/RiskPanel';
+import FormatTime from '../../utils/FormatTime';
+import { ConnectionStatusPresenter } from '../../presentation/ConnectionStatusPresenter';
 
 export default class CryptoPage extends Component<object, CryptoPageState> {
   public static override readonly contextType = CryptoServiceContext.value;
@@ -35,7 +41,8 @@ export default class CryptoPage extends Component<object, CryptoPageState> {
     data: null,
     error: null,
     refreshing: false,
-    filter: PortfolioFilter.All,
+    now: 0,
+    filter: PortfolioFilter.Holding,
     expanded: null,
     history: {},
     historyLoading: {},
@@ -61,6 +68,7 @@ export default class CryptoPage extends Component<object, CryptoPageState> {
   public override componentDidMount(): void {
     this.mounted = true;
     this.generation += 1;
+    document.addEventListener('visibilitychange', this.visibility);
     this.updatePolling();
     const mountGeneration = this.generation;
     void Promise.resolve().then(() => {
@@ -89,6 +97,7 @@ export default class CryptoPage extends Component<object, CryptoPageState> {
     this.mounted = false;
     this.generation += 1;
     this.stopPolling();
+    document.removeEventListener('visibilitychange', this.visibility);
     this.activePortfolioRequest?.abort();
     for (const request of this.requests) {
       request.abort();
@@ -103,18 +112,41 @@ export default class CryptoPage extends Component<object, CryptoPageState> {
   }
 
   public override render(): ReactNode {
-    const { data, error, refreshing, filter } = this.state;
-    const positions = PositionFilter.apply(data?.positions ?? [], filter);
+    const { data, error, refreshing, filter, now } = this.state;
+    const sourceAt = data?.updatedAt ? Date.parse(data.updatedAt) : NaN;
+    const holdingsKnown = Number.isFinite(sourceAt) && sourceAt - now <= 30000;
+    const positions = PositionFilter.apply(
+      holdingsKnown ? (data?.positions ?? []) : [],
+      filter,
+    );
+    const stale =
+      data !== null &&
+      Number.isFinite(sourceAt) &&
+      now - sourceAt > ConnectionStatusPresenter.maximumSourceAgeMs;
+    const unverifiedTime =
+      data !== null && (!Number.isFinite(sourceAt) || sourceAt - now > 30000);
 
     return (
       <Stack
-        spacing={4}
+        spacing="var(--section-gap)"
         sx={{ width: '100%', maxWidth: 1280 }}
       >
         <Stack
-          direction="row"
+          direction={{ xs: 'column', sm: 'row' }}
           spacing={2}
-          sx={{ justifyContent: 'space-between', alignItems: 'center' }}
+          sx={{
+            justifyContent: 'space-between',
+            alignItems: { xs: 'flex-start', sm: 'center' },
+            flexWrap: 'wrap',
+            gap: 2,
+            p: 'var(--panel-padding)',
+            bgcolor: 'var(--surface-panel)',
+            backdropFilter: 'blur(var(--glass-blur))',
+            border: '1px solid',
+            borderColor: 'var(--border-panel)',
+            borderRadius: 'var(--radius-panel)',
+            boxShadow: 'var(--shadow-panel)',
+          }}
         >
           <Box sx={{ minWidth: 0 }}>
             <Stack
@@ -122,9 +154,32 @@ export default class CryptoPage extends Component<object, CryptoPageState> {
               spacing={1}
               sx={{ alignItems: 'center', flexWrap: 'wrap' }}
             >
+              <Box
+                aria-hidden="true"
+                sx={{
+                  width: 48,
+                  height: 48,
+                  display: 'grid',
+                  placeItems: 'center',
+                  bgcolor: 'var(--color-mint)',
+                  color: 'text.primary',
+                  borderRadius: 'var(--radius-control)',
+                  flexShrink: 0,
+                }}
+              >
+                <AccountBalanceWalletOutlinedIcon sx={{ fontSize: 28 }} />
+              </Box>
               <Typography
                 component="h1"
-                sx={{ fontSize: 32, fontWeight: 650, lineHeight: 1.13, m: 0 }}
+                sx={{
+                  fontFamily: 'var(--font-display)',
+                  fontSize: 34,
+                  fontWeight: 600,
+                  lineHeight: 1.13,
+                  m: 0,
+                  minWidth: 0,
+                  overflowWrap: 'break-word',
+                }}
               >
                 Crypto
               </Typography>
@@ -132,9 +187,10 @@ export default class CryptoPage extends Component<object, CryptoPageState> {
                 data={data}
                 error={error}
                 refreshing={refreshing}
+                now={now}
               />
             </Stack>
-            <Typography sx={{ mt: 1, fontSize: 14, color: '#707070' }}>
+            <Typography sx={{ mt: 1, fontSize: 14, color: 'text.secondary' }}>
               Bitkub portfolio
               {data
                 ? ` · ${String(data.positions.length)} ${data.positions.length === 1 ? 'asset' : 'assets'} tracked`
@@ -145,84 +201,215 @@ export default class CryptoPage extends Component<object, CryptoPageState> {
             variant="outlined"
             startIcon={<RefreshOutlinedIcon />}
             onClick={this.handleRefresh}
-            disabled={refreshing || data?.syncing}
+            disabled={refreshing}
             sx={{
-              borderColor: '#e0e0e0',
-              color: '#141414',
+              borderColor: 'var(--border-panel)',
+              color: 'text.primary',
+              bgcolor: 'var(--surface-raised)',
               minHeight: 44,
               px: 2.5,
               textTransform: 'none',
               flexShrink: 0,
             }}
           >
-            {refreshing ? 'Syncing…' : 'Refresh'}
+            {refreshing ? 'Refreshing' : 'Refresh'}
           </Button>
         </Stack>
-        {error && data && (
-          <Paper
-            variant="outlined"
-            sx={{ p: 2, borderColor: '#fecaca', bgcolor: '#fef2f2' }}
+        {error && (
+          <Alert
+            severity="error"
+            aria-busy={refreshing}
           >
+            <AlertTitle>
+              {data ? 'Snapshot could not refresh' : 'Portfolio unavailable'}
+            </AlertTitle>
             <Typography variant="body2">
-              Showing the latest saved snapshot. {error}
+              {data ? 'Showing the last saved snapshot. ' : ''}
+              {error}
             </Typography>
             <Button
               variant="outlined"
+              color="inherit"
               onClick={this.handleRefresh}
-              disabled={refreshing || data.syncing}
-              sx={{ mt: 1, minHeight: 44, borderRadius: '6px' }}
+              disabled={refreshing}
+              sx={{ mt: 1.5 }}
             >
-              Retry
+              {refreshing ? 'Retrying…' : 'Retry'}
             </Button>
-          </Paper>
+          </Alert>
         )}
         {!data && !error && (
-          <Box sx={{ display: 'flex', justifyContent: 'center', py: 8 }}>
-            <CircularProgress size={24} />
+          <Box
+            role="status"
+            aria-label="Loading portfolio"
+            sx={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(3, 1fr)',
+              gap: 2,
+            }}
+          >
+            {[0, 1, 2].map((item) => (
+              <Skeleton
+                key={item}
+                variant="rounded"
+                height={100}
+              />
+            ))}
           </Box>
         )}
-        {!data && error && (
-          <Stack
-            spacing={2}
-            sx={{ alignItems: 'flex-start' }}
-          >
-            <Typography sx={{ color: 'error.main' }}>{error}</Typography>
-            <Button
-              variant="outlined"
-              onClick={this.handleLoad}
-              sx={{ borderRadius: '6px' }}
-            >
-              Retry
-            </Button>
-          </Stack>
+        {data && (
+          <PortfolioSummary
+            data={data}
+            holdingsKnown={holdingsKnown}
+          />
         )}
         {data && (
+          <Box
+            component="dl"
+            aria-label="Source update times"
+            sx={{
+              m: 0,
+              display: 'grid',
+              gridTemplateColumns: {
+                xs: 'repeat(2, minmax(0, 1fr))',
+                lg: 'repeat(4, minmax(0, 1fr))',
+              },
+              columnGap: 2,
+              rowGap: 1,
+              color: 'text.secondary',
+              '& dt': { fontSize: 12, fontWeight: 800 },
+              '& dd': { m: 0, fontSize: 12, overflowWrap: 'anywhere' },
+            }}
+          >
+            <Box>
+              <Box component="dt">Snapshot updated</Box>
+              <Box component="dd">{FormatTime.format(data.updatedAt)}</Box>
+            </Box>
+            <Box>
+              <Box component="dt">Prices</Box>
+              <Box component="dd">{FormatTime.format(data.priceUpdatedAt)}</Box>
+            </Box>
+            <Box>
+              <Box component="dt">History</Box>
+              <Box component="dd">
+                {FormatTime.format(data.historyUpdatedAt)}
+              </Box>
+            </Box>
+            <Box>
+              <Box component="dt">Timezone</Box>
+              <Box component="dd">Bangkok</Box>
+            </Box>
+          </Box>
+        )}
+        {stale && !error && (
+          <Alert severity="warning">
+            Snapshot is older than 2 minutes. Refresh reads saved data; it does
+            not start a broker import.
+          </Alert>
+        )}
+        {unverifiedTime && !error && (
+          <Alert severity="warning">
+            The source snapshot timestamp is unavailable or cannot be verified.
+          </Alert>
+        )}
+        <Stack
+          id="trading"
+          spacing={2}
+        >
+          <TradingPanel
+            date={TeamActivitySnapshot.today()}
+            portfolio={data}
+            history={this.services.history}
+            onBalancesChanged={this.handleLoad}
+          />
+          <OrderReviewPanel />
+        </Stack>
+        {data && (
           <>
-            <PortfolioSummary data={data} />
-            <EnginePerformanceSummary data={data} />
-            <RiskPanel />
+            <Box
+              id="data-scope"
+              component="details"
+              aria-label="Wallet data scope"
+              sx={{
+                fontSize: 12,
+                color: 'text.secondary',
+                p: 'var(--panel-padding)',
+                bgcolor: 'var(--surface-soft)',
+                borderRadius: 'var(--radius-panel)',
+                '& p': { m: 0, mb: 0.5 },
+                '& > summary': {
+                  minHeight: 44,
+                  alignContent: 'center',
+                  cursor: 'pointer',
+                  color: 'text.primary',
+                  fontSize: 14,
+                  fontWeight: 600,
+                  '&:focus-visible': { outline: '2px solid', outlineOffset: 2 },
+                },
+              }}
+            >
+              <Box component="summary">Data details</Box>
+              <Stack
+                direction={{ xs: 'column', sm: 'row' }}
+                spacing={{ xs: 0.5, sm: 2 }}
+                sx={{ mb: 0.5 }}
+              >
+                <Typography
+                  variant="body2"
+                  sx={{ fontWeight: 750 }}
+                >
+                  Wallet holdings
+                </Typography>
+                <Typography variant="body2">Bitkub TH</Typography>
+              </Stack>
+              <Typography variant="body2">
+                Latest snapshot, independent of the trading report date.
+              </Typography>
+              <Typography variant="body2">
+                Snapshot updated is the saved observation time and may come from
+                a newer capital observation. It does not confirm a new full
+                broker wallet import. Refresh only rereads this API; backend
+                imports update source records separately.
+              </Typography>
+              <Typography variant="body2">{data.historyCoverage}</Typography>
+              <Typography
+                variant="caption"
+                component="p"
+              >
+                Crypto value excludes THB. Available THB excludes
+                broker-reserved cash; pending local proposals may reduce
+                spendable capital further. Sources can update at different
+                times.
+              </Typography>
+              <Typography
+                variant="caption"
+                component="p"
+              >
+                This wallet snapshot does not identify its account. Engine last
+                buy and P/L cover confirmed live engine fills only;
+                whole-account cost and profit remain unknown when history or
+                transfers are incomplete.
+              </Typography>
+            </Box>
+            <Typography
+              component="h2"
+              sx={{
+                fontFamily: 'var(--font-display)',
+                fontSize: 24,
+                fontWeight: 850,
+              }}
+            >
+              Assets
+            </Typography>
             <PortfolioFilters
               filter={filter}
               onChange={this.handleFilterChange}
             />
-            <Box sx={{ color: '#707070', fontSize: 14 }}>
-              <Typography
-                variant="body2"
-                sx={{
-                  fontSize: 14,
-                  color: 'warning.main',
-                  bgcolor: 'warning.light',
-                  px: 1.5,
-                  py: 1,
-                  borderRadius: '6px',
-                }}
-              >
-                {data.historyCoverage}
-              </Typography>
-            </Box>
             <PortfolioTable
               positions={positions}
               hasRecords={data.positions.length > 0}
+              holdingsKnown={holdingsKnown}
+              filter={filter}
               expanded={this.state.expanded}
               onOpenHistory={this.handleOpenHistory}
               history={this.state.history}
@@ -256,7 +443,7 @@ export default class CryptoPage extends Component<object, CryptoPageState> {
     void this.openHistory(symbol, true);
   };
 
-  private async load(): Promise<void> {
+  private async load(manual: boolean = false): Promise<void> {
     if (!this.mounted) {
       return;
     }
@@ -266,20 +453,50 @@ export default class CryptoPage extends Component<object, CryptoPageState> {
     const requestGeneration = this.generation;
     this.activePortfolioRequest = controller;
     this.requests.add(controller);
+    this.setState({ now: Date.now(), refreshing: manual });
+    const timeout = window.setTimeout(() => {
+      controller.abort();
+    }, 8000);
     try {
       const next = await this.services.portfolio.get(controller.signal);
-      if (this.canUpdate(controller, requestGeneration)) {
-        this.setState({ data: next, error: next.error });
+      if (this.isPortfolioCurrent(controller, requestGeneration)) {
+        if (controller.signal.aborted) {
+          throw new Error('Portfolio request timed out.');
+        }
+
+        if (next.updatedAt && Date.parse(next.updatedAt) - Date.now() > 30000) {
+          throw new Error(
+            'The snapshot timestamp is in the future. Its freshness cannot be verified.',
+          );
+        }
+
+        const previousAt = this.state.data?.updatedAt;
+        if (
+          previousAt &&
+          next.updatedAt &&
+          Date.parse(next.updatedAt) < Date.parse(previousAt)
+        ) {
+          throw new Error(
+            'An older snapshot was received. The last verified snapshot is retained.',
+          );
+        }
+
+        this.setState({ data: next, error: next.error, now: Date.now() });
       }
     } catch (cause) {
-      if (this.canUpdate(controller, requestGeneration)) {
+      if (this.isPortfolioCurrent(controller, requestGeneration)) {
         this.setState({
-          error: this.message(cause, 'Unable to load portfolio.'),
+          error: controller.signal.aborted
+            ? 'Portfolio request timed out.'
+            : this.message(cause, 'Unable to load portfolio.'),
+          now: Date.now(),
         });
       }
     } finally {
+      window.clearTimeout(timeout);
       this.requests.delete(controller);
-      if (this.activePortfolioRequest === controller) {
+      if (this.isPortfolioCurrent(controller, requestGeneration)) {
+        this.setState({ refreshing: false });
         this.activePortfolioRequest = null;
       }
     }
@@ -290,34 +507,12 @@ export default class CryptoPage extends Component<object, CryptoPageState> {
       return;
     }
 
-    this.setState({ refreshing: true });
-    const controller = new AbortController();
-    const requestGeneration = this.generation;
-    this.requests.add(controller);
-    try {
-      await this.services.portfolio.sync(controller.signal);
-      if (!this.canUpdate(controller, requestGeneration)) {
-        return;
-      }
-
-      await this.load();
-    } catch (cause) {
-      if (this.canUpdate(controller, requestGeneration)) {
-        this.setState({
-          error: this.message(cause, 'Unable to sync Bitkub data.'),
-        });
-      }
-    } finally {
-      this.requests.delete(controller);
-      if (this.canUpdate(controller, requestGeneration)) {
-        this.setState({ refreshing: false });
-      }
-    }
+    await this.load(true);
   }
 
   private updatePolling(): void {
     this.stopPolling();
-    if (this.mounted) {
+    if (this.mounted && !document.hidden) {
       this.startPolling();
     }
   }
@@ -329,7 +524,12 @@ export default class CryptoPage extends Component<object, CryptoPageState> {
 
     this.pollTimer = window.setInterval(
       () => {
-        if (this.polling || this.activePortfolioRequest || !this.mounted) {
+        if (!this.mounted || document.hidden) {
+          return;
+        }
+
+        this.setState({ now: Date.now() });
+        if (this.polling || this.activePortfolioRequest) {
           return;
         }
 
@@ -349,6 +549,31 @@ export default class CryptoPage extends Component<object, CryptoPageState> {
     }
 
     this.polling = false;
+  }
+
+  private readonly visibility = (): void => {
+    this.stopPolling();
+    if (document.hidden) {
+      const request = this.activePortfolioRequest;
+      this.activePortfolioRequest = null;
+      request?.abort();
+      this.setState({ refreshing: false });
+    } else {
+      this.setState({ now: Date.now() });
+      this.startPolling();
+      void this.load();
+    }
+  };
+
+  private isPortfolioCurrent(
+    controller: AbortController,
+    requestGeneration: number,
+  ): boolean {
+    return (
+      this.mounted &&
+      requestGeneration === this.generation &&
+      this.activePortfolioRequest === controller
+    );
   }
 
   private clearHistory(): void {
@@ -373,7 +598,7 @@ export default class CryptoPage extends Component<object, CryptoPageState> {
     if (
       !force &&
       (expanded === null ||
-        this.state.history[symbol] ||
+        Object.hasOwn(this.state.history, symbol) ||
         this.historyRequests.has(symbol))
     ) {
       return;
@@ -390,32 +615,45 @@ export default class CryptoPage extends Component<object, CryptoPageState> {
         Object.entries(current.historyErrors).filter(([key]) => key !== symbol),
       ),
     }));
+    let timedOut = false;
+    const timeout = window.setTimeout(() => {
+      timedOut = true;
+      controller.abort();
+    }, 8000);
     try {
       const response = await this.services.history.get(
         symbol,
         controller.signal,
       );
-      if (this.canUpdate(controller, requestGeneration)) {
+      if (this.isHistoryCurrent(symbol, controller, requestGeneration)) {
+        if (controller.signal.aborted) {
+          throw new Error('History request timed out. Try again.');
+        }
+
         this.setState((current) => ({
           history: { ...current.history, [symbol]: response.trades },
         }));
       }
     } catch (cause) {
-      if (this.canUpdate(controller, requestGeneration)) {
+      if (this.isHistoryCurrent(symbol, controller, requestGeneration)) {
         this.setState((current) => ({
           historyErrors: {
             ...current.historyErrors,
-            [symbol]: this.message(cause, 'Unable to load history.'),
+            [symbol]: timedOut
+              ? 'History request timed out. Try again.'
+              : this.message(cause, 'Unable to load history.'),
           },
         }));
       }
     } finally {
+      window.clearTimeout(timeout);
       this.requests.delete(controller);
-      if (this.historyRequests.get(symbol) === controller) {
+      const current = this.historyRequests.get(symbol) === controller;
+      if (current) {
         this.historyRequests.delete(symbol);
       }
 
-      if (this.canUpdate(controller, requestGeneration)) {
+      if (current && this.mounted && requestGeneration === this.generation) {
         this.setState((current) => ({
           historyLoading: { ...current.historyLoading, [symbol]: false },
         }));
@@ -423,14 +661,15 @@ export default class CryptoPage extends Component<object, CryptoPageState> {
     }
   }
 
-  private canUpdate(
+  private isHistoryCurrent(
+    symbol: string,
     controller: AbortController,
     requestGeneration: number,
   ): boolean {
     return (
       this.mounted &&
-      !controller.signal.aborted &&
-      requestGeneration === this.generation
+      requestGeneration === this.generation &&
+      this.historyRequests.get(symbol) === controller
     );
   }
 

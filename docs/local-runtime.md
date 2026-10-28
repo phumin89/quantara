@@ -115,7 +115,7 @@ Get-Content .runtime/logs/MarketData.host.log -Tail 10
 | `IdleSleepBlocked=True` | Confirms the native idle-sleep request succeeded.              |
 | Build outputs and logs  | Stay ignored by Git; credentials are not written to host logs. |
 
-Use **Stop company** in Daily Brief to persistently stop AI research. Market
+Use **Pause research** in Daily Brief to persistently stop AI research. Market
 monitoring and broker-status reconciliation can remain available. Removing the
 host tasks is a separate maintenance action:
 
@@ -124,7 +124,7 @@ host tasks is a separate maintenance action:
 ```
 
 - `-Remove` stops and removes this checkout's watchers. Adopted services can remain
-  running; it is not a replacement for Stop company.
+  running; it is not a replacement for **Pause research**.
 - Removing a task can terminate the child process it launched. Do it during maintenance
   with no active report or order submission.
 - Existing live watchers keep their original build path when the installer is rerun;

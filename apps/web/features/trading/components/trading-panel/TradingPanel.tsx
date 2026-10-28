@@ -1,17 +1,20 @@
 'use client';
 
-import { Component, type ContextType, type ReactNode } from 'react';
+import { Component, createRef, type ContextType, type ReactNode } from 'react';
 import {
   Alert,
+  AlertTitle,
   Box,
   Button,
   Chip,
-  Divider,
+  Drawer,
+  IconButton,
   Paper,
   Stack,
   Typography,
 } from '@mui/material';
 import ShowChartOutlinedIcon from '@mui/icons-material/ShowChartOutlined';
+import CloseOutlinedIcon from '@mui/icons-material/CloseOutlined';
 import { TradingServiceContext } from '../../context/TradingServiceContext';
 import type { TradingOverview } from '../../contracts/TradingOverview';
 import { tradingRulesSchema } from '../../contracts/TradingRules';
@@ -26,6 +29,8 @@ import TradingReportsView from '../trading-reports-view/TradingReportsView';
 import TradingSettings from '../trading-settings/TradingSettings';
 import TradingMandateDialog from '../trading-mandate-dialog/TradingMandateDialog';
 import TradingControls from '../trading-controls/TradingControls';
+import ReconciliationPanel from '../reconciliation-panel/ReconciliationPanel';
+import { ReconciliationSafety } from '../../presentation/ReconciliationSafety';
 
 export default class TradingPanel extends Component<
   TradingPanelProps,
@@ -43,9 +48,12 @@ export default class TradingPanel extends Component<
     validationError: null,
     open: false,
     busy: false,
+    refreshing: false,
     dirty: false,
     reviewOpen: false,
+    balanceReviewOpen: false,
     expiresAt: '',
+    aiManaged: false,
   };
 
   private mounted = false;
@@ -60,6 +68,8 @@ export default class TradingPanel extends Component<
 
   private generation = 0;
 
+  private readonly ordersSection = createRef<HTMLDetailsElement>();
+
   public override componentDidMount(): void {
     this.mounted = true;
     void this.load();
@@ -73,8 +83,17 @@ export default class TradingPanel extends Component<
     this.clearTimer();
   }
 
+  public override componentDidUpdate(): void {
+    if (!this.state.reviewOpen && this.state.aiManaged) {
+      this.setState({ aiManaged: false });
+    }
+  }
+
   public override render(): ReactNode {
     const overview = this.state.overview;
+    const balanceIssue = this.balanceIssue;
+    const historicalSymbols =
+      this.props.portfolio?.performance?.unreconciledSymbols ?? [];
     const displayError = this.state.error ?? this.state.actionError;
     const heartbeat = overview?.heartbeatAt
       ? Date.parse(overview.heartbeatAt)
@@ -94,11 +113,19 @@ export default class TradingPanel extends Component<
       overview.mandate.accountKey === overview.accountKey &&
       overview.mandate.rulesHash === overview.rulesHash &&
       Date.parse(overview.mandate.expiresAt) > Date.now();
+    const uncertainOrders = (overview?.live.orders ?? []).filter(
+      (order) =>
+        ['submitting', 'unknown'].includes(order.status) ||
+        ['claimed', 'unknown'].includes(order.cancellationState ?? ''),
+    );
+    const orderReviewNeeded = uncertainOrders.length > 0;
+    const liveBlocked = liveOn && (!!overview.fault || orderReviewNeeded);
     let label = 'Auto trading off';
     let statusColor: 'default' | 'warning' | 'error' | 'success' = 'default';
-    let operatingDetail = `AutoLive ${liveOn ? 'ON' : 'OFF'}.`;
+    let operatingDetail: string | null = null;
     if (overview?.mode === 'manualReview') {
       label = 'Manual review';
+      operatingDetail = 'Each order needs your approval.';
     }
 
     if (overview?.mode === 'paper') {
@@ -107,8 +134,8 @@ export default class TradingPanel extends Component<
     }
 
     if (liveOn) {
-      label = 'Auto trading on';
-      statusColor = 'success';
+      label = liveBlocked ? 'Enabled · Blocked' : 'Auto trading on';
+      statusColor = liveBlocked ? 'warning' : 'success';
     }
 
     if (liveUnknown) {
@@ -125,80 +152,196 @@ export default class TradingPanel extends Component<
     return (
       <Paper
         variant="outlined"
-        sx={{ borderRadius: '8px', minWidth: 0, overflow: 'hidden' }}
+        sx={{
+          borderRadius: 'var(--radius-panel)',
+          borderColor: 'var(--border-panel)',
+          bgcolor: 'var(--surface-panel)',
+          boxShadow: 'var(--shadow-panel)',
+          minWidth: 0,
+          overflow: 'hidden',
+        }}
       >
         <Stack
-          spacing={2}
-          sx={{ p: { xs: 2, sm: 3 } }}
+          spacing={0}
+          sx={{
+            p: 'var(--panel-padding)',
+            '& > details': {
+              bgcolor: 'var(--surface-soft)',
+              borderRadius: 'var(--radius-control)',
+              px: 1.5,
+              mt: 1.5,
+            },
+          }}
         >
           <Stack
-            direction="row"
+            direction={{ xs: 'column', sm: 'row' }}
             spacing={1}
             sx={{
-              alignItems: 'center',
+              alignItems: { xs: 'flex-start', sm: 'center' },
               justifyContent: 'space-between',
-              flexWrap: 'wrap',
+              mb: 2,
             }}
           >
             <Stack
               direction="row"
               spacing={1}
-              sx={{ alignItems: 'center' }}
+              sx={{ alignItems: 'center', flexWrap: 'wrap', gap: 1 }}
             >
-              <ShowChartOutlinedIcon fontSize="small" />
+              <ShowChartOutlinedIcon
+                sx={{
+                  width: 40,
+                  height: 40,
+                  p: 0.75,
+                  bgcolor: 'var(--color-peach)',
+                  color: 'text.primary',
+                  borderRadius: 'var(--radius-control)',
+                }}
+              />
               <Typography
                 component="h2"
-                sx={{ fontSize: 18, fontWeight: 700 }}
+                sx={{
+                  fontFamily: 'var(--font-display)',
+                  fontSize: 22,
+                  fontWeight: 850,
+                }}
               >
                 Trading
               </Typography>
+              <Chip
+                size="small"
+                label={!overview && !displayError ? 'Checking status' : label}
+                color={statusColor}
+              />
             </Stack>
-            <Chip
-              size="small"
-              label={!overview && !displayError ? 'Checking status' : label}
-              color={statusColor}
-            />
+            {overview && (
+              <Typography
+                variant="caption"
+                color="text.secondary"
+              >
+                Updated {TradingFormatting.time(overview.heartbeatAt)}
+              </Typography>
+            )}
           </Stack>
-          {displayError && (
+          {(this.state.actionError || balanceIssue) && (
+            <Alert
+              severity="warning"
+              sx={{ mb: 2 }}
+            >
+              <AlertTitle sx={{ fontSize: 14, fontWeight: 600 }}>
+                {balanceIssue ? 'Balance review needed' : 'Check latest status'}
+              </AlertTitle>
+              {balanceIssue ?? this.state.actionError}
+              {balanceIssue && overview?.emergencyStopped && (
+                <Typography
+                  variant="body2"
+                  sx={{ mt: 1 }}
+                >
+                  Emergency stop is also active. Clear it when ready to return
+                  to setup. Trading stays off until you review and enable.
+                </Typography>
+              )}
+              {balanceIssue && this.state.actionError && (
+                <Box
+                  component="details"
+                  sx={{
+                    mt: 1,
+                    '& > summary': {
+                      minHeight: 44,
+                      alignContent: 'center',
+                      cursor: 'pointer',
+                    },
+                  }}
+                >
+                  <Box component="summary">Last attempt</Box>
+                  {this.state.actionError}
+                </Box>
+              )}
+            </Alert>
+          )}
+          {!balanceIssue && historicalSymbols.length > 0 && (
+            <Typography
+              variant="body2"
+              color="text.secondary"
+              sx={{ mb: 2 }}
+            >
+              Historical cost and profit remain unverified:{' '}
+              {historicalSymbols.join(', ')}.
+            </Typography>
+          )}
+          {this.state.error && !this.state.busy && !this.state.open && (
             <Alert
               severity="error"
+              sx={{ mb: 2 }}
               action={
                 <Button
                   color="inherit"
-                  disabled={this.state.busy}
+                  disabled={this.state.refreshing}
+                  loading={this.state.refreshing}
                   onClick={() => void this.load()}
                 >
-                  {this.state.error ? 'Retry' : 'Refresh status'}
+                  Refresh status
                 </Button>
               }
             >
-              {displayError}
+              {this.state.error}
             </Alert>
           )}
-          {overview?.fault && (
-            <Alert severity="warning">{overview.fault}</Alert>
+          {orderReviewNeeded && (
+            <Alert
+              severity="warning"
+              sx={{ mb: 2 }}
+            >
+              <AlertTitle sx={{ fontSize: 14, fontWeight: 600 }}>
+                Order confirmation needed
+              </AlertTitle>
+              Unconfirmed order:{' '}
+              {Array.from(
+                new Set(uncertainOrders.map((order) => order.symbol)),
+              ).join(', ')}
+              . Check its details below against Bitkub order history. Auto
+              trading stays blocked until the outcome is verified.
+              {overview?.fault &&
+                overview.fault !==
+                  'Uncertain broker order — reconciliation required' && (
+                  <Typography
+                    variant="body2"
+                    sx={{ mt: 1 }}
+                  >
+                    {overview.fault}
+                  </Typography>
+                )}
+            </Alert>
+          )}
+          {overview?.fault && !orderReviewNeeded && (
+            <Alert
+              severity="warning"
+              sx={{ mb: 2 }}
+            >
+              {overview.fault}
+            </Alert>
           )}
           {!overview && !displayError && (
             <Typography variant="body2">Loading trading status…</Typography>
           )}
           {overview && (
             <>
-              {TradingRulePresentation.isAdaptive(overview.rules.version) && (
-                <TradingAutonomyView overview={overview} />
+              {operatingDetail && (
+                <Typography
+                  variant="body2"
+                  color="text.secondary"
+                  sx={{ mb: 2 }}
+                >
+                  {operatingDetail}
+                </Typography>
               )}
-              <Typography
-                variant="body2"
-                color="text.secondary"
-              >
-                {operatingDetail}
-                {' · '}Last update{' '}
-                {TradingFormatting.time(overview.heartbeatAt)}
-              </Typography>
-              {overview.realtime && <TradingRealtimeView overview={overview} />}
-              {overview.emergencyStopped && (
-                <Alert severity="error">
-                  Emergency stop is active. New entries are blocked. Existing
-                  orders and positions still require reconciliation.
+              {overview.emergencyStopped && !balanceIssue && (
+                <Alert
+                  severity="warning"
+                  sx={{ mb: 2 }}
+                >
+                  Emergency stop is active. Clear it when ready to return to
+                  setup. Trading stays off until you review and enable. Existing
+                  broker orders still need review.
                 </Alert>
               )}
               <TradingControls
@@ -207,11 +350,32 @@ export default class TradingPanel extends Component<
                 busy={this.state.busy}
                 dirty={this.state.dirty}
                 error={this.state.error}
+                orderReviewNeeded={orderReviewNeeded}
+                balanceReviewNeeded={
+                  balanceIssue !== null && this.props.history !== undefined
+                }
                 onReview={() => {
-                  if (
+                  if (orderReviewNeeded) {
+                    const section = this.ordersSection.current;
+                    if (section) {
+                      section.open = true;
+                      section.querySelector('summary')?.focus();
+                      section.scrollIntoView({ block: 'start' });
+                    }
+                  } else if (balanceIssue && this.props.history) {
+                    this.setState({
+                      balanceReviewOpen: true,
+                      reviewOpen: false,
+                    });
+                  } else if (
                     TradingRulePresentation.isAdaptive(overview.rules.version)
                   ) {
-                    this.setState({ reviewOpen: true, expiresAt: '' });
+                    this.setState(
+                      { reviewOpen: false, aiManaged: false },
+                      () => {
+                        this.setState({ reviewOpen: true, expiresAt: '' });
+                      },
+                    );
                   } else {
                     void this.prepareAdaptiveSetup(overview);
                   }
@@ -232,7 +396,57 @@ export default class TradingPanel extends Component<
                   )
                 }
               />
-              <TradingBookView overview={overview} />
+              <Box
+                component="details"
+                ref={this.ordersSection}
+                open={orderReviewNeeded}
+                sx={{
+                  scrollMarginTop: '80px',
+                  '& > summary': {
+                    minHeight: 44,
+                    alignContent: 'center',
+                    cursor: 'pointer',
+                    fontWeight: 600,
+                    fontSize: 14,
+                    '&:focus-visible': {
+                      outline: '2px solid',
+                      outlineOffset: 2,
+                    },
+                  },
+                  borderTop: '1px solid',
+                  borderColor: 'divider',
+                  mt: 2,
+                }}
+              >
+                <Box component="summary">Orders &amp; positions</Box>
+                <TradingBookView overview={overview} />
+              </Box>
+              <Box
+                component="details"
+                sx={{
+                  borderTop: '1px solid',
+                  borderColor: 'divider',
+                  '& > summary': {
+                    minHeight: 44,
+                    alignContent: 'center',
+                    cursor: 'pointer',
+                    fontWeight: 600,
+                    fontSize: 14,
+                    '&:focus-visible': {
+                      outline: '2px solid',
+                      outlineOffset: 2,
+                    },
+                  },
+                }}
+              >
+                <Box component="summary">System details</Box>
+                {TradingRulePresentation.isAdaptive(overview.rules.version) && (
+                  <TradingAutonomyView overview={overview} />
+                )}
+                {overview.realtime && (
+                  <TradingRealtimeView overview={overview} />
+                )}
+              </Box>
               {this.state.dirty && (
                 <Alert severity="info">
                   Unsaved settings. Save them in Trading settings before
@@ -252,6 +466,23 @@ export default class TradingPanel extends Component<
                   )}
                 </Typography>
               )}
+              {overview.aiPolicy?.enabled && (
+                <Alert
+                  severity="info"
+                  sx={{ mt: 1 }}
+                >
+                  <AlertTitle>AI-managed strategy</AlertTitle>
+                  Technical and risk settings may adjust within 100% verified
+                  capital. {overview.aiPolicy.reason}
+                  {overview.aiPolicy.lastChangedAt && (
+                    <>
+                      {' '}
+                      Last change:{' '}
+                      {TradingFormatting.time(overview.aiPolicy.lastChangedAt)}.
+                    </>
+                  )}
+                </Alert>
+              )}
               {!overview.liveActivationAvailable && (
                 <Typography
                   variant="body2"
@@ -261,22 +492,25 @@ export default class TradingPanel extends Component<
                   controls and live exchange access configured.
                 </Typography>
               )}
-              <Divider />
               <Box
                 component="details"
                 sx={{
+                  borderTop: '1px solid',
+                  borderColor: 'divider',
                   '& > summary': {
                     cursor: 'pointer',
                     minHeight: 44,
                     alignContent: 'center',
                     fontSize: 14,
                     fontWeight: 600,
+                    '&:focus-visible': {
+                      outline: '2px solid',
+                      outlineOffset: 2,
+                    },
                   },
                 }}
               >
-                <Box component="summary">
-                  Daily report · {this.props.date || 'Select a date'}
-                </Box>
+                <Box component="summary">Daily reports</Box>
                 <TradingReportsView
                   overview={overview}
                   date={this.props.date}
@@ -289,13 +523,16 @@ export default class TradingPanel extends Component<
                 dirty={this.state.dirty}
                 error={this.state.error}
                 validationError={this.state.validationError}
+                refreshing={this.state.refreshing}
+                onRetry={() => void this.load()}
                 onClose={() => {
-                  this.setState({ open: false });
+                  this.setState({ open: false, aiManaged: false });
                 }}
                 onDirty={() => {
                   this.setState({
                     dirty: true,
                     reviewOpen: false,
+                    aiManaged: false,
                     validationError: null,
                   });
                 }}
@@ -305,18 +542,107 @@ export default class TradingPanel extends Component<
                 }
                 onSetMode={(mode) => void this.setMode(mode)}
               />
+              {this.props.history && (
+                <>
+                  {(!balanceIssue || orderReviewNeeded) && (
+                    <Button
+                      sx={{ alignSelf: 'flex-start', mt: 1 }}
+                      disabled={this.state.busy || !!this.state.error}
+                      onClick={() => {
+                        this.setState({ balanceReviewOpen: true });
+                      }}
+                    >
+                      Review balances
+                    </Button>
+                  )}
+                  <Drawer
+                    anchor="right"
+                    open={this.state.balanceReviewOpen}
+                    onClose={() => {
+                      this.setState({ balanceReviewOpen: false });
+                    }}
+                    slotProps={{
+                      paper: {
+                        role: 'dialog',
+                        'aria-modal': true,
+                        'aria-labelledby': 'balance-review-title',
+                        sx: {
+                          width: { xs: '100%', sm: 600 },
+                          maxWidth: '100%',
+                          p: 'var(--panel-padding)',
+                          bgcolor: 'var(--surface-raised)',
+                          backdropFilter: 'blur(20px)',
+                          borderLeft: '1px solid',
+                          borderColor: 'var(--border-panel)',
+                          borderRadius:
+                            'var(--radius-panel) 0 0 var(--radius-panel)',
+                          boxShadow: 'var(--shadow-panel)',
+                        },
+                      },
+                    }}
+                  >
+                    <Stack
+                      direction="row"
+                      sx={{
+                        justifyContent: 'space-between',
+                        alignItems: 'center',
+                        mb: 2,
+                      }}
+                    >
+                      <Typography
+                        id="balance-review-title"
+                        component="h2"
+                        sx={{
+                          fontFamily: 'var(--font-display)',
+                          fontSize: 24,
+                          fontWeight: 850,
+                        }}
+                      >
+                        Balance review
+                      </Typography>
+                      <IconButton
+                        aria-label="Close balance review"
+                        onClick={() => {
+                          this.setState({ balanceReviewOpen: false });
+                        }}
+                        sx={{ width: 44, height: 44 }}
+                      >
+                        <CloseOutlinedIcon />
+                      </IconButton>
+                    </Stack>
+                    {this.state.balanceReviewOpen && (
+                      <ReconciliationPanel
+                        key={overview.accountKey}
+                        history={this.props.history}
+                        onApplied={(kind) => {
+                          this.setState({
+                            actionError: null,
+                            balanceReviewOpen: kind !== 'cash-baseline',
+                          });
+                          void this.load();
+                          this.props.onBalancesChanged?.();
+                        }}
+                      />
+                    )}
+                  </Drawer>
+                </>
+              )}
               <TradingMandateDialog
                 overview={overview}
                 open={this.state.reviewOpen}
                 expiresAt={this.state.expiresAt}
                 busy={this.state.busy}
                 dirty={this.state.dirty}
-                error={this.state.error}
+                error={this.state.error ?? this.balanceIssue}
                 onClose={() => {
-                  this.setState({ reviewOpen: false });
+                  this.setState({ reviewOpen: false, aiManaged: false });
                 }}
                 onExpiresAtChange={(expiresAt) => {
                   this.setState({ expiresAt });
+                }}
+                aiManaged={this.state.aiManaged}
+                onAiManagedChange={(aiManaged) => {
+                  this.setState({ aiManaged });
                 }}
                 onActivate={() => void this.activate(overview)}
               />
@@ -444,7 +770,7 @@ export default class TradingPanel extends Component<
         state.overview.rulesHash === prepared.rulesHash &&
         TradingRulePresentation.isAdaptive(prepared.rules.version) &&
         !state.error
-          ? { open: false, reviewOpen: true, expiresAt: '' }
+          ? { open: false, reviewOpen: true, expiresAt: '', aiManaged: false }
           : null,
       );
     }
@@ -473,6 +799,7 @@ export default class TradingPanel extends Component<
       !this.state.reviewOpen ||
       this.state.dirty ||
       this.state.error ||
+      this.balanceIssue !== null ||
       !overview.liveActivationAvailable ||
       overview.emergencyStopped ||
       overview.mode === 'autoLive' ||
@@ -491,12 +818,14 @@ export default class TradingPanel extends Component<
         overview.rulesHash,
         expiry.toISOString(),
         signal,
+        this.state.aiManaged &&
+          overview.rules.version === 'adaptive-intraday-v2',
       ),
     );
   }
 
-  private async load(): Promise<void> {
-    if (this.actionInFlight) {
+  private async load(force = false): Promise<void> {
+    if (this.actionInFlight && !force) {
       return;
     }
 
@@ -505,6 +834,7 @@ export default class TradingPanel extends Component<
     const request = new AbortController();
     this.request = request;
     const generation = ++this.generation;
+    this.setState({ refreshing: true });
     try {
       const overview = await TradingServiceContext.require(this.context).get(
         request.signal,
@@ -528,6 +858,7 @@ export default class TradingPanel extends Component<
       }
     } finally {
       if (this.mounted && this.generation === generation) {
+        this.setState({ refreshing: false });
         this.schedule();
       }
     }
@@ -545,10 +876,58 @@ export default class TradingPanel extends Component<
             ? { ...overview, rules: state.overview.rules }
             : overview,
         error: null,
+        actionError: changed ? null : state.actionError,
         dirty: saved || changed ? false : state.dirty,
         reviewOpen: changed || saved ? false : state.reviewOpen,
+        balanceReviewOpen: changed || saved ? false : state.balanceReviewOpen,
+        aiManaged: changed || saved ? false : state.aiManaged,
       };
     });
+  }
+
+  private get balanceIssue(): string | null {
+    const overview = this.state.overview;
+    const portfolio = this.props.portfolio;
+    const observedAt = portfolio?.updatedAt
+      ? Date.parse(portfolio.updatedAt)
+      : NaN;
+    const fresh =
+      Number.isFinite(observedAt) &&
+      Date.now() - observedAt <= 120000 &&
+      observedAt <= Date.now() + 30000;
+    const symbols = fresh
+      ? (overview?.live.positions ?? [])
+          .filter(
+            (position) =>
+              Number(position.quantity) > 0 &&
+              portfolio?.positions.find(
+                (holding) => holding.symbol === position.symbol,
+              )?.quantity === 0,
+          )
+          .map((position) => position.symbol)
+      : [];
+    if (symbols.length > 0) {
+      return `${symbols.join(', ')} holdings differ from the saved strategy. Verify sold holdings, then review available cash. Historical cost and profit remain unverified.`;
+    }
+
+    const capital = overview?.autonomy?.capital;
+    if (
+      overview?.mode === 'stopped' &&
+      overview.mandate !== null &&
+      overview.live.positions.length === 0 &&
+      capital?.availableThb != null &&
+      capital.blocker === null &&
+      capital.reservedThb !== null &&
+      ReconciliationSafety.sameAmount(capital.reservedThb, '0') &&
+      !ReconciliationSafety.sameAmount(
+        capital.availableThb,
+        overview.live.cashThb,
+      )
+    ) {
+      return 'Available broker cash differs from the saved strategy balance. Review the current balance before enabling.';
+    }
+
+    return null;
   }
 
   private async run(
@@ -566,9 +945,11 @@ export default class TradingPanel extends Component<
     this.action = new AbortController();
     this.setState({
       busy: true,
+      refreshing: false,
       error: null,
       actionError: null,
       reviewOpen: false,
+      aiManaged: false,
     });
     try {
       const overview = await call(this.action.signal);
@@ -580,16 +961,15 @@ export default class TradingPanel extends Component<
       }
     } catch (error) {
       if (this.mounted && !this.action.signal.aborted) {
+        const message =
+          error instanceof Error
+            ? error.message
+            : 'Trading control failed. Refresh status before trying again.';
         this.setState({
-          error:
-            error instanceof Error
-              ? error.message
-              : 'Trading control failed. Refresh status before trying again.',
-          actionError:
-            error instanceof Error
-              ? error.message
-              : 'Trading control failed. Refresh status before trying again.',
+          error: 'Trading status is being revalidated.',
+          actionError: message,
         });
+        await this.load(true);
       }
     } finally {
       this.actionInFlight = false;

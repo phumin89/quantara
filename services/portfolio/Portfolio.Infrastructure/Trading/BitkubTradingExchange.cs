@@ -46,7 +46,7 @@ public sealed class BitkubTradingExchange(HttpClient http, BitkubCredentials cre
         var observed = await broker.Inspect(Proposal(intent), cancellationToken);
         if (observed.State == OrderState.Unknown || observed.BrokerOrderId is null)
         {
-            return new("unknown", observed.BrokerOrderId, null, [], "Order outcome is uncertain.");
+            return new("unknown", observed.BrokerOrderId, null, [], observed.Message ?? "Order outcome is uncertain.");
         }
 
         var side = intent.Side == TradeSide.Buy ? "buy" : "sell";
@@ -69,7 +69,8 @@ public sealed class BitkubTradingExchange(HttpClient http, BitkubCredentials cre
         var order = document.RootElement.GetProperty("result");
         if (
             order.GetProperty("id").ToString() != observed.BrokerOrderId
-            || Number(order, "amount") != intent.Amount
+            || !DecimalPrecision.MatchesPositive(order, "amount", intent.Amount)
+            || !DecimalPrecision.MatchesPositive(order, "rate", intent.LimitPrice)
             || order.TryGetProperty("client_id", out var client)
                 && client.ToString().Length > 0
                 && client.ToString() != intent.Id.ToString("N")
@@ -91,14 +92,21 @@ public sealed class BitkubTradingExchange(HttpClient http, BitkubCredentials cre
         var fills = new List<TradingFill>();
         foreach (var row in history)
         {
-            var identifier = row.GetProperty("txn_id").ToString();
+            var transactionId = row.GetProperty("txn_id");
+            if (transactionId.ValueKind is not (JsonValueKind.String or JsonValueKind.Number))
+            {
+                throw new InvalidDataException("Broker fill identity is invalid.");
+            }
+
+            var identifier = transactionId.ToString();
             var amount = Number(row, "amount");
             var price = Number(row, "rate");
             var fee = Number(row, "fee");
             var credit = Number(row, "credit");
             var at = DateTimeOffset.FromUnixTimeMilliseconds(row.GetProperty("timestamp").GetInt64());
             if (
-                identifier.Length is < 1 or > 150
+                string.IsNullOrWhiteSpace(identifier)
+                || identifier.Length > 150
                 || amount <= 0
                 || price <= 0
                 || fee < 0
@@ -204,11 +212,7 @@ public sealed class BitkubTradingExchange(HttpClient http, BitkubCredentials cre
     }
 
     private static decimal Number(JsonElement element, string name) =>
-        decimal.Parse(
-            element.GetProperty(name).ToString(),
-            NumberStyles.AllowDecimalPoint,
-            CultureInfo.InvariantCulture
-        );
+        DecimalPrecision.Read(element.GetProperty(name), NumberStyles.AllowDecimalPoint);
 
     private static OrderProposal Proposal(TradingIntent intent) =>
         new(

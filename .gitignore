@@ -8,3 +8,6 @@ out/
 work/
 **/bin/
 **/obj/
+
+# Pinned upstream furniture named BIN is source, not compiled output.
+!vendor/pixel-agents/upstream/webview-ui/public/assets/furniture/BIN/

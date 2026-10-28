@@ -19,7 +19,8 @@ public interface ITradingControl
         string rulesHash,
         DateTimeOffset expiresAt,
         string acknowledgement,
-        CancellationToken cancellationToken
+        CancellationToken cancellationToken,
+        bool aiManaged = false
     );
 
     public Task<TradingState> Disable(bool emergency, CancellationToken cancellationToken);

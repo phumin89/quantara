@@ -1,4 +1,5 @@
 import type { IRequestService } from '../../../shared/services/IRequestService';
+import { JsonResponse } from '../../../shared/api/JsonResponse';
 import { orderResponseSchema } from '../contracts/OrderResponse';
 import { orderViewSchema, type OrderView } from '../contracts/OrderView';
 import type { IOrdersService } from './IOrdersService';
@@ -41,6 +42,7 @@ export class OrdersService implements IOrdersService {
       { confirmed: true },
       'Unable to approve the order.',
       signal,
+      id,
     );
   }
 
@@ -50,6 +52,7 @@ export class OrdersService implements IOrdersService {
       {},
       'Unable to reject the order.',
       signal,
+      id,
     );
   }
 
@@ -58,6 +61,7 @@ export class OrdersService implements IOrdersService {
     body: unknown,
     fallback: string,
     signal?: AbortSignal,
+    expectedId?: string,
   ): Promise<OrderView> {
     const response = await this.requests.send(
       `${OrdersService.basePath}${path}`,
@@ -66,8 +70,12 @@ export class OrdersService implements IOrdersService {
       signal,
     );
     const parsed = orderViewSchema.safeParse(response);
-    if (!parsed.success) {
-      throw new Error('Order response is invalid.');
+    if (
+      !parsed.success ||
+      (expectedId !== undefined &&
+        parsed.data.id.toLowerCase() !== expectedId.toLowerCase())
+    ) {
+      throw new Error(JsonResponse.uncertainWrite);
     }
 
     return parsed.data;
@@ -79,6 +87,7 @@ export class OrdersService implements IOrdersService {
       {},
       'Unable to verify broker order status.',
       signal,
+      id,
     );
   }
 }

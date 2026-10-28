@@ -21,11 +21,17 @@ public sealed class AutonomousRiskService(
 
     private DateTimeOffset minimumObservedAt;
 
+    private long cacheRevision;
+
     public void Invalidate()
     {
         lock (this.cacheGate)
         {
             this.minimumObservedAt = time.GetUtcNow();
+            this.cacheRevision++;
+            this.evidence = null;
+            this.rulesHash = null;
+            this.valuation = [];
         }
     }
 
@@ -41,8 +47,10 @@ public sealed class AutonomousRiskService(
         var now = time.GetUtcNow();
         var hash = TradingRuleHash.Compute(rules);
         RiskAccountEvidence? observed;
+        long revision;
         lock (this.cacheGate)
         {
+            revision = this.cacheRevision;
             observed =
                 !refresh
                 && this.rulesHash == hash
@@ -70,6 +78,11 @@ public sealed class AutonomousRiskService(
 
         lock (this.cacheGate)
         {
+            if (revision != this.cacheRevision)
+            {
+                throw new InvalidDataException("Account changed during capital refresh. Request fresh evidence.");
+            }
+
             this.evidence = result.Evidence;
             this.rulesHash = hash;
             this.valuation = result.Markets;
@@ -81,6 +94,14 @@ public sealed class AutonomousRiskService(
             result.Evidence.CashFlowCoverageFrom,
             cancellationToken
         );
+        lock (this.cacheGate)
+        {
+            if (revision != this.cacheRevision)
+            {
+                throw new InvalidDataException("Account changed during capital refresh. Request fresh evidence.");
+            }
+        }
+
         return result;
     }
 
@@ -96,7 +117,6 @@ public sealed class AutonomousRiskService(
     )
     {
         var policy = rules.Adaptive ?? throw new InvalidOperationException("An adaptive trading policy is required.");
-        var now = time.GetUtcNow();
         RiskAccountEvidence? observed;
         IReadOnlyList<TradingBook> quotes;
         lock (this.cacheGate)
@@ -120,6 +140,7 @@ public sealed class AutonomousRiskService(
                     quotes.Where(item => item.Symbol != book.Symbol).Append(book).ToArray()
                 )
                 : null;
+        var now = time.GetUtcNow();
         var snapshot =
             simulation
             ?? result?.Snapshot

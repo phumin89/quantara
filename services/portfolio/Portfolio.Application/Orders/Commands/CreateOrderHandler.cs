@@ -121,6 +121,23 @@ public sealed class CreateOrderHandler(
             throw new OrderValidationException("Amount and limit price must be positive decimal numbers.");
         }
 
+        // A successful decimal parse may have rounded; compare values before creating a proposal.
+        var parts = text.Split('.');
+        var whole = parts[0].TrimStart('0');
+        var fraction = parts.Length == 2 ? parts[1].TrimEnd('0') : "";
+        var canonical = (whole.Length == 0 ? "0" : whole) + (fraction.Length == 0 ? "" : "." + fraction);
+        if (
+            !StringComparer.Ordinal.Equals(
+                canonical,
+                number.ToString("0.############################", CultureInfo.InvariantCulture)
+            )
+        )
+        {
+            throw new OrderValidationException(
+                "Amount and limit price must fit supported decimal precision without rounding."
+            );
+        }
+
         return number;
     }
 }

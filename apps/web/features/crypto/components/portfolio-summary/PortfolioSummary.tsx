@@ -7,20 +7,24 @@ import type { PortfolioSummaryProps } from './PortfolioSummaryProps';
 export default class PortfolioSummary extends PureComponent<PortfolioSummaryProps> {
   public override render(): React.ReactNode {
     const { data } = this.props;
+    const sourceAt = data.updatedAt ? Date.parse(data.updatedAt) : NaN;
+    const hasWalletSnapshot =
+      this.props.holdingsKnown ??
+      (Number.isFinite(sourceAt) && sourceAt - Date.now() <= 30000);
     const missingAssetsCaption = data.updatedAt
       ? 'Price data incomplete'
       : 'Awaiting wallet data';
     const assetsCaption =
       data.summary.totalAssets == null
         ? missingAssetsCaption
-        : 'Held crypto value';
+        : 'Held assets · excludes THB';
     const missingCashCaption = data.updatedAt
       ? 'Balance unavailable'
       : 'Awaiting wallet data';
     const cashCaption =
       data.summary.availableThb == null
         ? missingCashCaption
-        : 'Available to trade';
+        : 'Unreserved broker balance';
 
     return (
       <Paper
@@ -28,30 +32,39 @@ export default class PortfolioSummary extends PureComponent<PortfolioSummaryProp
         aria-label="Portfolio summary"
         variant="outlined"
         sx={{
-          borderColor: '#e0e0e0',
-          borderRadius: '8px',
-          boxShadow: 'none',
-          p: { xs: 1.5, sm: 2 },
+          borderColor: 'var(--border-panel)',
+          borderRadius: 'var(--radius-panel)',
+          bgcolor: 'var(--surface-panel)',
+          boxShadow: 'var(--shadow-panel)',
+          p: 'var(--panel-padding)',
         }}
       >
         <Stack
-          direction={{ xs: 'column', lg: 'row' }}
+          direction={{ xs: 'column', sm: 'row' }}
           divider={
             <Divider
               flexItem
               sx={{
-                borderBottomWidth: { xs: 1, lg: 0 },
-                borderRightWidth: { xs: 0, lg: 1 },
+                borderBottomWidth: { xs: 1, sm: 0 },
+                borderRightWidth: { xs: 0, sm: 1 },
               }}
             />
           }
           spacing={0}
+          sx={{
+            alignItems: 'stretch',
+            '& > .MuiBox-root:first-of-type': {
+              bgcolor: 'var(--color-mint)',
+              borderRadius: 'var(--radius-control)',
+              px: 2,
+            },
+          }}
         >
           <SummaryMetric
             testId="total-assets"
-            label="Total assets"
+            label="Crypto holdings value"
             value={
-              data.summary.totalAssets == null
+              !hasWalletSnapshot || data.summary.totalAssets == null
                 ? '—'
                 : FormatMoney.format(data.summary.totalAssets)
             }
@@ -61,7 +74,7 @@ export default class PortfolioSummary extends PureComponent<PortfolioSummaryProp
             testId="available-thb"
             label="Available THB"
             value={
-              data.summary.availableThb == null
+              !hasWalletSnapshot || data.summary.availableThb == null
                 ? '—'
                 : FormatMoney.format(data.summary.availableThb)
             }
@@ -71,7 +84,7 @@ export default class PortfolioSummary extends PureComponent<PortfolioSummaryProp
             testId="holding-count"
             label="Holding"
             value={
-              data.summary.holdingCount == null
+              !hasWalletSnapshot || data.summary.holdingCount == null
                 ? '—'
                 : String(data.summary.holdingCount)
             }

@@ -31,6 +31,8 @@ async function verify() {
     postMessage: (value, origin) => messages.push({ value, origin }),
   };
   const module = { exports: {} };
+  const media = { matches: false, addEventListener() {} };
+  const document = { hidden: false, addEventListener() {} };
   vm.runInNewContext(result.outputFiles[0].text, {
     module,
     exports: module.exports,
@@ -39,8 +41,8 @@ async function verify() {
     ResizeObserver: class {
       observe() {}
     },
-    matchMedia: () => ({ matches: false, addEventListener() {} }),
-    document: { hidden: false, addEventListener() {} },
+    matchMedia: () => media,
+    document,
     window: {
       addEventListener: (type, listener) => listeners.set(type, listener),
     },
@@ -81,6 +83,25 @@ async function verify() {
   );
   assert.equal(officeRoleLabel(4), 'Role 4: active');
   assert.equal(officeMotionEnabled(), true);
+  for (const status of ['completed', 'idle']) {
+    send({
+      ...snapshot,
+      agents: snapshot.agents.map((agent) => ({ ...agent, status })),
+    });
+    assert.equal(
+      officeMotionEnabled(),
+      true,
+      `${status} allows ambient upstream motion.`,
+    );
+    assert.equal(officeRoleLabel(4), `Role 4: ${status}`);
+  }
+  document.hidden = true;
+  assert.equal(officeMotionEnabled(), false, 'Hidden document still pauses.');
+  document.hidden = false;
+  media.matches = true;
+  assert.equal(officeMotionEnabled(), false, 'Reduced motion still pauses.');
+  media.matches = false;
+  assert.equal(officeMotionEnabled(), true, 'Visible idle motion resumes.');
   assert(!JSON.stringify(delivered).includes('must-not-forward'));
   for (const type of [
     'launchAgent',
@@ -110,6 +131,76 @@ async function verify() {
   );
   send({ ...snapshot, paused: true });
   assert.equal(officeMotionEnabled(), false);
+  const selectionsBeforeRefresh = delivered.filter(
+    (message) => message.type === 'agentSelected',
+  ).length;
+  send({
+    ...snapshot,
+    paused: true,
+    agents: snapshot.agents.map((agent) => ({ ...agent, status: 'completed' })),
+  });
+  assert.equal(
+    delivered.filter((message) => message.type === 'agentSelected').length,
+    selectionsBeforeRefresh,
+    'A status refresh must preserve the manually panned camera.',
+  );
+  assert.equal(officeRoleLabel(4), 'Role 4: completed');
+  send({ ...snapshot, paused: false });
+  assert.equal(officeMotionEnabled(), true);
+  assert.equal(
+    delivered.filter((message) => message.type === 'agentSelected').length,
+    selectionsBeforeRefresh,
+    'Resuming animation does not take back the manually panned camera.',
+  );
+  send({ ...snapshot, paused: true });
+  assert.equal(
+    delivered.filter((message) => message.type === 'agentSelected').length,
+    selectionsBeforeRefresh,
+    'An unchanged snapshot must not reselect the camera.',
+  );
+  send({ ...snapshot, selectedId: 5 });
+  assert.equal(
+    delivered.filter((message) => message.type === 'agentSelected').length,
+    selectionsBeforeRefresh + 1,
+  );
+  assert.equal(
+    delivered.filter((message) => message.type === 'agentSelected').at(-1).id,
+    5,
+    'A changed selected role emits selection.',
+  );
+  const selectionCount = delivered.filter(
+    (message) => message.type === 'agentSelected',
+  ).length;
+  send({ source: 'quantara-home', type: 'select', id: 5 });
+  assert.equal(
+    delivered.filter((message) => message.type === 'agentSelected').length,
+    selectionCount + 1,
+  );
+  assert.equal(officeRoleLabel(4), 'Role 4: active');
+  for (const id of [0, 99, 1.5, '5', null, undefined, NaN, Infinity]) {
+    send({ source: 'quantara-home', type: 'select', id });
+  }
+  send({ source: 'wrong', type: 'select', id: 5 });
+  send({ source: 'quantara-home', type: 'select', id: 5 }, {});
+  send(
+    { source: 'quantara-home', type: 'select', id: 5 },
+    parent,
+    'http://untrusted.local',
+  );
+  assert.equal(
+    delivered.filter((message) => message.type === 'agentSelected').length,
+    selectionCount + 1,
+  );
+  transport.send({ type: 'webviewReady' });
+  assert.equal(
+    delivered.filter((message) => message.type === 'agentSelected').length,
+    selectionCount + 2,
+    'Bootstrap replays selection even when its identity has not changed.',
+  );
+  assert.equal(
+    delivered.filter((message) => message.type === 'agentSelected').at(-1).id,
+    5,
+  );
   console.log(
     'Office bridge: exact roles/statuses, origin/source/input checks, no private records, forbidden actions dropped, selection/readiness and motion gates passed.',
   );

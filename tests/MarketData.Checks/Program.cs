@@ -8,13 +8,19 @@ if (args.Contains("--feature-sql-only", StringComparer.Ordinal))
     return;
 }
 
+CandleParserChecks.Run();
 IntradaySignalChecks.Run();
 AdaptiveMarketChecks.Run();
 PublicTickerChecks.Run();
+await MarketQuoteIdentityChecks.Run();
 await ExecutionUniverseChecks.Run();
 await MarketEventChecks.Run();
 await AdaptiveTimeframeChecks.Run();
 NewsChecks.Run();
+NewsDateParsingChecks.Run();
+NewsIdentityChecks.Run();
+NewsNetworkPolicyChecks.Run();
+await NewsTransportChecks.Run();
 NewsPacketBudgetChecks.Run();
 await NewsSqlChecks.Run();
 
@@ -70,6 +76,7 @@ Assert(rejectedError, "string provider error was accepted");
 Console.WriteLine("String provider errors fail closed.");
 await ResearchMarketChecks.Run();
 Console.WriteLine("Research market checks passed.");
+await ResearchCancellationChecks.Run();
 await ResearchEvidenceChecks.Run();
 await RequestedMarketChecks.Run();
 await ExecutionMarketChecks.Run();

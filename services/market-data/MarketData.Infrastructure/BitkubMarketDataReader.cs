@@ -30,10 +30,20 @@ public sealed class BitkubMarketDataReader(HttpClient client) : IMarketDataReade
                 var baseAsset = RequiredString(symbol, "base_asset");
                 var name = RequiredString(symbol, "name");
                 var source = RequiredString(symbol, "source");
-                return new MarketCoin(baseAsset.ToUpperInvariant(), name, source);
+                return new MarketCoin(NormalizeSymbol(baseAsset), name, source);
             })
             .OfType<MarketCoin>()
-            .DistinctBy(coin => coin.Symbol)
+            .GroupBy(coin => coin.Symbol, StringComparer.Ordinal)
+            .Select(group =>
+            {
+                var coin = group.First();
+                if (group.Any(other => other != coin))
+                {
+                    throw new InvalidDataException("Bitkub returned conflicting coin metadata.");
+                }
+
+                return coin;
+            })
             .ToArray();
     }
 
@@ -50,15 +60,35 @@ public sealed class BitkubMarketDataReader(HttpClient client) : IMarketDataReade
             .RootElement.EnumerateArray()
             .Select(item =>
             {
-                var symbol = RequiredString(item, "symbol").Split('_', 2, StringSplitOptions.RemoveEmptyEntries);
+                var symbol = RequiredString(item, "symbol");
                 var last = ParseDecimal(item, "last");
-                return symbol is { Length: 2 } && symbol[1] == "THB" && last > 0m
-                    ? new MarketQuote(symbol[0].ToUpperInvariant(), last)
+                return symbol.EndsWith("_THB", StringComparison.Ordinal) && last > 0m
+                    ? new MarketQuote(NormalizeSymbol(symbol[..^4]), last)
                     : null;
             })
             .OfType<MarketQuote>()
-            .DistinctBy(quote => quote.Symbol)
+            .GroupBy(quote => quote.Symbol, StringComparer.Ordinal)
+            .Select(group =>
+            {
+                var quote = group.First();
+                if (group.Any(other => other.Price != quote.Price))
+                {
+                    throw new InvalidDataException("Bitkub returned conflicting market quotes.");
+                }
+
+                return quote;
+            })
             .ToArray();
+    }
+
+    private static string NormalizeSymbol(string symbol)
+    {
+        if (symbol.Length is < 1 or > 30 || !symbol.All(char.IsAsciiLetterOrDigit))
+        {
+            throw new InvalidDataException("Bitkub returned an invalid market symbol.");
+        }
+
+        return symbol.ToUpperInvariant();
     }
 
     private static string RequiredString(JsonElement item, string propertyName)

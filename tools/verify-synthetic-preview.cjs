@@ -40,10 +40,20 @@ async function verify() {
       .getByTestId('dashboard-day-net')
       .getByText('THB 12.25', { exact: true })
       .waitFor();
-    await app.getByRole('button', { name: 'Team chat', exact: true }).click();
-    await app.getByRole('dialog', { name: 'Team chat', exact: true }).waitFor();
     await app
-      .getByRole('button', { name: 'Close team chat', exact: true })
+      .getByRole('complementary', { name: 'Team conversation', exact: true })
+      .waitFor();
+    await app
+      .getByRole('button', { name: 'Collapse team chat', exact: true })
+      .click();
+    await app
+      .getByRole('button', { name: 'Expand team chat', exact: true })
+      .click();
+    await app
+      .getByRole('complementary', { name: 'Team conversation', exact: true })
+      .waitFor();
+    await app
+      .getByRole('button', { name: 'Collapse team chat', exact: true })
       .click();
     await fs.mkdir('.impeccable/review', { recursive: true });
     for (const [name, width, height] of [

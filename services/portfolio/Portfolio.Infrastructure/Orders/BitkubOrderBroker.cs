@@ -129,5 +129,5 @@ public sealed class BitkubOrderBroker(HttpClient http, BitkubCredentials credent
     }
 
     private static decimal Number(JsonElement item, string property) =>
-        decimal.Parse(item.GetProperty(property).ToString(), NumberStyles.Float, CultureInfo.InvariantCulture);
+        DecimalPrecision.Read(item.GetProperty(property), NumberStyles.Float);
 }

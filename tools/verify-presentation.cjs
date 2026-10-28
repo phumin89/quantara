@@ -29,30 +29,86 @@ const { PortfolioFilter } = require(
 const { default: PositionFilter } = require(
   path.join(feature, 'utils/PositionFilter.ts'),
 );
+const { default: FormatTime } = require(
+  path.join(feature, 'utils/FormatTime.ts'),
+);
+const originalTimezone = process.env.TZ;
+for (const timezone of ['UTC', 'America/New_York', 'Asia/Tokyo']) {
+  process.env.TZ = timezone;
+  assert.equal(
+    FormatTime.format('2026-10-20T03:00:00Z'),
+    'Oct 20, 2026, 10:00',
+  );
+}
+if (originalTimezone === undefined) delete process.env.TZ;
+else process.env.TZ = originalTimezone;
+assert.equal(FormatTime.format(null), '—');
+const {
+  default: TradingFormatting,
+} = require('../apps/web/features/trading/presentation/TradingFormatting.ts');
+for (const [value, expected] of [
+  [null, 'Unknown'],
+  ['0', '฿0'],
+  ['-12.5', '฿-12.5'],
+  ['0001.5000', '฿1.5'],
+  ['1.005', '฿1.01'],
+  ['1.0049999999999999999999999999', '฿1'],
+  ['-1.0049999999999999999999999999', '฿-1'],
+  ['999.995', '฿1,000'],
+  ['9007199254740993', '฿9,007,199,254,740,993'],
+  ['79228162514264337593543950335', '฿79,228,162,514,264,337,593,543,950,335'],
+  ['1e3', '฿1,000'],
+  ['', 'Unknown'],
+  ['not-a-number', 'Unknown'],
+  ['Infinity', 'Unknown'],
+]) {
+  assert.equal(
+    TradingFormatting.money(value),
+    expected,
+    `Trading money: ${String(value)}`,
+  );
+}
+for (const [values, expected] of [
+  [[], '฿0'],
+  [['0.004', '0.004'], '฿0.01'],
+  [['9007199254740993', '0.005'], '฿9,007,199,254,740,993.01'],
+  [['-1.5', '1.25'], '฿-0.25'],
+  [['0.0100', '-0.01'], '฿0'],
+  [['invalid'], 'Unknown'],
+  [['1e3'], 'Unknown'],
+]) {
+  assert.equal(
+    TradingFormatting.money(TradingFormatting.sum(values)),
+    expected,
+    `Trading cost sum: ${JSON.stringify(values)}`,
+  );
+}
 
 const timestamp = '2026-01-01T00:00:00Z';
+const snapshotClock = Date.parse(timestamp) + 1000;
 assert.equal(
-  new ConnectionStatusPresenter('Failed', true, timestamp).state,
+  new ConnectionStatusPresenter('Failed', true, timestamp, snapshotClock).state,
   ConnectionState.Error,
 );
 assert.equal(
-  new ConnectionStatusPresenter(null, true, timestamp).state,
+  new ConnectionStatusPresenter(null, true, timestamp, snapshotClock).state,
   ConnectionState.Syncing,
 );
 assert.equal(
-  new ConnectionStatusPresenter(null, false, timestamp).state,
+  new ConnectionStatusPresenter(null, false, timestamp, snapshotClock).state,
   ConnectionState.Connected,
 );
 assert.equal(
-  new ConnectionStatusPresenter(null, false, null).state,
+  new ConnectionStatusPresenter(null, false, null, snapshotClock).state,
   ConnectionState.Checking,
 );
 assert.deepEqual(
-  new ConnectionStatusPresenter(null, false, timestamp).appearance,
+  new ConnectionStatusPresenter(null, false, timestamp, snapshotClock)
+    .appearance,
   {
     label: ConnectionState.Connected,
-    color: '#15803d',
-    background: '#f0fdf4',
+    color: 'var(--color-success)',
+    background: 'var(--surface-success)',
   },
 );
 const positions = [
@@ -60,6 +116,30 @@ const positions = [
   { symbol: 'B', status: PositionStatus.Holding },
   { symbol: 'A', status: PositionStatus.Holding },
 ];
+assert.equal(
+  new ConnectionStatusPresenter(null, false, timestamp, snapshotClock + 120000)
+    .state,
+  ConnectionState.Stale,
+);
+assert.equal(
+  new ConnectionStatusPresenter(null, false, null, snapshotClock, true).state,
+  ConnectionState.Unavailable,
+);
+assert.equal(
+  new ConnectionStatusPresenter(null, false, 'not-a-date', snapshotClock, true)
+    .state,
+  ConnectionState.Unavailable,
+);
+assert.equal(
+  new ConnectionStatusPresenter(
+    null,
+    false,
+    timestamp,
+    Date.parse(timestamp) - 30001,
+    true,
+  ).state,
+  ConnectionState.Unavailable,
+);
 assert.deepEqual(
   PositionFilter.apply(positions, PortfolioFilter.All).map(
     (item) => item.symbol,

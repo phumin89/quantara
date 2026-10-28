@@ -1,6 +1,7 @@
 using System.Reflection;
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using Microsoft.Data.SqlClient;
 using Quantara.Portfolio.Application;
 using Quantara.Portfolio.Domain;
 using Quantara.Portfolio.Domain.Trading;
@@ -168,11 +169,160 @@ public static class TradingStorageChecks
             },
             0
         );
+        await TradingStorageChecks.CheckIntentStates(state, account, now, options);
         TradingStorageChecks.CheckDiffs(state);
         TradingStorageChecks.CheckDiffAllocations(state.Paper.Fills[0]);
         Console.WriteLine(
-            "Trading storage checks passed: strict JSON, revision/account guards, bounded mirror diffs and immutable retained fills; no SQL connection used."
+            "Trading storage checks passed: strict JSON, exact intent/cancellation states, revision/account guards, bounded mirror diffs and immutable retained fills; no SQL connection used."
         );
+    }
+
+    private static async Task CheckIntentStates(
+        TradingState state,
+        string account,
+        DateTimeOffset now,
+        JsonSerializerOptions options
+    )
+    {
+        const string connectionString = "QuantaraNoSqlFixture=1";
+        var expected = TradingStorageChecks.MalformedConnectionFailure(connectionString);
+        var store = new SqlTradingStore(connectionString, account, new FixedTimeProvider(now));
+        string[] statuses =
+        [
+            "pending",
+            "submitting",
+            "submitted",
+            "partial",
+            "unknown",
+            "filled",
+            "cancelled",
+            "rejected",
+            "expired",
+        ];
+        string?[] cancellations = [null, "claimed", "unknown", "acknowledged", "confirmed"];
+        foreach (var paperBook in new[] { true, false })
+        {
+            foreach (var status in statuses)
+            {
+                foreach (var cancellation in cancellations)
+                {
+                    var intent = state.Paper.Orders[0] with { Status = status, CancellationState = cancellation };
+                    var candidate = paperBook
+                        ? state with
+                        {
+                            Paper = state.Paper with { Orders = [intent] },
+                        }
+                        : state with
+                        {
+                            Live = state.Live with { Orders = [intent] },
+                        };
+                    var before = JsonSerializer.Serialize(candidate, options);
+                    var failure = await TradingStorageChecks.SaveFailure(store, candidate);
+                    TradingStorageChecks.Check(
+                        failure.GetType() == expected.GetType() && failure.Message == expected.Message,
+                        $"Supported {status}/{cancellation ?? "null"} in {(paperBook ? "Paper" : "Live")} must reach only the malformed SQL constructor."
+                    );
+                    TradingStorageChecks.Check(
+                        JsonSerializer.Serialize(candidate, options) == before,
+                        "Status validation must preserve exact intent, authority and retained-history bytes."
+                    );
+                }
+            }
+
+            foreach (var status in new[] { "", " ", "UNKNOWN", "Filled", "partialFilled", "new-provider-state" })
+            {
+                var intent = state.Paper.Orders[0] with { Status = status };
+                var candidate = paperBook
+                    ? state with
+                    {
+                        Paper = state.Paper with { Orders = [intent] },
+                    }
+                    : state with
+                    {
+                        Live = state.Live with { Orders = [intent] },
+                    };
+                var before = JsonSerializer.Serialize(candidate, options);
+                var failure = await TradingStorageChecks.SaveFailure(store, candidate);
+                TradingStorageChecks.Check(
+                    failure is InvalidDataException && failure.Message == "Trading intent has an unsupported status.",
+                    "Unsupported intent status must fail validation before SQL parsing or opening."
+                );
+                TradingStorageChecks.Check(
+                    JsonSerializer.Serialize(candidate, options) == before,
+                    "Rejected status must not be normalized or mutate retained state."
+                );
+            }
+
+            foreach (var cancellation in new[] { "", " ", "CLAIMED", "Unknown", "new-provider-state" })
+            {
+                var intent = state.Paper.Orders[0] with { CancellationState = cancellation };
+                var candidate = paperBook
+                    ? state with
+                    {
+                        Paper = state.Paper with { Orders = [intent] },
+                    }
+                    : state with
+                    {
+                        Live = state.Live with { Orders = [intent] },
+                    };
+                var before = JsonSerializer.Serialize(candidate, options);
+                var failure = await TradingStorageChecks.SaveFailure(store, candidate);
+                TradingStorageChecks.Check(
+                    failure is InvalidDataException
+                        && failure.Message == "Trading intent has an unsupported cancellation state.",
+                    "Unsupported cancellation on a terminal intent must not be treated as resolved."
+                );
+                TradingStorageChecks.Check(
+                    JsonSerializer.Serialize(candidate, options) == before,
+                    "Rejected cancellation must not be normalized or mutate retained state."
+                );
+            }
+
+            var payload =
+                JsonNode.Parse(JsonSerializer.Serialize(state, options))?.AsObject()
+                ?? throw new InvalidOperationException("Intent-state JSON fixture is missing.");
+            var book = paperBook ? "paper" : "live";
+            TradingStorageChecks.Object(payload[book])["orders"] = JsonSerializer.SerializeToNode(
+                state.Paper.Orders,
+                options
+            );
+            TradingStorageChecks.RefusedPayload(
+                payload,
+                options,
+                json =>
+                    TradingStorageChecks.Object(TradingStorageChecks.Object(json[book])["orders"]?.AsArray()[0])[
+                        "status"
+                    ] = null
+            );
+        }
+    }
+
+    private static ArgumentException MalformedConnectionFailure(string connectionString)
+    {
+        try
+        {
+            using var connection = new SqlConnection(connectionString);
+        }
+        catch (ArgumentException exception)
+        {
+            return exception;
+        }
+
+        throw new InvalidOperationException("The SQL fixture must reject its keyword without opening a connection.");
+    }
+
+    private static async Task<Exception> SaveFailure(SqlTradingStore store, TradingState state)
+    {
+        try
+        {
+            await store.Save(state, state.Revision - 1, CancellationToken.None);
+        }
+        catch (Exception exception) when (exception is ArgumentException or InvalidDataException)
+        {
+            return exception;
+        }
+
+        throw new InvalidOperationException("The guarded SQL fixture unexpectedly saved trading state.");
     }
 
     private static void CheckDiffAllocations(TradingFill fill)
@@ -279,7 +429,7 @@ public static class TradingStorageChecks
         throw new InvalidOperationException("Changed, duplicated or missing retained fills must be refused.");
     }
 
-    private static JsonSerializerOptions Options()
+    internal static JsonSerializerOptions Options()
     {
         var helper =
             typeof(SqlTradingStore).Assembly.GetType("Quantara.Portfolio.Infrastructure.TradingJson")

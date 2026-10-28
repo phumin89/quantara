@@ -1,0 +1,73 @@
+:root {
+  --font-body:
+    system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --font-display: 'Nunito', var(--font-body);
+  --color-paper: oklch(17.5% 0.014 268);
+  --color-paper-2: oklch(21% 0.016 268);
+  --color-paper-3: oklch(25% 0.017 268);
+  --color-ink: oklch(96% 0.006 75);
+  --color-ink-2: oklch(85% 0.01 262);
+  --color-muted: #e2e5ec;
+  --color-panel-muted: #c2c8d3;
+  --color-rule: oklch(30% 0.016 266);
+  --color-accent: oklch(77% 0.1 274);
+  --color-accent-ink: oklch(19% 0.035 274);
+  --color-accent-hi: oklch(84% 0.085 274);
+  --color-accent-2: oklch(83% 0.095 62);
+  --color-focus: oklch(80% 0.1 274);
+  --color-canvas: var(--color-paper);
+  --landscape-image: url('/landscapes/dusk-valley.jpg');
+  --landscape-scrim: linear-gradient(
+    180deg,
+    oklch(17.5% 0.014 268 / 0.64),
+    oklch(17.5% 0.014 268 / 0.72)
+  );
+  --color-mint: #22283c;
+  --color-peach: #30251f;
+  --color-lilac: var(--color-mint);
+  --color-success: #a6d1bc;
+  --surface-success: #1d2b27;
+  --color-warning: var(--color-accent-2);
+  --surface-warning: var(--color-peach);
+  --color-error: #f2a6a9;
+  --surface-error: #332126;
+  --color-info: var(--color-accent);
+  --surface-info: var(--color-mint);
+  --color-sell: var(--color-accent-2);
+  --surface-sell: var(--surface-warning);
+  --surface-panel: oklch(22% 0.018 268 / 0.58);
+  --surface-raised: oklch(25% 0.017 268 / 0.94);
+  --surface-soft: var(--color-paper-2);
+  --surface-header: oklch(17.5% 0.014 268 / 0.72);
+  --border-panel: oklch(100% 0 0 / 0.12);
+  --glass-blur: 22px;
+  --glass-hi:
+    inset 0 1px 0 oklch(100% 0 0 / 0.1), inset 0 0 0 1px oklch(100% 0 0 / 0.06);
+  --shadow-panel: var(--glass-hi);
+  --shadow-control: none;
+  --shadow-overlay: var(--glass-hi), 0 20px 48px oklch(10% 0.022 268 / 0.45);
+  --page-gutter: 16px;
+  --panel-padding: 16px;
+  --section-gap: 24px;
+  --radius-panel: 16px;
+  --radius-control: 10px;
+  --radius-tag: 8px;
+  --radius-pill: 999px;
+  --chat-sidebar-width: 380px;
+  --dur-micro: 120ms;
+  --dur-short: 180ms;
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@media (min-width: 600px) {
+  :root {
+    --page-gutter: 24px;
+    --panel-padding: 24px;
+  }
+}
+
+@media (min-width: 1024px) {
+  :root {
+    --page-gutter: 32px;
+  }
+}

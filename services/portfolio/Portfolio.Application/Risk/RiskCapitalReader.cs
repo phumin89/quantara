@@ -13,6 +13,8 @@ public sealed class RiskCapitalReader(
     TimeProvider time
 )
 {
+    public RiskEvidenceOrigin Origin => reader.Origin;
+
     public async Task<CapitalReadResult> Read(
         string? candidate,
         Guid? excludeProposal,
@@ -83,6 +85,7 @@ public sealed class RiskCapitalReader(
             throw new InvalidDataException("Market valuation identities are inconsistent.");
         }
 
+        now = time.GetUtcNow();
         var cash = balances.SingleOrDefault(balance => balance.Symbol == "THB");
         var pendingCash =
             pending.Where(order => order.Side == TradeSide.Buy).Sum(order => order.Amount + order.EstimatedFeeThb)
@@ -198,6 +201,6 @@ public sealed class RiskCapitalReader(
         {
             Source = CapitalSource.Broker,
         };
-        return new(snapshot, evidence, books);
+        return new(snapshot, evidence, books) { Origin = reader.Origin };
     }
 }

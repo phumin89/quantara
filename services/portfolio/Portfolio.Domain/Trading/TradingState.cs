@@ -25,4 +25,10 @@ public sealed record TradingState(
     public TradingEvaluationResult? Evaluation { get; init; }
 
     public IReadOnlyList<TradingExitStudySample> ExitStudies { get; init; } = [];
+
+    public TradingPolicyAuthorization? AiPolicy { get; init; }
+
+    public IReadOnlyList<TradingPolicyChange> PolicyChanges { get; init; } = [];
+
+    public TradingPolicyReview? PolicyReview { get; init; }
 }

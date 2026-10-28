@@ -70,6 +70,27 @@ export class DateOnlyPicker extends Component<
               helperText: this.state.error,
               error: this.state.error !== null,
             },
+            openPickerButton: { sx: { width: 44, height: 44 } },
+            day: {
+              sx: {
+                '--PickerDay-size': '44px',
+                '--PickerDay-horizontalMargin': '0px',
+              },
+            },
+            layout: {
+              sx: {
+                // Keep all six weeks visible with larger day targets.
+                '& .MuiDateCalendar-root': { height: 392, maxHeight: 392 },
+                '& .MuiDayCalendar-slideTransition': { minHeight: 288 },
+                '& .MuiDayCalendar-weekDayLabel': { width: 44, mx: 0 },
+                '& .MuiPickersCalendarHeader-root': {
+                  minHeight: 44,
+                  maxHeight: 44,
+                },
+                '& .MuiIconButton-root': { width: 44, height: 44 },
+              },
+            },
+            mobilePaper: { sx: { mx: 0, maxWidth: '100%' } },
             actionBar: { actions: ['cancel', 'accept'] },
           }}
         />

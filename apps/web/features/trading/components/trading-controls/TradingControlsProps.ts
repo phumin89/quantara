@@ -6,6 +6,8 @@ export interface TradingControlsProps {
   readonly busy: boolean;
   readonly dirty: boolean;
   readonly error: string | null;
+  readonly balanceReviewNeeded?: boolean;
+  readonly orderReviewNeeded?: boolean;
   readonly onReview: () => void;
   readonly onSettings: () => void;
   readonly onDisable: () => void;

@@ -6,6 +6,7 @@ export interface CryptoPageState {
   readonly data: PortfolioResponse | null;
   readonly error: string | null;
   readonly refreshing: boolean;
+  readonly now: number;
   readonly filter: PortfolioFilter;
   readonly expanded: string | null;
   readonly history: Record<string, Trade[]>;

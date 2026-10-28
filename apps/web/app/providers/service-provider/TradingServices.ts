@@ -8,6 +8,56 @@ export class TradingServices implements ITradingService {
     private readonly container: IServiceContainer<ServiceRegistry>,
   ) {}
 
+  public previewManualSale(
+    ...args: Parameters<ITradingService['previewManualSale']>
+  ) {
+    return this.container
+      .resolve(ServiceKey.Trading)
+      .previewManualSale(...args);
+  }
+
+  public applyManualSale(
+    ...args: Parameters<ITradingService['applyManualSale']>
+  ) {
+    return this.container.resolve(ServiceKey.Trading).applyManualSale(...args);
+  }
+
+  public previewCashBaseline(
+    ...args: Parameters<ITradingService['previewCashBaseline']>
+  ) {
+    return this.container
+      .resolve(ServiceKey.Trading)
+      .previewCashBaseline(...args);
+  }
+
+  public applyCashBaseline(
+    ...args: Parameters<ITradingService['applyCashBaseline']>
+  ) {
+    return this.container
+      .resolve(ServiceKey.Trading)
+      .applyCashBaseline(...args);
+  }
+
+  public pendingReconciliation(
+    ...args: Parameters<ITradingService['pendingReconciliation']>
+  ) {
+    return this.container
+      .resolve(ServiceKey.Trading)
+      .pendingReconciliation(...args);
+  }
+
+  public retainReconciliation(
+    ...args: Parameters<ITradingService['retainReconciliation']>
+  ) {
+    this.container.resolve(ServiceKey.Trading).retainReconciliation(...args);
+  }
+
+  public clearReconciliation(
+    ...args: Parameters<ITradingService['clearReconciliation']>
+  ) {
+    this.container.resolve(ServiceKey.Trading).clearReconciliation(...args);
+  }
+
   public get(signal?: AbortSignal) {
     return this.container.resolve(ServiceKey.Trading).get(signal);
   }

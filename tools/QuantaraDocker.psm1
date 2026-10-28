@@ -30,27 +30,76 @@ function Invoke-QuantaraTool {
     $start.RedirectStandardOutput = $true
     $start.RedirectStandardError = $true
     $start.RedirectStandardInput = $true
+    $encoding = [Text.UTF8Encoding]::new($false)
+    $start.StandardInputEncoding = $encoding
+    $start.StandardOutputEncoding = $encoding
+    $start.StandardErrorEncoding = $encoding
     $start.WorkingDirectory = (Get-QuantaraDockerPlan).Root
     foreach ($argument in $Arguments) { $start.ArgumentList.Add($argument) }
-    $process = [Diagnostics.Process]::Start($start)
+    $deadline = [Threading.CancellationTokenSource]::new([TimeSpan]::FromSeconds($TimeoutSeconds))
+    $process = $null
+    $inputClose = $null
+    $tasks = [Collections.Generic.List[Threading.Tasks.Task]]::new()
     try {
-        $output = $process.StandardOutput.ReadToEndAsync()
-        $errors = $process.StandardError.ReadToEndAsync()
-        if ($InputText) { $process.StandardInput.WriteLine($InputText) }
-        $process.StandardInput.Close()
-        if (!$process.WaitForExit($TimeoutSeconds * 1000)) {
-            $process.Kill($true)
-            throw ('Command timed out: ' + [IO.Path]::GetFileName($Executable))
+        $process = [Diagnostics.Process]::Start($start)
+        $output = $process.StandardOutput.ReadToEndAsync($deadline.Token)
+        $tasks.Add($output)
+        $errors = $process.StandardError.ReadToEndAsync($deadline.Token)
+        $tasks.Add($errors)
+        $exit = $process.WaitForExitAsync($deadline.Token)
+        $tasks.Add($exit)
+        if ($InputText) {
+            $write = $process.StandardInput.WriteLineAsync(
+                [ReadOnlyMemory[char]]::new($InputText.ToCharArray()), $deadline.Token)
+            $tasks.Add($write)
+            [void] $write.WaitAsync($deadline.Token).GetAwaiter().GetResult()
         }
-        $text = $output.GetAwaiter().GetResult()
-        $errorText = $errors.GetAwaiter().GetResult()
+        $inputClose = $process.StandardInput.DisposeAsync().AsTask()
+        $tasks.Add($inputClose)
+        [void] $inputClose.WaitAsync($deadline.Token).GetAwaiter().GetResult()
+        [void] $exit.WaitAsync($deadline.Token).GetAwaiter().GetResult()
+        $text = $output.WaitAsync($deadline.Token).GetAwaiter().GetResult()
+        $errorText = $errors.WaitAsync($deadline.Token).GetAwaiter().GetResult()
         if ($process.ExitCode -ne 0) {
             $details = ($errorText + $text).Trim()
             if ($details.Length -gt 5000) { $details = $details.Substring($details.Length - 5000) }
             throw ('Command failed: ' + [IO.Path]::GetFileName($Executable) + '. ' + $details)
         }
         return $text.Trim()
-    } finally { $process.Dispose() }
+    } catch {
+        if ($deadline.IsCancellationRequested) {
+            throw ('Command timed out: ' + [IO.Path]::GetFileName($Executable))
+        }
+        throw
+    } finally {
+        try {
+            $deadline.Cancel()
+            if ($null -ne $process -and !$process.HasExited) { $process.Kill($true) }
+        } finally {
+            try {
+                if ($null -ne $process) {
+                    if ($null -eq $inputClose) {
+                        $tasks.Add($process.StandardInput.DisposeAsync().AsTask())
+                    }
+                    $process.StandardOutput.Dispose()
+                    $process.StandardError.Dispose()
+                }
+            } finally {
+                try {
+                    # The native getter observes late faults without a PowerShell task-thread callback.
+                    $observeFault = [Delegate]::CreateDelegate(
+                        [Func[Threading.Tasks.Task, AggregateException]],
+                        [Threading.Tasks.Task].GetProperty('Exception').GetMethod)
+                    $settled = [Threading.Tasks.Task]::WhenAll($tasks.ToArray())
+                    $null = $settled.ContinueWith($observeFault, [Threading.Tasks.TaskScheduler]::Default)
+                } finally {
+                    try {
+                        if ($null -ne $process) { $process.Dispose() }
+                    } finally { $deadline.Dispose() }
+                }
+            }
+        }
+    }
 }
 
 function Invoke-QuantaraCompose {
@@ -129,7 +178,7 @@ function Initialize-QuantaraTradingControlToken {
 function Invoke-QuantaraSql {
     param([Parameter(Mandatory)][string] $Database, [Parameter(Mandatory)][string] $Query, [string] $SourcePipe)
     if ($Database -notin @('master', 'Quantara', 'QuantaraTeam', 'QuantaraMarketData')) { throw 'Unrecognized database owner.' }
-    $arguments = @('-d', $Database, '-C', '-b', '-x', '-y', '0', '-w', '65535', '-l', '15', '-t', '120')
+    $arguments = @('-d', $Database, '-f', '65001', '-C', '-b', '-x', '-y', '0', '-w', '65535', '-l', '15', '-t', '120')
     $inputText = "SET NOCOUNT ON;`n$Query`nGO"
     if ($SourcePipe) {
         Invoke-QuantaraTool -Executable (Get-Command sqlcmd -ErrorAction Stop).Source -Arguments (
@@ -180,6 +229,21 @@ function Assert-QuantaraSnapshotMatch {
     if ($expected -cne $actual) { throw ('Retained data/schema fingerprint mismatch: ' + $Database.Name) }
 }
 
+function Get-QuantaraTradingMaintenanceSql {
+    @'
+IF OBJECT_ID(N'dbo.TradingRuntime',N'U') IS NOT NULL
+BEGIN
+    DECLARE @runtimeCount bigint;
+    SELECT @runtimeCount=COUNT_BIG(*) FROM dbo.TradingRuntime WITH (TABLOCKX,HOLDLOCK);
+    IF EXISTS(SELECT 1 FROM dbo.TradingRuntime
+        WHERE JSON_VALUE(Payload,'$.mode') IS NULL
+            OR JSON_VALUE(Payload,'$.mode') NOT IN ('paper','manualReview','stopped')
+            OR (JSON_QUERY(Payload,'$.mandate') IS NOT NULL AND JSON_VALUE(Payload,'$.mandate.revokedAt') IS NULL))
+        THROW 51000,'Disable AutoLive and revoke its mandate before migration.',1;
+END;
+'@
+}
+
 function Get-QuantaraMigrationFenceSql {
     param([Parameter(Mandatory)][string] $Nonce)
     if ($Nonce -notmatch '^[A-F0-9]{64}$') { throw 'Invalid migration fence identity.' }
@@ -192,6 +256,7 @@ DECLARE @count bigint;
 SELECT @count=COUNT_BIG(*) FROM dbo.OrderProposals WITH (TABLOCKX,HOLDLOCK);
 IF EXISTS(SELECT 1 FROM dbo.OrderProposals WHERE State='Submitting')
     THROW 51000,'An order is in flight; migration must wait.',1;
+__TRADING_GUARD__
 USE [QuantaraTeam];
 SELECT @count=COUNT_BIG(*) FROM dbo.TeamRuns WITH (TABLOCKX,HOLDLOCK);
 IF EXISTS(SELECT 1 FROM dbo.TeamRuns WHERE ActiveSlot=1)
@@ -202,7 +267,7 @@ SET CONTEXT_INFO 0x__NONCE__;
 GO
 WAITFOR DELAY '00:10:00';
 ROLLBACK TRANSACTION;
-'@).Replace('__NONCE__', $Nonce)
+'@).Replace('__NONCE__', $Nonce).Replace('__TRADING_GUARD__', (Get-QuantaraTradingMaintenanceSql))
 }
 
 function Start-QuantaraMigrationFence {
@@ -213,7 +278,11 @@ function Start-QuantaraMigrationFence {
     $start.RedirectStandardInput = $true
     $start.RedirectStandardOutput = $true
     $start.RedirectStandardError = $true
-    foreach ($argument in @('-S', $SourcePipe, '-E', '-C', '-b', '-x', '-h', '-1', '-r', '1', '-l', '15', '-t', '610')) {
+    $encoding = [Text.UTF8Encoding]::new($false)
+    $start.StandardInputEncoding = $encoding
+    $start.StandardOutputEncoding = $encoding
+    $start.StandardErrorEncoding = $encoding
+    foreach ($argument in @('-S', $SourcePipe, '-E', '-f', '65001', '-C', '-b', '-x', '-h', '-1', '-r', '1', '-l', '15', '-t', '610')) {
         $start.ArgumentList.Add($argument)
     }
     $process = [Diagnostics.Process]::Start($start)
@@ -241,4 +310,4 @@ function Start-QuantaraMigrationFence {
 
 Export-ModuleMember -Function Get-QuantaraDockerPlan, Invoke-QuantaraTool, Invoke-QuantaraCompose,
     Invoke-QuantaraSql, Get-QuantaraBackupSql, Get-QuantaraRestoreSql, Assert-QuantaraSnapshotMatch,
-    Get-QuantaraMigrationFenceSql, Start-QuantaraMigrationFence, Initialize-QuantaraTradingControlToken
+    Get-QuantaraMigrationFenceSql, Get-QuantaraTradingMaintenanceSql, Start-QuantaraMigrationFence, Initialize-QuantaraTradingControlToken

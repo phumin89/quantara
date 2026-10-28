@@ -20,7 +20,16 @@ public static class TeamResearchRouter
         var tasks = new List<ResearchTask>();
         var held = ResearchEvidence.HeldSymbols(evidence).Count > 0;
         var minimum = marketTriggered ? TimeSpan.FromMinutes(15) : TimeSpan.FromHours(1);
-        var newsDigest = NewsDigest(news);
+        var newsRevisions = NewsRevisions(news);
+        var newsDigest = newsRevisions.Length == 0 ? null : Digest(string.Join('|', newsRevisions));
+        var previousNewsTasks = scoped
+            .Select(run => run.Task)
+            .OfType<ResearchTask>()
+            .Where(task => task.Specialist == TeamRole.News)
+            .ToArray();
+        var coveredNewsRevisions = previousNewsTasks
+            .SelectMany(task => task.NewsRevisions ?? [])
+            .ToHashSet(StringComparer.Ordinal);
         string? studyDigest = null;
         if (
             evidence.TryGetProperty("tradingPerformance", out var performance)
@@ -47,7 +56,8 @@ public static class TeamResearchRouter
         if (
             newsDigest is not null
             && Due(TeamRole.News, TimeSpan.FromMinutes(15))
-            && !scoped.Any(run => run.Task?.Specialist == TeamRole.News && run.Task.NewsDigest == newsDigest)
+            && !previousNewsTasks.Any(task => task.NewsDigest == newsDigest)
+            && newsRevisions.Any(revision => !coveredNewsRevisions.Contains(revision))
         )
         {
             Add(TeamRole.News);
@@ -113,7 +123,8 @@ public static class TeamResearchRouter
                     now,
                     now.AddMinutes(20),
                     newsDigest,
-                    studyDigest
+                    studyDigest,
+                    role == TeamRole.News ? newsRevisions : null
                 )
             );
     }
@@ -121,25 +132,24 @@ public static class TeamResearchRouter
     public static string Digest(string text) =>
         Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(text))).ToLowerInvariant();
 
-    private static string? NewsDigest(string? news)
+    private static string[] NewsRevisions(string? news)
     {
         if (news is null)
         {
-            return null;
+            return [];
         }
 
         using var document = JsonDocument.Parse(news);
         if (!document.RootElement.TryGetProperty("events", out var events) || events.ValueKind != JsonValueKind.Array)
         {
-            return null;
+            return [];
         }
 
-        var revisions = events
+        return events
             .EnumerateArray()
             .Select(item => item.GetProperty("eventId").GetString() + "@" + item.GetProperty("revision").GetInt32())
             .Distinct(StringComparer.Ordinal)
             .Order(StringComparer.Ordinal)
             .ToArray();
-        return revisions.Length == 0 ? null : Digest(string.Join('|', revisions));
     }
 }

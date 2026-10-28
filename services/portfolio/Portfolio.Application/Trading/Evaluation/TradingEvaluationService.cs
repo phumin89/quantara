@@ -3,7 +3,11 @@ using Quantara.Portfolio.Domain.Trading;
 
 namespace Quantara.Portfolio.Application;
 
-public sealed class TradingEvaluationService(ITradingHistoryReader history, TimeProvider time)
+public sealed class TradingEvaluationService(
+    ITradingHistoryReader history,
+    TimeProvider time,
+    ITradingMarketReader market
+)
 {
     public async Task<TradingEvaluationResult> Evaluate(
         TradingEvaluationRequest request,
@@ -33,10 +37,45 @@ public sealed class TradingEvaluationService(ITradingHistoryReader history, Time
             FormattableString.Invariant(
                 $"Hypothetical OHLC scenario, not account profit or broker fills. Reference budget THB {request.ReferenceBudgetThb}; fees {rules.FeeBps} bps per side, assumed spread {rules.MaxSpreadBps} bps and exit slippage {rules.SlippageBps} bps. Historical quote/queue data is unavailable."
             ),
-            "Chronological 70/30 training/validation; positions reset at the boundary. No optimization or automatic promotion. Later-bar strict trade-through is required; touch, partial-window expiry, missing bars, ambiguous exits and unclosed positions are Unknown. At least 20 closed trades and 30 evaluated bars per segment are required for sufficient samples.",
+            "Current exchange precision is assumed for historical candles; historical rule changes are unverified. Buy limits round down and sell limits round up to the tick, preserving the configured slippage bound. Fees round up to THB 0.01. Chronological 70/30 training/validation; positions reset at the boundary. No optimization or automatic promotion. Later-bar strict trade-through is required; touch, partial-window expiry, missing bars, ambiguous exits and unclosed positions are Unknown. At least 20 closed trades and 30 evaluated bars per segment are required for sufficient samples.",
         };
+        IReadOnlyList<TradingBook> markets;
+        try
+        {
+            markets = await market.ReadValuations(request.Symbols, cancellationToken);
+        }
+        catch (Exception exception)
+            when (exception is HttpRequestException or InvalidDataException or System.Text.Json.JsonException
+                || exception is OperationCanceledException && !cancellationToken.IsCancellationRequested
+            )
+        {
+            markets = [];
+        }
+
+        var metadataAt = time.GetUtcNow();
         foreach (var symbol in request.Symbols)
         {
+            var matching = markets.Where(book => book.Symbol == symbol).ToArray();
+            var precision = matching.Length == 1 ? matching[0] : null;
+            if (
+                !TradingReplayEvaluator.HasPrecision(precision)
+                || precision is null
+                || precision.ObservedAt > metadataAt
+                || metadataAt - precision.ObservedAt > TimeSpan.FromSeconds(rules.MaxDataAgeSeconds)
+            )
+            {
+                precision = null;
+                warnings.Add(symbol + ": verified current precision unavailable; results Unknown.");
+            }
+            else
+            {
+                warnings.Add(
+                    FormattableString.Invariant(
+                        $"{symbol}: current precision observed {precision.ObservedAt:O}; tick {precision.PriceStep}, price/base/quote scales {precision.PriceScale}/{precision.BaseScale}/{precision.QuoteScale}, minimum THB {precision.MinimumNotional}."
+                    )
+                );
+            }
+
             foreach (
                 var interval in request.TimeframeSeconds == 0
                     ? TradingEvaluationService.intervals
@@ -78,7 +117,8 @@ public sealed class TradingEvaluationService(ITradingHistoryReader history, Time
                     symbol,
                     bars,
                     interval,
-                    request.ReferenceBudgetThb
+                    request.ReferenceBudgetThb,
+                    precision
                 );
                 metrics.AddRange(
                     bars.Count == 7 * 86400 / interval
@@ -95,7 +135,14 @@ public sealed class TradingEvaluationService(ITradingHistoryReader history, Time
             }
         }
 
-        return new("ohlc-scenario-v1", false, metrics, warnings, observedAt, TradingRuleHash.Compute(rules));
+        return new(
+            TradingReplayEvaluator.Protocol,
+            false,
+            metrics,
+            warnings,
+            observedAt,
+            TradingRuleHash.Compute(rules)
+        );
     }
 
     private static readonly int[] intervals = [300, 900, 3600];

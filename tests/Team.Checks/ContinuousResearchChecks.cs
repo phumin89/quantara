@@ -7,9 +7,12 @@ namespace Team.Checks;
 
 public static class ContinuousResearchChecks
 {
+    private static readonly string[] newsEventIds = ["A", "B"];
+
     public static async Task Run()
     {
         Routing();
+        NewsRevisionRouting();
         await FocusedHandoff();
         await DeferredRestart();
         await LegacyCooldownRestart();
@@ -95,6 +98,143 @@ public static class ContinuousResearchChecks
                 && !scoped.Contains("evaluation", StringComparison.Ordinal),
             "News verifier does not receive unrelated candle/study payloads."
         );
+    }
+
+    private static void NewsRevisionRouting()
+    {
+        var now = new DateTimeOffset(2026, 10, 23, 0, 0, 0, TimeSpan.Zero);
+        var account = new string('a', 64);
+        using var evidence = JsonDocument.Parse($$"""{"accountKey":"{{account}}","positions":[]}""");
+        const string original = """{"events":[{"eventId":"A","revision":1},{"eventId":"B","revision":1}]}""";
+        const string retained = """{"events":[{"eventId":"B","revision":1}]}""";
+        const string revised = """{"events":[{"eventId":"B","revision":2}]}""";
+        var task = TeamResearchRouter
+            .Candidates(evidence.RootElement, original, [], now, false)
+            .Single(candidate => candidate.Specialist == TeamRole.News);
+        var previous = new TeamRun(
+            Guid.NewGuid(),
+            "fixture",
+            TeamRunStatus.Completed,
+            now,
+            now,
+            [],
+            null,
+            account,
+            Task: task
+        );
+        Check(
+            task.NewsRevisions is not null && task.NewsRevisions.SequenceEqual(["A@1", "B@1"]),
+            "A news task retains distinct event/revision identities."
+        );
+        Check(
+            TeamResearchRouter
+                .Candidates(evidence.RootElement, original, [], now, false)
+                .Where(candidate => candidate.Specialist != TeamRole.News)
+                .All(candidate => candidate.NewsRevisions is null),
+            "Other specialties do not duplicate news revision metadata."
+        );
+        Check(
+            !TeamResearchRouter
+                .Candidates(evidence.RootElement, retained, [previous], now.AddMinutes(16), false)
+                .Any(candidate => candidate.Specialist == TeamRole.News),
+            "Expiry of another news event must not reschedule an unchanged reviewed revision."
+        );
+        Check(
+            TeamResearchRouter
+                .Candidates(evidence.RootElement, revised, [previous], now.AddMinutes(16), false)
+                .Any(candidate => candidate.Specialist == TeamRole.News),
+            "A genuinely new news revision remains eligible after cooldown."
+        );
+        Check(
+            TeamResearchRouter
+                .Candidates(
+                    evidence.RootElement,
+                    retained,
+                    [previous with { AccountKey = new string('b', 64) }],
+                    now.AddMinutes(16),
+                    false
+                )
+                .Any(candidate => candidate.Specialist == TeamRole.News),
+            "Another account's review does not consume a news revision."
+        );
+        Check(
+            !HasNews(revised, [previous], now.AddMinutes(14)),
+            "A new revision does not bypass the existing news cooldown."
+        );
+        Check(
+            !HasNews(retained, [previous with { Status = TeamRunStatus.Failed }], now.AddMinutes(16)),
+            "A failed attempt retains its news claim instead of replaying unchanged input."
+        );
+        Check(
+            HasNews(retained, [previous with { CreatedAt = now.AddMinutes(17) }], now.AddMinutes(16)),
+            "Future records cannot claim a revision in current history."
+        );
+        const string reordered =
+            """{"events":[{"eventId":"B","revision":1},{"eventId":"A","revision":1},{"eventId":"B","revision":1}]}""";
+        var reorderedTask = TeamResearchRouter
+            .Candidates(evidence.RootElement, reordered, [], now, false)
+            .Single(candidate => candidate.Specialist == TeamRole.News);
+        Check(
+            reorderedTask.NewsDigest == task.NewsDigest
+                && task.NewsDigest == TeamResearchRouter.Digest("A@1|B@1")
+                && !HasNews(reordered, [previous], now.AddMinutes(16)),
+            "Reordering/duplicate input preserves the legacy digest and does not create work."
+        );
+        var separateReviews = ContinuousResearchChecks
+            .newsEventIds.Select(eventId =>
+                previous with
+                {
+                    Task = TeamResearchRouter
+                        .Candidates(
+                            evidence.RootElement,
+                            $$"""{"events":[{"eventId":"{{eventId}}","revision":1}]}""",
+                            [],
+                            now,
+                            false
+                        )
+                        .Single(candidate => candidate.Specialist == TeamRole.News),
+                }
+            )
+            .ToArray();
+        Check(
+            !HasNews(original, separateReviews, now.AddMinutes(16)),
+            "A packet containing revisions already claimed in separate runs creates no duplicate work."
+        );
+        var restored =
+            JsonSerializer.Deserialize<TeamRun>(JsonSerializer.Serialize(previous))
+            ?? throw new InvalidOperationException("Research round trip returned null.");
+        Check(
+            restored.Task?.NewsRevisions is not null
+                && restored.Task.NewsRevisions.SequenceEqual(task.NewsRevisions ?? [])
+                && !HasNews(retained, [restored], now.AddMinutes(16)),
+            "Persisted news revisions prevent subset replays after a restart."
+        );
+        var legacyJson = JsonSerializer.Serialize(
+            new
+            {
+                task.Specialist,
+                task.InputDigest,
+                task.PolicyHash,
+                task.EvidenceAt,
+                task.ExpiresAt,
+                task.NewsDigest,
+                task.StudyDigest,
+            }
+        );
+        var legacy =
+            JsonSerializer.Deserialize<ResearchTask>(legacyJson)
+            ?? throw new InvalidOperationException("Legacy research task returned null.");
+        Check(
+            legacy.NewsRevisions is null
+                && !HasNews(original, [previous with { Task = legacy }], now.AddMinutes(16))
+                && HasNews(retained, [previous with { Task = legacy }], now.AddMinutes(16)),
+            "Legacy records retain exact-digest deduplication without inventing missing per-event history."
+        );
+
+        bool HasNews(string packet, IReadOnlyList<TeamRun> history, DateTimeOffset at) =>
+            TeamResearchRouter
+                .Candidates(evidence.RootElement, packet, history, at, false)
+                .Any(candidate => candidate.Specialist == TeamRole.News);
     }
 
     private static async Task FocusedHandoff()

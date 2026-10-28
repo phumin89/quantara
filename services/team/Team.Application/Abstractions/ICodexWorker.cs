@@ -1,3 +1,5 @@
+using Quantara.Team.Domain;
+
 namespace Quantara.Team.Application;
 
 public interface ICodexWorker
@@ -11,6 +13,8 @@ public interface ICodexWorker
     );
 
     public bool IsConfigured { get; }
+
+    public ResearchModelAudit? ModelSelection(string role) => null;
 
     public async Task<ResearchReport> Report(
         string role,

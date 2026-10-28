@@ -1,5 +1,5 @@
 import { Component, type ReactNode } from 'react';
-import { Box, Paper, Stack, Typography } from '@mui/material';
+import { Box, Stack, Typography } from '@mui/material';
 import type { NewsPacket } from '../../contracts/NewsPacket';
 import type { DailyBriefNewsProps } from './DailyBriefNewsProps';
 
@@ -8,10 +8,7 @@ export default class DailyBriefNews extends Component<DailyBriefNewsProps> {
     const { news, error } = this.props;
 
     return (
-      <Paper
-        variant="outlined"
-        sx={{ borderRadius: '8px', p: { xs: 2, sm: 3 } }}
-      >
+      <Box sx={{ pt: 1 }}>
         <Box component="details">
           <Box
             component="summary"
@@ -37,7 +34,7 @@ export default class DailyBriefNews extends Component<DailyBriefNewsProps> {
             </Typography>
           )}
         </Box>
-      </Paper>
+      </Box>
     );
   }
 

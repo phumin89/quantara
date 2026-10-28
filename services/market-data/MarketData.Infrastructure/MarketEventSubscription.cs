@@ -21,9 +21,14 @@ public sealed class MarketEventSubscription
         lock (this.gate)
         {
             var key = (item.Symbol, item.Kind);
-            if (this.pending.ContainsKey(key))
+            if (this.pending.TryGetValue(key, out var existing))
             {
                 this.coalesced++;
+                if (existing.Sequence >= item.Sequence)
+                {
+                    this.signal.Writer.TryWrite(true);
+                    return;
+                }
             }
             else if (this.pending.Count >= 256)
             {

@@ -27,6 +27,8 @@ public static class TeamResearchContext
     )
     {
         using var evidenceDocument = JsonDocument.Parse(evidence);
+        var evidenceRoot = evidenceDocument.RootElement;
+        var evidenceScope = (string?)null;
         var priorReview = prior?.Steps.FirstOrDefault(step => step.Role == TeamRole.Reviewer)?.Output;
         var specialistMemory = BuildSpecialistMemory(role, current, evaluatedHistory);
         var focusedSpecialist =
@@ -68,7 +70,8 @@ public static class TeamResearchContext
                     var context = JsonSerializer.Serialize(
                         new
                         {
-                            evidence = evidenceDocument.RootElement,
+                            evidence = evidenceRoot,
+                            evidenceScope,
                             dailyLearning = current.Task is not null && role is not ("ceo" or "reviewer")
                                 ? (JsonElement?)null
                                 : JsonSerializer.Deserialize<JsonElement>(learning),
@@ -90,19 +93,18 @@ public static class TeamResearchContext
                                 calendarTimeZone = TradingMandate.CalendarTimeZone,
                                 acceptFullCapitalLoss = TradingMandate.AcceptFullCapitalLoss,
                             },
-                            currentGoal = new
-                            {
-                                id = PortfolioGoal.Current.Id,
-                                targetThb = PortfolioGoal.Current.TargetThb,
-                                deadlineExclusive = PortfolioGoal.Current.DeadlineExclusive,
-                                includesDeposits = PortfolioGoal.Current.IncludesDeposits,
-                                timeZone = PortfolioGoal.Current.TimeZone,
-                            },
+                            currentGoal = ReadGoal(evidenceRoot),
+                            rules = evidenceRoot.TryGetProperty("rules", out var rules) ? rules : (JsonElement?)null,
+                            aiPolicy = evidenceRoot.TryGetProperty("aiPolicy", out var aiPolicy)
+                                ? aiPolicy
+                                : (JsonElement?)null,
+                            policyCandidateInstruction = "When aiPolicy.enabled is true, Reviewer may return one policyCandidate only after comparing evidence. Candidate changes technical parameters only, must cite exact assessment evidenceIds, preserve the current baselineRulesHash, and never changes symbols, strategy version, fees, freshness or authority.",
                             news = newsDocument.RootElement,
                             assessmentContext = ResearchEvidence.Context(
                                 current,
                                 evidenceDocument.RootElement,
-                                newsDocument.RootElement
+                                newsDocument.RootElement,
+                                includePositionSymbols: role == "reviewer"
                             ),
                             priorReview = omitPriorReview ? null : priorReview,
                             priorReviewOmitted = omitPriorReview && priorReview is not null,
@@ -148,6 +150,21 @@ public static class TeamResearchContext
             var events = newsNode["events"]?.AsArray();
             if (events is not { Count: > 0 })
             {
+                if (
+                    evidenceScope is null
+                    && role.Equals("reviewer", StringComparison.OrdinalIgnoreCase)
+                    && current.Task?.Specialist == TeamRole.Intraday
+                )
+                {
+                    using var scopedDocument = JsonDocument.Parse(
+                        TeamResearchScope.Project(TeamRole.Intraday, evidence)
+                    );
+                    evidenceRoot = scopedDocument.RootElement.Clone();
+                    evidenceScope =
+                        "intraday reviewer fallback: omitted history, tradeHistory, historyCoverage, and marketResearch.historicalCandles";
+                    continue;
+                }
+
                 break;
             }
 
@@ -156,6 +173,37 @@ public static class TeamResearchContext
         }
 
         throw new CodexWorkerException("worker_input_too_large");
+    }
+
+    private static JsonElement? ReadGoal(JsonElement evidence)
+    {
+        if (
+            evidence.ValueKind != JsonValueKind.Object
+            || !evidence.TryGetProperty("objective", out var goal)
+            || goal.ValueKind != JsonValueKind.Object
+            || !goal.TryGetProperty("id", out var id)
+            || id.ValueKind != JsonValueKind.String
+            || string.IsNullOrWhiteSpace(id.GetString())
+            || !goal.TryGetProperty("targetThb", out var target)
+            || target.ValueKind != JsonValueKind.Number
+            || !target.TryGetDecimal(out var amount)
+            || amount <= 0
+            || !JsonElement.DeepEquals(target, JsonSerializer.SerializeToElement(amount))
+            || !goal.TryGetProperty("deadlineExclusive", out var deadline)
+            || deadline.ValueKind != JsonValueKind.String
+            || !deadline.TryGetDateTimeOffset(out var deadlineAt)
+            || deadlineAt == default
+            || !goal.TryGetProperty("includesDeposits", out var includesDeposits)
+            || includesDeposits.ValueKind is not (JsonValueKind.True or JsonValueKind.False)
+            || !goal.TryGetProperty("timeZone", out var timeZone)
+            || timeZone.ValueKind != JsonValueKind.String
+            || string.IsNullOrWhiteSpace(timeZone.GetString())
+        )
+        {
+            return null;
+        }
+
+        return goal;
     }
 
     private static JsonObject? BuildSpecialistMemory(string role, TeamRun current, IReadOnlyList<TeamRun> history)

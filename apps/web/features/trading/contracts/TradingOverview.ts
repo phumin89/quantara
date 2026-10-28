@@ -115,10 +115,29 @@ const bookSchema = z.object({
       side: z.enum(['buy', 'sell']),
       amount: decimalSchema,
       limitPrice: decimalSchema,
-      status: z.string().min(1),
+      status: z.enum([
+        'pending',
+        'submitting',
+        'submitted',
+        'partial',
+        'unknown',
+        'filled',
+        'cancelled',
+        'rejected',
+        'expired',
+      ]),
       createdAt: timestampSchema,
       brokerOrderId: z.string().nullable(),
       reason: z.string(),
+      originalAmount: decimalSchema.nullable().optional(),
+      lastExecutionMessage: z.string().max(500).nullable().optional(),
+      lastExecutionAt: timestampSchema.nullable().optional(),
+      cancellationState: z
+        .enum(['claimed', 'unknown', 'acknowledged', 'confirmed'])
+        .nullable()
+        .optional(),
+      lastInspectedAt: timestampSchema.nullable().optional(),
+      lastInspectionError: z.string().max(500).nullable().optional(),
       remaining: decimalSchema,
     }),
   ),
@@ -162,6 +181,19 @@ export const tradingOverviewSchema = z.object({
   heartbeatAt: timestampSchema.nullable(),
   fault: z.string().nullable(),
   liveActivationAvailable: z.boolean(),
+  aiPolicy: z
+    .strictObject({
+      enabled: z.boolean(),
+      capitalCeilingFraction: z.literal(1),
+      expiresAt: timestampSchema.nullable(),
+      originalRulesHash: z.string().min(1),
+      effectiveRulesHash: z.string().min(1),
+      status: z.string().min(1),
+      reason: z.string().min(1),
+      lastChangedAt: timestampSchema.nullable(),
+    })
+    .nullable()
+    .optional(),
   autonomy: z
     .strictObject({
       observedAt: timestampSchema,
@@ -218,7 +250,11 @@ export const tradingOverviewSchema = z.object({
       funnel: funnelSchema.nullable().optional(),
       evaluation: z
         .strictObject({
-          protocol: z.literal('ohlc-scenario-v1'),
+          protocol: z.enum([
+            'ohlc-scenario-v1',
+            'ohlc-scenario-v2',
+            'ohlc-scenario-v3',
+          ]),
           verifiedProfit: z.literal(false),
           observedAt: timestampSchema,
           rulesHash: z.string().regex(/^[a-f0-9]{64}$/),

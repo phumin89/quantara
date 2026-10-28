@@ -72,6 +72,15 @@ internal static class TradingLedgerValuation
         }
 
         var today = now.ToOffset(TimeSpan.FromHours(7)).Date;
+        if (
+            ledger.ExternalSales.Any(sale =>
+                sale.Allocation.Execution.OccurredAt.ToOffset(TimeSpan.FromHours(7)).Date == today
+            )
+        )
+        {
+            return null;
+        }
+
         var sells = ledger
             .Fills.Where(fill =>
                 fill.Side == TradeSide.Sell && fill.OccurredAt.ToOffset(TimeSpan.FromHours(7)).Date == today
@@ -104,15 +113,21 @@ internal static class TradingLedgerValuation
         var unseen = capital
             .Evidence.CashFlows.Where(flow => !state.ObservedFundingFlows.Contains(flow.Id, StringComparer.Ordinal))
             .ToArray();
-        var adjustment = unseen
+        var fundingAdjustment = unseen
             .Where(flow => flow.Symbol == "THB")
+            .Sum(flow => flow.Kind == CashFlowKind.Deposit ? flow.Quantity : -flow.Quantity);
+        // A verified late deposit/withdrawal still changes funding once, but its old cash is already in the baseline.
+        var cashAdjustment = unseen
+            .Where(flow =>
+                flow.Symbol == "THB" && !TradingCashBaselineAccounting.CashFlowAlreadyIncluded(state.Live, flow)
+            )
             .Sum(flow => flow.Kind == CashFlowKind.Deposit ? flow.Quantity : -flow.Quantity);
         return state with
         {
             Live = state.Live with
             {
-                CashThb = state.Live.CashThb + adjustment,
-                FundingThb = state.Live.FundingThb + adjustment,
+                CashThb = state.Live.CashThb + cashAdjustment,
+                FundingThb = state.Live.FundingThb + fundingAdjustment,
             },
             ObservedFundingFlows = state
                 .ObservedFundingFlows.Concat(unseen.Select(flow => flow.Id))

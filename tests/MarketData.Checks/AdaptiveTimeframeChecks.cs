@@ -15,6 +15,48 @@ public static class AdaptiveTimeframeChecks
         using var client = new HttpClient(handler) { BaseAddress = new Uri("https://test.invalid") };
         var reader = new BitkubExecutionMarketReader(client, timeProvider: new FixedTimeProvider(now));
 
+        handler.OmitLatestCompleted = true;
+        using var incomplete = JsonDocument.Parse(
+            await reader.Read(["BTC", "ETH", "XRP"], CancellationToken.None, true, true)
+        );
+        Check(
+            incomplete.RootElement.GetProperty("markets").GetArrayLength() == 0,
+            "Incomplete completed windows must remain unavailable instead of being cached as ready."
+        );
+        handler.OmitLatestCompleted = false;
+        using var repaired = JsonDocument.Parse(
+            await reader.Read(["BTC", "ETH", "XRP"], CancellationToken.None, true, true)
+        );
+        Check(
+            repaired.RootElement.GetProperty("markets").GetArrayLength() == 3,
+            "A repaired completed window in the same slot must become available."
+        );
+        Check(
+            repaired.RootElement.GetProperty("markets")[0].GetProperty("timeframeSeconds").GetInt32() == 300
+                && repaired.RootElement.GetProperty("markets")[1].GetProperty("timeframeSeconds").GetInt32() == 900
+                && repaired.RootElement.GetProperty("markets")[2].GetProperty("timeframeSeconds").GetInt32() == 3600,
+            "Repaired markets selected the wrong native timeframe."
+        );
+        var requestCountsAfterRepair = new Dictionary<string, int>
+        {
+            ["BTC:5"] = HistoryRequests(handler, "BTC", 5),
+            ["ETH:15"] = HistoryRequests(handler, "ETH", 15),
+            ["XRP:60"] = HistoryRequests(handler, "XRP", 60),
+        };
+        using var cachedRepair = JsonDocument.Parse(
+            await reader.Read(["BTC", "ETH", "XRP"], CancellationToken.None, true, true)
+        );
+        Check(
+            requestCountsAfterRepair.All(item =>
+                HistoryRequests(
+                    handler,
+                    item.Key.Split(':')[0],
+                    int.Parse(item.Key.Split(':')[1], CultureInfo.InvariantCulture)
+                ) == item.Value
+            ) && requestCountsAfterRepair.Values.All(count => count == 2),
+            "A healthy completed window must be reused from cache."
+        );
+
         using var document = JsonDocument.Parse(
             await reader.Read(["BTC", "ETH", "XRP"], CancellationToken.None, true, true)
         );
@@ -123,6 +165,44 @@ public static class AdaptiveTimeframeChecks
             catch (ArgumentException) { }
         }
 
+        foreach (var timeframe in new[] { 300, 900, 3600 })
+        {
+            var shiftedHandler = new AdaptiveTimeframeHandler(now) { TimestampOffsetSeconds = 1 };
+            using var shiftedClient = new HttpClient(shiftedHandler) { BaseAddress = new Uri("https://test.invalid") };
+            var shiftedReader = new BitkubExecutionMarketReader(
+                shiftedClient,
+                timeProvider: new FixedTimeProvider(now)
+            );
+            var alignedFrom = now.ToUnixTimeSeconds() / timeframe * timeframe - timeframe * 10;
+            await RejectsInvalidData(
+                () =>
+                    shiftedReader.ReadHistorical(
+                        "BTC",
+                        timeframe,
+                        alignedFrom,
+                        alignedFrom + timeframe * 10,
+                        CancellationToken.None
+                    ),
+                $"Shifted {timeframe}-second candles were accepted."
+            );
+            var validHandler = new AdaptiveTimeframeHandler(now);
+            using var validClient = new HttpClient(validHandler) { BaseAddress = new Uri("https://test.invalid") };
+            var validReader = new BitkubExecutionMarketReader(validClient, timeProvider: new FixedTimeProvider(now));
+            using var valid = JsonDocument.Parse(
+                await validReader.ReadHistorical(
+                    "BTC",
+                    timeframe,
+                    alignedFrom,
+                    alignedFrom + timeframe * 10,
+                    CancellationToken.None
+                )
+            );
+            Check(
+                valid.RootElement.GetProperty("error").ValueKind == JsonValueKind.Null,
+                $"Aligned {timeframe}-second candles were rejected."
+            );
+        }
+
         try
         {
             await reader.ReadHistorical("BTC", 900, from + 1, from + 900, CancellationToken.None);
@@ -144,5 +224,26 @@ public static class AdaptiveTimeframeChecks
         {
             throw new InvalidOperationException(message);
         }
+    }
+
+    private static int HistoryRequests(AdaptiveTimeframeHandler handler, string symbol, int minutes) =>
+        handler.Requests.Count(uri =>
+            uri.AbsolutePath.EndsWith("history", StringComparison.Ordinal)
+            && uri.Query.Contains($"symbol={symbol}_THB", StringComparison.Ordinal)
+            && uri.Query.Contains($"resolution={minutes}", StringComparison.Ordinal)
+        );
+
+    private static async Task RejectsInvalidData(Func<Task<string>> operation, string message)
+    {
+        try
+        {
+            await operation();
+        }
+        catch (InvalidDataException)
+        {
+            return;
+        }
+
+        throw new InvalidOperationException(message);
     }
 }

@@ -32,11 +32,54 @@ public static class AutonomousContextChecks
         foreach (
             var scenario in new[]
             {
-                (Stale: false, Verified: false, Version: "adaptive-intraday-v1", Risk: (decimal?)0.02m, CapitalAge: 0),
-                (Stale: false, Verified: true, Version: "adaptive-intraday-v2", Risk: (decimal?)0.02m, CapitalAge: 0),
-                (Stale: true, Verified: false, Version: "adaptive-intraday-v1", Risk: (decimal?)0.02m, CapitalAge: 0),
-                (Stale: false, Verified: false, Version: "adaptive-intraday-v2", Risk: (decimal?)null, CapitalAge: 0),
-                (Stale: false, Verified: false, Version: "adaptive-intraday-v2", Risk: (decimal?)0.02m, CapitalAge: 95),
+                (
+                    Stale: false,
+                    Verified: false,
+                    Version: "adaptive-intraday-v1",
+                    Protocol: "ohlc-scenario-v1",
+                    Risk: (decimal?)0.02m,
+                    CapitalAge: 0
+                ),
+                (
+                    Stale: false,
+                    Verified: false,
+                    Version: "adaptive-intraday-v2",
+                    Protocol: "ohlc-scenario-v3",
+                    Risk: (decimal?)0.02m,
+                    CapitalAge: 0
+                ),
+                (
+                    Stale: false,
+                    Verified: true,
+                    Version: "adaptive-intraday-v2",
+                    Protocol: "ohlc-scenario-v3",
+                    Risk: (decimal?)0.02m,
+                    CapitalAge: 0
+                ),
+                (
+                    Stale: true,
+                    Verified: false,
+                    Version: "adaptive-intraday-v1",
+                    Protocol: "ohlc-scenario-v1",
+                    Risk: (decimal?)0.02m,
+                    CapitalAge: 0
+                ),
+                (
+                    Stale: false,
+                    Verified: false,
+                    Version: "adaptive-intraday-v2",
+                    Protocol: "ohlc-scenario-v2",
+                    Risk: (decimal?)null,
+                    CapitalAge: 0
+                ),
+                (
+                    Stale: false,
+                    Verified: false,
+                    Version: "adaptive-intraday-v2",
+                    Protocol: "ohlc-scenario-v2",
+                    Risk: (decimal?)0.02m,
+                    CapitalAge: 95
+                ),
             }
         )
         {
@@ -196,7 +239,7 @@ public static class AutonomousContextChecks
                             },
                             evaluation = new
                             {
-                                protocol = "ohlc-scenario-v1",
+                                protocol = scenario.Protocol,
                                 verifiedProfit = scenario.Verified,
                                 observedAt = now,
                                 rulesHash = "hash",
@@ -334,6 +377,17 @@ public static class AutonomousContextChecks
             }
 
             var strategy = document.RootElement.GetProperty("tradingStrategy");
+            if (
+                !stale
+                && !scenario.Verified
+                && performance.GetProperty("evaluation").GetProperty("protocol").GetString() != scenario.Protocol
+            )
+            {
+                throw new InvalidOperationException(
+                    "Research preserves both retained and precision-aware replay protocols."
+                );
+            }
+
             if (
                 scenario.Risk is null
                     ? strategy.ValueKind != JsonValueKind.Null

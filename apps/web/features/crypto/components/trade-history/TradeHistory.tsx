@@ -33,7 +33,7 @@ export default class TradeHistory extends PureComponent<TradeHistoryProps> {
         <Box
           component="section"
           aria-label={`${coinSymbol} trade history`}
-          sx={{ p: 2.5, bgcolor: '#f3f3f3' }}
+          sx={{ p: 2.5, bgcolor: 'var(--surface-soft)' }}
         >
           {loading && (
             <Typography
@@ -59,7 +59,10 @@ export default class TradeHistory extends PureComponent<TradeHistoryProps> {
             </Stack>
           )}
           {!loading && !error && trades && trades.length > 0 && (
-            <Table size="small">
+            <Table
+              size="small"
+              stickyHeader
+            >
               <TableHead>
                 <TableRow>
                   {[
@@ -76,6 +79,8 @@ export default class TradeHistory extends PureComponent<TradeHistoryProps> {
                         head === 'Date' || head === 'Side' ? 'left' : 'right'
                       }
                       sx={{
+                        bgcolor: 'primary.main',
+                        color: 'primary.contrastText',
                         fontSize: 12,
                         fontWeight: 600,
                         whiteSpace: 'nowrap',
@@ -109,12 +114,12 @@ export default class TradeHistory extends PureComponent<TradeHistoryProps> {
                         sx={
                           trade.side === TradeSide.Sell
                             ? {
-                                bgcolor: '#ffedd5',
-                                color: '#9a3412',
+                                bgcolor: 'var(--surface-sell)',
+                                color: 'var(--color-sell)',
                                 '& .MuiChip-icon': { color: 'inherit' },
                               }
                             : {
-                                bgcolor: 'info.light',
+                                bgcolor: 'var(--surface-info)',
                                 color: 'info.main',
                                 '& .MuiChip-icon': { color: 'inherit' },
                               }

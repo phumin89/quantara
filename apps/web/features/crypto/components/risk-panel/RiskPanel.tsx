@@ -60,7 +60,12 @@ export default class RiskPanel extends Component<object, RiskPanelState> {
     return (
       <Paper
         variant="outlined"
-        sx={{ p: { xs: 2, sm: 2.5 }, borderRadius: '8px' }}
+        sx={{
+          p: 'var(--panel-padding)',
+          borderRadius: 'var(--radius-panel)',
+          bgcolor: 'var(--surface-panel)',
+          boxShadow: 'var(--shadow-panel)',
+        }}
       >
         <Stack spacing={1.5}>
           <Stack

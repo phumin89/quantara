@@ -15,6 +15,11 @@ public sealed class CodexWorker : ICodexWorker
         Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
     };
 
+    private static readonly JsonSerializerOptions auditJsonOptions = new()
+    {
+        PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+    };
+
     private readonly string nodePath;
 
     private readonly string scriptPath;
@@ -23,15 +28,29 @@ public sealed class CodexWorker : ICodexWorker
 
     private readonly string? launcherPath;
 
+    private readonly CodexRoleModelPolicy modelPolicy;
+
     public CodexWorker(string nodePath, string scriptPath, string? authHome = null, string? launcherPath = null)
     {
         this.nodePath = nodePath;
         this.scriptPath = scriptPath;
         this.authHome = authHome;
         this.launcherPath = launcherPath;
+        var policyPath = Path.Combine(Path.GetDirectoryName(scriptPath) ?? "", "CodexModelPolicy.json");
+        if (!File.Exists(policyPath))
+        {
+            policyPath = Path.Combine("services", "ai-worker", "CodexModelPolicy.json");
+        }
+
+        this.modelPolicy = new CodexRoleModelPolicy(
+            policyPath,
+            Environment.GetEnvironmentVariable("QUANTARA_CODEX_ROLE_POLICY")
+        );
     }
 
     public bool IsConfigured => File.Exists(this.nodePath) && File.Exists(this.scriptPath) && this.HasAuthentication();
+
+    public ResearchModelAudit ModelSelection(string role) => this.modelPolicy.Select(role);
 
     private static string? Key =>
         Environment.GetEnvironmentVariable("CODEX_API_KEY") ?? Environment.GetEnvironmentVariable("OPENAI_API_KEY");
@@ -52,6 +71,7 @@ public sealed class CodexWorker : ICodexWorker
         CancellationToken cancellationToken
     )
     {
+        var selectedModel = this.ModelSelection(role);
         if (!this.IsConfigured)
         {
             throw new TeamUnavailableException();
@@ -72,6 +92,10 @@ public sealed class CodexWorker : ICodexWorker
         };
         start.ArgumentList.Add(this.scriptPath);
         start.Environment.Clear();
+        start.Environment["QUANTARA_CODEX_PINNED_MODEL"] = JsonSerializer.Serialize(
+            selectedModel,
+            CodexWorker.auditJsonOptions
+        );
         foreach (var name in new[] { "PATH", "SystemRoot", "WINDIR", "TEMP", "TMP" })
         {
             var value = Environment.GetEnvironmentVariable(name);
@@ -118,32 +142,70 @@ public sealed class CodexWorker : ICodexWorker
             var json = await output;
             if (process.ExitCode != 0)
             {
-                throw CodexWorkerException.FromDiagnostic(diagnostic);
+                var failure = CodexWorkerException.FromDiagnostic(diagnostic);
+                if (failure.ModelAudit is not null && failure.ModelAudit != selectedModel)
+                {
+                    throw new CodexWorkerException("worker_response_invalid", modelAudit: selectedModel);
+                }
+
+                throw new CodexWorkerException(
+                    failure.Code,
+                    failure.ResponseFailure,
+                    selectedModel,
+                    failure.Usage,
+                    failure.ResponseCharacters
+                );
             }
 
+            ResearchModelAudit? modelAudit = null;
+            ResearchUsage? usage = null;
+            var responseFailure = WorkerResponseFailure.ResponseJson;
             try
             {
+                using var auditDocument = JsonDocument.Parse(json);
+                responseFailure = WorkerResponseFailure.AuditMetadata;
+                modelAudit = WorkerAuditReader.Model(auditDocument.RootElement);
+                usage = WorkerAuditReader.Usage(auditDocument.RootElement);
+                if (modelAudit is not null && modelAudit != selectedModel)
+                {
+                    usage = null;
+                    throw new CodexWorkerException("worker_response_invalid");
+                }
+
+                responseFailure = WorkerResponseFailure.ResponseShape;
                 var report = CodexWorker.Decode(json, role);
                 if (role == "reviewer" && report.Assessment is null && portfolio?.StartsWith('{') == true)
                 {
                     using var context = JsonDocument.Parse(portfolio);
                     if (context.RootElement.TryGetProperty("assessmentContext", out _))
                     {
-                        throw new CodexWorkerException("worker_response_invalid");
+                        throw new CodexWorkerException(
+                            "worker_response_invalid",
+                            WorkerResponseFailure.AssessmentShape
+                        );
                     }
                 }
 
-                return report;
+                return report with
+                {
+                    ModelAudit = selectedModel,
+                };
             }
             catch (Exception error)
                 when (error is JsonException or InvalidOperationException or KeyNotFoundException or FormatException)
             {
-                throw new CodexWorkerException("worker_response_invalid");
+                throw new CodexWorkerException(
+                    "worker_response_invalid",
+                    error is CodexWorkerException known ? known.ResponseFailure ?? responseFailure : responseFailure,
+                    selectedModel,
+                    usage,
+                    json.Length <= 100000 ? json.Length : null
+                );
             }
         }
         catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
         {
-            throw new CodexWorkerException("worker_timed_out");
+            throw new CodexWorkerException("worker_timed_out", modelAudit: selectedModel);
         }
         finally
         {
@@ -345,50 +407,70 @@ public sealed class CodexWorker : ICodexWorker
             );
         }
 
-        ResearchUsage? usage = null;
+        PolicyCandidate? policyCandidate = null;
         if (
-            result.RootElement.TryGetProperty("usage", out var usageElement)
-            && usageElement.ValueKind != JsonValueKind.Null
+            result.RootElement.TryGetProperty("policyCandidate", out var candidateElement)
+            && candidateElement.ValueKind != JsonValueKind.Null
         )
         {
-            if (usageElement.ValueKind != JsonValueKind.Object)
+            if (role != "reviewer" || candidateElement.ValueKind != JsonValueKind.Object)
             {
                 throw new CodexWorkerException("worker_response_invalid");
             }
 
-            var properties = usageElement
-                .EnumerateObject()
-                .Select(property => property.Name)
-                .OrderBy(name => name)
-                .ToArray();
-            if (!properties.SequenceEqual(new[] { "cachedInputTokens", "inputTokens", "outputTokens" }))
-            {
-                throw new CodexWorkerException("worker_response_invalid");
-            }
-
-            var inputTokens = usageElement.GetProperty("inputTokens");
-            var outputTokens = usageElement.GetProperty("outputTokens");
-            var cachedInputTokens = usageElement.GetProperty("cachedInputTokens");
+            var parameters = candidateElement.GetProperty("parameters");
+            policyCandidate = new PolicyCandidate(
+                candidateElement.GetProperty("runId").GetGuid(),
+                candidateElement.GetProperty("accountKey").GetString() ?? "",
+                candidateElement.GetProperty("baselineRulesHash").GetString() ?? "",
+                candidateElement.GetProperty("asOf").GetDateTimeOffset(),
+                candidateElement.GetProperty("expiresAt").GetDateTimeOffset(),
+                candidateElement
+                    .GetProperty("evidenceIds")
+                    .EnumerateArray()
+                    .Select(item => item.GetString() ?? "")
+                    .ToArray(),
+                candidateElement.GetProperty("reason").GetString() ?? "",
+                new PolicyCandidateParameters(
+                    parameters.GetProperty("maxPositions").GetInt32(),
+                    parameters.GetProperty("maxSpreadBps").GetDecimal(),
+                    parameters.GetProperty("slippageBps").GetDecimal(),
+                    parameters.GetProperty("takeProfitBps").GetDecimal(),
+                    parameters.GetProperty("stopLossBps").GetDecimal(),
+                    parameters.GetProperty("trailingStopBps").GetDecimal(),
+                    parameters.GetProperty("volumeRatio").GetDecimal(),
+                    parameters.GetProperty("timeExitMinutes").GetInt32(),
+                    parameters.GetProperty("cooldownMinutes").GetInt32(),
+                    parameters.GetProperty("orderLifetimeMinutes").GetInt32(),
+                    parameters.GetProperty("maximumExposureFraction").GetDecimal(),
+                    parameters.GetProperty("maximumConcentrationFraction").GetDecimal(),
+                    parameters.GetProperty("riskToStopFraction").GetDecimal(),
+                    parameters.GetProperty("dailyLossFraction").GetDecimal(),
+                    parameters.GetProperty("atrMultiplier").GetDecimal()
+                )
+            );
             if (
-                inputTokens.ValueKind != JsonValueKind.Number
-                || outputTokens.ValueKind != JsonValueKind.Number
-                || cachedInputTokens.ValueKind != JsonValueKind.Number
-                || !inputTokens.TryGetInt64(out var input)
-                || !outputTokens.TryGetInt64(out var output)
-                || !cachedInputTokens.TryGetInt64(out var cached)
-                || input < 0
-                || output < 0
-                || cached < 0
-                || cached > input
+                policyCandidate.ExpiresAt <= policyCandidate.AsOf
+                || string.IsNullOrWhiteSpace(policyCandidate.Reason)
+                || policyCandidate.EvidenceIds.Count is < 1 or > 16
             )
             {
                 throw new CodexWorkerException("worker_response_invalid");
             }
-
-            usage = new ResearchUsage(input, output, cached);
         }
 
-        return new ResearchReport(report, proposal, lesson, researchSymbols, assessment, usage);
+        var usage = WorkerAuditReader.Usage(result.RootElement);
+        var modelAudit = WorkerAuditReader.Model(result.RootElement);
+        return new ResearchReport(
+            report,
+            proposal,
+            lesson,
+            researchSymbols,
+            assessment,
+            usage,
+            modelAudit,
+            policyCandidate
+        );
     }
 
     private static string LessonText(JsonElement lesson, string name)

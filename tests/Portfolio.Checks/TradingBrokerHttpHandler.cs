@@ -8,6 +8,10 @@ public sealed class TradingBrokerHttpHandler : HttpMessageHandler
 {
     public string Json { get; set; } = "{}";
 
+    public Func<string, string>? Response { get; set; }
+
+    public List<string> GetPaths { get; } = [];
+
     public int Posts { get; private set; }
 
     public string? LastBody { get; private set; }
@@ -21,6 +25,11 @@ public sealed class TradingBrokerHttpHandler : HttpMessageHandler
         if (uri.Host != "bitkub.invalid")
         {
             throw new InvalidOperationException("Fixture must never access a real broker.");
+        }
+
+        if (request.Method == HttpMethod.Get)
+        {
+            this.GetPaths.Add(uri.PathAndQuery);
         }
 
         if (uri.AbsolutePath.EndsWith("servertime", StringComparison.Ordinal))
@@ -54,7 +63,11 @@ public sealed class TradingBrokerHttpHandler : HttpMessageHandler
 
         return new HttpResponseMessage(HttpStatusCode.OK)
         {
-            Content = new StringContent(this.Json, Encoding.UTF8, "application/json"),
+            Content = new StringContent(
+                this.Response?.Invoke(uri.PathAndQuery) ?? this.Json,
+                Encoding.UTF8,
+                "application/json"
+            ),
         };
     }
 }

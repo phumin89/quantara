@@ -1,6 +1,7 @@
-import { Component, type ReactNode } from 'react';
+import { Component, createRef, type ReactNode } from 'react';
 import {
   Alert,
+  AlertTitle,
   Box,
   Button,
   Divider,
@@ -17,6 +18,21 @@ import TradingPolicySummary from '../trading-policy-summary/TradingPolicySummary
 import type { TradingSettingsProps } from './TradingSettingsProps';
 
 export default class TradingSettings extends Component<TradingSettingsProps> {
+  private readonly closeButton = createRef<HTMLButtonElement>();
+
+  public override componentDidUpdate(previous: TradingSettingsProps): void {
+    const contextChanged =
+      previous.overview.accountKey !== this.props.overview.accountKey ||
+      previous.overview.rulesHash !== this.props.overview.rulesHash;
+    if (
+      ((previous.error && !this.props.error) || contextChanged) &&
+      this.props.open &&
+      document.activeElement === document.body
+    ) {
+      this.closeButton.current?.focus();
+    }
+  }
+
   public override render(): ReactNode {
     const overview = this.props.overview;
 
@@ -36,8 +52,16 @@ export default class TradingSettings extends Component<TradingSettingsProps> {
             sx: {
               width: { xs: '100%', sm: 600 },
               maxWidth: '100%',
-              p: { xs: 2, sm: 3 },
-              borderRadius: 0,
+              p: 'var(--panel-padding)',
+              borderRadius: 'var(--radius-panel) 0 0 var(--radius-panel)',
+              bgcolor: 'var(--surface-raised)',
+              backdropFilter: 'blur(20px)',
+              borderLeft: '1px solid',
+              borderColor: 'var(--border-panel)',
+              boxShadow: 'var(--shadow-panel)',
+              display: 'flex',
+              flexDirection: 'column',
+              overflow: 'hidden',
             },
           },
         }}
@@ -48,20 +72,25 @@ export default class TradingSettings extends Component<TradingSettingsProps> {
             alignItems: 'center',
             justifyContent: 'space-between',
             mb: 1,
-            position: 'sticky',
-            top: 0,
-            bgcolor: 'background.paper',
-            zIndex: 1,
+            p: 1.5,
+            bgcolor: 'var(--color-lilac)',
+            borderRadius: 'var(--radius-control)',
+            flexShrink: 0,
           }}
         >
           <Typography
             id="trading-settings-title"
             component="h2"
-            sx={{ fontSize: 20, fontWeight: 700 }}
+            sx={{
+              fontFamily: 'var(--font-display)',
+              fontSize: 24,
+              fontWeight: 850,
+            }}
           >
             Trading settings
           </Typography>
           <IconButton
+            ref={this.closeButton}
             aria-label="Close trading settings"
             onClick={() => {
               this.props.onClose();
@@ -71,32 +100,60 @@ export default class TradingSettings extends Component<TradingSettingsProps> {
             <CloseOutlinedIcon />
           </IconButton>
         </Stack>
+        {this.props.error && (
+          <Alert
+            severity="error"
+            sx={{ mb: 2, flexShrink: 0 }}
+          >
+            <AlertTitle>Trading status unavailable</AlertTitle>
+            {this.props.error}
+            <Typography
+              variant="body2"
+              sx={{ mt: 1 }}
+            >
+              Refresh status before saving or changing operating mode.
+            </Typography>
+            <Button
+              color="inherit"
+              variant="outlined"
+              disabled={this.props.busy || this.props.refreshing}
+              loading={this.props.refreshing}
+              onClick={() => {
+                this.props.onRetry();
+              }}
+              sx={{ mt: 1.5, minHeight: 44 }}
+            >
+              Refresh status
+            </Button>
+          </Alert>
+        )}
         <Box
           role="region"
           aria-labelledby="trading-settings-title"
+          sx={{ flex: 1, minHeight: 0, overflowY: 'auto' }}
         >
           {this.renderConfiguration(overview)}
+          <Divider sx={{ my: 3 }} />
+          {TradingRulePresentation.isAdaptive(overview.rules.version) ? (
+            <Box
+              component="details"
+              sx={{
+                '& > summary': {
+                  cursor: 'pointer',
+                  minHeight: 44,
+                  alignContent: 'center',
+                  fontSize: 14,
+                  fontWeight: 600,
+                },
+              }}
+            >
+              <Box component="summary">Operating mode</Box>
+              {this.renderOperatingMode(overview)}
+            </Box>
+          ) : (
+            this.renderOperatingMode(overview)
+          )}
         </Box>
-        <Divider sx={{ my: 3 }} />
-        {TradingRulePresentation.isAdaptive(overview.rules.version) ? (
-          <Box
-            component="details"
-            sx={{
-              '& > summary': {
-                cursor: 'pointer',
-                minHeight: 44,
-                alignContent: 'center',
-                fontSize: 14,
-                fontWeight: 600,
-              },
-            }}
-          >
-            <Box component="summary">Operating mode</Box>
-            {this.renderOperatingMode(overview)}
-          </Box>
-        ) : (
-          this.renderOperatingMode(overview)
-        )}
       </Drawer>
     );
   }
@@ -158,10 +215,18 @@ export default class TradingSettings extends Component<TradingSettingsProps> {
 
     return (
       <Box
-        key={overview.rulesHash}
+        key={`${overview.accountKey}:${overview.rulesHash}`}
         component="form"
         onChange={() => {
           this.props.onDirty();
+        }}
+        onInvalidCapture={(event) => {
+          if (event.target instanceof HTMLElement) {
+            const disclosure = event.target.closest('details');
+            if (disclosure) {
+              disclosure.open = true;
+            }
+          }
         }}
         onSubmit={(event) => {
           event.preventDefault();
@@ -177,7 +242,27 @@ export default class TradingSettings extends Component<TradingSettingsProps> {
           )}
           {adaptive ? (
             <>
-              <TradingPolicySummary overview={overview} />
+              <TradingPolicySummary
+                overview={overview}
+                showRiskLimits={false}
+              />
+              <Typography
+                component="h3"
+                sx={{ fontSize: 15, fontWeight: 700 }}
+              >
+                Your risk limits
+              </Typography>
+              <Typography
+                variant="body2"
+                color="text.secondary"
+              >
+                The saved strategy automatically selects eligible markets,
+                timeframe and size within these limits. Saved technical defaults
+                are ready to use; AI research does not change limits.
+              </Typography>
+              {this.renderAdaptiveRiskFields(overview)}
+              {this.renderSaveWarning()}
+              {this.renderSaveButton('Save risk limits and disarm live')}
               {overview.rules.version === 'adaptive-intraday-v1' && (
                 <Button
                   variant="outlined"
@@ -255,7 +340,7 @@ export default class TradingSettings extends Component<TradingSettingsProps> {
           >
             <Box component="summary">
               {adaptive
-                ? 'Advanced overrides'
+                ? 'Advanced strategy settings'
                 : 'Advanced settings · strategy & execution'}
             </Box>
             <Typography
@@ -303,63 +388,6 @@ export default class TradingSettings extends Component<TradingSettingsProps> {
                 </Typography>
               </>
             )}
-            {overview.rules.adaptive && (
-              <Box
-                sx={{
-                  display: 'grid',
-                  gridTemplateColumns: { xs: '1fr', sm: '1fr 1fr' },
-                  gap: 2,
-                  mt: 2,
-                }}
-              >
-                {(
-                  [
-                    [
-                      'maximumExposureFraction',
-                      'Maximum exposure (%)',
-                      overview.rules.adaptive.risk.maximumExposureFraction,
-                    ],
-                    [
-                      'maximumConcentrationFraction',
-                      'Maximum concentration (%)',
-                      overview.rules.adaptive.risk.maximumConcentrationFraction,
-                    ],
-                    [
-                      'riskToStopFraction',
-                      'Risk to stop scenario (%)',
-                      overview.rules.adaptive.risk.riskToStopFraction,
-                    ],
-                    [
-                      'dailyLossFraction',
-                      'Daily loss cap (% of current equity)',
-                      overview.rules.adaptive.dailyLossFraction,
-                    ],
-                  ] as const
-                ).map(([name, label, value]) => (
-                  <TextField
-                    key={name}
-                    name={name}
-                    label={label}
-                    type="number"
-                    defaultValue={value * 100}
-                    required
-                    disabled={this.props.busy}
-                    slotProps={{
-                      htmlInput: { min: 0.01, max: 100, step: 'any' },
-                    }}
-                  />
-                ))}
-              </Box>
-            )}
-            {adaptive && (
-              <Stack
-                spacing={2}
-                sx={{ mt: 2 }}
-              >
-                {this.renderSaveWarning()}
-                {this.renderSaveButton('Save overrides and disarm live')}
-              </Stack>
-            )}
           </Box>
           {!adaptive && this.renderSaveButton('Save rules and disarm live')}
         </Stack>
@@ -373,6 +401,58 @@ export default class TradingSettings extends Component<TradingSettingsProps> {
         Saving overrides turns auto trading off. Review and enable again to use
         the new rules with real money.
       </Alert>
+    );
+  }
+
+  private renderAdaptiveRiskFields(overview: TradingOverview): ReactNode {
+    if (!overview.rules.adaptive) {
+      return null;
+    }
+
+    return (
+      <Box
+        sx={{
+          display: 'grid',
+          gridTemplateColumns: { xs: '1fr', sm: '1fr 1fr' },
+          gap: 2,
+        }}
+      >
+        {(
+          [
+            [
+              'maximumExposureFraction',
+              'Maximum exposure (%)',
+              overview.rules.adaptive.risk.maximumExposureFraction,
+            ],
+            [
+              'maximumConcentrationFraction',
+              'Maximum concentration (%)',
+              overview.rules.adaptive.risk.maximumConcentrationFraction,
+            ],
+            [
+              'riskToStopFraction',
+              'Risk to stop scenario (%)',
+              overview.rules.adaptive.risk.riskToStopFraction,
+            ],
+            [
+              'dailyLossFraction',
+              'Daily loss cap (% of current equity)',
+              overview.rules.adaptive.dailyLossFraction,
+            ],
+          ] as const
+        ).map(([name, label, value]) => (
+          <TextField
+            key={name}
+            name={name}
+            label={label}
+            type="number"
+            defaultValue={value * 100}
+            required
+            disabled={this.props.busy}
+            slotProps={{ htmlInput: { min: 0.01, max: 100, step: 'any' } }}
+          />
+        ))}
+      </Box>
     );
   }
 

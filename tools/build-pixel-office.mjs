@@ -119,8 +119,19 @@ await build({
           adapted.push('parent selection: native camera');
           code = replace(
             code,
-            'setSelectedAgent(id);',
-            'setSelectedAgent(id); os.selectAndFollow(id);',
+            "      } else if (msg.type === 'agentSelected') {\n        const id = msg.id as number;\n        setSelectedAgent(id);\n      } else if (msg.type === 'agentStatus') {",
+            "      } else if (msg.type === 'agentSelected') {\n        const id = msg.id as number;\n        setSelectedAgent(id);\n        os.selectAndFollow(id);\n      } else if (msg.type === 'agentStatus') {",
+            id,
+          );
+        }
+        if (file.endsWith('/mobile/useMobileShell.ts')) {
+          adapted.push('mobile card selection: parent role synchronization');
+          code =
+            `import { transport } from ${JSON.stringify(bridge)};\n` + code;
+          code = replace(
+            code,
+            '(agentId: number) => {\n      const os = getOfficeState();',
+            "(agentId: number) => {\n      transport.send({ type: 'focusAgent', id: agentId });\n      const os = getOfficeState();",
             id,
           );
         }
@@ -140,14 +151,27 @@ await build({
           );
         }
         if (file.endsWith('/office/components/OfficeCanvas.tsx')) {
-          adapted.push('paused camera: immediate focus without animation');
+          adapted.push('paused camera: immediate focus and resize repaint');
           code =
-            `import { officeMotionEnabled } from ${JSON.stringify(bridge)};\n` +
+            `import { officeMotionEnabled, requestOfficeRender } from ${JSON.stringify(bridge)};\n` +
             code;
           code = replace(
             code,
             'Math.abs(dx) < CAMERA_FOLLOW_SNAP_THRESHOLD &&\n            Math.abs(dy) < CAMERA_FOLLOW_SNAP_THRESHOLD',
             '!officeMotionEnabled() || (Math.abs(dx) < CAMERA_FOLLOW_SNAP_THRESHOLD &&\n            Math.abs(dy) < CAMERA_FOLLOW_SNAP_THRESHOLD)',
+            id,
+          );
+          code = replace(
+            code,
+            'canvas.style.height = `${rect.height}px`;\n    // No ctx.scale(dpr) — we render directly in device pixels',
+            'canvas.style.height = `${rect.height}px`;\n    requestOfficeRender();\n    // No ctx.scale(dpr) — we render directly in device pixels',
+            id,
+          );
+          adapted.push('mobile touch selection: parent role synchronization');
+          code = replace(
+            code,
+            '          } else {\n            officeState.selectedAgentId = hitId;\n            officeState.cameraFollowId = hitId;\n          }\n          return;',
+            "          } else {\n            officeState.selectedAgentId = hitId;\n            officeState.cameraFollowId = hitId;\n            transport.send({ type: 'focusAgent', id: hitId });\n          }\n          return;",
             id,
           );
         }

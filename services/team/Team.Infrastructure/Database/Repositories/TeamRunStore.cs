@@ -131,13 +131,13 @@ public sealed class TeamRunStore : ITeamRunStore, IDisposable
         await connection.OpenAsync(cancellationToken);
         await using var command = connection.CreateCommand();
         command.CommandText = """
-            SELECT TOP (192) Payload FROM dbo.TeamRuns
+            SELECT TOP (512) Payload FROM dbo.TeamRuns
             WHERE CreatedAt <= @before AND CreatedAt >= @start
               AND JSON_VALUE(Payload, '$.AccountKey') = @account
             ORDER BY CreatedAt DESC, Id DESC
             """;
         command.Parameters.Add("@before", SqlDbType.DateTimeOffset).Value = before;
-        command.Parameters.Add("@start", SqlDbType.DateTimeOffset).Value = before.AddDays(-2);
+        command.Parameters.Add("@start", SqlDbType.DateTimeOffset).Value = before.AddDays(-7).AddMinutes(-1);
         command.Parameters.Add("@account", SqlDbType.VarChar, 64).Value = accountKey;
         var runs = new List<TeamRun>();
         await using var reader = await command.ExecuteReaderAsync(cancellationToken);

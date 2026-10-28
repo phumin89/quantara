@@ -109,7 +109,7 @@ public sealed class SqlRiskStore(string connectionString, string accountKey) : I
         await using var connection = await this.Open(cancellationToken);
         await using var transaction = (SqlTransaction)
             await connection.BeginTransactionAsync(IsolationLevel.Serializable, cancellationToken);
-        foreach (var flow in cashFlows)
+        foreach (var flow in CapitalFlowEvidence.Unique(cashFlows, snapshot.ObservedAt))
         {
             if (
                 flow.Id.Length is < 1 or > 256

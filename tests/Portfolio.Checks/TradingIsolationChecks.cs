@@ -13,6 +13,7 @@ public static class TradingIsolationChecks
         await FailedInspectionPreservesPeers(true);
         await ChangedIntentRejectsPreparedEvidence();
         await SlowPeersPreserveHealthyEvidence();
+        await InspectionDiagnostics();
         Console.WriteLine("Trading reconciliation isolation checks passed.");
     }
 
@@ -77,7 +78,13 @@ public static class TradingIsolationChecks
         );
         var unavailable = store.State.Live.Orders.Single(order => order.Id == failed.Id);
         Check(
-            unavailable == failed with { Status = "unknown", LastInspectedAt = time.Now }
+            unavailable
+                == failed with
+                {
+                    Status = "unknown",
+                    LastInspectedAt = time.Now,
+                    LastInspectionError = "Broker inspection unavailable; no order was resent.",
+                }
                 && store.State.Live.Fills.Count == 0
                 && store.State.Live.CashThb == 1000
                 && exchange.Submissions == 0
@@ -159,6 +166,59 @@ public static class TradingIsolationChecks
         Check(
             exchange.Submissions == 0 && exchange.Cancellations == 0,
             "Inspection batches must never send broker actions."
+        );
+    }
+
+    private static async Task InspectionDiagnostics()
+    {
+        var time = new OrderCheckTime();
+        var initial = TradingStateFactory.Create(time.Now);
+        var intent = Intent(initial, time, "BTC");
+        const string message = "No exact broker match found. Outcome remains unknown; no order was resent.";
+        var store = new FakeTradingStore(
+            initial with
+            {
+                Mode = TradingMode.Stopped,
+                Live = initial.Live with { Orders = [intent] },
+            }
+        );
+        var exchange = new FakeTradingExchange
+        {
+            Observation = order => new("unknown", order.BrokerOrderId, null, [], message),
+        };
+        using var gate = new SemaphoreSlim(1);
+        var engine = Engine(store, exchange, time, gate);
+        await engine.PrepareReconciliation(CancellationToken.None);
+        await engine.Process(new(TradingEventKind.Reconcile, "", 0, time.Now), CancellationToken.None);
+        var inspected = store.State.Live.Orders.Single();
+        Check(
+            inspected.LastInspectionError == message
+                && inspected.LastInspectedAt == time.Now
+                && inspected.Reason == intent.Reason
+                && inspected.Status == "unknown",
+            "Inspection diagnostics are retained separately from the original trading reason."
+        );
+        var options = PortfolioJson.CreateOptions();
+        var legacyJson = System.Text.Json.JsonSerializer.Serialize(intent, options);
+        Check(
+            !legacyJson.Contains("LastInspectionError", StringComparison.Ordinal),
+            "Absent diagnostics preserve legacy JSON."
+        );
+        var restored = System.Text.Json.JsonSerializer.Deserialize<TradingIntent>(
+            System.Text.Json.JsonSerializer.Serialize(inspected, options),
+            options
+        );
+        Check(restored == inspected, "Inspection diagnostics survive persistence without changing the intent.");
+
+        time.Now = time.Now.AddSeconds(31);
+        exchange.Observation = order => new("cancelled", order.BrokerOrderId, order.Amount, []);
+        await engine.PrepareReconciliation(CancellationToken.None);
+        await engine.Process(new(TradingEventKind.Reconcile, "", 0, time.Now), CancellationToken.None);
+        Check(
+            store.State.Live.Orders.Single() is { Status: "cancelled", LastInspectionError: null }
+                && exchange.Submissions == 0
+                && exchange.Cancellations == 0,
+            "A verified terminal result clears stale diagnostics without broker side effects."
         );
     }
 

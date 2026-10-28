@@ -211,14 +211,14 @@ internal sealed class TradingSignalProcessor(
             if (decision.Action != TradingAction.Wait)
             {
                 var side = decision.Action == TradingAction.Buy ? TradeSide.Buy : TradeSide.Sell;
-                var limit = TradingExecutionRules.Floor(
-                    (
-                        side == TradeSide.Buy && decision.EntryLimit is { } restingLimit ? restingLimit
-                        : side == TradeSide.Buy ? book.Ask * (1 + state.Rules.SlippageBps / 10000m)
-                        : book.Bid * (1 - state.Rules.SlippageBps / 10000m)
-                    ),
-                    book.PriceStep
-                );
+                var rawLimit =
+                    side == TradeSide.Buy && decision.EntryLimit is { } restingLimit ? restingLimit
+                    : side == TradeSide.Buy ? book.Ask * (1 + state.Rules.SlippageBps / 10000m)
+                    : book.Bid * (1 - state.Rules.SlippageBps / 10000m);
+                var limit =
+                    side == TradeSide.Buy
+                        ? TradingExecutionRules.Floor(rawLimit, book.PriceStep)
+                        : TradingExecutionRules.Ceiling(rawLimit, book.PriceStep);
                 var intentId = new Guid(SHA256.HashData(Encoding.UTF8.GetBytes(key)).AsSpan(0, 16));
                 RiskSizingSnapshot? sizing = null;
                 if (adaptive is not null && side == TradeSide.Buy)

@@ -1,10 +1,40 @@
 export default class TradingFormatting {
+  private static readonly moneyFormat = new Intl.NumberFormat('en-GB', {
+    maximumFractionDigits: 2,
+  });
+
   public static money(value: string | null): string {
-    if (value === null) {
+    if (value === null || !TradingFormatting.numeric(value)) {
       return 'Unknown';
     }
 
-    return `฿${Number(value).toLocaleString('en-GB', { maximumFractionDigits: 2 })}`;
+    return `฿${TradingFormatting.moneyFormat.format(value)}`;
+  }
+
+  private static numeric(value: string): value is Intl.StringNumericLiteral {
+    return value.trim().length > 0 && Number.isFinite(Number(value));
+  }
+
+  public static sum(values: readonly string[]): string | null {
+    let scale = 0;
+    for (const value of values) {
+      if (
+        !/^-?\d+(?:\.\d+)?$/.test(value) ||
+        !TradingFormatting.numeric(value)
+      ) {
+        return null;
+      }
+
+      scale = Math.max(scale, value.split('.')[1]?.length ?? 0);
+    }
+
+    let total = BigInt(0);
+    for (const value of values) {
+      const [whole = '0', fraction = ''] = value.split('.');
+      total += BigInt(whole + fraction.padEnd(scale, '0'));
+    }
+
+    return `${total.toString()}e-${String(scale)}`;
   }
 
   public static moneyNumber(value: number): string {

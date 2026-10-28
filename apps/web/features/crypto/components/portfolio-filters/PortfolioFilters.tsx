@@ -11,29 +11,29 @@ export default class PortfolioFilters extends PureComponent<PortfolioFiltersProp
 
   private static readonly filterStyles = {
     [PortfolioFilter.All]: {
-      color: '#525252',
+      color: 'text.secondary',
       selected: {
-        bgcolor: '#fff',
-        color: '#141414',
-        boxShadow: 'inset 0 0 0 1px #bdbdbd',
+        bgcolor: 'var(--surface-raised)',
+        color: 'text.primary',
+        boxShadow: 'inset 0 0 0 1px var(--border-panel)',
       },
       icon: GridViewOutlinedIcon,
     },
     [PortfolioFilter.Holding]: {
-      color: '#166534',
+      color: 'success.main',
       selected: {
-        bgcolor: '#dcfce7',
-        color: '#166534',
-        boxShadow: 'inset 0 0 0 1px #166534',
+        bgcolor: 'var(--surface-success)',
+        color: 'success.main',
+        boxShadow: 'inset 0 0 0 1px currentColor',
       },
       icon: AccountBalanceWalletOutlinedIcon,
     },
     [PortfolioFilter.Closed]: {
-      color: '#6b21a8',
+      color: 'secondary.main',
       selected: {
-        bgcolor: '#f3e8ff',
-        color: '#6b21a8',
-        boxShadow: 'inset 0 0 0 1px #6b21a8',
+        bgcolor: 'var(--surface-warning)',
+        color: 'secondary.main',
+        boxShadow: 'inset 0 0 0 1px currentColor',
       },
       icon: CheckCircleOutlinedIcon,
     },
@@ -54,18 +54,23 @@ export default class PortfolioFilters extends PureComponent<PortfolioFiltersProp
         aria-label="Portfolio filter"
         size="small"
         sx={{
-          bgcolor: '#f3f3f3',
-          borderRadius: '6px',
-          p: 0.5,
+          bgcolor: 'var(--surface-soft)',
+          borderRadius: 'var(--radius-control)',
+          border: '1px solid',
+          borderColor: 'var(--border-panel)',
+          p: 0.75,
+          gap: 0.5,
           width: 'fit-content',
+          maxWidth: '100%',
           '& .MuiToggleButtonGroup-grouped': {
             border: 0,
-            borderRadius: '6px',
+            borderRadius: 'var(--radius-control)',
             minHeight: 44,
             px: 1.25,
             gap: 0.75,
             textTransform: 'none',
             fontSize: 14,
+            fontWeight: 800,
           },
         }}
       >

@@ -8,56 +8,56 @@ export class TeamPresentation {
       name: 'CEO',
       initials: 'C',
       responsibility: 'Direction & coordination',
-      foreground: '#1e40af',
-      background: '#dbeafe',
+      foreground: 'var(--color-info)',
+      background: 'var(--surface-info)',
     },
     {
       role: TeamRole.Intraday,
       name: 'Intraday Analyst',
       initials: 'IA',
       responsibility: 'Short-horizon market research',
-      foreground: '#1e40af',
-      background: '#dbeafe',
+      foreground: 'var(--color-info)',
+      background: 'var(--surface-info)',
     },
     {
       role: TeamRole.Swing,
       name: 'Swing Analyst',
       initials: 'SA',
       responsibility: 'Multi-day market research',
-      foreground: '#6b21a8',
-      background: '#f3e8ff',
+      foreground: 'var(--color-info)',
+      background: 'var(--surface-info)',
     },
     {
       role: TeamRole.News,
       name: 'News Verifier',
       initials: 'NV',
       responsibility: 'Source and news verification',
-      foreground: '#92400e',
-      background: '#fef3c7',
+      foreground: 'var(--color-warning)',
+      background: 'var(--surface-warning)',
     },
     {
       role: TeamRole.Positions,
       name: 'Position Reviewer',
       initials: 'PR',
       responsibility: 'Account position review',
-      foreground: '#166534',
-      background: '#dcfce7',
+      foreground: 'var(--color-success)',
+      background: 'var(--surface-success)',
     },
     {
       role: TeamRole.Quant,
       name: 'Quant Researcher',
       initials: 'QR',
       responsibility: 'Quantitative evidence research',
-      foreground: '#1e40af',
-      background: '#dbeafe',
+      foreground: 'var(--color-info)',
+      background: 'var(--surface-info)',
     },
     {
       role: TeamRole.Reviewer,
       name: 'Evidence Reviewer',
       initials: 'ER',
       responsibility: 'Evidence and risk review',
-      foreground: '#166534',
-      background: '#dcfce7',
+      foreground: 'var(--color-success)',
+      background: 'var(--surface-success)',
     },
   ] as const;
 
@@ -67,8 +67,8 @@ export class TeamPresentation {
       name: 'Analyst',
       initials: 'A',
       responsibility: 'Portfolio research & analysis',
-      foreground: '#6b21a8',
-      background: '#f3e8ff',
+      foreground: 'var(--color-info)',
+      background: 'var(--surface-info)',
     },
   ] as const;
 
@@ -83,15 +83,21 @@ export class TeamPresentation {
   public static statusStyle(status: TeamRunStatus | undefined) {
     switch (status) {
       case TeamRunStatus.Completed:
-        return { color: '#166534', bgcolor: '#dcfce7' };
+        return {
+          color: 'var(--color-success)',
+          bgcolor: 'var(--surface-success)',
+        };
       case TeamRunStatus.Queued:
       case TeamRunStatus.Running:
-        return { color: '#92400e', bgcolor: '#fef3c7' };
+        return {
+          color: 'var(--color-warning)',
+          bgcolor: 'var(--surface-warning)',
+        };
       case TeamRunStatus.Failed:
-        return { color: '#991b1b', bgcolor: '#fee2e2' };
+        return { color: 'var(--color-error)', bgcolor: 'var(--surface-error)' };
       case TeamRunStatus.Cancelled:
       case undefined:
-        return { color: '#525252', bgcolor: '#f3f3f3' };
+        return { color: 'var(--color-muted)', bgcolor: 'var(--surface-soft)' };
     }
   }
 }

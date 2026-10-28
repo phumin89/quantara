@@ -39,6 +39,7 @@ async function verify() {
     };
     let count = 0;
     let pendingPoll;
+    let pendingRefresh;
     await page.route('**/api/**', (route) =>
       route.fulfill({ status: 404, json: { error: 'Unmocked fixture API' } }),
     );
@@ -48,11 +49,16 @@ async function verify() {
         pendingPoll = route;
         return;
       }
+      if (count === 4) {
+        pendingRefresh = route;
+        return;
+      }
+      if (count === 3) snapshot.historyUpdatedAt = '2026-01-02T00:00:00Z';
       await route.fulfill({ json: snapshot });
     });
     await page.goto(`${url}/crypto`);
     await page
-      .getByRole('button', { name: 'Bitkub status: Syncing' })
+      .getByRole('button', { name: 'Snapshot status: Syncing' })
       .waitFor();
     await page.waitForRequest('**/api/crypto/portfolio');
     // Hold one poll beyond the next interval; no second request may start.
@@ -62,8 +68,11 @@ async function verify() {
     snapshot.syncing = false;
     await pendingPoll.fulfill({ json: snapshot });
     await page
-      .getByRole('button', { name: 'Bitkub status: Connected' })
+      .getByRole('button', { name: 'Snapshot status: Stale' })
       .waitFor();
+    await page
+      .getByRole('button', { name: 'Collapse team chat', exact: true })
+      .click();
     await page.waitForTimeout(2200);
     assert.equal(count, 2, 'Settled polling uses the slower read-only cadence');
 
@@ -88,10 +97,6 @@ async function verify() {
     const abortedHistory = page.waitForEvent('requestfailed', {
       predicate: (request) => request.url().includes('/api/crypto/history?'),
     });
-    await page.route('**/api/crypto/sync', (route) => {
-      snapshot.historyUpdatedAt = '2026-01-02T00:00:00Z';
-      return route.fulfill({ json: {} });
-    });
     await page.getByRole('button', { name: 'Refresh', exact: true }).click();
     await abortedHistory;
     await page.getByRole('button', { name: 'Refresh', exact: true }).waitFor();
@@ -109,22 +114,19 @@ async function verify() {
       'New history must load after snapshot changes',
     );
 
-    let pendingSync;
-    await page.route('**/api/crypto/sync', (route) => {
-      pendingSync = route;
-    });
-    const syncRequest = page.waitForRequest('**/api/crypto/sync');
+    const refreshRequested = page.waitForRequest('**/api/crypto/portfolio');
     await page.getByRole('button', { name: 'Refresh', exact: true }).click();
-    await syncRequest;
+    await refreshRequested;
     const beforeLeaving = count;
-    const abortedSync = page.waitForEvent('requestfailed', {
-      predicate: (request) => request.url().endsWith('/api/crypto/sync'),
+    const abortedRefresh = page.waitForEvent('requestfailed', {
+      predicate: (request) => request.url().endsWith('/api/crypto/portfolio'),
     });
     await page.getByRole('link', { name: 'Home', exact: true }).click();
     await page.getByRole('heading', { name: 'Home', exact: true }).waitFor();
-    await abortedSync;
-    await pendingSync.fulfill({ json: {} }).catch(() => {});
-    // A completed/aborted sync must not start another portfolio read after unmount.
+    await abortedRefresh;
+    assert.ok(pendingRefresh);
+    await pendingRefresh.fulfill({ json: snapshot }).catch(() => {});
+    // Completing an aborted refresh must not start another portfolio read after unmount.
     await page.waitForTimeout(100);
     assert.equal(count, beforeLeaving);
     assert.deepEqual(errors, []);

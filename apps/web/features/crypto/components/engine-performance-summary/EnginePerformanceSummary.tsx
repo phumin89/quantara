@@ -15,9 +15,11 @@ export default class EnginePerformanceSummary extends PureComponent<EnginePerfor
         aria-label="Engine performance"
         variant="outlined"
         sx={{
-          p: { xs: 1.5, sm: 2 },
-          borderColor: '#e0e0e0',
-          borderRadius: '8px',
+          p: 'var(--panel-padding)',
+          borderColor: 'var(--border-panel)',
+          borderRadius: 'var(--radius-panel)',
+          bgcolor: 'var(--surface-panel)',
+          boxShadow: 'var(--shadow-panel)',
         }}
       >
         <Typography

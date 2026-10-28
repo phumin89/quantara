@@ -9,22 +9,26 @@ public sealed class NewsEvidenceReader(HttpClient http) : INewsEvidenceReader
     {
         try
         {
+            using var requestTimeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            requestTimeout.CancelAfter(http.Timeout);
             var query = string.IsNullOrWhiteSpace(symbols) ? "" : "?symbols=" + Uri.EscapeDataString(symbols);
             using var response = await http.GetAsync(
                 "api/market/news" + query,
                 HttpCompletionOption.ResponseHeadersRead,
-                cancellationToken
+                requestTimeout.Token
             );
             response.EnsureSuccessStatusCode();
-            await response.Content.LoadIntoBufferAsync(16000, cancellationToken);
-            var body = await response.Content.ReadAsStringAsync(cancellationToken);
+            await response.Content.LoadIntoBufferAsync(16000, requestTimeout.Token);
+            var body = await response.Content.ReadAsStringAsync(requestTimeout.Token);
             if (body.Length > 4000)
             {
                 return Unavailable("packet_too_large");
             }
 
             using var document = JsonDocument.Parse(body);
-            return Valid(document.RootElement) ? body : Unavailable("invalid_packet");
+            var valid = Valid(document.RootElement);
+            requestTimeout.Token.ThrowIfCancellationRequested();
+            return valid ? body : Unavailable("invalid_packet");
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
@@ -165,17 +169,57 @@ public sealed class NewsEvidenceReader(HttpClient http) : INewsEvidenceReader
         }
 
         var pilot = root.GetProperty("pilot");
-        return pilot.EnumerateObject().Count() == 4
-            && NullableTime(pilot.GetProperty("startedAt"))
-            && NullableTime(pilot.GetProperty("lastPollAt"))
-            && pilot.GetProperty("gapCount").TryGetInt32(out var gaps)
-            && gaps >= 0
-            && (
-                pilot.GetProperty("completed72Hours").ValueKind == JsonValueKind.False
-                || pilot.GetProperty("completed72Hours").ValueKind == JsonValueKind.True
-                    && Time(pilot.GetProperty("startedAt"), out var started)
-                    && observed - started >= TimeSpan.FromHours(72)
-            );
+        if (
+            pilot.EnumerateObject().Count() != 4
+            || !NullableTime(pilot.GetProperty("startedAt"))
+            || !NullableTime(pilot.GetProperty("lastPollAt"))
+            || !pilot.GetProperty("gapCount").TryGetInt32(out var gaps)
+            || gaps < 0
+        )
+        {
+            return false;
+        }
+
+        return pilot.GetProperty("completed72Hours").ValueKind == JsonValueKind.False
+            || pilot.GetProperty("completed72Hours").ValueKind == JsonValueKind.True
+                && CompletedPilot(pilot, sources, observed);
+    }
+
+    private static bool CompletedPilot(JsonElement pilot, JsonElement sources, DateTimeOffset observed)
+    {
+        if (
+            !Time(pilot.GetProperty("startedAt"), out var started)
+            || !Time(pilot.GetProperty("lastPollAt"), out var lastPoll)
+            || started > lastPoll
+            || observed - started < TimeSpan.FromHours(72)
+            || lastPoll > observed.AddSeconds(5)
+            || observed - lastPoll > TimeSpan.FromMinutes(10)
+        )
+        {
+            return false;
+        }
+
+        foreach (var required in new[] { "federal-reserve", "bls" })
+        {
+            var source = sources
+                .EnumerateArray()
+                .SingleOrDefault(item => item.GetProperty("id").GetString() == required);
+            if (
+                source.ValueKind == JsonValueKind.Undefined
+                || source.GetProperty("status").GetString() is not ("Healthy" or "NoNewEvents")
+                || !Time(source.GetProperty("lastSuccessAt"), out var success)
+                || success > observed.AddSeconds(5)
+                || observed - success > TimeSpan.FromMinutes(15)
+            )
+            {
+                return false;
+            }
+        }
+
+        return sources
+            .EnumerateArray()
+            .Where(item => item.GetProperty("id").GetString() is not "bitkub")
+            .All(item => item.GetProperty("status").GetString() is "Healthy" or "NoNewEvents");
     }
 
     private static bool Time(JsonElement element, out DateTimeOffset value)

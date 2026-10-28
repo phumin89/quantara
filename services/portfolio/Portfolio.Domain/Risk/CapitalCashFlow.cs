@@ -7,5 +7,6 @@ public sealed record CapitalCashFlow(
     decimal FeeQuantity,
     DateTimeOffset At,
     CashFlowKind Kind,
+    // Delivered transfer value, net of native withdrawal fees; unknown without verified valuation.
     decimal? ValueThb
 );

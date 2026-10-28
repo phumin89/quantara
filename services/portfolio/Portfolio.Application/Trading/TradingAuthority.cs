@@ -9,7 +9,7 @@ public static class TradingAuthority
         && !state.EmergencyStopped
         && state.Mandate is { RevokedAt: null } mandate
         && mandate.AccountKey == accountKey
-        && mandate.RulesHash == state.RulesHash
+        && (state.AiPolicy is null ? mandate.RulesHash == state.RulesHash : TradingPolicyAuthority.Matches(state))
         && state.RulesHash == TradingRuleHash.Compute(state.Rules)
         && mandate.CreatedAt <= now
         && now < mandate.ExpiresAt;

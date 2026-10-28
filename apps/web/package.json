@@ -19,9 +19,11 @@
     "@mui/material-nextjs": "9.5.0",
     "@mui/x-date-pickers": "9.15.0",
     "dayjs": "1.11.20",
-    "next": "16.4.0",
+    "next": "16.4.1",
     "react": "19.3.0",
     "react-dom": "19.3.0",
+    "react-markdown": "10.1.0",
+    "remark-gfm": "4.0.1",
     "zod": "^4.6.6"
   },
   "devDependencies": {

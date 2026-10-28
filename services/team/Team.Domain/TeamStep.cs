@@ -8,5 +8,6 @@ public sealed record TeamStep(
     DateTimeOffset? StartedAt = null,
     DateTimeOffset? CompletedAt = null,
     string? InputDigest = null,
-    ResearchUsage? Usage = null
+    ResearchUsage? Usage = null,
+    ResearchModelAudit? ModelAudit = null
 );

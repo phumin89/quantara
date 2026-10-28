@@ -1,0 +1,10 @@
+Vallee-brouillard.jpg
+Photo: Thomas Bresson (ComputerHotline), 31 December 2010.
+Source: https://commons.wikimedia.org/wiki/File:Vallee-brouillard.jpg
+License: Creative Commons Attribution 3.0 Unported
+https://creativecommons.org/licenses/by/3.0/
+
+Downloaded from Wikimedia Commons as a 1920px thumbnail, stored locally as
+dusk-valley.jpg. The application scales/crops the image to the viewport and
+adds a dark overlay and backdrop blur to keep foreground text readable.
+No endorsement by the photographer is implied.

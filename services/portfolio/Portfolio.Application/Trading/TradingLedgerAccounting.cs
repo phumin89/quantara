@@ -10,21 +10,7 @@ public static class TradingLedgerAccounting
         var duplicate = ledger.Fills.FirstOrDefault(item => item.BrokerFillId == fill.BrokerFillId);
         if (duplicate is not null)
         {
-            if (
-                duplicate.IntentId != fill.IntentId
-                || duplicate.Quantity != fill.Quantity
-                || duplicate.GrossThb != fill.GrossThb
-                || duplicate.FeeThb != fill.FeeThb
-                || duplicate.Price != fill.Price
-                || duplicate.Side != fill.Side
-                || duplicate.Symbol != fill.Symbol
-                || duplicate.OccurredAt != fill.OccurredAt
-                || duplicate.GrossFeeThb != fill.GrossFeeThb
-                || duplicate.FeeCreditThb != fill.FeeCreditThb
-                || duplicate.QuantityScale is { } previousScale
-                    && fill.QuantityScale is { } nextScale
-                    && previousScale != nextScale
-            )
+            if (!SameExecution(duplicate, fill))
             {
                 throw new InvalidOperationException("Conflicting broker fill identity.");
             }
@@ -32,14 +18,14 @@ public static class TradingLedgerAccounting
             return ledger;
         }
 
-        if (fill.QuantityScale is < 0 or > 18)
+        if (fill.OccurredAt <= TradingCashBaselineAccounting.Cutoff(ledger))
         {
-            throw new InvalidOperationException("Fill base precision is invalid.");
+            throw new InvalidOperationException(
+                "An unseen fill predates the reviewed cash baseline; reconcile without repeating its cash movement."
+            );
         }
 
-        var baseQuantity = fill.QuantityScale is { } scale
-            ? decimal.Round(fill.Quantity, scale, MidpointRounding.ToZero)
-            : fill.Quantity;
+        var baseQuantity = CreditedQuantity(fill);
         if (
             fill.Quantity <= 0
             || baseQuantity <= 0
@@ -88,10 +74,7 @@ public static class TradingLedgerAccounting
                 throw new InvalidOperationException("Sell fill exceeds verified strategy position.");
             }
 
-            // Retain raw fill evidence; discard only a legacy division residue below the verified broker base unit.
-            var closesPosition =
-                fill.QuantityScale is { } sellScale
-                && decimal.Round(holding.Quantity, sellScale, MidpointRounding.ToZero) == fill.Quantity;
+            var closesPosition = ClosesPosition(holding.Quantity, fill);
             var releasedCost = closesPosition ? holding.CostThb : holding.CostThb * fill.Quantity / holding.Quantity;
             var releasedFees = closesPosition
                 ? holding.EntryFeesThb
@@ -118,11 +101,66 @@ public static class TradingLedgerAccounting
         };
     }
 
+    internal static decimal CreditedQuantity(TradingFill fill)
+    {
+        if (fill.QuantityScale is < 0 or > 18)
+        {
+            throw new InvalidOperationException("Fill base precision is invalid.");
+        }
+
+        return fill.QuantityScale is { } scale
+            ? decimal.Round(fill.Quantity, scale, MidpointRounding.ToZero)
+            : fill.Quantity;
+    }
+
+    internal static decimal? RemainingQuantity(IEnumerable<TradingFill> fills)
+    {
+        var quantity = 0m;
+        foreach (var fill in fills.OrderBy(fill => fill.OccurredAt).ThenBy(fill => fill.Id))
+        {
+            if (fill.Side == TradeSide.Buy)
+            {
+                quantity += CreditedQuantity(fill);
+            }
+            else if (fill.Side == TradeSide.Sell && fill.Quantity <= quantity)
+            {
+                quantity = ClosesPosition(quantity, fill) ? 0m : quantity - fill.Quantity;
+            }
+            else
+            {
+                return null;
+            }
+        }
+
+        return quantity;
+    }
+
+    // Retain raw fill evidence; discard only a legacy division residue below the verified broker base unit.
+    internal static bool ClosesPosition(decimal quantity, TradingFill fill) =>
+        fill.QuantityScale is { } scale && decimal.Round(quantity, scale, MidpointRounding.ToZero) == fill.Quantity;
+
+    public static bool SameExecution(TradingFill first, TradingFill second) =>
+        first.BrokerFillId == second.BrokerFillId
+        && first.IntentId == second.IntentId
+        && first.Quantity == second.Quantity
+        && first.GrossThb == second.GrossThb
+        && first.FeeThb == second.FeeThb
+        && first.Price == second.Price
+        && first.Side == second.Side
+        && first.Symbol == second.Symbol
+        && first.OccurredAt == second.OccurredAt
+        && first.GrossFeeThb == second.GrossFeeThb
+        && first.FeeCreditThb == second.FeeCreditThb
+        && (first.QuantityScale is null || second.QuantityScale is null || first.QuantityScale == second.QuantityScale);
+
     public static decimal ReservedCash(TradingLedger ledger) =>
         ledger.Orders.Where(order => Active(order) && order.Side == TradeSide.Buy).Sum(order => order.Remaining);
 
     public static bool Active(TradingIntent order) =>
         order.Status is "pending" or "submitting" or "submitted" or "partial" or "unknown";
+
+    public static bool Unresolved(TradingIntent order) =>
+        Active(order) || order.CancellationState is "claimed" or "unknown";
 
     public static decimal? Equity(
         TradingLedger ledger,
@@ -131,6 +169,11 @@ public static class TradingLedgerAccounting
         int freshnessSeconds
     )
     {
+        if (TradingCashBaselineAccounting.CashUnknown(ledger))
+        {
+            return null;
+        }
+
         decimal value = ledger.CashThb;
         foreach (var holding in ledger.Positions.Where(position => position.Quantity > 0))
         {

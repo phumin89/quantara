@@ -22,7 +22,7 @@ export default class TeamMembers extends Component<TeamMembersProps> {
         aria-label="Team members"
         variant="outlined"
         sx={{
-          borderRadius: '8px',
+          borderRadius: 'var(--radius-panel)',
           order: { xs: 0, lg: 1 },
           overflow: 'hidden',
         }}
@@ -44,7 +44,7 @@ export default class TeamMembers extends Component<TeamMembersProps> {
         </Button>
         <Box
           sx={{
-            p: 2,
+            p: 'var(--panel-padding)',
             display: { xs: membersOpen ? 'block' : 'none', lg: 'block' },
           }}
         >
@@ -118,7 +118,8 @@ export default class TeamMembers extends Component<TeamMembersProps> {
               display: 'block',
               mt: 2,
               pt: 1.5,
-              borderTop: '1px solid #e0e0e0',
+              borderTop: '1px solid',
+              borderColor: 'divider',
             }}
           >
             {this.configurationLabel()}

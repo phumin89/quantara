@@ -36,6 +36,11 @@ public static class RiskEvidenceChecks
             "risk evidence preserves fiat withdrawal fee"
         );
         Check(
+            evidence.CashFlows.Single(flow => flow.Id.Contains("fiat-withdraw", StringComparison.Ordinal)).ValueThb
+                == 190,
+            "risk evidence values the delivered withdrawal net of its recorded native fee"
+        );
+        Check(
             evidence.CashFlows.Single(flow => flow.Id.Contains("deposit-hash", StringComparison.Ordinal)).ValueThb
                 is null,
             "risk evidence keeps crypto transfer valuation unknown"

@@ -1,7 +1,15 @@
 'use client';
 
 import { PureComponent } from 'react';
-import { Box, Button, Stack, Tooltip, Typography } from '@mui/material';
+import {
+  Box,
+  Button,
+  ClickAwayListener,
+  Stack,
+  Tooltip,
+  Typography,
+} from '@mui/material';
+import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined';
 import FormatTime from '../../utils/FormatTime';
 import { ConnectionStatusPresenter } from '../../presentation/ConnectionStatusPresenter';
 import type { ConnectionStatusProps } from './ConnectionStatusProps';
@@ -11,14 +19,19 @@ export default class ConnectionStatus extends PureComponent<
   ConnectionStatusProps,
   ConnectionStatusState
 > {
-  public override state: ConnectionStatusState = { statusOpen: false };
+  public override state: ConnectionStatusState = {
+    statusOpen: false,
+    statusPinned: false,
+  };
 
   public override render(): React.ReactNode {
-    const { data, error, refreshing } = this.props;
+    const { data, error, refreshing, now } = this.props;
     const presenter = new ConnectionStatusPresenter(
       error,
-      refreshing || Boolean(data?.syncing),
+      Boolean(data?.syncing),
       data?.updatedAt ?? null,
+      now,
+      data !== null,
     );
     const status = presenter.appearance;
     const details = (
@@ -30,13 +43,13 @@ export default class ConnectionStatus extends PureComponent<
           component="span"
           sx={{ color: 'inherit', fontSize: 12, fontWeight: 600 }}
         >
-          Last successful updates
+          Saved source timestamps · Bangkok
         </Typography>
         <Typography
           component="span"
           sx={{ color: 'inherit', fontSize: 12 }}
         >
-          Wallet: {FormatTime.format(data?.updatedAt || null)}
+          Snapshot: {FormatTime.format(data?.updatedAt || null)}
         </Typography>
         <Typography
           component="span"
@@ -58,76 +71,89 @@ export default class ConnectionStatus extends PureComponent<
             Progress: {data.completedSymbols}/{data.totalSymbols} symbols
           </Typography>
         )}
+        {refreshing && (
+          <Typography
+            component="span"
+            sx={{ color: 'inherit', fontSize: 12 }}
+          >
+            Reading saved snapshot.
+          </Typography>
+        )}
+        <Typography
+          component="span"
+          sx={{ color: 'inherit', fontSize: 12 }}
+        >
+          Stale after 2 minutes. Refresh reads saved data; it does not start a
+          broker import.
+        </Typography>
       </Stack>
     );
 
     return (
-      <Tooltip
-        arrow
-        open={this.state.statusOpen}
-        disableHoverListener
-        disableFocusListener
-        disableTouchListener
-        disableInteractive
-        title={details}
-        slotProps={{ tooltip: { sx: { maxWidth: 240 } } }}
+      <ClickAwayListener
+        onClickAway={() => {
+          this.setState({ statusOpen: false, statusPinned: false });
+        }}
       >
-        <Button
-          aria-label={`Bitkub status: ${status.label}`}
-          onClick={() => {
+        <Tooltip
+          arrow
+          describeChild
+          open={this.state.statusOpen}
+          onOpen={() => {
             this.setState({ statusOpen: true });
           }}
-          onMouseEnter={() => {
-            this.setState({ statusOpen: true });
-          }}
-          onMouseLeave={() => {
-            this.setState({ statusOpen: false });
-          }}
-          onFocus={() => {
-            this.setState({ statusOpen: true });
-          }}
-          onBlur={() => {
-            this.setState({ statusOpen: false });
-          }}
-          onKeyDown={(event) => {
-            if (event.key === 'Escape') {
-              this.setState({ statusOpen: false });
+          onClose={(event) => {
+            if (event.type !== 'mouseleave' || !this.state.statusPinned) {
+              this.setState({ statusOpen: false, statusPinned: false });
             }
           }}
-          sx={{
-            minHeight: 44,
-            minWidth: 44,
-            p: 0.5,
-            gap: 0.75,
-            color: status.color,
-            textTransform: 'none',
-            fontSize: 12,
-            fontWeight: 600,
-            borderRadius: '6px',
-          }}
+          disableTouchListener
+          title={details}
+          slotProps={{ tooltip: { sx: { maxWidth: 240 } } }}
         >
-          <Box
-            aria-hidden="true"
-            sx={{
-              width: 8,
-              height: 8,
-              borderRadius: '50%',
-              bgcolor: status.color,
+          <Button
+            aria-label={`Snapshot status: ${status.label}`}
+            onClick={() => {
+              this.setState({
+                statusOpen: !this.state.statusPinned,
+                statusPinned: !this.state.statusPinned,
+              });
             }}
-          />
-          <Box
-            component="span"
+            onKeyDown={(event) => {
+              if (event.key === 'Escape') {
+                this.setState({ statusOpen: false, statusPinned: false });
+              }
+            }}
             sx={{
-              bgcolor: status.background,
-              borderRadius: '4px',
-              px: 0.75,
-              py: 0.25,
+              minHeight: 44,
+              minWidth: 44,
+              p: 0.5,
+              gap: 0.75,
+              color: status.color,
+              textTransform: 'none',
+              fontSize: 12,
+              fontWeight: 600,
+              borderRadius: 'var(--radius-control)',
             }}
           >
-            {status.label}
-          </Box>
-        </Button>
-      </Tooltip>
+            <InfoOutlinedIcon
+              aria-hidden="true"
+              sx={{ fontSize: 18 }}
+            />
+            <Box
+              component="span"
+              sx={{
+                bgcolor: status.background,
+                borderRadius: 'var(--radius-tag)',
+                px: 0.75,
+                py: 0.25,
+              }}
+            >
+              {status.label}
+            </Box>
+          </Button>
+        </Tooltip>
+      </ClickAwayListener>
     );
   }
 }

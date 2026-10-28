@@ -31,8 +31,32 @@ and [architecture](architecture.md) for ownership.
 - Keep stop-risk scenarios, liquidity, spread, fees and slippage explicit.
 - Reject stale, inconsistent, unsupported or missing evidence. Unknown broker outcomes
   block replacement; a missing cost basis never becomes zero profit.
+- Check wallet and quote age after collection finishes. A slow quote read does not
+  extend the freshness window or change the original observation timestamps.
 - Preserve exact decimal amounts, market steps and base/quote scales. Portfolio checks
   fresh balances, policy/account identity and sizing again before a live submission.
+- Adaptive sizing evaluates freshness after account collection. Immediately before
+  sending an adaptive AutoLive buy, the engine evaluates the refreshed sizing again at the current
+  time, including capital/quote/signal ages, account identity and the unchanged
+  policy. It must still cover the original exact amount and limit; it never resizes
+  an already claimed order. Legacy orders and owned sells keep their existing path.
+
+### Account changes during a refresh
+
+Order submission and broker-order reconciliation invalidate the cached account
+evidence. Invalidation clears balances and valuation quotes immediately, even when
+the clock has not advanced. A refresh that started before that invalidation cannot
+restore the cache or return a usable result after its audit write completes.
+
+| State                           | Sizing behavior                                     |
+| ------------------------------- | --------------------------------------------------- |
+| Fresh verified account evidence | Recheck local reservations and policy limits        |
+| Account evidence invalidated    | Report that a refresh is pending; reject a new size |
+| Earlier refresh still running   | Reject its result after invalidation                |
+| New refresh completed           | Use the newly observed balances and quotes          |
+
+Invalidating a cache never clears an uncertain order, reconciles a balance or grants
+execution authority. The existing read-only refresh supplies replacement evidence.
 
 Default adaptive bounds are policy limits, not loss guarantees:
 

@@ -26,7 +26,7 @@ public sealed class SqlOrderStore(string connectionString, string accountKey) : 
         await using var connection = new SqlConnection(connectionString);
         await connection.OpenAsync(cancellationToken);
         await using var command = new SqlCommand(
-            "SELECT TOP (50) Payload, State FROM dbo.OrderProposals WHERE AccountKey=@account ORDER BY CASE WHEN State IN ('Submitting','Unknown') THEN 0 WHEN State IN ('Submitted','PartiallyFilled') THEN 1 ELSE 2 END, CreatedAt DESC, Id;",
+            "SELECT TOP (50) Id, Payload, State FROM dbo.OrderProposals WHERE AccountKey=@account ORDER BY CASE WHEN State IN ('Submitting','Unknown') THEN 0 WHEN State IN ('Submitted','PartiallyFilled') THEN 1 ELSE 2 END, CreatedAt DESC, Id;",
             connection
         );
         SqlOrderStore.Account(command, accountKey);
@@ -34,7 +34,7 @@ public sealed class SqlOrderStore(string connectionString, string accountKey) : 
         await using var reader = await command.ExecuteReaderAsync(cancellationToken);
         while (await reader.ReadAsync(cancellationToken))
         {
-            result.Add(SqlOrderStore.Read(reader.GetString(0), reader.GetString(1)));
+            result.Add(SqlOrderStore.Read(reader.GetGuid(0), reader.GetString(1), reader.GetString(2)));
         }
 
         return result;
@@ -45,14 +45,14 @@ public sealed class SqlOrderStore(string connectionString, string accountKey) : 
         await using var connection = new SqlConnection(connectionString);
         await connection.OpenAsync(cancellationToken);
         await using var command = new SqlCommand(
-            "SELECT Payload, State FROM dbo.OrderProposals WHERE AccountKey=@account AND Id=@id;",
+            "SELECT Id, Payload, State FROM dbo.OrderProposals WHERE AccountKey=@account AND Id=@id;",
             connection
         );
         SqlOrderStore.Account(command, accountKey);
         command.Parameters.Add("@id", SqlDbType.UniqueIdentifier).Value = id;
         await using var reader = await command.ExecuteReaderAsync(cancellationToken);
         return await reader.ReadAsync(cancellationToken)
-            ? SqlOrderStore.Read(reader.GetString(0), reader.GetString(1))
+            ? SqlOrderStore.Read(reader.GetGuid(0), reader.GetString(1), reader.GetString(2))
             : null;
     }
 
@@ -61,7 +61,7 @@ public sealed class SqlOrderStore(string connectionString, string accountKey) : 
         await using var connection = new SqlConnection(connectionString);
         await connection.OpenAsync(cancellationToken);
         await using var command = new SqlCommand(
-            "SELECT Payload,State FROM dbo.OrderProposals WHERE AccountKey=@account AND (State IN ('Submitting','Unknown','Submitted','PartiallyFilled') OR State='Pending' AND ExpiresAt>@now);",
+            "SELECT Id,Payload,State FROM dbo.OrderProposals WHERE AccountKey=@account AND (State IN ('Submitting','Unknown','Submitted','PartiallyFilled') OR State='Pending' AND ExpiresAt>@now);",
             connection
         );
         Account(command, accountKey);
@@ -70,7 +70,7 @@ public sealed class SqlOrderStore(string connectionString, string accountKey) : 
         await using var reader = await command.ExecuteReaderAsync(cancellationToken);
         while (await reader.ReadAsync(cancellationToken))
         {
-            result.Add(Read(reader.GetString(0), reader.GetString(1)));
+            result.Add(Read(reader.GetGuid(0), reader.GetString(1), reader.GetString(2)));
         }
 
         return result;
@@ -221,12 +221,20 @@ public sealed class SqlOrderStore(string connectionString, string accountKey) : 
         }
     }
 
-    private static OrderProposal Read(string payload, string state)
+    private static OrderProposal Read(Guid id, string payload, string state)
     {
         var proposal =
             JsonSerializer.Deserialize<OrderProposal>(payload, SqlOrderStore.jsonOptions)
             ?? throw new InvalidDataException("Invalid stored order.");
-        return proposal with { State = Enum.Parse<OrderState>(state) };
+        if (proposal.Id != id)
+        {
+            throw new InvalidDataException("Stored order identity does not match its row.");
+        }
+
+        return proposal with
+        {
+            State = Enum.Parse<OrderState>(state),
+        };
     }
 
     private static void Account(SqlCommand command, string value)

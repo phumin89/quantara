@@ -67,8 +67,20 @@ public static class MarketUniverseScanner
             var low = MarketUniverseScanner.OptionalNumber(quote, "low_24_hr");
             var change = MarketUniverseScanner.OptionalNumber(quote, "percent_change");
             var volume = MarketUniverseScanner.OptionalNumber(quote, "quote_volume");
-            var range = last is > 0 && high is not null && low is not null ? (high - low) / last * 100 : null;
-            var spread = bid is > 0 && ask is > 0 ? (ask - bid) / ((ask + bid) / 2) * 100 : null;
+            decimal? range = null;
+            decimal? spread = null;
+            try
+            {
+                range = last is > 0 && high is not null && low is not null ? (high - low) / last * 100 : null;
+                spread = bid is > 0 && ask is > 0 ? (ask - bid) / ((ask + bid) / 2) * 100 : null;
+            }
+            catch (OverflowException)
+            {
+                // Unrepresentable metrics invalidate this quote, not the other markets in the scan.
+                range = null;
+                spread = null;
+            }
+
             var usable =
                 validPair
                 && last is > 0
@@ -143,8 +155,11 @@ public static class MarketUniverseScanner
             .ToArray();
     }
 
-    private static bool IsEligibleRule(JsonElement item) =>
-        Text(item, "quote_asset") == "THB"
+    internal static bool IsEligibleRule(JsonElement item) =>
+        item.ValueKind == JsonValueKind.Object
+        && item.TryGetProperty("base_asset", out var asset)
+        && asset.ValueKind == JsonValueKind.String
+        && Text(item, "quote_asset") == "THB"
         && Text(item, "status") == "active"
         && Text(item, "market_segment") == "SPOT"
         && Text(item, "source") == "exchange"
@@ -157,18 +172,27 @@ public static class MarketUniverseScanner
         return quotes
             .Skip(1)
             .All(quote =>
-                Text(quote, "last") == Text(first, "last")
-                && Text(quote, "highest_bid") == Text(first, "highest_bid")
-                && Text(quote, "lowest_ask") == Text(first, "lowest_ask")
-                && Text(quote, "quote_volume") == Text(first, "quote_volume")
-                && Text(quote, "percent_change") == Text(first, "percent_change")
-                && Text(quote, "high_24_hr") == Text(first, "high_24_hr")
-                && Text(quote, "low_24_hr") == Text(first, "low_24_hr")
+                EquivalentQuoteValue(quote, first, "last")
+                && EquivalentQuoteValue(quote, first, "highest_bid")
+                && EquivalentQuoteValue(quote, first, "lowest_ask")
+                && EquivalentQuoteValue(quote, first, "quote_volume")
+                && EquivalentQuoteValue(quote, first, "percent_change")
+                && EquivalentQuoteValue(quote, first, "high_24_hr")
+                && EquivalentQuoteValue(quote, first, "low_24_hr")
             );
     }
 
-    private static string Text(JsonElement item, string property) =>
-        item.TryGetProperty(property, out var value) ? value.ToString() : "";
+    private static bool EquivalentQuoteValue(JsonElement quote, JsonElement other, string property)
+    {
+        var value = OptionalNumber(quote, property);
+        var otherValue = OptionalNumber(other, property);
+        return value is { } number && otherValue is { } otherNumber
+            ? number == otherNumber
+            : Text(quote, property) == Text(other, property);
+    }
+
+    internal static string Text(JsonElement item, string property) =>
+        item.ValueKind == JsonValueKind.Object && item.TryGetProperty(property, out var value) ? value.ToString() : "";
 
     private static decimal? OptionalNumber(JsonElement item, string property) =>
         decimal.TryParse(Text(item, property), NumberStyles.Float, CultureInfo.InvariantCulture, out var value)

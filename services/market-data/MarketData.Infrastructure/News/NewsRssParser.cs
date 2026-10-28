@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Security.Cryptography;
 using System.Text;
 using System.Xml;
@@ -8,6 +9,22 @@ namespace Quantara.MarketData.Infrastructure.News;
 
 public sealed class NewsRssParser
 {
+    private static readonly string[] isoDateFormats =
+    [
+        "yyyy-MM-dd'T'HH:mm:ss'Z'",
+        "yyyy-MM-dd'T'HH:mm:ss.FFFFFFF'Z'",
+        "yyyy-MM-dd'T'HH:mm:sszzz",
+        "yyyy-MM-dd'T'HH:mm:ss.FFFFFFFzzz",
+    ];
+
+    private static readonly string[] rssDateFormats =
+    [
+        "ddd, d MMM yyyy HH:mm:ss zzz",
+        "d MMM yyyy HH:mm:ss zzz",
+        "ddd, d MMM yyyy HH:mm zzz",
+        "d MMM yyyy HH:mm zzz",
+    ];
+
     public static IReadOnlyList<NewsEvent> Parse(NewsSource source, string body, DateTimeOffset fetchedAt)
     {
         if (body.Length > 1_000_000)
@@ -33,9 +50,26 @@ public sealed class NewsRssParser
         foreach (var item in items.Take(100))
         {
             var title = Value(item, "title");
-            var link = item.Elements().FirstOrDefault(element => element.Name.LocalName == "link");
+            var link = item.Elements()
+                .FirstOrDefault(element =>
+                    element.Name.LocalName == "link"
+                    && element.Attribute("rel")?.Value.ToLowerInvariant()
+                        is null
+                            or "alternate"
+                            or "http://www.iana.org/assignments/relation/alternate"
+                );
             var url = link?.Attribute("href")?.Value ?? link?.Value ?? Value(item, "guid");
-            var providerId = Value(item, "guid") ?? Value(item, "id") ?? url;
+            var providerId = Value(item, "guid");
+            if (string.IsNullOrWhiteSpace(providerId))
+            {
+                providerId = Value(item, "id");
+            }
+
+            if (string.IsNullOrWhiteSpace(providerId))
+            {
+                providerId = url;
+            }
+
             if (
                 string.IsNullOrWhiteSpace(title)
                 || title.Length > 240
@@ -55,7 +89,16 @@ public sealed class NewsRssParser
                     Encoding.UTF8.GetBytes($"{title.Trim()}|{parsed}|{published:O}|{Value(item, "updated")}")
                 )
             );
-            var expiresAt = published?.AddDays(7) ?? fetchedAt.AddDays(1);
+            DateTimeOffset expiresAt;
+            try
+            {
+                expiresAt = published?.AddDays(7) ?? fetchedAt.AddDays(1);
+            }
+            catch (ArgumentOutOfRangeException)
+            {
+                throw new InvalidDataException("News publication time cannot form a valid expiry.");
+            }
+
             result.Add(
                 new NewsEvent(
                     eventId,
@@ -83,6 +126,65 @@ public sealed class NewsRssParser
     private static string? Value(XElement item, string name) =>
         item.Elements().FirstOrDefault(element => element.Name.LocalName == name)?.Value;
 
-    private static DateTimeOffset? ParseDate(string? value) =>
-        DateTimeOffset.TryParse(value, out var parsed) ? parsed : null;
+    private static DateTimeOffset? ParseDate(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value) || value.Length > 128)
+        {
+            return null;
+        }
+
+        var normalized = value.Trim().ToUpperInvariant();
+        if (normalized.Length >= 5 && normalized[^5] is '+' or '-' && normalized[^4..].All(char.IsAsciiDigit))
+        {
+            normalized = normalized.Insert(normalized.Length - 2, ":");
+        }
+
+        // Literal Z supplies UTC; the other formats retain their explicit numeric offset.
+        if (
+            DateTimeOffset.TryParseExact(
+                normalized,
+                NewsRssParser.isoDateFormats,
+                CultureInfo.InvariantCulture,
+                DateTimeStyles.AssumeUniversal,
+                out var parsed
+            )
+        )
+        {
+            return parsed;
+        }
+
+        var parts = normalized.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries);
+        if (parts.Length is not (5 or 6))
+        {
+            return null;
+        }
+
+        var yearIndex = parts.Length - 3;
+        if (parts[yearIndex].Length == 2 && parts[yearIndex].All(char.IsAsciiDigit))
+        {
+            var year = int.Parse(parts[yearIndex], CultureInfo.InvariantCulture);
+            parts[yearIndex] = (year < 50 ? year + 2000 : year + 1900).ToString("0000", CultureInfo.InvariantCulture);
+        }
+
+        parts[^1] = parts[^1] switch
+        {
+            "GMT" or "UT" or "UTC" or "Z" => "+00:00",
+            "EST" or "CDT" => "-05:00",
+            "EDT" => "-04:00",
+            "CST" or "MDT" => "-06:00",
+            "MST" or "PDT" => "-07:00",
+            "PST" => "-08:00",
+            _ => parts[^1],
+        };
+
+        return DateTimeOffset.TryParseExact(
+            string.Join(' ', parts),
+            NewsRssParser.rssDateFormats,
+            CultureInfo.InvariantCulture,
+            DateTimeStyles.None,
+            out parsed
+        )
+            ? parsed
+            : null;
+    }
 }

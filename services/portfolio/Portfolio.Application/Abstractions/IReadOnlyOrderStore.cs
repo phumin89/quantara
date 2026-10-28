@@ -8,6 +8,5 @@ public interface IReadOnlyOrderStore
 
     public Task<OrderProposal?> Find(Guid id, CancellationToken cancellationToken);
 
-    public Task<IReadOnlyList<OrderProposal>> Exposure(DateTimeOffset now, CancellationToken cancellationToken) =>
-        this.List(cancellationToken);
+    public Task<IReadOnlyList<OrderProposal>> Exposure(DateTimeOffset now, CancellationToken cancellationToken);
 }

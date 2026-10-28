@@ -29,6 +29,25 @@ public sealed class FakeOrderStore : IOrderStore
         }
     }
 
+    public Task<IReadOnlyList<OrderProposal>> Exposure(DateTimeOffset now, CancellationToken cancellationToken)
+    {
+        lock (this.gate)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            return Task.FromResult<IReadOnlyList<OrderProposal>>(
+                this.proposals.Values.Where(proposal =>
+                        proposal.State
+                            is OrderState.Submitting
+                                or OrderState.Unknown
+                                or OrderState.Submitted
+                                or OrderState.PartiallyFilled
+                        || proposal.State == OrderState.Pending && proposal.ExpiresAt > now
+                    )
+                    .ToArray()
+            );
+        }
+    }
+
     public Task<OrderProposal?> Find(Guid id, CancellationToken cancellationToken)
     {
         lock (this.gate)
@@ -76,6 +95,51 @@ public sealed class FakeOrderStore : IOrderStore
             {
                 State = state,
                 BrokerOrderId = brokerOrderId,
+                Message = message,
+            };
+        }
+
+        return Task.CompletedTask;
+    }
+
+    public Task UpdateObserved(
+        Guid id,
+        OrderState state,
+        string? brokerOrderId,
+        string? message,
+        CancellationToken cancellationToken
+    )
+    {
+        lock (this.gate)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            if (this.FailFinish)
+            {
+                throw new InvalidOperationException("Fixture storage failure");
+            }
+
+            var proposal =
+                this.proposals.GetValueOrDefault(id) ?? throw new InvalidOperationException("Order missing.");
+            if (
+                proposal.State
+                is not (
+                    OrderState.Submitting
+                    or OrderState.Unknown
+                    or OrderState.Submitted
+                    or OrderState.PartiallyFilled
+                )
+            )
+            {
+                throw new InvalidOperationException("Only submitted or uncertain orders can be reconciled.");
+            }
+
+            this.proposals[id] = proposal with
+            {
+                State =
+                    proposal.State == OrderState.PartiallyFilled && state == OrderState.Submitted
+                        ? OrderState.PartiallyFilled
+                        : state,
+                BrokerOrderId = brokerOrderId ?? proposal.BrokerOrderId,
                 Message = message,
             };
         }

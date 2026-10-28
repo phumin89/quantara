@@ -17,7 +17,10 @@ internal sealed class TradingOrderReconciler(
     internal async Task Prepare(CancellationToken cancellationToken)
     {
         var state = await store.Read(cancellationToken);
-        var activeIds = state.Live.Orders.Where(TradingLedgerAccounting.Active).Select(order => order.Id).ToHashSet();
+        var activeIds = state
+            .Live.Orders.Where(TradingLedgerAccounting.Unresolved)
+            .Select(order => order.Id)
+            .ToHashSet();
         foreach (var id in this.ready.Keys.Where(id => !activeIds.Contains(id)))
         {
             this.ready.TryRemove(id, out _);
@@ -26,7 +29,7 @@ internal sealed class TradingOrderReconciler(
         var now = time.GetUtcNow();
         var due = state
             .Live.Orders.Where(order =>
-                TradingLedgerAccounting.Active(order)
+                TradingLedgerAccounting.Unresolved(order)
                 && order.Status != "pending"
                 && (order.LastInspectedAt is null || now - order.LastInspectedAt >= TimeSpan.FromSeconds(30))
             )
@@ -52,7 +55,7 @@ internal sealed class TradingOrderReconciler(
     {
         foreach (
             var original in state
-                .Live.Orders.Where(order => TradingLedgerAccounting.Active(order) && order.Status != "pending")
+                .Live.Orders.Where(order => TradingLedgerAccounting.Unresolved(order) && order.Status != "pending")
                 .ToArray()
         )
         {
@@ -136,7 +139,10 @@ internal sealed class TradingOrderReconciler(
         DateTimeOffset inspectedAt
     )
     {
-        if (observation.Status is not ("unknown" or "submitted" or "partial" or "filled" or "cancelled"))
+        if (
+            observation.Status is not ("unknown" or "submitted" or "partial" or "filled" or "cancelled")
+            || observation.Error is { Length: > 500 }
+        )
         {
             throw new InvalidDataException("Invalid reconciliation state.");
         }
@@ -184,7 +190,7 @@ internal sealed class TradingOrderReconciler(
                             position.Symbol == original.Symbol
                                 ? position with
                                 {
-                                    StopPrice = sizing.Signal.StopPrice,
+                                    StopPrice = position.ExitPlan?.EffectiveStop ?? sizing.Signal.StopPrice,
                                     TargetPrice =
                                         original.LimitPrice
                                         + decimal.Max(
@@ -229,6 +235,7 @@ internal sealed class TradingOrderReconciler(
             BrokerOrderId = observation.BrokerOrderId ?? original.BrokerOrderId,
             Remaining = observation.Remaining ?? original.Remaining,
             LastInspectedAt = inspectedAt,
+            LastInspectionError = observation.Status == "unknown" ? observation.Error : null,
         };
         if (!TradingLedgerAccounting.Active(intent))
         {

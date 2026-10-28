@@ -21,6 +21,7 @@ const {
 async function run() {
   const previousFetch = global.fetch;
   const previousToken = process.env.QUANTARA_TRADING_CONTROL_TOKEN;
+  const previousTimeout = AbortSignal.timeout;
   let calls = 0;
   let expectedMethod = 'GET';
   let upstream = new Response('dashboard', {
@@ -134,6 +135,82 @@ async function run() {
     assert.equal((await get()).status, 204);
     upstream = new Response(new Uint8Array(2_000_001));
     assert.equal((await get()).status, 503);
+    const cleanupErrors = [];
+    const onCleanupError = (error) => cleanupErrors.push(error);
+    process.on('unhandledRejection', onCleanupError);
+    try {
+      upstream = new Response(
+        new ReadableStream({
+          start(controller) {
+            controller.enqueue(new Uint8Array(2_000_001));
+          },
+          cancel() {
+            throw new Error('Synthetic cancellation failure.');
+          },
+        }),
+      );
+      assert.equal((await get()).status, 503);
+      for (const { oversized, abortDeadline } of [
+        { oversized: true, abortDeadline: false },
+        { oversized: true, abortDeadline: true },
+        { oversized: false, abortDeadline: true },
+      ]) {
+        let releaseCancellation;
+        let cancelled = 0;
+        let guard;
+        const cleanup = new Promise((resolve) => {
+          releaseCancellation = resolve;
+        });
+        const deadline = new AbortController();
+        AbortSignal.timeout = () => deadline.signal;
+        upstream = new Response(
+          new ReadableStream({
+            start(controller) {
+              controller.enqueue(new Uint8Array(oversized ? 2_000_001 : 1));
+            },
+            cancel() {
+              cancelled++;
+              return cleanup;
+            },
+          }),
+        );
+        const pending = get();
+        try {
+          await new Promise((resolve) => setImmediate(resolve));
+          if (abortDeadline) deadline.abort();
+          const response = await Promise.race([
+            pending,
+            new Promise((_, reject) => {
+              guard = setTimeout(
+                () =>
+                  reject(
+                    new Error(
+                      'Response must finish before cancellation cleanup.',
+                    ),
+                  ),
+                500,
+              );
+            }),
+          ]);
+          assert.equal(response.status, 503);
+          assert.equal(cancelled, 1);
+        } finally {
+          clearTimeout(guard);
+          releaseCancellation();
+          await cleanup;
+          await pending.catch(() => {});
+          AbortSignal.timeout = previousTimeout;
+        }
+      }
+      await new Promise((resolve) => setImmediate(resolve));
+      assert.deepEqual(
+        cleanupErrors,
+        [],
+        'Response cancellation failures must be observed.',
+      );
+    } finally {
+      process.removeListener('unhandledRejection', onCleanupError);
+    }
     delete process.env.QUANTARA_TRADING_CONTROL_TOKEN;
     const beforeMissing = calls;
     assert.equal((await get()).status, 503);
@@ -143,6 +220,7 @@ async function run() {
     );
   } finally {
     global.fetch = previousFetch;
+    AbortSignal.timeout = previousTimeout;
     if (previousToken === undefined)
       delete process.env.QUANTARA_TRADING_CONTROL_TOKEN;
     else process.env.QUANTARA_TRADING_CONTROL_TOKEN = previousToken;

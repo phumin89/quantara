@@ -6,6 +6,70 @@ using Quantara.Portfolio.Application;
 using Quantara.Portfolio.Domain;
 using Quantara.Portfolio.Infrastructure;
 
+if (args.Contains("--submission-evidence-only", StringComparer.Ordinal))
+{
+    await TradingSubmissionEvidenceChecks.Run();
+    return;
+}
+
+if (args.Contains("--policy-only", StringComparer.Ordinal))
+{
+    await TradingPolicyChecks.Run();
+    return;
+}
+
+if (args.Contains("--sql-fixture-configuration-only", StringComparer.Ordinal))
+{
+    CryptoSqlTestDatabaseChecks.Run();
+    return;
+}
+
+if (args.Contains("--manual-sale-allocation-sql-only", StringComparer.Ordinal))
+{
+    await ManualSaleAllocationSqlChecks.Run();
+    return;
+}
+
+if (args.Contains("--manual-sale-reconciliation-only", StringComparer.Ordinal))
+{
+    await ManualSaleReconciliationChecks.Run();
+    return;
+}
+
+if (args.Contains("--pending-exits-only", StringComparer.Ordinal))
+{
+    await TradingPendingExitChecks.Run();
+    return;
+}
+
+if (args.Contains("--company-simulation-only", StringComparer.Ordinal))
+{
+    await CompanySimulationChecks.Run();
+    return;
+}
+
+if (args.Contains("--company-importer-only", StringComparer.Ordinal))
+{
+    await CompanyCapitalImporterChecks.Run();
+    return;
+}
+
+if (args.Contains("--company-import-only", StringComparer.Ordinal))
+{
+    CompanyCapitalChecks.Run();
+    await CompanyCapitalImportChecks.Run();
+    return;
+}
+
+if (args.Contains("--company-capital-only", StringComparer.Ordinal))
+{
+    CompanyCapitalChecks.Run();
+    await PortfolioGoalChecks.Run();
+    await RiskEvidenceChecks.Run();
+    await RiskPipelineChecks.Run();
+    return;
+}
+
 if (args.Contains("--storage-only", StringComparer.Ordinal))
 {
     await TradingStorageChecks.Run();
@@ -32,7 +96,9 @@ if (args.Contains("--paper-provenance-only", StringComparer.Ordinal))
 
 if (args.Contains("--telegram-receipts-sql-only", StringComparer.Ordinal))
 {
-    await TradingNotificationReceiptSqlChecks.Run();
+    await TradingNotificationReceiptSqlChecks.Run(
+        legacy: args.Contains("--legacy-ci-receipts", StringComparer.Ordinal)
+    );
     return;
 }
 
@@ -44,9 +110,17 @@ if (args.Contains("--portfolio-accounting-only", StringComparer.Ordinal))
 
 if (args.Contains("--telegram-recovery-only", StringComparer.Ordinal))
 {
+    await TradingDispatchMigrationSqlChecks.Run();
     await TradingNotificationRecoveryChecks.Run();
     await TradingDeliveryChecks.Run();
+    await TradingReportCompletionChecks.Run();
     await HangfireDeliveryChecks.Run();
+    return;
+}
+
+if (args.Contains("--dispatch-migration-sql-only", StringComparer.Ordinal))
+{
+    await TradingDispatchMigrationSqlChecks.Run();
     return;
 }
 
@@ -65,10 +139,18 @@ if (args.Contains("--hangfire-sql-only", StringComparer.Ordinal))
 
 await OrderChecks.Run();
 await PortfolioGoalChecks.Run();
+CompanyCapitalChecks.Run();
+await CompanyCapitalImportChecks.Run();
+await CompanyCapitalImporterChecks.Run();
+await CompanySimulationChecks.Run();
 await PortfolioGoalSqlChecks.Run();
 await AdaptiveRiskChecks.Run();
 await AutonomousTradingChecks.Run();
+await AutonomousRiskCacheChecks.Run();
 await TradingMarketEvidenceChecks.Run();
+await TradingMarketTransportChecks.Run();
+await TradingSubmissionEvidenceChecks.Run();
+await TradingReconciliationStopChecks.Run();
 await AutonomousAuthorityChecks.Run();
 await TradingShadowChecks.Run();
 await TradingWatchChecks.Run();
@@ -81,6 +163,7 @@ await AdaptiveExitChecks.Run();
 await TradingExitStudyChecks.Run();
 await TradingTimeframeChecks.Run();
 await TradingReplayChecks.Run();
+await TradingPolicyChecks.Run();
 await TradingHistoryReaderChecks.Run();
 await TradingEventQueueChecks.Run();
 await TradingEventSourceChecks.Run();
@@ -90,19 +173,25 @@ await RiskEvidenceChecks.Run();
 await RiskPipelineChecks.Run();
 await RiskFillChecks.Run();
 await OrderRecoveryChecks.Run();
+await OrderDiscoveryChecks.Run();
 await OrderSourceChecks.Run();
 await AccountEvidenceChecks.Run();
 await TelegramReviewChecks.Run();
 await TradingDomainChecks.Run();
 await TradingAccountingChecks.Run();
+await ManualSaleReconciliationChecks.Run();
 await TradingStorageChecks.Run();
 await TradingReportChecks.Run();
 await TradingDeliveryChecks.Run();
+await TradingReportCompletionChecks.Run();
+await OrderMonitorChecks.Run();
 await TradingNotificationRecoveryChecks.Run();
 await HangfireDeliveryChecks.Run();
 await HangfireSqlChecks.Run();
+await TradingDispatchMigrationSqlChecks.Run();
 await TradingProjectionChecks.Run();
 await TradingEngineChecks.Run();
+await TradingPendingExitChecks.Run();
 await TradingIsolationChecks.Run();
 PaperCapitalProvenanceChecks.Run();
 await TradingPrecisionChecks.Run();
@@ -110,6 +199,7 @@ await TradingActivationPrecisionChecks.Run();
 await TradingControlChecks.Run();
 await TradingPreparationChecks.Run();
 await TradingBrokerChecks.Run();
+await BrokerNumberChecks.Run();
 await TelegramMessageChecks.Run();
 
 static void Check(bool condition, string name)
@@ -357,10 +447,9 @@ if (args.Contains("--sql"))
     var account = Convert
         .ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes("Quantara deterministic checks account")))
         .ToLowerInvariant();
-    const string connection =
-        "Server=(localdb)\\MSSQLLocalDB;Database=Quantara;Integrated Security=true;Encrypt=true;TrustServerCertificate=true;";
+    var connection = await CryptoSqlTestDatabase.Connection("QUANTARA_PORTFOLIO_TEST_SQL");
     var first = new SqlPortfolioRepository(connection, account);
-    await first.Initialize(true, CancellationToken.None);
+    await first.Initialize(false, CancellationToken.None);
     await first.Save(closedLedger, CancellationToken.None);
     var second = new SqlPortfolioRepository(connection, account);
     var restored = await second.Load(CancellationToken.None);

@@ -63,32 +63,44 @@ public static class TradingDailyReportBuilder
         }
 
         var fills = history.Where(fill => fill.OccurredAt >= start).ToArray();
+        var externalSales = ledger
+            .ExternalSales.Where(sale => sale.Allocation.Execution.OccurredAt <= instant)
+            .ToArray();
+        var externalOnDay = externalSales.Any(sale =>
+            sale.Allocation.Execution.OccurredAt >= start && sale.Allocation.Execution.OccurredAt < end
+        );
         var sells = fills.Where(fill => fill.Side == TradeSide.Sell).ToArray();
         var funding = ledger.Equity.Where(mark => mark.At <= instant).MaxBy(mark => mark.At)?.FundingThb;
         var knownFunding = ledger.OpenedAt <= instant && funding > 0m;
-        var evidenceHash = Hash(history);
-        var startingEvidenceHash = Hash(history.Where(fill => fill.OccurredAt < start).ToArray());
+        var evidenceHash = Hash(history, externalSales);
+        var startingEvidenceHash = Hash(
+            history.Where(fill => fill.OccurredAt < start).ToArray(),
+            externalSales.Where(sale => sale.Allocation.Execution.OccurredAt < start).ToArray()
+        );
         var changedEndEvidence = previous?.ClosedAt is not null && previous.EvidenceHash != evidenceHash;
         var changedStartEvidence =
             previous?.ClosedAt is not null && previous.StartingEvidenceHash != startingEvidenceHash;
-        decimal? realizedNet = sells.All(fill => fill.RealizedNetThb.HasValue)
-            ? sells.Sum(fill => fill.RealizedNetThb.GetValueOrDefault())
-            : null;
-        decimal? realizedGross = sells.All(fill => fill.RealizedGrossThb.HasValue)
-            ? sells.Sum(fill => fill.RealizedGrossThb.GetValueOrDefault())
-            : null;
-        decimal? cash = knownFunding
-            ? funding
-                + history.Sum(fill =>
-                    fill.Side == TradeSide.Buy ? -fill.GrossThb - fill.FeeThb : fill.GrossThb - fill.FeeThb
-                )
-            : null;
+        decimal? realizedNet =
+            !externalOnDay && sells.All(fill => fill.RealizedNetThb.HasValue)
+                ? sells.Sum(fill => fill.RealizedNetThb.GetValueOrDefault())
+                : null;
+        decimal? realizedGross =
+            !externalOnDay && sells.All(fill => fill.RealizedGrossThb.HasValue)
+                ? sells.Sum(fill => fill.RealizedGrossThb.GetValueOrDefault())
+                : null;
+        decimal? cash =
+            knownFunding && externalSales.Length == 0
+                ? funding
+                    + history.Sum(fill =>
+                        fill.Side == TradeSide.Buy ? -fill.GrossThb - fill.FeeThb : fill.GrossThb - fill.FeeThb
+                    )
+                : null;
         var quantities = history
             .GroupBy(fill => fill.Symbol, StringComparer.Ordinal)
-            .Select(group => group.Sum(fill => fill.Side == TradeSide.Buy ? fill.Quantity : -fill.Quantity))
+            .Select(TradingLedgerAccounting.RemainingQuantity)
             .ToArray();
         int? positions =
-            knownFunding && quantities.All(quantity => quantity >= 0m)
+            knownFunding && externalSales.Length == 0 && quantities.All(quantity => quantity >= 0m)
                 ? quantities.Count(quantity => quantity > 0m)
                 : null;
         var startingMark = ledger.Equity.Where(mark => mark.At <= start).MaxBy(mark => mark.At);
@@ -206,9 +218,17 @@ public static class TradingDailyReportBuilder
         );
     }
 
-    private static string Hash(IReadOnlyList<TradingFill> fills) =>
+    private static string Hash(IReadOnlyList<TradingFill> fills, TradingExternalSale[] externalSales) =>
         Convert
-            .ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(JsonSerializer.Serialize(fills))))
+            .ToHexString(
+                SHA256.HashData(
+                    Encoding.UTF8.GetBytes(
+                        externalSales.Length == 0
+                            ? JsonSerializer.Serialize(fills)
+                            : JsonSerializer.Serialize(new { fills, externalSales })
+                    )
+                )
+            )
             .ToLowerInvariant();
 
     private static string Format(decimal? value, bool known = true) =>

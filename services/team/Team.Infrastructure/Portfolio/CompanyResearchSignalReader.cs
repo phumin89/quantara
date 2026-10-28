@@ -15,7 +15,6 @@ public sealed class CompanyResearchSignalReader(
     public async Task<MarketSignalNotice?> Read(CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        var now = time.GetUtcNow();
         MarketSignalNotice? marketNotice = null;
         try
         {
@@ -33,12 +32,17 @@ public sealed class CompanyResearchSignalReader(
                         or FormatException
             ) { }
 
-        var newsIds = new List<string>();
+        var newsEvents = new List<(string Key, DateTimeOffset Seen, DateTimeOffset Published, int Revision)>();
         try
         {
             using var document = JsonDocument.Parse(await news.Read(null, cancellationToken));
             if (document.RootElement.TryGetProperty("events", out var events))
             {
+                if (events.GetArrayLength() > 5)
+                {
+                    throw new InvalidDataException("News research event count exceeds its budget.");
+                }
+
                 foreach (var item in events.EnumerateArray())
                 {
                     var seen = item.GetProperty("revisionSeenAt").GetDateTimeOffset();
@@ -47,17 +51,10 @@ public sealed class CompanyResearchSignalReader(
                         && publishedElement.ValueKind == JsonValueKind.String
                             ? publishedElement.GetDateTimeOffset()
                             : item.GetProperty("firstSeenAt").GetDateTimeOffset();
-                    if (
-                        seen <= now
-                        && now - seen <= TimeSpan.FromMinutes(15)
-                        && published <= now
-                        && (item.GetProperty("revision").GetInt32() > 1 || now - published <= TimeSpan.FromMinutes(15))
-                    )
-                    {
-                        newsIds.Add(
-                            item.GetProperty("eventId").GetString() + "@" + item.GetProperty("revision").GetInt32()
-                        );
-                    }
+                    var revision = item.GetProperty("revision").GetInt32();
+                    newsEvents.Add(
+                        (item.GetProperty("eventId").GetString() + "@" + revision, seen, published, revision)
+                    );
                 }
             }
         }
@@ -73,12 +70,25 @@ public sealed class CompanyResearchSignalReader(
                         or FormatException
             ) { }
 
-        if (marketNotice is null && newsIds.Count == 0)
+        cancellationToken.ThrowIfCancellationRequested();
+        var now = time.GetUtcNow();
+        marketNotice = FreshMarket(marketNotice, now);
+        var newsIds = FreshNewsKeys(newsEvents, now);
+        if (marketNotice is null && newsIds.Length == 0)
         {
             return null;
         }
 
         var accountKey = await account.Read(cancellationToken);
+        cancellationToken.ThrowIfCancellationRequested();
+        now = time.GetUtcNow();
+        marketNotice = FreshMarket(marketNotice, now);
+        newsIds = FreshNewsKeys(newsEvents, now);
+        if (marketNotice is null && newsIds.Length == 0)
+        {
+            return null;
+        }
+
         var parts = newsIds
             .Order(StringComparer.Ordinal)
             .Concat(marketNotice is null ? [] : [marketNotice.Key])
@@ -87,11 +97,35 @@ public sealed class CompanyResearchSignalReader(
             .ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(string.Join("|", parts))))
             .ToLowerInvariant();
         var description = marketNotice?.Description ?? "Fresh news research event; no market signal available.";
-        if (newsIds.Count > 0)
+        if (newsIds.Length > 0)
         {
-            description += $" {newsIds.Count} fresh news event(s) available for research.";
+            description += $" {newsIds.Length} fresh news event(s) available for research.";
         }
 
-        return new MarketSignalNotice(key, description[..Math.Min(500, description.Length)], now);
+        cancellationToken.ThrowIfCancellationRequested();
+        return new MarketSignalNotice(
+            key,
+            description[..Math.Min(500, description.Length)],
+            marketNotice?.CheckedAt ?? now
+        );
     }
+
+    private static MarketSignalNotice? FreshMarket(MarketSignalNotice? notice, DateTimeOffset now) =>
+        notice is not null && notice.CheckedAt <= now.AddSeconds(5) && now - notice.CheckedAt <= TimeSpan.FromMinutes(2)
+            ? notice
+            : null;
+
+    private static string[] FreshNewsKeys(
+        IReadOnlyList<(string Key, DateTimeOffset Seen, DateTimeOffset Published, int Revision)> events,
+        DateTimeOffset now
+    ) =>
+        events
+            .Where(item =>
+                item.Seen <= now
+                && now - item.Seen <= TimeSpan.FromMinutes(15)
+                && item.Published <= now
+                && (item.Revision > 1 || now - item.Published <= TimeSpan.FromMinutes(15))
+            )
+            .Select(item => item.Key)
+            .ToArray();
 }

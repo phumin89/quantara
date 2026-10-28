@@ -8,5 +8,6 @@ export interface DailyBriefConversationProps {
   readonly loading: boolean;
   readonly preservePosition?: boolean;
   readonly embedded?: boolean;
+  readonly archive?: boolean;
   readonly idPrefix?: string;
 }

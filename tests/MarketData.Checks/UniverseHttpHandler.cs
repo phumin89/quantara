@@ -4,7 +4,7 @@ namespace Quantara.MarketData.Checks;
 
 public sealed class UniverseHttpHandler : HttpMessageHandler
 {
-    public string SymbolsResponse { get; init; } = "{\"error\":11}";
+    public string SymbolsResponse { get; set; } = "{\"error\":11}";
 
     public string TickerResponse { get; init; } = "{\"error\":11}";
 

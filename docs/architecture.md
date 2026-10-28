@@ -34,6 +34,13 @@ Crypto read models reconcile confirmed engine fills with wallet observations for
 scoped cost and P/L. [Accounting and delivery](crypto-accounting.md) documents
 unknown semantics, duplicate handling and durable Telegram acknowledgements.
 
+[Company capital accounting](company-capital-accounting.md) adds an offline,
+account-scoped reconciliation boundary for external contributions, internal transfers
+and marked equity change. Its results never grant execution authority or claim net
+company income without complete cost evidence. Its application importer reuses the
+read-only capital reader with explicit fixture source admission and a simulation-only
+freshness/provenance gate; it is not registered in the running company loop.
+
 Automatic research selects a focused specialist followed by Evidence Reviewer; the
 legacy manual three-role flow remains supported. Team owns durable rolling-hour
 admission, role cadence and evidence lineage. [Continuous research](continuous-research.md)
@@ -63,11 +70,12 @@ ownership. SQL Server may host the three databases in the same container.
   presentation and components. Each component lives beside matching Props/State files.
 - **Screen ownership:** Containers own polling, aborts, generation guards and actions.
   Focused class components render trading books, market coverage, settings, mandate
-  review, news, conversation and summary. Shared presentation classes own formatting
+  review, news and conversation. Shared presentation classes own formatting
   and repeated status metadata.
-- **Trading settings:** Adaptive setup opens with a read-only system-managed plan and
-  saved risk limits. Numeric editors stay inside explicit Advanced overrides; material
-  saves disarm live trading and require owner review again.
+- **Trading settings:** Adaptive setup opens with the system-managed plan and four
+  editable risk limits. Technical editors stay inside Advanced strategy settings;
+  opening the form preserves saved values. Material saves disarm live trading and
+  require owner review again.
 - **Component rules:** Hooks, function components and standalone application functions
   are disallowed; inline callbacks inside class methods remain valid.
 - **Transport:** `IRequestService` owns fetch, same-origin `/api` path joining, HTTP
@@ -75,12 +83,22 @@ ownership. SQL Server may host the three databases in the same container.
   Zod. Next.js route adapters delegate through server-only proxies; service addresses
   and control tokens never enter browser code.
 
+The root Team activity provider owns one current-day overview/brief request pair
+per ten seconds, shared across all screens and the persistent non-modal chat.
+Current-day Dashboard reads join its pending request; selected historical dates
+remain separate and account-scoped. Consumer aborts do not cancel shared reads.
+The class route template announces committed navigation to the persistent sidebar;
+it does not remount the provider or chat. Daily Brief owns the dated full report
+archive; Dashboard owns bounded summaries, Home role activity and Crypto wallet,
+history and manual proposal risk sizing.
+
 App labels and compact, accessible layout follow [DESIGN.md](../DESIGN.md).
 
 Home projects recorded Team steps into eight stable office seats through a pure
-state adapter. Its lazy renderer imports only the pinned Pixel Agents engine;
-it has no upstream transport, terminal, discovery or execution bridge. Home reads
-existing Team queries and never starts research or trading. See
+state adapter. It embeds the pinned original Pixel Agents App in a same-origin
+iframe with an origin-checked, read-only role/selection/pause bridge. Its CSP blocks
+network connections; upstream host, terminal and filesystem commands are discarded.
+Home reads existing Team queries and never starts research or trading. See
 [Home office](home-office.md) for state, lifecycle, licensing and fixture checks.
 
 ## Trading execution
@@ -93,7 +111,10 @@ Portfolio has three separate paths:
 | ManualReview | Creates an immutable pending spot LIMIT proposal. Only an explicit, verified owner approval may submit that exact proposal before its deadline. |
 | AutoLive     | Uses deterministic policy decisions inside an exact owner-enabled account/rules-hash/market-scope/risk/expiry mandate.                          |
 
-- Team and models cannot choose AutoLive orders, enable it or widen authority.
+- Team and models cannot select individual AutoLive orders or enable it. The separately
+  owner-enabled [AI-managed strategy](ai-managed-strategy.md) allows reviewed technical
+  and risk parameter changes inside a fixed 100% capital ceiling. Legacy mandates
+  retain their exact original authority.
 - Stopped stays stopped after restart.
 
 The owner-authenticated `POST /api/trading/prepare` accepts only the exact account key
@@ -114,9 +135,20 @@ Execution preserves these boundaries:
   the exact retained order before applying fills.
 - Live claims, final authority checks, timeouts and uncertain outcomes preserve their
   original ordering.
+- Fresh quote events may finish an existing pending entry; new entries still require
+  the strategy's completed-candle evaluation. Liquidity waits retain the exact limit
+  price and original expiry.
+- If refreshed sizing permits a smaller buy, one atomic save retires the known-unsent
+  intent and creates a linked replacement. The original amount, sizing and signal
+  reason remain immutable; the replacement is claimed separately before submission.
+- Execution diagnostics explain waits and local cancellation separately from the
+  immutable signal reason. The SQL store and deterministic fake share the same intent
+  integrity guard, including sizing and replacement provenance.
 
 MarketData sends authenticated private SSE events to Portfolio:
 
+- Each subscriber retains the highest pending sequence for each symbol/event-kind
+  pair. Late or duplicate events cannot replace a newer pending payload.
 - A bounded dispatcher prioritizes owned exits and coalesces quotes; overflow retains
   dirty owned symbols.
 - Required holdings/open orders stay watched, with rotating candidates inside the
@@ -124,6 +156,14 @@ MarketData sends authenticated private SSE events to Portfolio:
 - Completed native candles permit entry evaluation; fresh owned quotes evaluate exits
   without waiting for a candle.
 - Separate maintenance and reconciliation timers survive quiet or disconnected markets.
+
+Market scans exclude malformed rows and keep unrepresentable quote metrics unknown
+without discarding healthy markets. Watch selection and live feed initialization
+share rule validation and collapse only identical duplicates. Conflicting market
+identities remain unverified, including for required holdings.
+Socket sessions are bound to both symbol and pairing ID. A pairing change cancels
+and awaits the old session before replacement. Metadata changes invalidate cached
+depth; late frames and disconnects from a removed identity cannot update its replacement.
 
 | Policy                              | Compatibility and evidence                                                                                             |
 | ----------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
@@ -153,7 +193,11 @@ See [adaptive risk](adaptive-risk.md), [exit protocol](adaptive-exit-protocol.md
   collection is separate from pure Trading/Research snapshot projections and bounded
   JSON parsing. Missing prices, costs, candles, source coverage and profit stay
   Unknown; omitted context is explicit. Native timeframe selection and manual
-  five-minute proposal evidence remain distinct.
+  five-minute proposal evidence remain distinct. If a focused Intraday review still
+  exceeds its context or wire budget after memory compaction, it uses the existing
+  Intraday evidence scope and names the omitted history fields. Wallet facts, native
+  execution evidence, market scan, Intraday candles and the specialist handoff remain
+  unchanged; other review paths retain their existing evidence and hard limits.
 - **Coordinator:** Preserves each CEO, Analyst and Reviewer step before proceeding.
   Prior reports and learning memory are account-scoped, bounded, untrusted evidence.
   The optional typed assessment binds account/run/policy/evidence/as-of/expiry; its
@@ -166,7 +210,11 @@ The Node worker has these isolation boundaries:
   are disabled. Only the selected bounded role AGENTS.md/SKILL.md are loaded.
 - Codex authentication stays server-side.
 - Output schemas are separate from worker lifecycle and validated responses; .NET
-  also validates business evidence.
+  also validates business evidence. Reviewer schemas bind positive wallet symbols
+  and scanned opportunity bases from the same evidence helpers used by validation.
+  Supplied research review/expiry timestamps are copied exactly; the review floor
+  leaves five minutes for the bounded worker call. These timestamps grant no
+  execution authority. Legacy contexts without these bindings retain generic schemas.
 - Errors cross boundaries as fixed allowlisted messages, without raw prompts, tokens
   or SDK error bodies.
 - Temporary workspaces and supervised process trees are cleaned up.

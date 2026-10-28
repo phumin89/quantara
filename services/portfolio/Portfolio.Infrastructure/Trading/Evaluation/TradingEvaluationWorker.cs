@@ -43,6 +43,7 @@ public sealed class TradingEvaluationWorker(
             snapshot.Rules.Version != "adaptive-intraday-v2"
             || snapshot.Autonomy is not { } autonomy
             || snapshot.Evaluation is { } previous
+                && previous.Protocol == TradingReplayEvaluator.Protocol
                 && previous.RulesHash == snapshot.RulesHash
                 && previous.ObservedAt.ToOffset(TimeSpan.FromHours(7)).Date == today
         )

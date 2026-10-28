@@ -160,6 +160,69 @@ public static class TradingExitStudyChecks
         }
 
         var badSeed = order with { ExitStudyPlan = seed with { EntryAtr = 0 } };
+        var precisionFill = fill with { Quantity = 100m / 3m, Price = 3m, QuantityScale = 8 };
+        var credited = decimal.Round(precisionFill.Quantity, 8, MidpointRounding.ToZero);
+        var precise = TradingExitStudy.Advance(
+            state with
+            {
+                Rules = rules,
+                Paper = paper with { Fills = [precisionFill] },
+            },
+            [],
+            stopAt
+        );
+        if (precise.ExitStudies.Single().Quantity != credited || precise.Paper.Fills.Single() != precisionFill)
+        {
+            throw new InvalidOperationException(
+                "Exit study uses credited base units while retaining raw fill evidence."
+            );
+        }
+
+        var preciseTerminal = precise.ExitStudies.Single() with
+        {
+            Status = "hypothetical",
+            HypotheticalNetThb = 3m,
+            HypotheticalExitAt = stopAt,
+        };
+        foreach (var scale in new int?[] { 8, null })
+        {
+            var baseline = TradingExitStudy.Advance(
+                precise with
+                {
+                    Paper = paper with
+                    {
+                        Fills =
+                        [
+                            precisionFill with
+                            {
+                                QuantityScale = scale,
+                            },
+                            sell with
+                            {
+                                Quantity = credited,
+                                QuantityScale = 8,
+                            },
+                        ],
+                    },
+                    ExitStudies =
+                    [
+                        preciseTerminal with
+                        {
+                            Quantity = scale.HasValue ? credited : precisionFill.Quantity,
+                        },
+                    ],
+                },
+                [],
+                stopAt.AddMinutes(1)
+            );
+            if (baseline.ExitStudies.Single().BaselineNetThb != 3m)
+            {
+                throw new InvalidOperationException(
+                    "Confirmed full sells close the study baseline at verified base precision."
+                );
+            }
+        }
+
         var invalid = TradingExitStudy.Advance(
             state with
             {

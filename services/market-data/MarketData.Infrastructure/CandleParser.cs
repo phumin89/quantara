@@ -48,6 +48,11 @@ public static class CandleParser
                 continue;
             }
 
+            if (intervalSeconds < 86400 && candle.Timestamp % intervalSeconds != 0)
+            {
+                throw new InvalidDataException("Intraday candle timestamp is not aligned to its native timeframe.");
+            }
+
             if (
                 candle.Open <= 0
                 || candle.Close <= 0

@@ -75,7 +75,7 @@ public static class PortfolioLastBuyChecks
         )
         {
             throw new InvalidOperationException(
-                "Multiple confirmed fills under one intent use gross-weighted actual purchase price, excluding fees."
+                "Multiple confirmed fills under one intent use quantity-weighted actual purchase price, excluding fees."
             );
         }
 
@@ -87,6 +87,77 @@ public static class PortfolioLastBuyChecks
         if (empty.Positions.Single().LastBuyPrice is not null)
         {
             throw new InvalidOperationException("Portfolio last buy must remain unavailable without confirmed fills.");
+        }
+
+        var repeated = await new GetPortfolioHandler(
+            new PortfolioTestRepository(ledger),
+            new PortfolioTestSync(),
+            new TradingTestRepository(
+                state with
+                {
+                    Live = state.Live with
+                    {
+                        Fills =
+                        [
+                            fills[0],
+                            fills[1],
+                            fills[2],
+                            fills[0] with
+                            {
+                                Id = Guid.NewGuid(),
+                                QuantityScale = 8,
+                            },
+                        ],
+                    },
+                }
+            )
+        ).Handle(new GetPortfolioQuery(), CancellationToken.None);
+        if (
+            repeated.Positions.Single().LastBuyPrice != partial.Positions.Single().LastBuyPrice
+            || repeated.Positions.Single().LastBoughtAt != partial.Positions.Single().LastBoughtAt
+        )
+        {
+            throw new InvalidOperationException(
+                "Repeated broker fill evidence must not change the last confirmed buy."
+            );
+        }
+
+        var conflicted = await new GetPortfolioHandler(
+            new PortfolioTestRepository(ledger),
+            new PortfolioTestSync(),
+            new TradingTestRepository(
+                state with
+                {
+                    Live = state.Live with
+                    {
+                        Fills =
+                        [
+                            fills[0],
+                            fills[1],
+                            fills[0] with
+                            {
+                                Price = 105,
+                                GrossThb = 210,
+                            },
+                            fills[4] with
+                            {
+                                Symbol = "BTC",
+                            },
+                        ],
+                    },
+                }
+            )
+        ).Handle(new GetPortfolioQuery(), CancellationToken.None);
+        var conflictedEth = conflicted.Positions.Single(item => item.Symbol == "ETH");
+        if (
+            conflictedEth.LastBuyPrice is not null
+            || conflictedEth.LastBoughtAt is not null
+            || conflicted.Positions.Single(item => item.Symbol == "BTC").LastBuyPrice != 150m
+        )
+        {
+            throw new InvalidOperationException(
+                "Conflicting fill identities make only the affected symbol's last buy unknown."
+            );
         }
 
         Console.WriteLine("Portfolio last buy checks passed.");

@@ -7,6 +7,8 @@ import {
   DialogActions,
   DialogContent,
   DialogTitle,
+  FormControlLabel,
+  Checkbox,
   Stack,
   TextField,
   Typography,
@@ -29,10 +31,36 @@ export default class TradingMandateDialog extends Component<TradingMandateDialog
         maxWidth="sm"
         fullWidth
         aria-labelledby="live-review-title"
+        slotProps={{
+          paper: {
+            sx: {
+              borderRadius: 'var(--radius-panel)',
+              bgcolor: 'var(--surface-raised)',
+              backdropFilter: 'blur(20px)',
+              border: '1px solid',
+              borderColor: 'var(--border-panel)',
+              boxShadow: 'var(--shadow-panel)',
+            },
+          },
+        }}
       >
-        <DialogTitle id="live-review-title">Enable auto trading</DialogTitle>
+        <DialogTitle
+          id="live-review-title"
+          sx={{
+            fontFamily: 'var(--font-display)',
+            fontSize: 24,
+            fontWeight: 850,
+            bgcolor: 'var(--color-peach)',
+            m: 1.5,
+            borderRadius: 'var(--radius-control)',
+          }}
+        >
+          Enable auto trading
+        </DialogTitle>
         <DialogContent>{this.renderMandate(overview)}</DialogContent>
-        <DialogActions>
+        <DialogActions
+          sx={{ px: 3, py: 2, borderTop: '1px solid', borderColor: 'divider' }}
+        >
           <Button
             onClick={() => {
               this.props.onClose();
@@ -77,6 +105,7 @@ export default class TradingMandateDialog extends Component<TradingMandateDialog
           expiry, without asking for each trade. AI reports do not authorize
           orders.
         </Alert>
+        {this.props.error && <Alert severity="error">{this.props.error}</Alert>}
         <Typography
           variant="body2"
           sx={{ overflowWrap: 'anywhere' }}
@@ -84,30 +113,64 @@ export default class TradingMandateDialog extends Component<TradingMandateDialog
           Account: {overview.accountKey}
         </Typography>
         {TradingRulePresentation.isAdaptive(overview.rules.version) ? (
-          <Alert severity="info">
-            Scope: all eligible Bitkub THB spot markets, excluding{' '}
-            {overview.rules.adaptive?.excludedSymbols.join(', ') ||
-              'configured exclusions'}
-            . Capital: all available THB, including future deposits. Risk: up to{' '}
-            {TradingFormatting.percent(
-              overview.rules.adaptive?.risk.maximumExposureFraction,
-            )}{' '}
-            exposure and{' '}
-            {TradingFormatting.percent(
-              overview.rules.adaptive?.risk.maximumConcentrationFraction,
-            )}{' '}
-            concentration, with a{' '}
-            {TradingFormatting.percent(
-              overview.rules.adaptive?.risk.riskToStopFraction,
-            )}{' '}
-            stop-risk scenario and{' '}
-            {TradingFormatting.percent(
-              overview.rules.adaptive?.dailyLossFraction,
-            )}{' '}
-            daily loss cap on current equity. These are limits and scenarios,
-            not a guaranteed maximum loss. Strategies: breakout, pullback and
-            range candidates. Maximum positions: {overview.rules.maxPositions}.
-          </Alert>
+          <Stack spacing={1}>
+            <Typography variant="body2">
+              Scope: all eligible Bitkub THB spot markets, excluding{' '}
+              {overview.rules.adaptive?.excludedSymbols.join(', ') ||
+                'configured exclusions'}
+              .
+            </Typography>
+            <Typography variant="body2">
+              Capital: all available THB, including future deposits.
+            </Typography>
+            <Box
+              component="dl"
+              sx={{
+                m: 0,
+                display: 'grid',
+                gridTemplateColumns: 'minmax(0, 1fr) auto',
+                columnGap: 2,
+                rowGap: 0.75,
+                fontSize: 14,
+                '& dd': {
+                  m: 0,
+                  textAlign: 'right',
+                  fontVariantNumeric: 'tabular-nums',
+                },
+              }}
+            >
+              <Box component="dt">Maximum exposure</Box>
+              <Box component="dd">
+                {TradingFormatting.percent(
+                  overview.rules.adaptive?.risk.maximumExposureFraction,
+                )}
+              </Box>
+              <Box component="dt">Maximum concentration</Box>
+              <Box component="dd">
+                {TradingFormatting.percent(
+                  overview.rules.adaptive?.risk.maximumConcentrationFraction,
+                )}
+              </Box>
+              <Box component="dt">Stop-risk scenario</Box>
+              <Box component="dd">
+                {TradingFormatting.percent(
+                  overview.rules.adaptive?.risk.riskToStopFraction,
+                )}
+              </Box>
+              <Box component="dt">Daily loss cap on current equity</Box>
+              <Box component="dd">
+                {TradingFormatting.percent(
+                  overview.rules.adaptive?.dailyLossFraction,
+                )}
+              </Box>
+              <Box component="dt">Maximum positions</Box>
+              <Box component="dd">{overview.rules.maxPositions}</Box>
+            </Box>
+            <Typography variant="body2">
+              Strategies: breakout, pullback and range candidates. These are
+              limits and scenarios, not a guaranteed maximum loss.
+            </Typography>
+          </Stack>
         ) : (
           <Box
             component="dl"
@@ -247,6 +310,38 @@ export default class TradingMandateDialog extends Component<TradingMandateDialog
           helperText={expiryHelp}
           disabled={this.props.busy}
         />
+        {overview.rules.version === 'adaptive-intraday-v2' && (
+          <Box
+            sx={{
+              p: 1.5,
+              borderRadius: 'var(--radius-control)',
+              border: '1px solid',
+              borderColor: 'var(--border-panel)',
+              bgcolor: 'var(--surface-soft)',
+            }}
+          >
+            <FormControlLabel
+              control={
+                <Checkbox
+                  checked={this.props.aiManaged}
+                  onChange={(event) => {
+                    this.props.onAiManagedChange(event.target.checked);
+                  }}
+                  disabled={this.props.busy}
+                />
+              }
+              label="Let AI manage strategy"
+            />
+            <Typography
+              variant="body2"
+              color="text.secondary"
+            >
+              AI may adjust technical and risk settings within the verified
+              account capital ceiling (up to 100%). Spot-only execution checks,
+              fees, reconciliation and Stop remain enforced.
+            </Typography>
+          </Box>
+        )}
         <Button
           variant="contained"
           disableElevation
@@ -264,7 +359,9 @@ export default class TradingMandateDialog extends Component<TradingMandateDialog
           }}
           sx={{ alignSelf: 'flex-start', minHeight: 44 }}
         >
-          Enable Auto Trading
+          {this.props.aiManaged
+            ? 'Enable AI-managed trading'
+            : 'Enable Auto Trading'}
         </Button>
       </Stack>
     );

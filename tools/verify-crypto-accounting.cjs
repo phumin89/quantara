@@ -64,11 +64,11 @@ const {
 const {
   default: EnginePerformanceSummary,
 } = require('../apps/web/features/crypto/components/engine-performance-summary/EnginePerformanceSummary.tsx');
-const row = (item) =>
+const row = (item, expanded = true) =>
   renderToStaticMarkup(
     React.createElement(PortfolioRow, {
       item,
-      expanded: false,
+      expanded,
       onOpenHistory() {},
       history: [],
       historyLoading: false,
@@ -81,7 +81,12 @@ const summary = (data) =>
 assert.match(row(verified), /฿90\.25/);
 assert.match(row(verified), /\+฿19\.50/);
 assert.match(row(verified), /-฿12\.34/);
-assert.doesNotMatch(row(verified), /Unknown cost/);
+assert.doesNotMatch(row(verified), />Unknown cost</);
+assert.doesNotMatch(row(verified, false), /19\.50|12\.34|90\.25/);
+assert.match(
+  row({ ...verified, averageCost: null, costStatus: 'Unknown' }, false),
+  /Cost unavailable/,
+);
 assert.match(summary(portfolio), /\+฿7\.16/);
 assert.match(summary(portfolio), /฿0\.75/);
 assert.match(summary(portfolio), /Account-wide profit unavailable/);

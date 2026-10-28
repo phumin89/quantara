@@ -22,13 +22,8 @@ public static class PortfolioGoalChecks
             false,
             null
         );
-        var source = new RiskAccountEvidence(
-            now,
-            [],
-            [],
-            [new("funding", "THB", 5000, 0, now.AddDays(-1), CashFlowKind.Deposit, 5000)],
-            PortfolioObjective.StartsAt
-        );
+        var funding = new CapitalCashFlow("funding", "THB", 5000, 0, now.AddDays(-1), CashFlowKind.Deposit, 5000);
+        var source = new RiskAccountEvidence(now, [], [], [funding, funding], PortfolioObjective.StartsAt);
         var captured = PortfolioGoalAccounting.Capture(account, new(snapshot, source, []), now);
         Check(
             captured.PortfolioValueThb == 7500 && captured.DepositsThb == 5000 && captured.TradingPnlThb is null,
@@ -68,6 +63,39 @@ public static class PortfolioGoalChecks
                 .DepositsThb
                 is null,
             "Incomplete funding coverage is not zero deposits."
+        );
+        var quote = new Quantara.Portfolio.Domain.Trading.TradingBook("BTC", now, 2500, 2501, 1, 1, []);
+        foreach (var age in new[] { 90, 91, 300 })
+        {
+            var priced = PortfolioGoalAccounting.Capture(
+                account,
+                new(snapshot, source, [quote with { ObservedAt = now.AddSeconds(-age) }]),
+                now
+            );
+            Check(
+                age == PortfolioObjective.MaximumAgeSeconds
+                    ? priced.PortfolioValueThb == 7500 && priced.Reason is null
+                    : priced.PortfolioValueThb is null && priced.Reason is not null,
+                "A fresh wallet cannot make an older held-asset quote satisfy the objective freshness limit."
+            );
+        }
+
+        var cashOnly = PortfolioGoalAccounting.Capture(
+            account,
+            new(
+                snapshot with
+                {
+                    EquityThb = 5000,
+                    Assets = [new("THB", 5000, 3000, 1, 0), new("BTC", 0, 0, 2500, 0)],
+                },
+                source,
+                [quote with { ObservedAt = now.AddSeconds(-300) }]
+            ),
+            now
+        );
+        Check(
+            cashOnly.PortfolioValueThb == 5000 && cashOnly.Reason is null,
+            "An unused quote does not prevent a fresh cash-only objective valuation."
         );
         var cutoff = PortfolioObjective.DeadlineExclusive;
         var before = captured with { ObservedAt = cutoff.AddSeconds(-20), PortfolioValueThb = 10500 };

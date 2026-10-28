@@ -11,11 +11,12 @@ real-time market monitoring, and an AI research team.
 ## ✨ What you'll find
 
 - **💰 Crypto** — actual balances, available THB, retained closed coins, and trade fills.
-- **📋 Daily Brief** — trading status first, with team chat and reports one tab away.
-  Choose a Bangkok date to revisit a day's research and summary.
+- **📋 Daily Brief** — a dated research archive with operating controls.
+  Choose a Bangkok date to revisit that day's reports and evidence.
 - **⚡ Real-time monitoring** — fresh quotes evaluate owned-position exits;
   adaptive research uses completed native 5/15/60-minute candles when available.
-- **🧠 AI research** — CEO, Analyst, and Reviewer collaborate through Codex SDK.
+- **🧠 AI research** — focused specialists and Reviewer collaborate through Codex SDK;
+  the legacy CEO, Analyst, and Reviewer round remains available for manual research.
 - **🎯 Portfolio goal** — an account-scoped wallet-equity target and closing date
   supplied by configured evidence, including confirmed deposits. Valuation,
   deposits and trading P&L stay separate.
@@ -186,19 +187,19 @@ broker conversions. Cost and profit stay Unknown until accounting is verified.
 
 ## 🧠 Meet the AI team
 
-| Role     | Focus                                                 |
-| -------- | ----------------------------------------------------- |
-| CEO      | Chooses research priorities and coordinates the round |
-| Analyst  | Investigates the plan using supplied evidence         |
-| Reviewer | Checks conclusions and writes the summary             |
+| Role                 | Focus                                               |
+| -------------------- | --------------------------------------------------- |
+| CEO                  | Coordinates the legacy manual research round        |
+| Specialist / Analyst | Investigates a focused task using supplied evidence |
+| Reviewer             | Checks conclusions and writes the summary           |
 
 Team uses the existing **Codex ChatGPT login**, with no separate API key.
 Sign in locally with Codex if needed. Team never reads broker credentials.
 
 - Hourly reviews and deduplicated signal assessments run without overlapping
   rounds or replaying a missed-round backlog.
-- **Stop company** persists the disabled state and cancels active research;
-  **Resume** makes the next round due.
+- **Pause research** persists the disabled state and cancels active research;
+  **Resume research** makes the next round due.
 - Closing the browser does not stop the server.
 - Research prerequisites must be ready before model work begins.
 - Run only one Team host per database; interrupted tasks are marked failed
@@ -251,23 +252,45 @@ To skip C# autoformat explicitly, use
 
 ### ✅ Useful checks
 
-| Command                     | Checks                                                      |
-| --------------------------- | ----------------------------------------------------------- |
-| `npm run test:architecture` | Service/layer boundaries and file ownership                 |
-| `npm run test:editor`       | Compiler/analyzer and editor rule enforcement               |
-| `npm run test:trading`      | Portfolio, API, MarketData, and trading transport fixtures  |
-| `npm run test:ai-worker`    | Isolated worker/process boundaries without a real AI call   |
-| `npm run test:team`         | Team orchestration and research rules                       |
-| `npm run test:docker`       | Runtime helpers, configuration, and private token isolation |
-| `npm run test:docs`         | Local Markdown links and empty documents                    |
-| `npm run test:jobs`         | Private dashboard transport and blocked job commands        |
+| Command                        | Checks                                                                       |
+| ------------------------------ | ---------------------------------------------------------------------------- |
+| `npm run test:architecture`    | Service/layer boundaries and file ownership                                  |
+| `npm run test:editor`          | Compiler/analyzer and editor rule enforcement                                |
+| `npm run test:trading`         | Portfolio, API, MarketData, and trading transport fixtures                   |
+| `npm run test:ai-worker`       | Isolated worker/process boundaries without a real AI call                    |
+| `npm run test:team`            | Team orchestration and research rules                                        |
+| `npm run test:docker`          | Runtime helpers, configuration, and private token isolation                  |
+| `npm run test:docs`            | Local Markdown links and empty documents                                     |
+| `npm run test:first-paint`     | Built-page header layout before JavaScript; no server needed                 |
+| `npm run test:trading-forms`   | Settings validation and read recovery; no server needed                      |
+| `npm run test:brief-usability` | Daily Brief layout, pending controls and report/date links; no server needed |
+| `npm run test:jobs`            | Private dashboard transport and blocked job commands                         |
 
 <details>
 <summary>Browser checks and optional integrations</summary>
 
-With an isolated frontend running:
+After `npm run build`, `npm run test:first-paint` checks the generated pages at
+phone, tablet and desktop widths without starting a server.
+
+`npm run test:brief-usability` also reads the generated pages locally. It checks
+four widths, report typography, pending research controls and date/report URL
+continuity. All API responses and the Pause command are synthetic; external and
+unmocked requests are rejected. Captures are saved in
+`.impeccable/review/brief-usability`.
+
+The settings regression also reads the generated pages without a server. It
+intercepts every request and rejects writes and external origins:
 
 ```powershell
+$env:TEST_URL = 'http://127.0.0.1:3108'
+$env:TRADING_FORM_CAPTURE_DIR = '.impeccable/review/trading-forms'
+npm run test:trading-forms
+```
+
+For the remaining browser checks, use an isolated frontend on port 3108:
+
+```powershell
+$env:TEST_URL = 'http://127.0.0.1:3108'
 npm run test:ui
 npm run test:contracts
 npm run test:crypto -- --fixtures
@@ -284,10 +307,14 @@ test browser; the application never switches to fake portfolio data.
 - Portfolio and MarketData checks can also run directly:
   `dotnet run --project tests/Portfolio.Checks/Portfolio.Checks.csproj` and
   `dotnet run --project tests/MarketData.Checks/MarketData.Checks.csproj`.
-- Real SQL verification is opt-in with `-- --sql` on Portfolio.Checks and uses
-  a separate test account.
-- Real-data `npm run test:crypto` needs running services and configured
-  credentials. Keep it separate from isolated fixture checks.
+- SQL verification with `-- --sql` on Portfolio.Checks requires
+  `QUANTARA_PORTFOLIO_TEST_SQL`, matching `QUANTARA_SQL_TEST_SERVER` and
+  `QUANTARA_SQL_TEST_DATABASE`, and `QUANTARA_SQL_TEST_ALLOW_WRITES=isolated-crypto-test-database-only`.
+  The database must use a dated `QuantaraFeatureChecksCrypto` name and the
+  owner-provisioned `Quantara.TestFixture=CryptoReadinessOnly` marker. Application
+  catalogs and unverified targets are rejected; the check cannot create a database.
+- `npm run test:crypto -- --fixtures` uses the isolated fixture server at
+  `TEST_URL=http://127.0.0.1:3108`. It needs no broker credentials.
 
 </details>
 
@@ -307,4 +334,4 @@ checks; the workflow does not configure branch policy.
 | Service boundaries and frontend structure       | [Architecture](docs/architecture.md)      |
 | Coding rules and verification requirements      | [Code instructions](code-instructions.md) |
 | UI conventions and visual direction             | [Design](docs/design.md)                  |
-| Latest cleanup findings and verification        | [Project review](docs/project-review.md)  |
+| 19 October cleanup findings and verification    | [Project review](docs/project-review.md)  |

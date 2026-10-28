@@ -9,7 +9,7 @@ public sealed class CompanyLoop : BackgroundService, ICompanyLoop
     private const string mission =
         "Operate Quantara's high-risk THB spot research team around the clock without waiting for instructions. "
         + "Read the supplied account-scoped capital-risk preferences; seek opportunities across the full supplied scan, including when cash-only. "
-        + "The current objective is total portfolio equity including deposits, not the legacy daily profit field. Separate verified cash, holdings, deposits and trading P&L; unknown costs stay Unknown. "
+        + "Use the current account objective supplied with portfolio evidence, not the legacy daily profit field. Separate verified cash, holdings, deposits and trading P&L; unknown costs stay Unknown. "
         + "Prioritize held positions, fresh market setups and relevant verified news. The server assigns one scoped specialist task; Reviewer validates that deliverable and returns an evidence-bound read-only assessment. "
         + "For Wait, name rejected alternatives, exact missing fields, reconsideration conditions and next review. Hypothetical opportunity cost is separate from account profit. "
         + "No model approves or executes orders. ManualReview proposals retain explicit human approval; the deterministic engine owns its unchanged mandate. "
@@ -32,6 +32,12 @@ public sealed class CompanyLoop : BackgroundService, ICompanyLoop
     private MarketSignalNotice? signal;
 
     private readonly SemaphoreSlim gate = new(1, 1);
+
+    private readonly object interruptionGate = new();
+
+    private CancellationTokenSource? iterationCancellation;
+
+    private int pendingStops;
 
     private CompanySchedule? schedule;
 
@@ -130,7 +136,33 @@ public sealed class CompanyLoop : BackgroundService, ICompanyLoop
 
     public async Task<CompanyLoopOverview> SetEnabled(bool enabled, CancellationToken cancellationToken)
     {
-        await this.gate.WaitAsync(cancellationToken);
+        if (enabled)
+        {
+            await this.gate.WaitAsync(cancellationToken);
+        }
+        else
+        {
+            Task interruption;
+            lock (this.interruptionGate)
+            {
+                this.pendingStops += 1;
+                interruption = this.iterationCancellation?.CancelAsync() ?? Task.CompletedTask;
+            }
+
+            try
+            {
+                await interruption;
+                await this.gate.WaitAsync(cancellationToken);
+            }
+            finally
+            {
+                lock (this.interruptionGate)
+                {
+                    this.pendingStops -= 1;
+                }
+            }
+        }
+
         try
         {
             this.schedule ??= await this.store.Read(cancellationToken);
@@ -179,7 +211,40 @@ public sealed class CompanyLoop : BackgroundService, ICompanyLoop
 
     public async Task Tick(CancellationToken cancellationToken)
     {
+        using var iteration = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         await this.gate.WaitAsync(cancellationToken);
+        try
+        {
+            lock (this.interruptionGate)
+            {
+                if (this.pendingStops > 0)
+                {
+                    return;
+                }
+
+                this.iterationCancellation = iteration;
+            }
+
+            await this.TickCore(iteration.Token);
+        }
+        catch (OperationCanceledException)
+            when (iteration.IsCancellationRequested && !cancellationToken.IsCancellationRequested)
+        {
+            // The pending Stop command persists the disabled schedule after this gate is released.
+        }
+        finally
+        {
+            lock (this.interruptionGate)
+            {
+                this.iterationCancellation = null;
+            }
+
+            this.gate.Release();
+        }
+    }
+
+    private async Task TickCore(CancellationToken cancellationToken)
+    {
         try
         {
             this.schedule ??= await this.store.Read(cancellationToken);
@@ -237,14 +302,16 @@ public sealed class CompanyLoop : BackgroundService, ICompanyLoop
                 }
             }
 
+            now = this.time.GetUtcNow();
             var hourly = this.schedule.NextRunAt <= now;
-            var triggered =
-                this.signal is not null
-                && this.signal.Key != this.schedule.LastSignalKey
-                && this.signal.CheckedAt <= now.AddSeconds(5)
-                && now - this.signal.CheckedAt <= TimeSpan.FromMinutes(2);
+            var triggered = this.HasFreshSignal(now);
             if (!hourly && !triggered)
             {
+                if (this.status == CompanyLoopStatus.WaitingForPortfolio)
+                {
+                    this.error = null;
+                }
+
                 if (this.status != CompanyLoopStatus.DeferredBudget)
                 {
                     this.status = CompanyLoopStatus.Waiting;
@@ -292,6 +359,16 @@ public sealed class CompanyLoop : BackgroundService, ICompanyLoop
                 return;
             }
 
+            now = this.time.GetUtcNow();
+            hourly = this.schedule.NextRunAt <= now;
+            triggered = this.HasFreshSignal(now);
+            if (!hourly && !triggered)
+            {
+                this.status = CompanyLoopStatus.Waiting;
+                this.error = null;
+                return;
+            }
+
             this.schedule = this.schedule with
             {
                 NextRunAt = hourly ? this.time.GetUtcNow().AddHours(1) : this.schedule.NextRunAt,
@@ -303,9 +380,8 @@ public sealed class CompanyLoop : BackgroundService, ICompanyLoop
             var objective =
                 CompanyLoop.mission
                 + $"Assessment time: {this.time.GetUtcNow():O}. Check all supplied timestamps for freshness. ";
-            var goal = PortfolioGoal.Current;
             objective +=
-                $"Current portfolio goal: reach THB {goal.TargetThb:0.##} total equity by {goal.DeadlineExclusive:O}, including deposits; this is the current business objective, not the legacy daily net-profit mandate. ";
+                "Read the current account goal only from supplied account-checked portfolio evidence. If unavailable, report Target unavailable; never infer a target amount or deadline. ";
             objective += $"Trading day (Bangkok): {this.time.GetUtcNow().ToOffset(TimeSpan.FromHours(7)):yyyy-MM-dd}. ";
             if (latest is not null)
             {
@@ -357,10 +433,6 @@ public sealed class CompanyLoop : BackgroundService, ICompanyLoop
             this.status = CompanyLoopStatus.Error;
             this.error = "Company analysis is unavailable. Check the connection and retry.";
         }
-        finally
-        {
-            this.gate.Release();
-        }
     }
 
     public override void Dispose()
@@ -382,6 +454,12 @@ public sealed class CompanyLoop : BackgroundService, ICompanyLoop
     {
         return run?.Status is TeamRunStatus.Queued or TeamRunStatus.Running;
     }
+
+    private bool HasFreshSignal(DateTimeOffset now) =>
+        this.signal is { } candidate
+        && candidate.Key != this.schedule?.LastSignalKey
+        && candidate.CheckedAt <= now.AddSeconds(5)
+        && now - candidate.CheckedAt <= TimeSpan.FromMinutes(2);
 
     private DateTimeOffset? NextReviewOrLearningAt(TeamRun latest, CompanySchedule current)
     {
@@ -447,7 +525,6 @@ public sealed class CompanyLoop : BackgroundService, ICompanyLoop
             current.Enabled ? current.NextRunAt : null,
             current.LastRunId,
             this.error,
-            CurrentGoal: PortfolioGoal.Current,
             LastCompletedAt: this.lastCompletedAt,
             ActiveRole: this.activeRole,
             NextRole: current.NextRole,

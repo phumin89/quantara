@@ -53,55 +53,62 @@ export default class TradingPolicySummary extends Component<TradingPolicySummary
               : `Saved maximum holding time: ${String(rules.timeExitMinutes)} minutes.`}
           </Box>
         </Box>
-        <Typography
-          component="h3"
-          sx={{ fontSize: 15, fontWeight: 700 }}
-        >
-          Saved risk limits
-        </Typography>
-        <Box
-          component="dl"
-          sx={{
-            m: 0,
-            display: 'grid',
-            gridTemplateColumns: 'minmax(0, 1fr) auto',
-            columnGap: 2,
-            rowGap: 0.75,
-            fontSize: 14,
-          }}
-        >
-          {(
-            [
-              ['Maximum exposure', adaptive.risk.maximumExposureFraction],
-              [
-                'Maximum concentration',
-                adaptive.risk.maximumConcentrationFraction,
-              ],
-              ['Risk to stop scenario', adaptive.risk.riskToStopFraction],
-              ['Daily loss cap on current equity', adaptive.dailyLossFraction],
-            ] as const
-          ).map(([label, value]) => (
-            <Box
-              key={label}
-              sx={{ display: 'contents' }}
+        {this.props.showRiskLimits !== false && (
+          <>
+            <Typography
+              component="h3"
+              sx={{ fontSize: 15, fontWeight: 700 }}
             >
-              <Box component="dt">{label}</Box>
-              <Box
-                component="dd"
-                sx={{
-                  m: 0,
-                  textAlign: 'right',
-                  fontVariantNumeric: 'tabular-nums',
-                }}
-              >
-                {value.toLocaleString('en-GB', {
-                  style: 'percent',
-                  maximumFractionDigits: 20,
-                })}
-              </Box>
+              Saved risk limits
+            </Typography>
+            <Box
+              component="dl"
+              sx={{
+                m: 0,
+                display: 'grid',
+                gridTemplateColumns: 'minmax(0, 1fr) auto',
+                columnGap: 2,
+                rowGap: 0.75,
+                fontSize: 14,
+              }}
+            >
+              {(
+                [
+                  ['Maximum exposure', adaptive.risk.maximumExposureFraction],
+                  [
+                    'Maximum concentration',
+                    adaptive.risk.maximumConcentrationFraction,
+                  ],
+                  ['Risk to stop scenario', adaptive.risk.riskToStopFraction],
+                  [
+                    'Daily loss cap on current equity',
+                    adaptive.dailyLossFraction,
+                  ],
+                ] as const
+              ).map(([label, value]) => (
+                <Box
+                  key={label}
+                  sx={{ display: 'contents' }}
+                >
+                  <Box component="dt">{label}</Box>
+                  <Box
+                    component="dd"
+                    sx={{
+                      m: 0,
+                      textAlign: 'right',
+                      fontVariantNumeric: 'tabular-nums',
+                    }}
+                  >
+                    {value.toLocaleString('en-GB', {
+                      style: 'percent',
+                      maximumFractionDigits: 20,
+                    })}
+                  </Box>
+                </Box>
+              ))}
             </Box>
-          ))}
-        </Box>
+          </>
+        )}
         <Typography
           variant="body2"
           color="text.secondary"

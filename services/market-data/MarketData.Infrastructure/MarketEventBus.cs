@@ -142,7 +142,8 @@ public sealed class MarketEventBus(TimeProvider? clock = null, TimeSpan? heartbe
         if (
             symbols.Count > 64
             || symbols.Any(symbol =>
-                symbol.Length is < 1 or > 30
+                symbol is null
+                || symbol.Length is < 1 or > 30
                 || symbol.Any(character => character is not (>= 'A' and <= 'Z' or >= '0' and <= '9'))
             )
             || symbols.Distinct(StringComparer.Ordinal).Count() != symbols.Count

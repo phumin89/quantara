@@ -12,6 +12,7 @@ public sealed class BoundedSseReader(StreamReader reader)
 
     public async Task<string?> Read(CancellationToken cancellationToken)
     {
+        cancellationToken.ThrowIfCancellationRequested();
         var line = new StringBuilder();
         while (true)
         {

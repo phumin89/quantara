@@ -9,6 +9,8 @@ public static class OrderChecks
 {
     public static async Task Run()
     {
+        await OrderStoreContractChecks.Run();
+        OrderStorageIdentityChecks.Run();
         var time = new OrderCheckTime();
         var store = new FakeOrderStore();
         var broker = new FakeOrderBroker();
@@ -88,8 +90,87 @@ public static class OrderChecks
             "unknown outcome never retries and blocks further account submission"
         );
         await OrderChecks.StorageFailure();
+        await OrderChecks.ExactInputPrecision();
         await OrderChecks.Transport();
         Console.WriteLine("Order checks passed without broker secrets or real order calls.");
+    }
+
+    private static async Task ExactInputPrecision()
+    {
+        const string precisionFailure = "Amount and limit price must fit supported decimal precision without rounding.";
+        foreach (var input in new[] { "123456789012.000000000000000001", "100.000000000000000000000000001" })
+        {
+            foreach (var amountField in new[] { true, false })
+            {
+                var store = new FakeOrderStore();
+                var broker = new FakeOrderBroker();
+                var create = new CreateOrderHandler(store, broker, new OrderCheckTime());
+                try
+                {
+                    await create.Handle(
+                        new(
+                            "BTC",
+                            TradeSide.Buy,
+                            amountField ? input : "100",
+                            amountField ? "100" : input,
+                            "Exact decimal fixture"
+                        ),
+                        CancellationToken.None
+                    );
+                    throw new InvalidOperationException("A rounded proposal input was accepted.");
+                }
+                catch (OrderValidationException error) when (error.Message == precisionFailure) { }
+
+                OrderChecks.Check(
+                    (await store.List(CancellationToken.None)).Count == 0 && broker.Submissions == 0,
+                    "Unrepresentable input must not create a rounded proposal or submit an order."
+                );
+            }
+        }
+
+        foreach (
+            var (amount, price, expectedAmount, expectedPrice) in new[]
+            {
+                ("100.00", "100.00", 100m, 100m),
+                ("000100.000", "100", 100m, 100m),
+                ("100.", "100", 100m, 100m),
+                ("100", ".50", 100m, 0.5m),
+                ("1000000000000", "100", 1000000000000m, 100m),
+                ("100.00000000000000000000000000000000000", "100", 100m, 100m),
+            }
+        )
+        {
+            var store = new FakeOrderStore();
+            var broker = new FakeOrderBroker();
+            await new CreateOrderHandler(store, broker, new OrderCheckTime()).Handle(
+                new("BTC", TradeSide.Buy, amount, price, "Representable decimal fixture"),
+                CancellationToken.None
+            );
+            var stored = (await store.List(CancellationToken.None)).Single();
+            OrderChecks.Check(
+                stored.Amount == expectedAmount
+                    && stored.LimitPrice == expectedPrice
+                    && stored.State == OrderState.Pending
+                    && broker.Submissions == 0,
+                "Equivalent zero padding and legacy decimal forms preserve their exact numeric values without approval."
+            );
+        }
+
+        foreach (var exact in new[] { "12345678901.234567890123456789", "0.0000000000000000000000000001" })
+        {
+            try
+            {
+                await new CreateOrderHandler(new FakeOrderStore(), new FakeOrderBroker(), new OrderCheckTime()).Handle(
+                    new("BTC", TradeSide.Buy, "100", exact, "Independent market precision fixture"),
+                    CancellationToken.None
+                );
+                throw new InvalidOperationException("Market precision was skipped for an exact decimal input.");
+            }
+            catch (OrderValidationException error)
+                when (error.Message
+                    == "Amount or price does not meet the market precision, price step or minimum order value."
+                ) { }
+        }
     }
 
     private static async Task StorageFailure()

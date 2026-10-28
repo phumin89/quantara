@@ -66,8 +66,12 @@ $nonce = 'A' * 64
 $fence = Get-QuantaraMigrationFenceSql -Nonce $nonce
 Assert-Text $fence ('SET CONTEXT_INFO 0x' + $nonce + ';\s*(?:--[^\r\n]*\s*)?GO\s+WAITFOR') 'Fence identity must become visible before waiting with its transaction open.'
 Assert-Text $fence 'BEGIN TRANSACTION;[\s\S]*TABLOCKX,HOLDLOCK[\s\S]*ROLLBACK TRANSACTION;' 'Fence must retain locks until shutdown or rollback.'
+Assert-Text $fence "TradingRuntime WITH \(TABLOCKX,HOLDLOCK\)[\s\S]*JSON_VALUE\(Payload,'\`$\.mode'\) NOT IN \('paper','manualReview','stopped'\)" 'Migration must lock runtime authority and reject enabled or unknown modes.'
+Assert-Text $fence "JSON_VALUE\(Payload,'\`$\.mandate.revokedAt'\) IS NULL[\s\S]*THROW[\s\S]*USE \[QuantaraTeam\]" 'Migration must reject an unrevoked mandate before publishing its fence.'
 Expect-Throw { Get-QuantaraMigrationFenceSql -Nonce 'invalid' } 'Invalid fence identity was accepted.'
 $launcher = Get-Content -LiteralPath (Join-Path $PSScriptRoot 'Start-QuantaraDocker.ps1') -Raw
+Assert-Text $launcher 'SourcePipe \$sourcePipe -Query \(Get-QuantaraTradingMaintenanceSql\)' 'Resumed migrations must verify disabled source authority.'
+Assert-Text $launcher "Unrecognized migration phase[\s\S]*-Database Quantara -Query \(Get-QuantaraTradingMaintenanceSql\)[\s\S]*\`$state.Phase = 'Active'" 'Restored authority must be checked before activation.'
 Assert-Text $launcher "'up', '-d', '--no-recreate', '--wait'" 'Routine startup must preserve existing containers.'
 Assert-Text $launcher "\`$state.Phase -eq 'Active' -and \`$Action -ne 'Prepare'" 'Prepare must not start an already active runtime.'
 Assert-Text $launcher 'Initialize-QuantaraTradingControlToken -Path \$runtimeEnv' 'Prepare must initialize and preserve the private token.'
@@ -160,6 +164,6 @@ $missing = @($source | Select-Object -Skip 1)
 Expect-Throw { Assert-QuantaraSnapshotMatch -Database $db -Source $source -Destination $missing } 'Missing table was accepted.'
 $extra = @($source) + [pscustomobject]@{ Table = '[dbo].[Extra]'; Rows = 0; SchemaHash = 'x'; DataHash = 'x' }
 Expect-Throw { Assert-QuantaraSnapshotMatch -Database $db -Source $source -Destination $extra } 'Extra table was accepted.'
-Expect-Throw { Invoke-QuantaraTool -Executable 'pwsh' -Arguments @('-NoProfile','-Command','exit 7') } 'Nonzero process exit was accepted.'
+& (Join-Path $PSScriptRoot 'verify-docker-process.ps1')
 
 Write-Output 'Docker verifier passed deterministic source and helper checks.'

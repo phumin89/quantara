@@ -15,23 +15,26 @@ export default class SummaryMetric extends PureComponent<SummaryMetricProps> {
           py: { xs: 1, sm: 0 },
         }}
       >
-        <Typography sx={{ fontSize: 12, color: '#707070', fontWeight: 600 }}>
+        <Typography
+          sx={{ fontSize: 12, color: 'text.secondary', fontWeight: 500 }}
+        >
           {label}
         </Typography>
         <Typography
           data-testid={testId}
           sx={{
             mt: 0.5,
-            fontSize: 24,
-            lineHeight: 1.2,
-            fontWeight: 650,
+            fontFamily: 'var(--font-body)',
+            fontSize: 28,
+            lineHeight: 1.25,
+            fontWeight: 600,
             fontVariantNumeric: 'tabular-nums',
             overflowWrap: 'anywhere',
           }}
         >
           {value}
         </Typography>
-        <Typography sx={{ mt: 0.5, fontSize: 12, color: '#707070' }}>
+        <Typography sx={{ mt: 0.5, fontSize: 12, color: 'text.secondary' }}>
           {caption}
         </Typography>
       </Box>

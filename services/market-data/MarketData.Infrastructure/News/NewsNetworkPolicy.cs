@@ -5,6 +5,12 @@ namespace Quantara.MarketData.Infrastructure.News;
 
 public static class NewsNetworkPolicy
 {
+    private static readonly IPNetwork ipv6Documentation = IPNetwork.Parse("3fff::/20");
+
+    private static readonly IPNetwork ipv6ProtocolAssignments = IPNetwork.Parse("2001::/23");
+
+    private static readonly IPNetwork ipv6DetAssignment = IPNetwork.Parse("2001:30::/28");
+
     public static bool IsAllowedEndpoint(string host, int port) =>
         port == 443
         && (
@@ -45,7 +51,10 @@ public static class NewsNetworkPolicy
                 && bytes[0] < 224
                 && !(bytes[0] == 100 && bytes[1] is >= 64 and <= 127)
                 && !(bytes[0] == 172 && bytes[1] is >= 16 and <= 31)
-                && !(bytes[0] == 192 && (bytes[1] is 0 or 168 || bytes[1] == 88 && bytes[2] == 99))
+                && !(
+                    bytes[0] == 192
+                    && (bytes[1] == 168 || bytes[1] == 0 && bytes[2] is 0 or 2 || bytes[1] == 88 && bytes[2] == 99)
+                )
                 && !(bytes[0] == 198 && (bytes[1] is 18 or 19 || bytes[1] == 51 && bytes[2] == 100))
                 && !(bytes[0] == 203 && bytes[1] == 0 && bytes[2] == 113)
                 && !(bytes[0] == 169 && bytes[1] == 254);
@@ -54,8 +63,12 @@ public static class NewsNetworkPolicy
         var ipv6 = address.GetAddressBytes();
         return address.AddressFamily == AddressFamily.InterNetworkV6
             && (ipv6[0] & 0xe0) == 0x20
+            && !NewsNetworkPolicy.ipv6Documentation.Contains(address)
             && !(ipv6[0] == 0x20 && ipv6[1] == 1 && ipv6[2] == 0x0d && ipv6[3] == 0xb8)
             && !(ipv6[0] == 0x20 && ipv6[1] == 2)
-            && !(ipv6[0] == 0x20 && ipv6[1] == 1 && ipv6[2] == 0 && ipv6[3] <= 0x2f);
+            && (
+                !NewsNetworkPolicy.ipv6ProtocolAssignments.Contains(address)
+                || NewsNetworkPolicy.ipv6DetAssignment.Contains(address)
+            );
     }
 }

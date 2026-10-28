@@ -4,9 +4,22 @@ namespace Team.Checks;
 
 public sealed class InMemoryResearchBudget : IResearchBudget
 {
+    private readonly object gate = new();
+
     private readonly List<ResearchBudgetAttempt> claims = [];
 
-    public IReadOnlyList<ResearchBudgetAttempt> Claims => this.claims;
+    private readonly Dictionary<string, List<ResearchBudgetAttempt>> claimsByAccount = new(StringComparer.Ordinal);
+
+    public IReadOnlyList<ResearchBudgetAttempt> Claims
+    {
+        get
+        {
+            lock (this.gate)
+            {
+                return this.claims.ToArray();
+            }
+        }
+    }
 
     public Task<ResearchBudgetDecision> TryClaim(
         string accountKey,
@@ -15,13 +28,31 @@ public sealed class InMemoryResearchBudget : IResearchBudget
         CancellationToken cancellationToken
     )
     {
-        var accountClaims = this.claims;
-        var decision = ResearchBudgetRules.Decide(accountClaims, hasHeldPosition, now);
-        if (decision.Allowed)
+        if (accountKey.Length != 64 || !accountKey.All(Uri.IsHexDigit))
         {
-            this.claims.Add(new ResearchBudgetAttempt(now, hasHeldPosition));
+            throw new InvalidDataException("Invalid research budget account.");
         }
 
-        return Task.FromResult(decision);
+        cancellationToken.ThrowIfCancellationRequested();
+        lock (this.gate)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            if (!this.claimsByAccount.TryGetValue(accountKey, out var accountClaims))
+            {
+                accountClaims = [];
+            }
+
+            var decision = ResearchBudgetRules.Decide(accountClaims, hasHeldPosition, now);
+            if (decision.Allowed)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                var claim = new ResearchBudgetAttempt(now, hasHeldPosition);
+                accountClaims.Add(claim);
+                this.claimsByAccount[accountKey] = accountClaims;
+                this.claims.Add(claim);
+            }
+
+            return Task.FromResult(decision);
+        }
     }
 }
