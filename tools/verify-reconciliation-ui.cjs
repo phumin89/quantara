@@ -74,13 +74,12 @@ async function verify() {
         await route.continue();
       });
       await page.goto(base + '/crypto');
-      const chatName =
-        width >= 1024 ? 'Collapse team chat' : 'Expand team chat';
-      await page.getByRole('button', { name: chatName, exact: true }).waitFor();
-      if (width >= 1024)
-        await page
-          .getByRole('button', { name: 'Collapse team chat', exact: true })
-          .click();
+      const chatControl = page.getByRole('button', {
+        name: 'Expand team chat',
+        exact: true,
+      });
+      await chatControl.waitFor();
+      assert.equal(await chatControl.getAttribute('aria-expanded'), 'false');
       await page
         .getByRole('heading', { name: 'Crypto', exact: true })
         .waitFor();

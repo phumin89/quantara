@@ -230,23 +230,12 @@ async function verify() {
     await page.goto(url + path);
     await page.getByRole('main').getByRole('heading', { level: 1 }).waitFor();
     await settle();
-    await page
-      .getByRole('button', {
-        name:
-          page.viewportSize().width >= 1024
-            ? 'Collapse team chat'
-            : 'Expand team chat',
-        exact: true,
-      })
-      .waitFor();
-    const collapseChat = page.getByRole('button', {
-      name: 'Collapse team chat',
+    const chatControl = page.getByRole('button', {
+      name: 'Expand team chat',
       exact: true,
     });
-    if (await collapseChat.isVisible()) {
-      await collapseChat.click();
-      await page.waitForTimeout(300);
-    }
+    await chatControl.waitFor();
+    assert.equal(await chatControl.getAttribute('aria-expanded'), 'false');
   };
   try {
     await fs.mkdir('.impeccable/review', { recursive: true });
@@ -303,7 +292,7 @@ async function verify() {
         }
         await page
           .getByRole('button', {
-            name: /^(Expand|Collapse) team chat$/,
+            name: 'Expand team chat',
             exact: true,
           })
           .waitFor();
@@ -532,14 +521,9 @@ async function verify() {
     await page
       .getByRole('progressbar', { name: 'Loading dashboard records' })
       .waitFor();
-    if (
-      await page
-        .getByRole('button', { name: 'Expand team chat', exact: true })
-        .isVisible()
-    )
-      await page
-        .getByRole('button', { name: 'Expand team chat', exact: true })
-        .click();
+    await page
+      .getByRole('button', { name: 'Expand team chat', exact: true })
+      .click();
     account = 'b';
     holdFinance = false;
     await page

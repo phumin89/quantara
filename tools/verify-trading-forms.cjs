@@ -167,14 +167,12 @@ async function verify() {
         await page.clock.install({ time: new Date(fixture.at) });
         await page.goto(base + '/crypto');
         const chatControl = page.getByRole('button', {
-          name: width >= 1024 ? 'Collapse team chat' : 'Expand team chat',
+          name: 'Expand team chat',
           exact: true,
         });
         await chatControl.waitFor();
-        if (width >= 1024) {
-          await chatControl.click();
-          await page.clock.runFor(300);
-        }
+        assert.equal(await chatControl.getAttribute('aria-expanded'), 'false');
+        result.chatInitiallyCollapsed = true;
         await page
           .getByRole('button', { name: 'Trading settings', exact: true })
           .click();

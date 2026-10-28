@@ -145,23 +145,12 @@ async function verify() {
         page.on('pageerror', (error) => errors.push(error.message));
         await page.clock.install({ time: new Date(fixture.at) });
         await page.goto(process.env.TEST_URL + '/crypto');
-        await page
-          .getByRole('button', {
-            name: width >= 1024 ? 'Collapse team chat' : 'Expand team chat',
-            exact: true,
-          })
-          .waitFor();
-        const collapseChat = page.getByRole('button', {
-          name: 'Collapse team chat',
+        const chatControl = page.getByRole('button', {
+          name: 'Expand team chat',
           exact: true,
         });
-        if (await collapseChat.isVisible()) {
-          await collapseChat.click();
-          await page.clock.runFor(500);
-          await page
-            .getByRole('button', { name: 'Expand team chat' })
-            .waitFor();
-        }
+        await chatControl.waitFor();
+        assert.equal(await chatControl.getAttribute('aria-expanded'), 'false');
         const main = page.getByRole('main');
         if (scenario === 'error') {
           await main

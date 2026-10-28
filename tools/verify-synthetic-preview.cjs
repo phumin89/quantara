@@ -35,11 +35,18 @@ async function verify() {
       .waitFor();
     const app = page.frameLocator('iframe[title="Quantara synthetic preview"]');
     await app.locator('iframe[data-ready="true"]').waitFor();
+    const chatControl = app.getByRole('button', {
+      name: 'Expand team chat',
+      exact: true,
+    });
+    await chatControl.waitFor();
+    assert.equal(await chatControl.getAttribute('aria-expanded'), 'false');
     await app.getByRole('link', { name: 'Dashboard', exact: true }).click();
     await app
       .getByTestId('dashboard-day-net')
       .getByText('THB 12.25', { exact: true })
       .waitFor();
+    await chatControl.click();
     await app
       .getByRole('complementary', { name: 'Team conversation', exact: true })
       .waitFor();

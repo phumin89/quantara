@@ -70,9 +70,12 @@ async function verify() {
     await page
       .getByRole('button', { name: 'Snapshot status: Stale' })
       .waitFor();
-    await page
-      .getByRole('button', { name: 'Collapse team chat', exact: true })
-      .click();
+    const chatControl = page.getByRole('button', {
+      name: 'Expand team chat',
+      exact: true,
+    });
+    await chatControl.waitFor();
+    assert.equal(await chatControl.getAttribute('aria-expanded'), 'false');
     await page.waitForTimeout(2200);
     assert.equal(count, 2, 'Settled polling uses the slower read-only cadence');
 
