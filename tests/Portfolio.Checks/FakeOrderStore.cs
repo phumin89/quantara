@@ -11,6 +11,10 @@ public sealed class FakeOrderStore : IOrderStore
 
     public bool FailFinish { get; set; }
 
+    public bool FailFind { get; set; }
+
+    public bool FailReviewedFind { get; set; }
+
     public Task Create(OrderProposal proposal, CancellationToken cancellationToken)
     {
         lock (this.gate)
@@ -52,7 +56,13 @@ public sealed class FakeOrderStore : IOrderStore
     {
         lock (this.gate)
         {
-            return Task.FromResult(this.proposals.GetValueOrDefault(id));
+            var proposal = this.proposals.GetValueOrDefault(id);
+            if (this.FailFind || this.FailReviewedFind && proposal is not null && proposal.State != OrderState.Pending)
+            {
+                throw new InvalidOperationException("Reviewed order read unavailable fixture");
+            }
+
+            return Task.FromResult(proposal);
         }
     }
 

@@ -17,6 +17,22 @@ public sealed class FakeTelegramTransport : ITelegramTransport
 
     public bool FailEdit { get; set; }
 
+    public long? FailedEditMessage { get; set; }
+
+    public List<long> EditAttempts { get; } = [];
+
+    public List<(string CallbackId, string Text)> Answers { get; } = [];
+
+    public Func<long, CancellationToken, Task<IReadOnlyList<TelegramClick>>>? Polling { get; set; }
+
+    public Action? Editing { get; set; }
+
+    public Action? Answering { get; set; }
+
+    public bool TimeoutEdit { get; set; }
+
+    public bool TimeoutAnswer { get; set; }
+
     public Task<long> Send(OrderProposal proposal, string token, CancellationToken cancellationToken)
     {
         this.Sends++;
@@ -30,15 +46,34 @@ public sealed class FakeTelegramTransport : ITelegramTransport
     }
 
     public Task<IReadOnlyList<TelegramClick>> Poll(long offset, CancellationToken cancellationToken) =>
-        Task.FromResult<IReadOnlyList<TelegramClick>>([]);
+        this.Polling?.Invoke(offset, cancellationToken) ?? Task.FromResult<IReadOnlyList<TelegramClick>>([]);
 
-    public Task Answer(string callbackId, string text, CancellationToken cancellationToken) => Task.CompletedTask;
+    public Task Answer(string callbackId, string text, CancellationToken cancellationToken)
+    {
+        this.Answering?.Invoke();
+        cancellationToken.ThrowIfCancellationRequested();
+        if (this.TimeoutAnswer)
+        {
+            throw new OperationCanceledException("Callback timeout fixture");
+        }
+
+        this.Answers.Add((callbackId, text));
+        return Task.CompletedTask;
+    }
 
     public Task Edit(long messageId, OrderProposal proposal, string status, CancellationToken cancellationToken)
     {
-        if (this.FailEdit)
+        this.EditAttempts.Add(messageId);
+        this.Editing?.Invoke();
+        cancellationToken.ThrowIfCancellationRequested();
+        if (this.TimeoutEdit)
         {
-            throw new HttpRequestException("Edit unavailable fixture");
+            throw new OperationCanceledException("Edit timeout fixture");
+        }
+
+        if (this.FailEdit || this.FailedEditMessage == messageId)
+        {
+            throw new InvalidOperationException("Edit unavailable fixture https://telegram.invalid/botfixture-secret");
         }
 
         this.LastEditedMessage = messageId;
