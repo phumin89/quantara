@@ -11,6 +11,16 @@ public sealed class FakeOrderNotificationStore : IOrderNotificationStore
 
     private long cursor;
 
+    public bool FailFind { get; set; }
+
+    public bool FailClaimReview { get; set; }
+
+    public bool FailClaimReviewAfterWrite { get; set; }
+
+    public bool FailAdvance { get; set; }
+
+    public bool FailAdvanceAfterWrite { get; set; }
+
     public Task<OrderNotification?> Reserve(Guid orderId, long userId, long chatId, CancellationToken cancellationToken)
     {
         lock (this.gate)
@@ -49,6 +59,11 @@ public sealed class FakeOrderNotificationStore : IOrderNotificationStore
 
     public Task<OrderNotification?> Find(string token, CancellationToken cancellationToken)
     {
+        if (this.FailFind)
+        {
+            throw new InvalidOperationException("Notification lookup unavailable fixture");
+        }
+
         lock (this.gate)
         {
             return Task.FromResult(this.notifications.GetValueOrDefault(token));
@@ -57,6 +72,11 @@ public sealed class FakeOrderNotificationStore : IOrderNotificationStore
 
     public Task<bool> ClaimReview(string token, string action, CancellationToken cancellationToken)
     {
+        if (this.FailClaimReview)
+        {
+            throw new InvalidOperationException("Review claim unavailable fixture");
+        }
+
         lock (this.gate)
         {
             var current = this.notifications[token];
@@ -66,6 +86,11 @@ public sealed class FakeOrderNotificationStore : IOrderNotificationStore
             }
 
             this.notifications[token] = current with { State = OrderNotificationState.Reviewed };
+            if (this.FailClaimReviewAfterWrite)
+            {
+                throw new InvalidOperationException("Review claim acknowledgement unavailable fixture");
+            }
+
             return Task.FromResult(true);
         }
     }
@@ -74,7 +99,17 @@ public sealed class FakeOrderNotificationStore : IOrderNotificationStore
 
     public Task Advance(long offset, CancellationToken cancellationToken)
     {
+        if (this.FailAdvance)
+        {
+            throw new InvalidOperationException("Cursor unavailable fixture");
+        }
+
         this.cursor = Math.Max(this.cursor, offset);
+        if (this.FailAdvanceAfterWrite)
+        {
+            throw new InvalidOperationException("Cursor acknowledgement unavailable fixture");
+        }
+
         return Task.CompletedTask;
     }
 }

@@ -6,6 +6,12 @@ using Quantara.Portfolio.Application;
 using Quantara.Portfolio.Domain;
 using Quantara.Portfolio.Infrastructure;
 
+if (args.Contains("--telegram-reviews-only", StringComparer.Ordinal))
+{
+    await TelegramReviewChecks.Run();
+    return;
+}
+
 if (args.Contains("--submission-evidence-only", StringComparer.Ordinal))
 {
     await TradingSubmissionEvidenceChecks.Run();

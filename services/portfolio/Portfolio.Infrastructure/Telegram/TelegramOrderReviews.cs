@@ -1,4 +1,5 @@
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 using Quantara.Portfolio.Application;
 using Quantara.Portfolio.Domain;
 
@@ -10,9 +11,16 @@ public sealed class TelegramOrderReviews(
     IReadOnlyOrderStore orders,
     ITelegramTransport transport,
     IServiceScopeFactory scopes,
-    TimeProvider time
+    TimeProvider time,
+    ILogger<TelegramOrderReviews> logger
 )
 {
+    private static readonly Action<ILogger, Exception?> messageEditFailed = LoggerMessage.Define(
+        LogLevel.Warning,
+        new EventId(1, "TelegramReviewMessageUnavailable"),
+        "Telegram review message update unavailable; review claims remain recorded. Check order status in the app."
+    );
+
     public async Task Notify(CancellationToken cancellationToken)
     {
         foreach (
@@ -115,12 +123,22 @@ public sealed class TelegramOrderReviews(
                     : "Order status · " + proposal.State;
         }
 
-        await transport.Edit(click.MessageId, proposal, status, cancellationToken);
+        var feedback = "บันทึกแล้ว ดูผลในข้อความนี้";
+        try
+        {
+            await transport.Edit(click.MessageId, proposal, status, cancellationToken);
+        }
+        catch (Exception) when (!cancellationToken.IsCancellationRequested)
+        {
+            TelegramOrderReviews.messageEditFailed(logger, null);
+            feedback = "แก้ข้อความไม่สำเร็จ กรุณาตรวจสอบผลการพิจารณาในแอป";
+        }
+
         try
         {
             using var popupTimeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
             popupTimeout.CancelAfter(TimeSpan.FromSeconds(3));
-            await transport.Answer(click.CallbackId, "บันทึกแล้ว ดูผลในข้อความนี้", popupTimeout.Token);
+            await transport.Answer(click.CallbackId, feedback, popupTimeout.Token);
         }
         catch (Exception) when (!cancellationToken.IsCancellationRequested)
         {
