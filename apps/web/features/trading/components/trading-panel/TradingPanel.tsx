@@ -113,6 +113,12 @@ export default class TradingPanel extends Component<
       overview.mandate.accountKey === overview.accountKey &&
       overview.mandate.rulesHash === overview.rulesHash &&
       Date.parse(overview.mandate.expiresAt) > Date.now();
+    const retainedLiveSymbols = (overview?.live.positions ?? [])
+      .filter((position) => Number(position.quantity) > 0)
+      .map((position) => position.symbol);
+    const automaticExitsOff =
+      retainedLiveSymbols.length > 0 &&
+      (overview?.mode !== 'autoLive' || overview.emergencyStopped);
     const uncertainOrders = (overview?.live.orders ?? []).filter(
       (order) =>
         ['submitting', 'unknown'].includes(order.status) ||
@@ -256,6 +262,19 @@ export default class TradingPanel extends Component<
                   {this.state.actionError}
                 </Box>
               )}
+            </Alert>
+          )}
+          {automaticExitsOff && (
+            <Alert
+              severity="warning"
+              sx={{ mb: 2 }}
+            >
+              <AlertTitle sx={{ fontSize: 14, fontWeight: 600 }}>
+                Automatic exits are off
+              </AlertTitle>
+              The app will not send stop-loss, trailing, or timed-exit orders
+              for {retainedLiveSymbols.join(', ')}. Check your holdings and open
+              orders in Bitkub.
             </Alert>
           )}
           {!balanceIssue && historicalSymbols.length > 0 && (

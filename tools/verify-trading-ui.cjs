@@ -1456,6 +1456,121 @@ async function verifyBrowser() {
     );
     await verifyCollapsedTeamChat();
     await page.getByText('Paper trading', { exact: true }).waitFor();
+    const retainedPosition = {
+      symbol: 'BTC',
+      quantity: '1.25',
+      costThb: '100',
+      openedAt: '2026-10-16T03:00:00Z',
+      peakBid: '80',
+      exitPlan: null,
+    };
+    const originalOverview = structuredClone(current);
+    for (const scenario of [
+      {
+        mode: 'stopped',
+        emergencyStopped: false,
+        positions: [retainedPosition],
+        warning: true,
+      },
+      {
+        mode: 'paper',
+        emergencyStopped: false,
+        positions: [retainedPosition],
+        warning: true,
+      },
+      {
+        mode: 'manualReview',
+        emergencyStopped: false,
+        positions: [retainedPosition],
+        warning: true,
+      },
+      {
+        mode: 'stopped',
+        emergencyStopped: false,
+        positions: [{ ...retainedPosition, quantity: '0' }],
+        warning: false,
+      },
+      {
+        mode: 'stopped',
+        emergencyStopped: false,
+        positions: [],
+        warning: false,
+      },
+      {
+        mode: 'autoLive',
+        emergencyStopped: false,
+        positions: [retainedPosition],
+        warning: false,
+      },
+      {
+        mode: 'autoLive',
+        emergencyStopped: true,
+        positions: [retainedPosition],
+        warning: true,
+      },
+    ]) {
+      current = {
+        ...originalOverview,
+        mode: scenario.mode,
+        emergencyStopped: scenario.emergencyStopped,
+        mandate:
+          scenario.mode === 'autoLive'
+            ? {
+                id: 'fixture-exit-warning-mandate',
+                accountKey: originalOverview.accountKey,
+                rulesHash: originalOverview.rulesHash,
+                createdAt: '2026-10-16T04:00:00Z',
+                expiresAt: '2099-01-01T00:00:00Z',
+                revokedAt: null,
+              }
+            : null,
+        live: { ...originalOverview.live, positions: scenario.positions },
+      };
+      await page.reload();
+      let expectedStatus = 'Auto trading off';
+      if (scenario.mode === 'paper') expectedStatus = 'Paper trading';
+      if (scenario.mode === 'manualReview') expectedStatus = 'Manual review';
+      if (scenario.mode === 'autoLive') expectedStatus = 'Auto trading on';
+      if (scenario.emergencyStopped) expectedStatus = 'Emergency stopped';
+      await page
+        .locator('#trading .MuiChip-label')
+        .filter({ hasText: expectedStatus })
+        .waitFor();
+      const warning = page.getByText('Automatic exits are off', {
+        exact: true,
+      });
+      if (scenario.warning) await warning.waitFor();
+      assert.equal(await warning.count(), scenario.warning ? 1 : 0);
+      if (scenario.warning) {
+        const warningAlert = page
+          .getByRole('alert')
+          .filter({ hasText: 'Automatic exits are off' });
+        assert(
+          await warningAlert
+            .getByText('open orders in Bitkub.', { exact: false })
+            .isVisible(),
+        );
+        if (scenario.mode === 'stopped') {
+          for (const width of [1440, 768, 390]) {
+            await page.setViewportSize({ width, height: 960 });
+            await warningAlert.scrollIntoViewIfNeeded();
+            assert(
+              await page.evaluate(
+                () => document.documentElement.scrollWidth <= innerWidth,
+              ),
+              `Stopped-holdings warning fits ${width}px viewport.`,
+            );
+            await page.screenshot({
+              path: `.impeccable/review/stopped-holdings-${width}.png`,
+              animations: 'disabled',
+            });
+          }
+          await page.setViewportSize({ width: 1440, height: 1000 });
+        }
+      }
+    }
+    current = originalOverview;
+    await page.reload();
     await page
       .locator('summary')
       .filter({ hasText: 'Orders & positions' })
