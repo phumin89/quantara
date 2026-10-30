@@ -439,8 +439,9 @@ app.Use(
             context.Response.StatusCode = 409;
             await context.Response.WriteAsJsonAsync(new { error = error.Message });
         }
-        catch (Exception)
+        catch (Exception error)
         {
+            PortfolioFailureResponse.Log(app.Logger, context, error);
             await PortfolioFailureResponse.Write(context);
         }
     }

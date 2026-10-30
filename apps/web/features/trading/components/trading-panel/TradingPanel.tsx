@@ -232,6 +232,18 @@ export default class TradingPanel extends Component<
             <Alert
               severity="warning"
               sx={{ mb: 2 }}
+              action={
+                this.state.actionError && !this.state.error ? (
+                  <Button
+                    color="inherit"
+                    disabled={this.state.busy || this.state.refreshing}
+                    loading={this.state.refreshing}
+                    onClick={() => void this.load()}
+                  >
+                    Refresh status
+                  </Button>
+                ) : undefined
+              }
             >
               <AlertTitle sx={{ fontSize: 14, fontWeight: 600 }}>
                 {balanceIssue ? 'Balance review needed' : 'Check latest status'}

@@ -446,15 +446,54 @@ async function verifyActionRecovery() {
   assert.equal(panel.state.actionError, 'Fixture activation refused.');
   assert.equal(panel.state.error, null);
   assert.equal(panel.state.busy, false);
+  const successfulRefreshCalls = statusCalls;
+  service.get = async () => {
+    statusCalls += 1;
+    return { ...overview, mode: 'stopped' };
+  };
+  await panel.load(true);
+  assert.equal(statusCalls, successfulRefreshCalls + 1);
+  assert.equal(panel.state.actionError, 'Fixture activation refused.');
+  assert.equal(panel.state.error, null);
+  const findRefreshButton = (node) => {
+    if (!node || typeof node !== 'object') return null;
+    if (node.props?.action?.props?.onClick) {
+      return node.props.action.props;
+    }
+    const children = node.props?.children;
+    for (const child of Array.isArray(children) ? children : [children]) {
+      const found = findRefreshButton(child);
+      if (found) return found;
+    }
+    return null;
+  };
+  const refreshButton = findRefreshButton(panel.render());
+  assert(refreshButton, 'action warning renders Refresh status button');
+  assert.equal(refreshButton.children, 'Refresh status');
+  assert.equal(refreshButton.disabled, false);
+  panel.state.busy = true;
+  assert.equal(findRefreshButton(panel.render()).disabled, true);
+  panel.state.busy = false;
+  panel.state.refreshing = true;
+  assert.equal(findRefreshButton(panel.render()).disabled, true);
+  panel.state.refreshing = false;
+  await refreshButton.onClick();
+  assert.equal(statusCalls, successfulRefreshCalls + 2);
+  assert.equal(commandCalls, 1);
   service.get = async () => {
     statusCalls += 1;
     throw new Error('Fixture status unavailable.');
   };
+  await panel.load(true);
+  assert.equal(statusCalls, successfulRefreshCalls + 3);
+  assert.equal(commandCalls, 1);
+  assert.equal(panel.state.error, 'Fixture status unavailable.');
+  assert.equal(panel.state.actionError, 'Fixture activation refused.');
   await run(async () => {
     commandCalls += 1;
     throw new Error('Uncertain fixture request.');
   });
-  assert.equal(statusCalls, 2);
+  assert.equal(statusCalls, successfulRefreshCalls + 4);
   assert.equal(commandCalls, 2);
   assert.equal(panel.state.error, 'Fixture status unavailable.');
   assert.equal(panel.state.actionError, 'Uncertain fixture request.');
@@ -469,7 +508,7 @@ async function verifyActionRecovery() {
     commandCalls += 1;
     throw new Error('Unmounted command failure.');
   });
-  assert.equal(statusCalls, 2);
+  assert.equal(statusCalls, successfulRefreshCalls + 4);
   global.window = savedWindow;
 }
 
@@ -1750,6 +1789,33 @@ async function verifyBrowser() {
       1,
       'refused activation leaves auto trading stopped',
     );
+    const recovery = page.getByRole('button', {
+      name: 'Refresh status',
+      exact: true,
+    });
+    await recovery.click();
+    await recovery.waitFor({ state: 'visible' });
+    assert.equal(
+      writes.length,
+      3,
+      'explicit status refresh never repeats a command',
+    );
+    for (const width of [1440, 768, 390]) {
+      await page.setViewportSize({ width, height: 960 });
+      await recovery.scrollIntoViewIfNeeded();
+      assert(await recovery.isVisible());
+      assert(
+        await page.evaluate(
+          () => document.documentElement.scrollWidth <= innerWidth,
+        ),
+        `Recovery action fits ${width}px viewport.`,
+      );
+      await page.screenshot({
+        path: `.impeccable/review/control-recovery-${width}.png`,
+        animations: 'disabled',
+      });
+    }
+    await page.setViewportSize({ width: 1440, height: 1000 });
     await page
       .getByRole('button', { name: 'Review & enable', exact: true })
       .click();
