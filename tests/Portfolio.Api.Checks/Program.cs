@@ -1,6 +1,7 @@
 using System.Text;
 using System.Text.Json;
 using Microsoft.AspNetCore.Http;
+using Portfolio.Api.Checks;
 using Quantara.Portfolio.Api;
 using Quantara.Portfolio.Application;
 
@@ -124,6 +125,23 @@ foreach (
         "generic failures never echo request secrets"
     );
 }
+
+var failureLogger = new FailureCheckLogger();
+context.TraceIdentifier = "synthetic-server-trace";
+PortfolioFailureResponse.Log(failureLogger, context, new InvalidDataException("raw-secret-must-not-be-logged"));
+Check(
+    failureLogger.Message?.Contains("InvalidDataException", StringComparison.Ordinal) == true,
+    "failure type is retained"
+);
+Check(
+    failureLogger.Message?.Contains(context.TraceIdentifier, StringComparison.Ordinal) == true,
+    "server trace is retained"
+);
+Check(
+    failureLogger.Message?.Contains("raw-secret", StringComparison.Ordinal) == false,
+    "exception content is not logged"
+);
+Check(failureLogger.Error is null, "raw exception and stack are not passed to logging providers");
 
 Console.WriteLine("Portfolio API security and failure-response checks passed without SQL or network.");
 

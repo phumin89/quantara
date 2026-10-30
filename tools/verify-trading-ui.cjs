@@ -446,15 +446,54 @@ async function verifyActionRecovery() {
   assert.equal(panel.state.actionError, 'Fixture activation refused.');
   assert.equal(panel.state.error, null);
   assert.equal(panel.state.busy, false);
+  const successfulRefreshCalls = statusCalls;
+  service.get = async () => {
+    statusCalls += 1;
+    return { ...overview, mode: 'stopped' };
+  };
+  await panel.load(true);
+  assert.equal(statusCalls, successfulRefreshCalls + 1);
+  assert.equal(panel.state.actionError, 'Fixture activation refused.');
+  assert.equal(panel.state.error, null);
+  const findRefreshButton = (node) => {
+    if (!node || typeof node !== 'object') return null;
+    if (node.props?.action?.props?.onClick) {
+      return node.props.action.props;
+    }
+    const children = node.props?.children;
+    for (const child of Array.isArray(children) ? children : [children]) {
+      const found = findRefreshButton(child);
+      if (found) return found;
+    }
+    return null;
+  };
+  const refreshButton = findRefreshButton(panel.render());
+  assert(refreshButton, 'action warning renders Refresh status button');
+  assert.equal(refreshButton.children, 'Refresh status');
+  assert.equal(refreshButton.disabled, false);
+  panel.state.busy = true;
+  assert.equal(findRefreshButton(panel.render()).disabled, true);
+  panel.state.busy = false;
+  panel.state.refreshing = true;
+  assert.equal(findRefreshButton(panel.render()).disabled, true);
+  panel.state.refreshing = false;
+  await refreshButton.onClick();
+  assert.equal(statusCalls, successfulRefreshCalls + 2);
+  assert.equal(commandCalls, 1);
   service.get = async () => {
     statusCalls += 1;
     throw new Error('Fixture status unavailable.');
   };
+  await panel.load(true);
+  assert.equal(statusCalls, successfulRefreshCalls + 3);
+  assert.equal(commandCalls, 1);
+  assert.equal(panel.state.error, 'Fixture status unavailable.');
+  assert.equal(panel.state.actionError, 'Fixture activation refused.');
   await run(async () => {
     commandCalls += 1;
     throw new Error('Uncertain fixture request.');
   });
-  assert.equal(statusCalls, 2);
+  assert.equal(statusCalls, successfulRefreshCalls + 4);
   assert.equal(commandCalls, 2);
   assert.equal(panel.state.error, 'Fixture status unavailable.');
   assert.equal(panel.state.actionError, 'Uncertain fixture request.');
@@ -469,7 +508,7 @@ async function verifyActionRecovery() {
     commandCalls += 1;
     throw new Error('Unmounted command failure.');
   });
-  assert.equal(statusCalls, 2);
+  assert.equal(statusCalls, successfulRefreshCalls + 4);
   global.window = savedWindow;
 }
 
@@ -1456,6 +1495,121 @@ async function verifyBrowser() {
     );
     await verifyCollapsedTeamChat();
     await page.getByText('Paper trading', { exact: true }).waitFor();
+    const retainedPosition = {
+      symbol: 'BTC',
+      quantity: '1.25',
+      costThb: '100',
+      openedAt: '2026-10-16T03:00:00Z',
+      peakBid: '80',
+      exitPlan: null,
+    };
+    const originalOverview = structuredClone(current);
+    for (const scenario of [
+      {
+        mode: 'stopped',
+        emergencyStopped: false,
+        positions: [retainedPosition],
+        warning: true,
+      },
+      {
+        mode: 'paper',
+        emergencyStopped: false,
+        positions: [retainedPosition],
+        warning: true,
+      },
+      {
+        mode: 'manualReview',
+        emergencyStopped: false,
+        positions: [retainedPosition],
+        warning: true,
+      },
+      {
+        mode: 'stopped',
+        emergencyStopped: false,
+        positions: [{ ...retainedPosition, quantity: '0' }],
+        warning: false,
+      },
+      {
+        mode: 'stopped',
+        emergencyStopped: false,
+        positions: [],
+        warning: false,
+      },
+      {
+        mode: 'autoLive',
+        emergencyStopped: false,
+        positions: [retainedPosition],
+        warning: false,
+      },
+      {
+        mode: 'autoLive',
+        emergencyStopped: true,
+        positions: [retainedPosition],
+        warning: true,
+      },
+    ]) {
+      current = {
+        ...originalOverview,
+        mode: scenario.mode,
+        emergencyStopped: scenario.emergencyStopped,
+        mandate:
+          scenario.mode === 'autoLive'
+            ? {
+                id: 'fixture-exit-warning-mandate',
+                accountKey: originalOverview.accountKey,
+                rulesHash: originalOverview.rulesHash,
+                createdAt: '2026-10-16T04:00:00Z',
+                expiresAt: '2099-01-01T00:00:00Z',
+                revokedAt: null,
+              }
+            : null,
+        live: { ...originalOverview.live, positions: scenario.positions },
+      };
+      await page.reload();
+      let expectedStatus = 'Auto trading off';
+      if (scenario.mode === 'paper') expectedStatus = 'Paper trading';
+      if (scenario.mode === 'manualReview') expectedStatus = 'Manual review';
+      if (scenario.mode === 'autoLive') expectedStatus = 'Auto trading on';
+      if (scenario.emergencyStopped) expectedStatus = 'Emergency stopped';
+      await page
+        .locator('#trading .MuiChip-label')
+        .filter({ hasText: expectedStatus })
+        .waitFor();
+      const warning = page.getByText('Automatic exits are off', {
+        exact: true,
+      });
+      if (scenario.warning) await warning.waitFor();
+      assert.equal(await warning.count(), scenario.warning ? 1 : 0);
+      if (scenario.warning) {
+        const warningAlert = page
+          .getByRole('alert')
+          .filter({ hasText: 'Automatic exits are off' });
+        assert(
+          await warningAlert
+            .getByText('open orders in Bitkub.', { exact: false })
+            .isVisible(),
+        );
+        if (scenario.mode === 'stopped') {
+          for (const width of [1440, 768, 390]) {
+            await page.setViewportSize({ width, height: 960 });
+            await warningAlert.scrollIntoViewIfNeeded();
+            assert(
+              await page.evaluate(
+                () => document.documentElement.scrollWidth <= innerWidth,
+              ),
+              `Stopped-holdings warning fits ${width}px viewport.`,
+            );
+            await page.screenshot({
+              path: `.impeccable/review/stopped-holdings-${width}.png`,
+              animations: 'disabled',
+            });
+          }
+          await page.setViewportSize({ width: 1440, height: 1000 });
+        }
+      }
+    }
+    current = originalOverview;
+    await page.reload();
     await page
       .locator('summary')
       .filter({ hasText: 'Orders & positions' })
@@ -1635,6 +1789,33 @@ async function verifyBrowser() {
       1,
       'refused activation leaves auto trading stopped',
     );
+    const recovery = page.getByRole('button', {
+      name: 'Refresh status',
+      exact: true,
+    });
+    await recovery.click();
+    await recovery.waitFor({ state: 'visible' });
+    assert.equal(
+      writes.length,
+      3,
+      'explicit status refresh never repeats a command',
+    );
+    for (const width of [1440, 768, 390]) {
+      await page.setViewportSize({ width, height: 960 });
+      await recovery.scrollIntoViewIfNeeded();
+      assert(await recovery.isVisible());
+      assert(
+        await page.evaluate(
+          () => document.documentElement.scrollWidth <= innerWidth,
+        ),
+        `Recovery action fits ${width}px viewport.`,
+      );
+      await page.screenshot({
+        path: `.impeccable/review/control-recovery-${width}.png`,
+        animations: 'disabled',
+      });
+    }
+    await page.setViewportSize({ width: 1440, height: 1000 });
     await page
       .getByRole('button', { name: 'Review & enable', exact: true })
       .click();
