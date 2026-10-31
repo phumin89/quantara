@@ -52,6 +52,61 @@ const {
   default: TradingBookView,
 } = require('../apps/web/features/trading/components/trading-book-view/TradingBookView.tsx');
 
+function verifyCashSettlementComparison() {
+  const panel = new TradingPanel({ date: '2026-10-31' });
+  const retained = {
+    ...overview,
+    mode: 'stopped',
+    mandate: { revokedAt: '2026-10-30T00:00:00Z' },
+    live: { ...book, cashThb: '950.009', settledCashThb: '950.00' },
+    autonomy: {
+      capital: { availableThb: '950', reservedThb: '0', blocker: null },
+    },
+  };
+  panel.state = { ...panel.state, overview: retained };
+  assert.equal(
+    panel.balanceIssue,
+    null,
+    'server-proven settlement does not block review',
+  );
+  assert.equal(panel.state.overview.live.cashThb, '950.009');
+  panel.state.overview = {
+    ...retained,
+    live: { ...retained.live, settledCashThb: null },
+  };
+  assert.match(panel.balanceIssue, /differs from the saved strategy balance/);
+  panel.state.overview = {
+    ...retained,
+    autonomy: {
+      capital: { ...retained.autonomy.capital, availableThb: '949.99' },
+    },
+  };
+  assert.match(panel.balanceIssue, /differs from the saved strategy balance/);
+  panel.state.overview = {
+    ...retained,
+    autonomy: {
+      capital: { ...retained.autonomy.capital, availableThb: '950.009' },
+    },
+  };
+  assert.equal(
+    panel.balanceIssue,
+    null,
+    'exact retained cash also remains valid',
+  );
+  const parsed = tradingOverviewSchema.parse({
+    ...overview,
+    live: { ...book, settledCashThb: '950' },
+  });
+  assert.equal(parsed.live.settledCashThb, '950');
+  assert.equal(
+    tradingOverviewSchema.safeParse({
+      ...overview,
+      live: { ...book, settledCashThb: 'unverified' },
+    }).success,
+    false,
+  );
+}
+
 function verifyObjectivePresentation() {
   const autonomy = {
     activity: 'Fixture monitoring',
@@ -2464,6 +2519,58 @@ async function verifyBrowser() {
       5,
       'Presentation checks never submit commands.',
     );
+    for (const width of [1440, 768, 390]) {
+      current = {
+        ...current,
+        mode: 'stopped',
+        emergencyStopped: false,
+        live: { ...book, cashThb: '950.009', settledCashThb: '950.00' },
+        mandate: {
+          id: 'settlement-fixture',
+          accountKey: current.accountKey,
+          rulesHash: current.rulesHash,
+          createdAt: '2026-10-16T03:00:00Z',
+          expiresAt: '2026-10-16T05:00:00Z',
+          revokedAt: '2026-10-16T04:00:00Z',
+        },
+        autonomy: {
+          ...current.autonomy,
+          capital: {
+            ...current.autonomy.capital,
+            availableThb: '950',
+            reservedThb: '0',
+            blocker: null,
+          },
+        },
+      };
+      await page.setViewportSize({ width, height: 900 });
+      await page.reload();
+      await page.getByText('Auto trading off', { exact: true }).waitFor();
+      assert(
+        await page
+          .getByRole('button', { name: 'Review & enable', exact: true })
+          .isVisible(),
+      );
+      assert.equal(
+        await page.getByText('Balance review needed', { exact: true }).count(),
+        0,
+      );
+      assert(
+        await page.evaluate(
+          () => document.documentElement.scrollWidth <= window.innerWidth + 1,
+        ),
+      );
+      await page.screenshot({
+        path: `.impeccable/review/cash-settlement-${width}.png`,
+        fullPage: true,
+        animations: 'disabled',
+      });
+    }
+    assert.equal(
+      writes.length,
+      5,
+      'Settlement evidence and display never enable or submit trading.',
+    );
     assert.deepEqual(errors, []);
     console.log(
       'Trading browser: compact status, advanced settings, exact mandate/expiry validation, one fake activation, selected-date report, failure recovery and desktop/tablet/phone passed; every API call intercepted.',
@@ -2474,6 +2581,7 @@ async function verifyBrowser() {
 }
 
 Promise.resolve()
+  .then(() => verifyCashSettlementComparison())
   .then(() => verifyObjectivePresentation())
   .then(() => verifyTradingBookPresentation())
   .then(() => verifyActionRecovery())

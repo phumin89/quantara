@@ -313,6 +313,7 @@ public sealed class TradingOverviewProjection(
         return new
         {
             cashThb = Decimal(ledger.CashThb),
+            settledCashThb = NullableDecimal(TradingCashBalance.SettledCash(ledger)),
             equityThb = NullableDecimal(equity),
             realizedGrossThb = NullableDecimal(realizedGross),
             realizedNetThb = NullableDecimal(realizedNet),

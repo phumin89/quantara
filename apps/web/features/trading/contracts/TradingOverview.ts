@@ -87,6 +87,7 @@ const funnelSchema = z.strictObject({
 });
 const bookSchema = z.object({
   cashThb: decimalSchema,
+  settledCashThb: decimalSchema.nullable().optional(),
   equityThb: decimalSchema.nullable(),
   realizedGrossThb: decimalSchema.nullable(),
   realizedNetThb: decimalSchema.nullable(),

@@ -953,7 +953,12 @@ export default class TradingPanel extends Component<
       !ReconciliationSafety.sameAmount(
         capital.availableThb,
         overview.live.cashThb,
-      )
+      ) &&
+      (overview.live.settledCashThb == null ||
+        !ReconciliationSafety.sameAmount(
+          capital.availableThb,
+          overview.live.settledCashThb,
+        ))
     ) {
       return 'Available broker cash differs from the saved strategy balance. Review the current balance before enabling.';
     }
