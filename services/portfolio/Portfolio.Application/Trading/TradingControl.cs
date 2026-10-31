@@ -335,7 +335,8 @@ public sealed class TradingControl(
         }
 
         var cash = capital.Evidence.Balances.Single(balance => balance.Symbol == "THB").Quantity;
-        if ((state.Live.FundingThb != 0m || state.Live.CashBaselines.Count != 0) && cash != state.Live.CashThb)
+        var retained = state.Live.FundingThb != 0m || state.Live.CashBaselines.Count != 0;
+        if (retained && !TradingCashBalance.Matches(state.Live, cash))
         {
             throw new ArgumentException(
                 "Current broker cash differs from the retained ledger. Review cash reconciliation before activation; funding was not reset."
@@ -343,12 +344,14 @@ public sealed class TradingControl(
         }
 
         var difference = cash - state.Live.CashThb;
-        var live = state.Live with
-        {
-            CashThb = cash,
-            FundingThb = state.Live.FundingThb + difference,
-            OpenedAt = state.Live.FundingThb == 0 ? now : state.Live.OpenedAt,
-        };
+        var live = retained
+            ? state.Live
+            : state.Live with
+            {
+                CashThb = cash,
+                FundingThb = state.Live.FundingThb + difference,
+                OpenedAt = state.Live.FundingThb == 0 ? now : state.Live.OpenedAt,
+            };
         var eligible = universe.Symbols.Except(policy.ExcludedSymbols, StringComparer.Ordinal).Count();
         var mandate = new TradingMandate(Guid.NewGuid(), account.AccountKey, state.RulesHash, now, expiresAt, null);
         return await this.Save(

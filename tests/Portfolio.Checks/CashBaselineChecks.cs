@@ -185,6 +185,7 @@ public static class CashBaselineChecks
         );
         store.State = state with { Mode = TradingMode.AutoLive };
         await Reject(() => workflow.Preview(CancellationToken.None));
+        await TradingCashPrecisionChecks.Run(adopted, account);
         await FundingEngineFlow(adopted, account);
         Console.WriteLine(
             "Cash baseline mocks passed: bound evidence, replacement/no funding reset, restart dedup, late-fill hold, revision race, stale/stopped guards and funding engine flow."
